@@ -1,4 +1,4 @@
-module github.com/take/cdeck
+module github.com/take/agent-roost
 
 go 1.26.1
 

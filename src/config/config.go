@@ -54,7 +54,7 @@ func Load() (*Config, error) {
 func DefaultConfig() *Config {
 	return &Config{
 		Tmux: TmuxConfig{
-			SessionName:         "cdeck",
+			SessionName:         "roost",
 			Prefix:              "C-b",
 			PaneRatioHorizontal: 75,
 			PaneRatioVertical:   70,
@@ -75,7 +75,7 @@ func DefaultConfig() *Config {
 }
 
 func ConfigDir() string {
-	dir := filepath.Join(ExpandPath("~"), ".config", "cdeck")
+	dir := filepath.Join(ExpandPath("~"), ".config", "roost")
 	os.MkdirAll(dir, 0o755)
 	return dir
 }

@@ -8,7 +8,7 @@ import (
 
 func LogDir() string {
 	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, ".config", "cdeck", "logs")
+	dir := filepath.Join(home, ".config", "roost", "logs")
 	os.MkdirAll(dir, 0o755)
 	return dir
 }

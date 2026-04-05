@@ -1,4 +1,4 @@
-BINARY  := cdeck
+BINARY  := roost
 SRC_DIR := src
 INSTALL_DIR := $(HOME)/.local/bin
 

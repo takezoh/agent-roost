@@ -7,9 +7,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
-	"github.com/take/cdeck/config"
-	"github.com/take/cdeck/session"
-	"github.com/take/cdeck/tmux"
+	"github.com/take/agent-roost/config"
+	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/tmux"
 )
 
 type listItem struct {

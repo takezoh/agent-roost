@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/take/cdeck/config"
+	"github.com/take/agent-roost/config"
 )
 
 type TmuxClient interface {

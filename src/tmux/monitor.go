@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/take/cdeck/session"
+	"github.com/take/agent-roost/session"
 )
 
 var (
