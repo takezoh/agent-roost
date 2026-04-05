@@ -21,6 +21,10 @@ func main() {
 		runSessionList()
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "--palette" {
+		runPalette()
+		return
+	}
 	runProcessHandler()
 }
 
@@ -83,6 +87,7 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
 	client.BindKeyRaw(`bind-key -T prefix Space if-shell -F "#{==:#{pane_index},2}" "select-pane -t ` + sn + `:0.0" "select-pane -t ` + sn + `:0.2"`)
 	client.BindKeyRaw(`bind-key -T prefix d detach-client`)
 	client.BindKeyRaw(`bind-key -T prefix q set-environment -t ` + sn + ` ROOST_SHUTDOWN 1 '\;' detach-client`)
+	client.BindKeyRaw(`bind-key -T prefix p display-popup -E -w 60% -h 50% "` + resolveExe() + ` --palette"`)
 	client.SelectPane(sn + ":0.0")
 }
 
@@ -127,6 +132,32 @@ func resolveExe() string {
 		return exe
 	}
 	return resolved
+}
+
+func runPalette() {
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "roost: %v\n", err)
+		os.Exit(1)
+	}
+
+	client := tmux.NewClient(cfg.Tmux.SessionName)
+	registry := tui.DefaultRegistry()
+	ctx := &tui.ToolContext{
+		Client: client,
+		Config: tui.ToolConfig{
+			SessionName:    cfg.Tmux.SessionName,
+			DefaultCommand: cfg.Session.DefaultCommand,
+			Commands:       cfg.Session.Commands,
+			Projects:       cfg.ListProjects(),
+		},
+	}
+
+	model := tui.NewPaletteModel(registry, ctx)
+	if _, err := tea.NewProgram(model).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "roost: palette: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runSessionList() {
