@@ -67,7 +67,7 @@ func (m MainModel) handleEvent(msg core.Message) (tea.Model, tea.Cmd) {
 
 func (m MainModel) requestSessions() tea.Cmd {
 	return func() tea.Msg {
-		sessions, err := m.client.ListSessions()
+		sessions, _, err := m.client.ListSessions()
 		if err != nil {
 			slog.Error("list-sessions failed", "err", err)
 			return nil

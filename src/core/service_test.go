@@ -48,7 +48,7 @@ func setupService(t *testing.T) (*Service, *mockPaneOp, *session.Manager) {
 	mgr := session.NewManager(mt, t.TempDir())
 	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30)
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, mon, panes, "roost")
+	svc := NewService(mgr, mon, panes, "roost", "")
 	return svc, panes, mgr
 }
 
@@ -89,7 +89,7 @@ func TestRefreshSessions_Changed(t *testing.T) {
 	mgr := session.NewManager(mt, dataDir)
 	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30)
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, mon, panes, "roost")
+	svc := NewService(mgr, mon, panes, "roost", "")
 
 	// Create via a separate manager so svc.Manager has empty in-memory state.
 	mgr2 := session.NewManager(mt, dataDir)
@@ -163,6 +163,37 @@ func TestClearActive_NonMatchingWindow(t *testing.T) {
 	svc.ClearActive("@99")
 	if svc.ActiveWindowID() != "@2" {
 		t.Fatalf("expected @2, got %s", svc.ActiveWindowID())
+	}
+}
+
+func TestNewService_RestoresActiveWindowID(t *testing.T) {
+	mt := &mockTmuxForService{nextID: "@1", windows: make(map[string]bool)}
+	mgr := session.NewManager(mt, t.TempDir())
+	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30)
+	panes := &mockPaneOp{}
+	svc := NewService(mgr, mon, panes, "roost", "@5")
+	if svc.ActiveWindowID() != "@5" {
+		t.Fatalf("expected @5, got %s", svc.ActiveWindowID())
+	}
+}
+
+func TestSyncActiveCallback(t *testing.T) {
+	svc, _, _ := setupService(t)
+	var synced []string
+	svc.SetSyncActive(func(wid string) { synced = append(synced, wid) })
+
+	svc.Preview(&session.Session{ID: "a", WindowID: "@2"})
+	svc.Preview(&session.Session{ID: "b", WindowID: "@3"})
+	svc.Deactivate()
+
+	want := []string{"@2", "@3", ""}
+	if len(synced) != len(want) {
+		t.Fatalf("expected %d sync calls, got %d", len(want), len(synced))
+	}
+	for i, w := range want {
+		if synced[i] != w {
+			t.Fatalf("sync[%d]: expected %q, got %q", i, w, synced[i])
+		}
 	}
 }
 

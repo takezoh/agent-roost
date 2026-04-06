@@ -17,15 +17,28 @@ type Service struct {
 	Panes          tmux.PaneOperator
 	SessionName    string
 	activeWindowID string
+	syncActive     func(string)
 	lastCount      int
 }
 
-func NewService(mgr *session.Manager, mon *tmux.Monitor, panes tmux.PaneOperator, sessionName string) *Service {
+func NewService(mgr *session.Manager, mon *tmux.Monitor, panes tmux.PaneOperator, sessionName, activeWindowID string) *Service {
 	return &Service{
-		Manager:     mgr,
-		Monitor:     mon,
-		Panes:       panes,
-		SessionName: sessionName,
+		Manager:        mgr,
+		Monitor:        mon,
+		Panes:          panes,
+		SessionName:    sessionName,
+		activeWindowID: activeWindowID,
+	}
+}
+
+func (s *Service) SetSyncActive(fn func(string)) {
+	s.syncActive = fn
+}
+
+func (s *Service) setActiveWindowID(wid string) {
+	s.activeWindowID = wid
+	if s.syncActive != nil {
+		s.syncActive(wid)
 	}
 }
 
@@ -36,7 +49,7 @@ func (s *Service) Preview(sess *session.Session) error {
 		slog.Error("preview failed", "target", sess.WindowID, "active", s.activeWindowID, "err", err)
 		return err
 	}
-	s.activeWindowID = sess.WindowID
+	s.setActiveWindowID(sess.WindowID)
 	return nil
 }
 
@@ -47,7 +60,7 @@ func (s *Service) Switch(sess *session.Session) error {
 		slog.Error("switch failed", "target", sess.WindowID, "active", s.activeWindowID, "err", err)
 		return err
 	}
-	s.activeWindowID = sess.WindowID
+	s.setActiveWindowID(sess.WindowID)
 	return s.Panes.SelectPane(s.SessionName + ":0.0")
 }
 
@@ -60,7 +73,7 @@ func (s *Service) Deactivate() error {
 	if err := s.Panes.RunChain(cmd); err != nil {
 		return err
 	}
-	s.activeWindowID = ""
+	s.setActiveWindowID("")
 	return nil
 }
 
@@ -71,7 +84,7 @@ func (s *Service) ActiveWindowID() string {
 func (s *Service) ClearActive(windowID string) {
 	if s.activeWindowID == windowID {
 		slog.Info("clear active", "window", windowID)
-		s.activeWindowID = ""
+		s.setActiveWindowID("")
 	}
 }
 

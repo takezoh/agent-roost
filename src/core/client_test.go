@@ -59,12 +59,13 @@ func TestSubscribeConsumesResponse(t *testing.T) {
 			t.Errorf("expected list-sessions, got %s", msg2.Command)
 			return
 		}
-		// Send response with sessions
+		// Send response with sessions and active window
 		enc.Encode(Message{
 			Type: "response",
 			Sessions: []SessionInfo{
 				{ID: "abc123", Project: "/tmp/proj", Command: "claude", WindowID: "@1"},
 			},
+			ActiveWindowID: "@1",
 		})
 	}()
 
@@ -79,7 +80,7 @@ func TestSubscribeConsumesResponse(t *testing.T) {
 	client.Subscribe()
 
 	// ListSessions should get the correct response (not the subscribe response)
-	sessions, err := client.ListSessions()
+	sessions, activeWID, err := client.ListSessions()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,6 +89,9 @@ func TestSubscribeConsumesResponse(t *testing.T) {
 	}
 	if sessions[0].ID != "abc123" {
 		t.Fatalf("expected abc123, got %s", sessions[0].ID)
+	}
+	if activeWID != "@1" {
+		t.Fatalf("expected @1, got %s", activeWID)
 	}
 }
 

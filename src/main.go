@@ -65,8 +65,17 @@ func runCoordinator() {
 	mgr.Refresh()
 	slog.Info("sessions loaded", "count", len(mgr.All()))
 
+	activeWID := restoreActiveWindowID(client, mgr)
+
 	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec)
-	svc := core.NewService(mgr, monitor, client, sessionName)
+	svc := core.NewService(mgr, monitor, client, sessionName, activeWID)
+	svc.SetSyncActive(func(wid string) {
+		if wid != "" {
+			client.SetEnv("ROOST_ACTIVE_WINDOW", wid)
+		} else {
+			client.Run("set-environment", "-t", sessionName, "-u", "ROOST_ACTIVE_WINDOW")
+		}
+	})
 
 	sockPath := filepath.Join(dataDir, "roost.sock")
 	srv := core.NewServer(svc, client, sockPath)
@@ -309,6 +318,21 @@ func runPalette(args []string) {
 		fmt.Fprintf(os.Stderr, "roost: palette: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func restoreActiveWindowID(client *tmux.Client, mgr *session.Manager) string {
+	wid, _ := client.GetEnv("ROOST_ACTIVE_WINDOW")
+	if wid == "" {
+		return ""
+	}
+	for _, s := range mgr.All() {
+		if s.WindowID == wid {
+			slog.Info("restored active window", "window", wid)
+			return wid
+		}
+	}
+	slog.Info("stale active window, clearing", "window", wid)
+	return ""
 }
 
 func loadConfig() *config.Config {

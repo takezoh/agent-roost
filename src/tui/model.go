@@ -174,13 +174,14 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) requestSessions() tea.Cmd {
 	return func() tea.Msg {
-		sessions, err := m.client.ListSessions()
+		sessions, activeWID, err := m.client.ListSessions()
 		if err != nil {
 			slog.Error("list-sessions failed", "err", err)
 			return nil
 		}
 		msg := core.NewEvent("sessions-changed")
 		msg.Sessions = sessions
+		msg.ActiveWindowID = activeWID
 		return serverEventMsg(msg)
 	}
 }

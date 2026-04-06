@@ -101,9 +101,9 @@ func (c *Client) StopSession(id string) error {
 	return err
 }
 
-func (c *Client) ListSessions() ([]SessionInfo, error) {
+func (c *Client) ListSessions() ([]SessionInfo, string, error) {
 	resp, err := c.sendCommand("list-sessions", nil)
-	return resp.Sessions, err
+	return resp.Sessions, resp.ActiveWindowID, err
 }
 
 func (c *Client) Shutdown() error {

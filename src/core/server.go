@@ -199,7 +199,11 @@ func (s *Server) handleStopSession(cc *clientConn, args map[string]string) {
 }
 
 func (s *Server) handleListSessions(cc *clientConn) {
-	s.sendResponse(cc, Message{Sessions: SessionsToInfo(s.svc.Sessions())})
+	s.sendResponse(cc, Message{
+		Sessions:       SessionsToInfo(s.svc.Sessions()),
+		ActiveWindowID: s.svc.ActiveWindowID(),
+		SessionLogPath: s.svc.ActiveSessionLogPath(),
+	})
 }
 
 func (s *Server) handleShutdown(cc *clientConn) {
