@@ -26,6 +26,8 @@ func main() {
 
 	if len(os.Args) > 1 && os.Args[1] == "--tui" && len(os.Args) > 2 {
 		switch os.Args[2] {
+		case "main":
+			runMainTUI()
 		case "sessions":
 			runSessionList()
 		case "log":
@@ -120,7 +122,7 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
 	exePath := resolveExe()
 	client.SendKeys(sn+":0.2", exePath+" --tui sessions")
 	client.SendKeys(sn+":0.1", exePath+" --tui log")
-	client.SendKeys(sn+":0.0", "echo 'roost: prefix+Space to toggle TUI'")
+	client.SendKeys(sn+":0.0", exePath+" --tui main")
 
 	client.ResizePane(sn+":0.2", tuiWidth, 0)
 	client.ResizePane(sn+":0.1", 0, logHeight)
@@ -190,6 +192,30 @@ func respawnTUIIfDead(client *tmux.Client, sn string) {
 	if dead == "1" {
 		slog.Info("respawning dead pane", "pane", sn+":0.2")
 		respawnTUI(client, sn)
+	}
+}
+
+func runMainTUI() {
+	cfg := loadConfig()
+	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
+
+	client, err := core.Dial(sockPath)
+	if err != nil {
+		model := tui.NewMainModel(nil)
+		if _, err := tea.NewProgram(model).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "roost: main: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	defer client.Close()
+	client.StartListening()
+	client.Subscribe()
+
+	model := tui.NewMainModel(client)
+	if _, err := tea.NewProgram(model).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "roost: main: %v\n", err)
+		os.Exit(1)
 	}
 }
 

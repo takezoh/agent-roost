@@ -138,6 +138,8 @@ func (s *Server) dispatch(cc *clientConn, msg Message) {
 		s.handleSwitchSession(cc, msg.Args)
 	case "focus-pane":
 		s.handleFocusPane(cc, msg.Args)
+	case "preview-project":
+		s.handlePreviewProject(cc, msg.Args)
 	case "launch-tool":
 		s.handleLaunchTool(cc, msg.Args)
 	case "detach":
@@ -246,6 +248,18 @@ func (s *Server) handleSwitchSession(cc *clientConn, args map[string]string) {
 		ActiveWindowID: s.svc.ActiveWindowID(),
 		SessionLogPath: s.svc.ActiveSessionLogPath(),
 	})
+}
+
+func (s *Server) handlePreviewProject(cc *clientConn, args map[string]string) {
+	slog.Info("preview project", "project", args["project"])
+	if err := s.svc.Deactivate(); err != nil {
+		s.sendResponse(cc, Message{})
+		return
+	}
+	s.sendResponse(cc, Message{})
+	msg := NewEvent("project-selected")
+	msg.SelectedProject = args["project"]
+	s.broadcast(msg)
 }
 
 func (s *Server) handleFocusPane(cc *clientConn, args map[string]string) {

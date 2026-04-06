@@ -45,6 +45,10 @@ type switchDoneMsg struct {
 	err      error
 }
 
+type previewProjectDoneMsg struct {
+	err error
+}
+
 func NewModel(client *core.Client, cfg *config.Config) Model {
 	return Model{
 		client:   client,
@@ -87,6 +91,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.focusCmd("0.0")
 
+	case previewProjectDoneMsg:
+		if msg.err == nil {
+			m.active = ""
+		}
+		return m, m.focusCmd("0.2")
+
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			return m, nil
@@ -125,16 +135,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if m.cursor > 0 {
 			m.cursor--
 		}
-		if s := m.cursorSession(); s != nil && s.WindowID != m.active {
-			return m, m.previewCmd(s)
-		}
+		return m, m.cursorPreviewCmd()
 	case key.Matches(msg, m.keys.Down):
 		if m.cursor < len(m.items)-1 {
 			m.cursor++
 		}
-		if s := m.cursorSession(); s != nil && s.WindowID != m.active {
-			return m, m.previewCmd(s)
-		}
+		return m, m.cursorPreviewCmd()
 	case key.Matches(msg, m.keys.Enter):
 		if s := m.cursorSession(); s != nil {
 			return m, m.switchCmd(s)
@@ -200,6 +206,23 @@ func (m Model) switchCmd(sess *core.SessionInfo) tea.Cmd {
 	return func() tea.Msg {
 		activeWID, err := m.client.SwitchSession(sess.ID)
 		return switchDoneMsg{windowID: activeWID, err: err}
+	}
+}
+
+func (m Model) cursorPreviewCmd() tea.Cmd {
+	if s := m.cursorSession(); s != nil && s.WindowID != m.active {
+		return m.previewCmd(s)
+	}
+	if m.cursorSession() == nil && m.active != "" {
+		return m.previewProjectCmd(m.cursorProjectPath())
+	}
+	return nil
+}
+
+func (m Model) previewProjectCmd(project string) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.PreviewProject(project)
+		return previewProjectDoneMsg{err: err}
 	}
 }
 

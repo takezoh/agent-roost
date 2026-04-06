@@ -109,6 +109,30 @@ func TestRefreshSessions_Changed(t *testing.T) {
 	}
 }
 
+func TestDeactivate_NoActive(t *testing.T) {
+	svc, panes, _ := setupService(t)
+	if err := svc.Deactivate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(panes.chainCalls) != 0 {
+		t.Fatalf("expected 0 commands, got %d", len(panes.chainCalls))
+	}
+}
+
+func TestDeactivate_WithActive(t *testing.T) {
+	svc, panes, _ := setupService(t)
+	svc.Preview(&session.Session{ID: "a", WindowID: "@2"})
+	if err := svc.Deactivate(); err != nil {
+		t.Fatal(err)
+	}
+	if len(panes.chainCalls) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(panes.chainCalls))
+	}
+	if svc.ActiveWindowID() != "" {
+		t.Fatalf("expected empty, got %s", svc.ActiveWindowID())
+	}
+}
+
 func TestActiveWindowID(t *testing.T) {
 	svc, _, _ := setupService(t)
 	if svc.ActiveWindowID() != "" {

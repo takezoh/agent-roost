@@ -130,6 +130,11 @@ func (c *Client) SwitchSession(sessionID string) (string, error) {
 	return resp.ActiveWindowID, err
 }
 
+func (c *Client) PreviewProject(project string) error {
+	_, err := c.sendCommand("preview-project", map[string]string{"project": project})
+	return err
+}
+
 func (c *Client) FocusPane(pane string) error {
 	_, err := c.sendCommand("focus-pane", map[string]string{"pane": pane})
 	return err

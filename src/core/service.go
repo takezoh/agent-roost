@@ -51,6 +51,19 @@ func (s *Service) Switch(sess *session.Session) error {
 	return s.Panes.SelectPane(s.SessionName + ":0.0")
 }
 
+func (s *Service) Deactivate() error {
+	if s.activeWindowID == "" {
+		return nil
+	}
+	pane0 := s.SessionName + ":0.0"
+	cmd := []string{"swap-pane", "-d", "-s", pane0, "-t", s.activeWindowID + ".0"}
+	if err := s.Panes.RunChain(cmd); err != nil {
+		return err
+	}
+	s.activeWindowID = ""
+	return nil
+}
+
 func (s *Service) ActiveWindowID() string {
 	return s.activeWindowID
 }
