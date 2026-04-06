@@ -64,8 +64,37 @@ func TestResolveDataDir_Explicit(t *testing.T) {
 
 func TestResolveDataDir_Fallback(t *testing.T) {
 	cfg := &Config{}
-	want := ConfigDir()
+	want := ConfigDirPath()
 	if got := cfg.ResolveDataDir(); got != want {
 		t.Errorf("ResolveDataDir() = %q, want %q", got, want)
+	}
+}
+
+func TestLoadFrom_Missing(t *testing.T) {
+	cfg, err := LoadFrom("/nonexistent/path/config.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tmux.SessionName != "roost" {
+		t.Fatalf("expected defaults, got session_name=%s", cfg.Tmux.SessionName)
+	}
+}
+
+func TestLoadFrom_Valid(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	os.WriteFile(path, []byte(`[tmux]
+session_name = "custom"
+`), 0o644)
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Tmux.SessionName != "custom" {
+		t.Fatalf("expected custom, got %s", cfg.Tmux.SessionName)
+	}
+	if cfg.Monitor.PollIntervalMs != 1000 {
+		t.Fatalf("expected default 1000, got %d", cfg.Monitor.PollIntervalMs)
 	}
 }

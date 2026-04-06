@@ -3,6 +3,7 @@ package tmux
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/take/agent-roost/session"
 )
@@ -35,7 +36,7 @@ func TestDetectStateWaiting(t *testing.T) {
 
 func TestDetectStateIdle(t *testing.T) {
 	m := NewMonitor(&mockCapturer{content: map[string]string{"@1.0": "done\n$ "}}, 0)
-	m.DetectState("@1") // first call seeds lastContent
+	m.DetectState("@1")
 	if got := m.DetectState("@1"); got != session.StateIdle {
 		t.Fatalf("got %v, want StateIdle", got)
 	}
@@ -45,6 +46,15 @@ func TestDetectStateStopped(t *testing.T) {
 	m := NewMonitor(&mockCapturer{err: errors.New("dead")}, 60)
 	if got := m.DetectState("@1"); got != session.StateStopped {
 		t.Fatalf("got %v, want StateStopped", got)
+	}
+}
+
+func TestDetectState_PreservesRunning(t *testing.T) {
+	cap := &mockCapturer{content: map[string]string{"@1.0": "compiling..."}}
+	m := NewMonitor(cap, 30)
+	m.DetectState("@1")
+	if got := m.DetectState("@1"); got != session.StateRunning {
+		t.Fatalf("got %v, want Running (preserved)", got)
 	}
 }
 
@@ -95,5 +105,54 @@ func TestHasPromptIndicator(t *testing.T) {
 		if got := hasPromptIndicator(tt.input); got != tt.want {
 			t.Errorf("hasPromptIndicator(%q) = %v, want %v", tt.input, got, tt.want)
 		}
+	}
+}
+
+func TestComputeTransition_NewContent_NoPrompt(t *testing.T) {
+	now := time.Now()
+	state, snap := computeTransition("compiling...", snapshot{}, now, 30*time.Second)
+	if state != session.StateRunning {
+		t.Fatalf("got %v, want Running", state)
+	}
+	if snap.lastState != session.StateRunning {
+		t.Fatalf("snap state: got %v, want Running", snap.lastState)
+	}
+}
+
+func TestComputeTransition_NewContent_WithPrompt(t *testing.T) {
+	now := time.Now()
+	state, snap := computeTransition("done\n$ ", snapshot{}, now, 30*time.Second)
+	if state != session.StateWaiting {
+		t.Fatalf("got %v, want Waiting", state)
+	}
+	if snap.lastState != session.StateWaiting {
+		t.Fatalf("snap state: got %v, want Waiting", snap.lastState)
+	}
+}
+
+func TestComputeTransition_UnchangedWithinThreshold(t *testing.T) {
+	now := time.Now()
+	_, snap := computeTransition("compiling...", snapshot{}, now, 30*time.Second)
+	state, _ := computeTransition("compiling...", snap, now.Add(5*time.Second), 30*time.Second)
+	if state != session.StateRunning {
+		t.Fatalf("got %v, want Running (preserved)", state)
+	}
+}
+
+func TestComputeTransition_UnchangedExceedsThreshold(t *testing.T) {
+	now := time.Now()
+	_, snap := computeTransition("compiling...", snapshot{}, now, 30*time.Second)
+	state, _ := computeTransition("compiling...", snap, now.Add(31*time.Second), 30*time.Second)
+	if state != session.StateIdle {
+		t.Fatalf("got %v, want Idle", state)
+	}
+}
+
+func TestComputeTransition_PreservesWaiting(t *testing.T) {
+	now := time.Now()
+	_, snap := computeTransition("done\n$ ", snapshot{}, now, 30*time.Second)
+	state, _ := computeTransition("done\n$ ", snap, now.Add(5*time.Second), 30*time.Second)
+	if state != session.StateWaiting {
+		t.Fatalf("got %v, want Waiting (preserved)", state)
 	}
 }

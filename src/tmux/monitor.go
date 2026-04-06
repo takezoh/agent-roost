@@ -15,19 +15,23 @@ var (
 	costPattern   = regexp.MustCompile(`\$[\d.]+`)
 )
 
+type snapshot struct {
+	hash         string
+	lastActivity time.Time
+	lastState    session.State
+}
+
 type Monitor struct {
 	capturer      PaneCapturer
 	idleThreshold time.Duration
-	lastContent   map[string]string
-	lastActivity  map[string]time.Time
+	snapshots     map[string]snapshot
 }
 
 func NewMonitor(capturer PaneCapturer, idleThresholdSec int) *Monitor {
 	return &Monitor{
 		capturer:      capturer,
 		idleThreshold: time.Duration(idleThresholdSec) * time.Second,
-		lastContent:   make(map[string]string),
-		lastActivity:  make(map[string]time.Time),
+		snapshots:     make(map[string]snapshot),
 	}
 }
 
@@ -44,23 +48,24 @@ func (m *Monitor) DetectState(windowID string) session.State {
 	if err != nil {
 		return session.StateStopped
 	}
+	state, snap := computeTransition(content, m.snapshots[windowID], time.Now(), m.idleThreshold)
+	m.snapshots[windowID] = snap
+	return state
+}
 
+func computeTransition(content string, prev snapshot, now time.Time, threshold time.Duration) (session.State, snapshot) {
 	hash := hashContent(content)
-	prev, seen := m.lastContent[windowID]
-
-	if !seen || hash != prev {
-		m.lastContent[windowID] = hash
-		m.lastActivity[windowID] = time.Now()
+	if prev.hash == "" || hash != prev.hash {
+		state := session.StateRunning
 		if hasPromptIndicator(content) {
-			return session.StateWaiting
+			state = session.StateWaiting
 		}
-		return session.StateRunning
+		return state, snapshot{hash: hash, lastActivity: now, lastState: state}
 	}
-
-	if time.Since(m.lastActivity[windowID]) > m.idleThreshold {
-		return session.StateIdle
+	if now.Sub(prev.lastActivity) > threshold {
+		return session.StateIdle, snapshot{hash: prev.hash, lastActivity: prev.lastActivity, lastState: session.StateIdle}
 	}
-	return session.StateWaiting
+	return prev.lastState, prev
 }
 
 func (m *Monitor) ExtractCost(windowID string) string {

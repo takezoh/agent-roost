@@ -12,7 +12,9 @@
 - **操作はすべてツール**: 全操作を Tool として抽象化。TUI・コマンドパレット・将来のエージェント SDK から同じ Tool を実行できる
 - **TUI にビジネスロジックを置かない**: TUI は表示とキー入力のみ。ロジックは core.Service に集約
 - **プロセスハンドラによるライフサイクル管理**: TUI サーバーの死活監視と自動復帰。終了判断はプロセスハンドラの責務
-- **テスト可能な設計**: tmux 操作はインターフェース経由。ファイルパスは注入可能
+- **副作用の分離**: パス計算・状態遷移ロジック・データ構築は純粋関数。I/O (ファイル作成, tmux 操作) は呼び出し側が明示的に実行する。関数名で副作用の有無を区別する (`XxxPath` = 純粋, `EnsureXxx` = 副作用あり)
+- **I/O 先行・状態変更後行**: 外部操作 (tmux, ファイル) を全て完了してから内部状態を変更する。I/O 失敗時はロールバックし、状態を汚染しない
+- **テスト可能な設計**: tmux 操作はインターフェース経由。ファイルパスは注入可能。状態遷移ロジックは mock 不要で単体テスト可能
 
 ## レイヤー構成
 
@@ -137,12 +139,15 @@ Switch(sess, active):
 
 `tmux/monitor.go` が `PaneCapturer` インターフェース経由で各セッション window を 1 秒間隔でポーリング。
 
+状態遷移は純粋関数 `computeTransition` で計算し、`DetectState` は I/O (キャプチャ) と状態格納のみを担う。
+
 ```
 capture-pane で最後5行取得 → SHA256 ハッシュ比較
 ├── ハッシュ変化 + プロンプト検出 → StateWaiting (◆ 黄)
 ├── ハッシュ変化 + 出力中 → StateRunning (● 緑)
-├── ハッシュ不変 + 30秒以上 → StateIdle (○ 灰)
-└── エラー → StateStopped (■ 赤)
+├── ハッシュ不変 + 閾値未満 → 前回状態を保持
+├── ハッシュ不変 + 閾値以上 → StateIdle (○ 灰)
+└── キャプチャエラー → StateStopped (■ 赤)
 ```
 
 ## キー入力の処理分担
@@ -177,6 +182,19 @@ type PaneCapturer interface {
 - `tmux.Monitor` → `PaneCapturer` に依存
 - `session.Manager` → `TmuxClient` インターフェースに依存
 - ファイルパスは `Config.DataDir` で注入
+
+## 副作用の命名規約
+
+パス計算と副作用を関数名で区別する。
+
+| パターン | 副作用 | 例 |
+|---------|--------|-----|
+| `XxxPath()` | なし (純粋) | `LogDirPath`, `ConfigDirPath`, `LogPath` |
+| `EnsureXxx()` | ディレクトリ作成 | `EnsureLogDir`, `EnsureConfigDir` |
+| `LoadFrom(path)` | ファイル読込のみ | `config.LoadFrom` |
+| `Load()` | ディレクトリ作成 + ファイル読込 | `config.Load` (convenience wrapper) |
+
+`Manager.Create` は I/O を全て先に実行し、失敗時にロールバック (tmux window kill, sessions slice 復元) する。
 
 ## データファイル
 

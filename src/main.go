@@ -50,13 +50,17 @@ func runProcessHandler() {
 		setupNewSession(client, cfg, sessionName)
 	}
 
-	mgr := session.NewManager(client, cfg.ResolveDataDir())
+	dataDir := cfg.ResolveDataDir()
+	os.MkdirAll(dataDir, 0o755)
+	session.EnsureLogDir(dataDir)
+
+	mgr := session.NewManager(client, dataDir)
 	mgr.Refresh()
 
 	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec)
 	svc := core.NewService(mgr, monitor, client, sessionName)
 
-	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
+	sockPath := filepath.Join(dataDir, "roost.sock")
 	srv := core.NewServer(svc, client, sockPath)
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: server: %v\n", err)

@@ -38,18 +38,19 @@ type ProjectsConfig struct {
 	ProjectRoots []string `toml:"project_roots"`
 }
 
-func Load() (*Config, error) {
+func LoadFrom(path string) (*Config, error) {
 	cfg := DefaultConfig()
-	path := filepath.Join(ConfigDir(), "config.toml")
-
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return cfg, nil
 	}
-
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
 		return nil, err
 	}
 	return cfg, nil
+}
+
+func Load() (*Config, error) {
+	return LoadFrom(filepath.Join(EnsureConfigDir(), "config.toml"))
 }
 
 func DefaultConfig() *Config {
@@ -75,8 +76,12 @@ func DefaultConfig() *Config {
 	}
 }
 
-func ConfigDir() string {
-	dir := filepath.Join(ExpandPath("~"), ".config", "roost")
+func ConfigDirPath() string {
+	return filepath.Join(ExpandPath("~"), ".config", "roost")
+}
+
+func EnsureConfigDir() string {
+	dir := ConfigDirPath()
 	os.MkdirAll(dir, 0o755)
 	return dir
 }
@@ -102,7 +107,7 @@ func (c *Config) ResolveDataDir() string {
 	if c.DataDir != "" {
 		return ExpandPath(c.DataDir)
 	}
-	return ConfigDir()
+	return ConfigDirPath()
 }
 
 func ExpandPath(p string) string {

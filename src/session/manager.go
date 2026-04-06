@@ -54,8 +54,10 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 	}
 	m.tmux.SetOption(windowID, "remain-on-exit", "on")
 
+	EnsureLogDir(m.dataDir)
 	logFile, err := os.Create(LogPath(m.dataDir, id))
 	if err != nil {
+		m.tmux.KillWindow(windowID)
 		return nil, err
 	}
 	logFile.Close()
@@ -71,11 +73,13 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 
 	m.mu.Lock()
 	m.sessions = append(m.sessions, s)
-	err = m.save()
-	m.mu.Unlock()
-	if err != nil {
+	if err := m.save(); err != nil {
+		m.sessions = m.sessions[:len(m.sessions)-1]
+		m.mu.Unlock()
+		m.tmux.KillWindow(windowID)
 		return nil, err
 	}
+	m.mu.Unlock()
 	return s, nil
 }
 
