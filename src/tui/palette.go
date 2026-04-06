@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -9,26 +10,51 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
+type palettePhase int
+
+const (
+	phaseToolSelect palettePhase = iota
+	phaseParamSelect
+)
+
 type PaletteModel struct {
-	registry *Registry
-	ctx      *ToolContext
-	input    string
-	filtered []Tool
-	cursor   int
-	width    int
-	height   int
-	err      error
+	registry    *Registry
+	ctx         *ToolContext
+	initialTool string
+	phase       palettePhase
+	input       string
+	filtered    []Tool
+	cursor      int
+
+	// パラメータ入力
+	selectedTool *Tool
+	paramIndex   int
+	paramArgs    map[string]string
+	paramOptions []string
+	paramCursor  int
+
+	width  int
+	height int
+	err    error
 }
 
-func NewPaletteModel(registry *Registry, ctx *ToolContext) PaletteModel {
-	return PaletteModel{
-		registry: registry,
-		ctx:      ctx,
-		filtered: registry.All(),
+func NewPaletteModel(registry *Registry, ctx *ToolContext, initialTool string) PaletteModel {
+	m := PaletteModel{
+		registry:    registry,
+		ctx:         ctx,
+		filtered:    registry.All(),
+		paramArgs:   make(map[string]string),
+		initialTool: initialTool,
 	}
+	return m
 }
+
+type startToolMsg struct{}
 
 func (m PaletteModel) Init() tea.Cmd {
+	if m.initialTool != "" {
+		return func() tea.Msg { return startToolMsg{} }
+	}
 	return nil
 }
 
@@ -37,31 +63,39 @@ func (m PaletteModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+	case startToolMsg:
+		tool := m.registry.Get(m.initialTool)
+		if tool != nil {
+			return m.startTool(tool)
+		}
+		return m, tea.Quit
 	case tea.KeyPressMsg:
-		return m.handleKey(msg)
+		switch m.phase {
+		case phaseToolSelect:
+			return m.handleToolSelect(msg)
+		case phaseParamSelect:
+			return m.handleParamSelect(msg)
+		}
 	}
 	return m, nil
 }
 
 var (
-	escapeBinding = key.NewBinding(key.WithKeys("escape"))
+	escapeBinding = key.NewBinding(key.WithKeys("esc", "escape"))
 	enterBinding  = key.NewBinding(key.WithKeys("enter"))
 	upBinding     = key.NewBinding(key.WithKeys("up", "ctrl+p"))
 	downBinding   = key.NewBinding(key.WithKeys("down", "ctrl+n"))
 	bsBinding     = key.NewBinding(key.WithKeys("backspace"))
 )
 
-func (m PaletteModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m PaletteModel) handleToolSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, escapeBinding):
 		return m, tea.Quit
 	case key.Matches(msg, enterBinding):
 		if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
 			tool := m.filtered[m.cursor]
-			if err := tool.Run(m.ctx); err != nil {
-				m.err = err
-			}
-			return m, tea.Quit
+			return m.startTool(&tool)
 		}
 	case key.Matches(msg, upBinding):
 		if m.cursor > 0 {
@@ -86,6 +120,104 @@ func (m PaletteModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m PaletteModel) startTool(tool *Tool) (tea.Model, tea.Cmd) {
+	m.selectedTool = tool
+	m.paramArgs = make(map[string]string)
+
+	// pre-fill from context
+	if m.ctx.Args != nil {
+		for k, v := range m.ctx.Args {
+			m.paramArgs[k] = v
+		}
+	}
+
+	return m.advanceParam()
+}
+
+func (m PaletteModel) advanceParam() (tea.Model, tea.Cmd) {
+	for m.paramIndex < len(m.selectedTool.Params) {
+		p := m.selectedTool.Params[m.paramIndex]
+		if _, filled := m.paramArgs[p.Name]; filled {
+			m.paramIndex++
+			continue
+		}
+		// show prompt for this param
+		m.phase = phaseParamSelect
+		m.paramOptions = p.Options(m.ctx)
+		m.paramCursor = 0
+		m.input = ""
+		return m, nil
+	}
+
+	// all params filled, execute
+	err := m.selectedTool.Run(m.ctx, m.paramArgs)
+	if err != nil {
+		slog.Error("tool execution failed", "tool", m.selectedTool.Name, "args", m.paramArgs, "err", err)
+	} else {
+		slog.Info("tool executed", "tool", m.selectedTool.Name, "args", m.paramArgs)
+	}
+	return m, tea.Quit
+}
+
+func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case key.Matches(msg, escapeBinding):
+		if m.initialTool != "" {
+			return m, tea.Quit
+		}
+		m.phase = phaseToolSelect
+		m.selectedTool = nil
+		m.paramIndex = 0
+		m.input = ""
+		m.refilter()
+		return m, nil
+	case key.Matches(msg, enterBinding):
+		filtered := m.filterParamOptions()
+		if len(filtered) > 0 && m.paramCursor < len(filtered) {
+			p := m.selectedTool.Params[m.paramIndex]
+			m.paramArgs[p.Name] = filtered[m.paramCursor]
+			m.paramIndex++
+			return m.advanceParam()
+		}
+	case key.Matches(msg, upBinding):
+		if m.paramCursor > 0 {
+			m.paramCursor--
+		}
+	case key.Matches(msg, downBinding):
+		filtered := m.filterParamOptions()
+		if m.paramCursor < len(filtered)-1 {
+			m.paramCursor++
+		}
+	case key.Matches(msg, bsBinding):
+		if len(m.input) > 0 {
+			m.input = m.input[:len(m.input)-1]
+			m.paramCursor = 0
+		}
+	default:
+		s := msg.String()
+		if len(s) == 1 && s[0] >= 0x20 && s[0] < 0x7f {
+			m.input += s
+			m.paramCursor = 0
+		}
+	}
+	return m, nil
+}
+
+func (m PaletteModel) filterParamOptions() []string {
+	if m.input == "" {
+		return m.paramOptions
+	}
+	q := strings.ToLower(m.input)
+	var matched []string
+	for _, o := range m.paramOptions {
+		if strings.Contains(strings.ToLower(o), q) ||
+			strings.Contains(strings.ToLower(ProjectDisplayName(o)), q) {
+			matched = append(matched, o)
+		}
+	}
+	return matched
+}
+
 func (m *PaletteModel) refilter() {
 	m.filtered = m.registry.Match(m.input)
 	m.cursor = 0
@@ -96,34 +228,54 @@ var (
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("#7D56F4")).
 			Padding(0, 1)
-	promptStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true)
-	itemStyle     = lipgloss.NewStyle()
-	selItemStyle  = lipgloss.NewStyle().Background(lipgloss.Color("#3C3836")).Foreground(lipgloss.Color("#EBDBB2"))
-	descStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	inputStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#EBDBB2"))
+	promptStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true)
+	itemStyle    = lipgloss.NewStyle()
+	selItemStyle = lipgloss.NewStyle().Background(lipgloss.Color("#3C3836")).Foreground(lipgloss.Color("#EBDBB2"))
+	descStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
+	inputStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#EBDBB2"))
 )
 
 func (m PaletteModel) View() tea.View {
 	var b strings.Builder
 
-	b.WriteString(promptStyle.Render("> "))
-	b.WriteString(inputStyle.Render(m.input))
-	b.WriteString("█\n\n")
-
-	for i, t := range m.filtered {
-		name := t.Name
-		desc := descStyle.Render(" " + t.Description)
-		line := name + desc
-		if i == m.cursor {
-			line = selItemStyle.Render(fmt.Sprintf("▸ %s", t.Name)) + desc
-		} else {
-			line = itemStyle.Render(fmt.Sprintf("  %s", t.Name)) + desc
+	switch m.phase {
+	case phaseToolSelect:
+		b.WriteString(promptStyle.Render("> "))
+		b.WriteString(inputStyle.Render(m.input))
+		b.WriteString("█\n\n")
+		for i, t := range m.filtered {
+			desc := descStyle.Render(" " + t.Description)
+			if i == m.cursor {
+				b.WriteString(selItemStyle.Render(fmt.Sprintf("▸ %s", t.Name)) + desc + "\n")
+			} else {
+				b.WriteString(itemStyle.Render(fmt.Sprintf("  %s", t.Name)) + desc + "\n")
+			}
 		}
-		b.WriteString(line + "\n")
-	}
+		if len(m.filtered) == 0 {
+			b.WriteString(descStyle.Render("  (一致するツールなし)\n"))
+		}
 
-	if len(m.filtered) == 0 {
-		b.WriteString(descStyle.Render("  (一致するツールなし)\n"))
+	case phaseParamSelect:
+		p := m.selectedTool.Params[m.paramIndex]
+		b.WriteString(promptStyle.Render(m.selectedTool.Name))
+		b.WriteString(descStyle.Render(" > " + p.Name))
+		b.WriteString("\n")
+		b.WriteString(promptStyle.Render("> "))
+		b.WriteString(inputStyle.Render(m.input))
+		b.WriteString("█\n\n")
+
+		filtered := m.filterParamOptions()
+		for i, o := range filtered {
+			display := ProjectDisplayName(o)
+			if i == m.paramCursor {
+				b.WriteString(selItemStyle.Render(fmt.Sprintf("▸ %s", display)) + "\n")
+			} else {
+				b.WriteString(itemStyle.Render(fmt.Sprintf("  %s", display)) + "\n")
+			}
+		}
+		if len(filtered) == 0 {
+			b.WriteString(descStyle.Render("  (一致する項目なし)\n"))
+		}
 	}
 
 	return tea.NewView(paletteBorder.Render(b.String()))

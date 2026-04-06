@@ -3,26 +3,32 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"golang.org/x/term"
 
 	"github.com/take/agent-roost/config"
+	"github.com/take/agent-roost/logger"
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/tmux"
 	"github.com/take/agent-roost/tui"
 )
 
 func main() {
+	logger.Init()
+	defer logger.Close()
+
 	if os.Getenv("ROOST_TUI") == "1" {
 		runSessionList()
 		return
 	}
 	if len(os.Args) > 1 && os.Args[1] == "--palette" {
-		runPalette()
+		runPalette(os.Args[2:])
 		return
 	}
 	runProcessHandler()
@@ -52,6 +58,10 @@ func runProcessHandler() {
 
 	if val, _ := client.GetEnv("ROOST_SHUTDOWN"); val == "1" {
 		client.KillSession()
+		mgr, err := session.NewManager(client, cfg)
+		if err == nil {
+			mgr.Clear()
+		}
 	}
 }
 
@@ -134,7 +144,20 @@ func resolveExe() string {
 	return resolved
 }
 
-func runPalette() {
+type managerAdapter struct {
+	mgr *session.Manager
+}
+
+func (a *managerAdapter) Create(project, command string) error {
+	_, err := a.mgr.Create(project, command)
+	return err
+}
+
+func (a *managerAdapter) Stop(sessionID string) error {
+	return a.mgr.Stop(sessionID)
+}
+
+func runPalette(args []string) {
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "roost: %v\n", err)
@@ -142,18 +165,39 @@ func runPalette() {
 	}
 
 	client := tmux.NewClient(cfg.Tmux.SessionName)
+	mgr, err := session.NewManager(client, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "roost: manager: %v\n", err)
+		os.Exit(1)
+	}
+
+	var toolName string
+	prefill := make(map[string]string)
+	for _, a := range args {
+		if strings.HasPrefix(a, "--tool=") {
+			toolName = strings.TrimPrefix(a, "--tool=")
+		} else if strings.HasPrefix(a, "--arg=") {
+			kv := strings.TrimPrefix(a, "--arg=")
+			if parts := strings.SplitN(kv, "=", 2); len(parts) == 2 {
+				prefill[parts[0]] = parts[1]
+			}
+		}
+	}
+
 	registry := tui.DefaultRegistry()
 	ctx := &tui.ToolContext{
-		Client: client,
+		Client:  client,
+		Manager: &managerAdapter{mgr: mgr},
 		Config: tui.ToolConfig{
 			SessionName:    cfg.Tmux.SessionName,
 			DefaultCommand: cfg.Session.DefaultCommand,
 			Commands:       cfg.Session.Commands,
 			Projects:       cfg.ListProjects(),
 		},
+		Args: prefill,
 	}
 
-	model := tui.NewPaletteModel(registry, ctx)
+	model := tui.NewPaletteModel(registry, ctx, toolName)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: palette: %v\n", err)
 		os.Exit(1)
@@ -178,6 +222,7 @@ func runSessionList() {
 		fmt.Fprintf(os.Stderr, "roost: reconcile: %v\n", err)
 		os.Exit(1)
 	}
+	slog.Info("sessionList start", "sessions", len(manager.All()))
 
 	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec)
 	model := tui.NewModel(manager, monitor, client, cfg)

@@ -1,8 +1,12 @@
 package tui
 
 import (
+	"log/slog"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -20,17 +24,17 @@ type listItem struct {
 }
 
 type Model struct {
-	manager *session.Manager
-	monitor *tmux.Monitor
-	tmux    *tmux.Client
-	cfg     *config.Config
-	keys    KeyMap
+	manager  *session.Manager
+	monitor  *tmux.Monitor
+	tmux     *tmux.Client
+	cfg      *config.Config
+	registry *Registry
+	keys     KeyMap
 
 	items    []listItem
 	cursor   int
 	folded   map[string]bool
-	projects map[string]string // name -> path (セッションがなくても表示するプロジェクト)
-	dialog   Dialog
+	projects map[string]string
 	active   string
 	width    int
 	height   int
@@ -46,6 +50,7 @@ func NewModel(mgr *session.Manager, mon *tmux.Monitor, tc *tmux.Client, cfg *con
 		monitor:  mon,
 		tmux:     tc,
 		cfg:      cfg,
+		registry: DefaultRegistry(),
 		keys:     DefaultKeyMap(),
 		folded:   make(map[string]bool),
 		projects: make(map[string]string),
@@ -66,6 +71,23 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
+		oldCount := len(m.manager.All())
+		m.manager.Load()
+		m.manager.Reconcile()
+		newCount := len(m.manager.All())
+		if newCount != oldCount {
+			slog.Info("sessions changed", "old", oldCount, "new", newCount)
+			m.rebuildItems()
+			if newCount > oldCount {
+				sessions := m.manager.All()
+				if len(sessions) > 0 {
+					return m, tea.Batch(
+						switchCmd(m.tmux, sessions[len(sessions)-1], m.active),
+						doTick(time.Duration(m.cfg.Monitor.PollIntervalMs)*time.Millisecond),
+					)
+				}
+			}
+		}
 		ids := windowIDs(m.manager.All())
 		return m, tea.Batch(
 			pollCmd(m.monitor, ids),
@@ -81,14 +103,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.err = nil
 		return m, focusPaneCmd(m.tmux, msg.focusPane)
 
-	case sessionCreatedMsg:
-		m.err = msg.err
-		m.rebuildItems()
-		if msg.err == nil && msg.sess != nil {
-			return m, switchCmd(m.tmux, msg.sess, m.active)
-		}
-		return m, nil
-
 	case statesMsg:
 		m.manager.UpdateStates(map[string]session.State(msg))
 		m.rebuildItems()
@@ -98,41 +112,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.String() == "ctrl+c" {
 			return m, nil
 		}
-		if m.dialog.Active() {
-			return m.handleDialog(msg)
-		}
 		return m.handleKey(msg)
-	}
-	return m, nil
-}
-
-func (m Model) handleDialog(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	mode := m.dialog.mode
-	done, result := m.dialog.Update(msg)
-	if !done {
-		return m, nil
-	}
-	if result == "" {
-		return m, nil
-	}
-	switch mode {
-	case DialogConfirmStop:
-		return m, stopCmd(m.manager, result)
-	case DialogProjectSelect:
-		if m.dialog.addProjectOnly {
-			name := filepath.Base(result)
-			m.projects[name] = result
-			m.rebuildItems()
-			return m, nil
-		}
-		cmd := m.dialog.command
-		if cmd == "" {
-			m.dialog = NewCommandDialog(m.cfg.Session.Commands, result)
-			return m, nil
-		}
-		return m, createCmd(m.manager, result, cmd)
-	case DialogCommandSelect:
-		return m, createCmd(m.manager, m.dialog.project, result)
 	}
 	return m, nil
 }
@@ -158,24 +138,21 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, switchCmd(m.tmux, s, m.active)
 		}
 	case key.Matches(msg, m.keys.New):
-		proj := m.cursorProjectPath()
-		if proj != "" {
-			return m, createCmd(m.manager, proj, m.cfg.Session.DefaultCommand)
-		}
-		m.dialog = NewProjectDialog(m.cfg.ListProjects(), m.cfg.Session.DefaultCommand)
+		return m, popupToolCmd(m.tmux, "new-session", map[string]string{
+			"project": m.cursorProjectPath(),
+			"command": m.cfg.Session.DefaultCommand,
+		})
 	case key.Matches(msg, m.keys.NewCmd):
-		proj := m.cursorProjectPath()
-		if proj != "" {
-			m.dialog = NewCommandDialog(m.cfg.Session.Commands, proj)
-		} else {
-			m.dialog = NewProjectDialog(m.cfg.ListProjects(), "")
-		}
+		return m, popupToolCmd(m.tmux, "new-session", map[string]string{
+			"project": m.cursorProjectPath(),
+		})
 	case key.Matches(msg, m.keys.AddProject):
-		m.dialog = NewProjectDialog(m.cfg.ListProjects(), "")
-		m.dialog.addProjectOnly = true
+		return m, popupToolCmd(m.tmux, "add-project", nil)
 	case key.Matches(msg, m.keys.Stop):
 		if s := m.cursorSession(); s != nil {
-			m.dialog = NewConfirmDialog(s.ID)
+			return m, popupToolCmd(m.tmux, "stop-session", map[string]string{
+				"session_id": s.ID,
+			})
 		}
 	case key.Matches(msg, m.keys.Toggle):
 		name := m.cursorProjectName()
@@ -187,11 +164,33 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func popupToolCmd(tc *tmux.Client, toolName string, args map[string]string) tea.Cmd {
+	return func() tea.Msg {
+		exe, _ := os.Executable()
+		resolved, err := filepath.EvalSymlinks(exe)
+		if err != nil {
+			resolved = exe
+		}
+
+		paletteArgs := []string{"--palette", "--tool=" + toolName}
+		for k, v := range args {
+			if v != "" {
+				paletteArgs = append(paletteArgs, "--arg="+k+"="+v)
+			}
+		}
+
+		popupCmd := resolved + " " + strings.Join(paletteArgs, " ")
+		cmd := exec.Command("tmux", "display-popup", "-E", "-w", "60%", "-h", "50%", popupCmd)
+		cmd.Start()
+		return nil
+	}
+}
+
+// --- list building ---
+
 func (m *Model) rebuildItems() {
 	byProject := m.manager.ByProject()
-
-	// セッションがあるプロジェクト + 明示的に追加されたプロジェクトをマージ
-	allProjects := make(map[string]string) // name -> path
+	allProjects := make(map[string]string)
 	for name, sessions := range byProject {
 		allProjects[name] = sessions[0].Project
 	}
@@ -242,6 +241,8 @@ func (m Model) cursorSession() *session.Session {
 	}
 	return m.items[m.cursor].session
 }
+
+// --- tea.Cmd helpers ---
 
 func windowIDs(sessions []*session.Session) []string {
 	ids := make([]string, len(sessions))
@@ -305,24 +306,5 @@ func switchCmd(tc *tmux.Client, sess *session.Session, activeWindowID string) te
 			return sessionSwitchedMsg{err: err}
 		}
 		return sessionSwitchedMsg{windowID: sess.WindowID, focusPane: "0.0"}
-	}
-}
-
-type sessionCreatedMsg struct {
-	sess *session.Session
-	err  error
-}
-
-func createCmd(mgr *session.Manager, project, command string) tea.Cmd {
-	return func() tea.Msg {
-		s, err := mgr.Create(project, command)
-		return sessionCreatedMsg{sess: s, err: err}
-	}
-}
-
-func stopCmd(mgr *session.Manager, sessionID string) tea.Cmd {
-	return func() tea.Msg {
-		mgr.Stop(sessionID)
-		return tickMsg{}
 	}
 }

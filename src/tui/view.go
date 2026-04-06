@@ -18,16 +18,11 @@ var (
 	waitingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffff00"))
 	idleStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	stoppedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
-	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262"))
+	helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262"))
 )
 
 func (m Model) View() tea.View {
 	var b strings.Builder
-
-	if m.dialog.Active() {
-		b.WriteString(m.dialog.View())
-		b.WriteString("\n\n")
-	}
 
 	b.WriteString(titleStyle.Render("Sessions"))
 	b.WriteString("\n\n")
@@ -55,6 +50,8 @@ func (m Model) View() tea.View {
 	v.AltScreen = true
 	return v
 }
+
+
 
 func renderItem(item listItem, selected bool, width int, folded bool) string {
 	if item.isProject {

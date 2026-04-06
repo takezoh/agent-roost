@@ -109,6 +109,11 @@ func (m *Manager) Stop(sessionID string) error {
 	return nil
 }
 
+func (m *Manager) Clear() error {
+	m.sessions = nil
+	return m.Save()
+}
+
 func (m *Manager) All() []*Session {
 	out := make([]*Session, len(m.sessions))
 	copy(out, m.sessions)
