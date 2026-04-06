@@ -3,7 +3,7 @@ package core
 import (
 	"encoding/json"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"os"
 	"sync"
@@ -57,12 +57,14 @@ func (s *Server) Start() error {
 		return fmt.Errorf("listen %s: %w", s.sockPath, err)
 	}
 	s.listener = ln
+	slog.Info("server listening", "sock", s.sockPath)
 
 	go s.acceptLoop()
 	return nil
 }
 
 func (s *Server) Stop() {
+	slog.Info("server stopping", "clients", len(s.clients))
 	select {
 	case <-s.done:
 	default:
@@ -88,7 +90,7 @@ func (s *Server) acceptLoop() {
 			case <-s.done:
 				return
 			default:
-				log.Printf("accept: %v", err)
+				slog.Error("accept failed", "err", err)
 				continue
 			}
 		}
@@ -97,8 +99,10 @@ func (s *Server) acceptLoop() {
 }
 
 func (s *Server) handleConn(conn net.Conn) {
+	slog.Info("client connected")
 	cc := &clientConn{conn: conn, encoder: json.NewEncoder(conn)}
 	s.addClient(cc)
+	defer slog.Info("client disconnected")
 	defer s.removeClient(cc)
 
 	dec := json.NewDecoder(conn)
@@ -115,6 +119,7 @@ func (s *Server) handleConn(conn net.Conn) {
 }
 
 func (s *Server) dispatch(cc *clientConn, msg Message) {
+	slog.Info("dispatch", "command", msg.Command)
 	switch msg.Command {
 	case "subscribe":
 		cc.broadcastEnabled = true
@@ -152,8 +157,10 @@ func (s *Server) handleCreateSession(cc *clientConn, args map[string]string) {
 	if command == "" {
 		command = "claude"
 	}
+	slog.Info("create session", "project", project, "command", command)
 	sess, err := s.svc.Manager.Create(project, command)
 	if err != nil {
+		slog.Error("create session failed", "err", err)
 		s.sendError(cc, err.Error())
 		return
 	}
@@ -161,12 +168,14 @@ func (s *Server) handleCreateSession(cc *clientConn, args map[string]string) {
 	s.sendResponse(cc, Message{
 		Sessions:       SessionsToInfo(s.svc.Sessions()),
 		ActiveWindowID: s.svc.ActiveWindowID(),
+		SessionLogPath: s.svc.ActiveSessionLogPath(),
 	})
 	s.broadcastSessions()
 }
 
 func (s *Server) handleStopSession(cc *clientConn, args map[string]string) {
 	id := args["session_id"]
+	slog.Info("stop session", "id", id)
 	if id == "" {
 		s.sendError(cc, "missing id arg")
 		return
@@ -184,6 +193,7 @@ func (s *Server) handleListSessions(cc *clientConn) {
 }
 
 func (s *Server) handleShutdown(cc *clientConn) {
+	slog.Info("shutdown requested")
 	s.mu.Lock()
 	s.shutdownRequested = true
 	s.mu.Unlock()
@@ -197,6 +207,7 @@ func (s *Server) handleShutdown(cc *clientConn) {
 }
 
 func (s *Server) handlePreviewSession(cc *clientConn, args map[string]string) {
+	slog.Info("preview session", "id", args["session_id"])
 	sess := s.findSession(args["session_id"])
 	if sess == nil {
 		s.sendError(cc, "session not found: "+args["session_id"])
@@ -206,10 +217,14 @@ func (s *Server) handlePreviewSession(cc *clientConn, args map[string]string) {
 		s.sendError(cc, err.Error())
 		return
 	}
-	s.sendResponse(cc, Message{ActiveWindowID: s.svc.ActiveWindowID()})
+	s.sendResponse(cc, Message{
+		ActiveWindowID: s.svc.ActiveWindowID(),
+		SessionLogPath: s.svc.ActiveSessionLogPath(),
+	})
 }
 
 func (s *Server) handleSwitchSession(cc *clientConn, args map[string]string) {
+	slog.Info("switch session", "id", args["session_id"])
 	sess := s.findSession(args["session_id"])
 	if sess == nil {
 		s.sendError(cc, "session not found: "+args["session_id"])
@@ -219,7 +234,10 @@ func (s *Server) handleSwitchSession(cc *clientConn, args map[string]string) {
 		s.sendError(cc, err.Error())
 		return
 	}
-	s.sendResponse(cc, Message{ActiveWindowID: s.svc.ActiveWindowID()})
+	s.sendResponse(cc, Message{
+		ActiveWindowID: s.svc.ActiveWindowID(),
+		SessionLogPath: s.svc.ActiveSessionLogPath(),
+	})
 }
 
 func (s *Server) handleFocusPane(cc *clientConn, args map[string]string) {
@@ -249,6 +267,7 @@ func (s *Server) findSession(id string) *session.Session {
 }
 
 func (s *Server) handleDetach(cc *clientConn) {
+	slog.Info("detach requested")
 	if err := s.tmux.DetachClient(); err != nil {
 		s.sendError(cc, err.Error())
 		return
@@ -279,10 +298,12 @@ func (s *Server) broadcastSessions() {
 	msg := NewEvent("sessions-changed")
 	msg.Sessions = SessionsToInfo(s.svc.Sessions())
 	msg.ActiveWindowID = s.svc.ActiveWindowID()
+	msg.SessionLogPath = s.svc.ActiveSessionLogPath()
 	s.broadcast(msg)
 }
 
 func (s *Server) StartMonitor(intervalMs int) {
+	slog.Info("monitor started", "interval_ms", intervalMs)
 	ticker := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
 	defer ticker.Stop()
 	for {

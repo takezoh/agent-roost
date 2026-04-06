@@ -44,6 +44,10 @@ func (m *mockTmux) SetOption(target, key, value string) error {
 	return nil
 }
 
+func (m *mockTmux) PipePane(target, command string) error {
+	return nil
+}
+
 func setupManager(t *testing.T) (*Manager, *mockTmux) {
 	t.Helper()
 	dir := t.TempDir()

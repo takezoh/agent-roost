@@ -1,6 +1,7 @@
 package core
 
 import (
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,6 +30,7 @@ func NewService(mgr *session.Manager, mon *tmux.Monitor, panes tmux.PaneOperator
 }
 
 func (s *Service) Preview(sess *session.Session) error {
+	slog.Info("preview", "window", sess.WindowID)
 	cmds := s.buildSwapChain(sess)
 	if err := s.Panes.RunChain(cmds...); err != nil {
 		return err
@@ -38,8 +40,10 @@ func (s *Service) Preview(sess *session.Session) error {
 }
 
 func (s *Service) Switch(sess *session.Session) error {
+	slog.Info("switch", "window", sess.WindowID)
 	cmds := s.buildSwapChain(sess)
 	if err := s.Panes.RunChain(cmds...); err != nil {
+		slog.Error("switch failed", "err", err)
 		return err
 	}
 	s.activeWindowID = sess.WindowID
@@ -50,11 +54,24 @@ func (s *Service) ActiveWindowID() string {
 	return s.activeWindowID
 }
 
+func (s *Service) ActiveSessionLogPath() string {
+	if s.activeWindowID == "" {
+		return ""
+	}
+	for _, sess := range s.Manager.All() {
+		if sess.WindowID == s.activeWindowID {
+			return session.LogPath(s.Manager.DataDir(), sess.ID)
+		}
+	}
+	return ""
+}
+
 func (s *Service) FocusPane(pane string) {
 	s.Panes.SelectPane(s.SessionName + ":" + pane)
 }
 
 func (s *Service) LaunchTool(toolName string, args map[string]string) {
+	slog.Info("launch tool", "tool", toolName)
 	exe, _ := os.Executable()
 	resolved, err := filepath.EvalSymlinks(exe)
 	if err != nil {
@@ -79,6 +96,7 @@ func (s *Service) RefreshSessions() (changed bool, latest *session.Session) {
 	newCount := len(sessions)
 	if newCount != oldCount {
 		changed = true
+		slog.Info("sessions changed", "old", oldCount, "new", newCount)
 		if newCount > oldCount {
 			latest = sessions[len(sessions)-1]
 		}
@@ -110,6 +128,5 @@ func (s *Service) buildSwapChain(sess *session.Session) [][]string {
 		cmds = append(cmds, []string{"swap-pane", "-d", "-s", pane0, "-t", s.activeWindowID + ".0"})
 	}
 	cmds = append(cmds, []string{"swap-pane", "-d", "-s", pane0, "-t", sess.WindowID + ".0"})
-	cmds = append(cmds, []string{"respawn-pane", "-k", "-t", s.SessionName + ":0.1", session.TailCommand(s.Manager.DataDir(), sess.ID)})
 	return cmds
 }

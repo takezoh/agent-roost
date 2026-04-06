@@ -8,15 +8,17 @@ import (
 
 var logFile *os.File
 
-func Init() error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	dir := filepath.Join(home, ".config", "roost")
-	os.MkdirAll(dir, 0o755)
+func LogFilePath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "roost", "roost.log")
+}
 
-	logFile, err = os.OpenFile(filepath.Join(dir, "roost.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+func Init() error {
+	p := LogFilePath()
+	os.MkdirAll(filepath.Dir(p), 0o755)
+
+	var err error
+	logFile, err = os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}

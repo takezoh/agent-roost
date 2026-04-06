@@ -28,6 +28,8 @@ func main() {
 		switch os.Args[2] {
 		case "sessions":
 			runSessionList()
+		case "log":
+			runLogViewer()
 		case "palette":
 			runPalette(os.Args[3:])
 		default:
@@ -42,11 +44,14 @@ func main() {
 func runProcessHandler() {
 	cfg := loadConfig()
 	sessionName := cfg.Tmux.SessionName
+	slog.Info("starting process handler", "session", sessionName)
 	client := tmux.NewClient(sessionName)
 
 	if client.SessionExists() {
+		slog.Info("session exists, restoring")
 		restoreSession(client, cfg, sessionName)
 	} else {
+		slog.Info("creating new session")
 		setupNewSession(client, cfg, sessionName)
 	}
 
@@ -56,6 +61,7 @@ func runProcessHandler() {
 
 	mgr := session.NewManager(client, dataDir)
 	mgr.Refresh()
+	slog.Info("sessions loaded", "count", len(mgr.All()))
 
 	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec)
 	svc := core.NewService(mgr, monitor, client, sessionName)
@@ -66,6 +72,7 @@ func runProcessHandler() {
 		fmt.Fprintf(os.Stderr, "roost: server: %v\n", err)
 		os.Exit(1)
 	}
+	slog.Info("server started", "sock", sockPath)
 	go srv.StartMonitor(cfg.Monitor.PollIntervalMs)
 	defer srv.Stop()
 
@@ -75,16 +82,21 @@ func runProcessHandler() {
 	defer cancel()
 	go healthMonitor(ctx, client, cfg, sessionName)
 
+	slog.Info("attaching to tmux session")
 	client.Attach()
 
 	if srv.ShutdownRequested() {
+		slog.Info("shutdown requested, cleaning up")
 		client.KillSession()
 		mgr.Clear()
+	} else {
+		slog.Info("detached, session kept alive")
 	}
 }
 
 func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
 	w, h, _ := term.GetSize(int(os.Stdout.Fd()))
+	slog.Info("setup new session", "width", w, "height", h)
 	if err := client.CreateSession(w, h); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: create session: %v\n", err)
 		os.Exit(1)
@@ -106,6 +118,7 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
 
 	exePath := resolveExe()
 	client.SendKeys(sn+":0.2", exePath+" --tui sessions")
+	client.SendKeys(sn+":0.1", exePath+" --tui log")
 	client.SendKeys(sn+":0.0", "echo 'roost: prefix+Space to toggle TUI'")
 
 	client.ResizePane(sn+":0.2", tuiWidth, 0)
@@ -116,6 +129,7 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
 }
 
 func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {
+	slog.Info("restore session")
 	client.Run("select-window", "-t", sn+":0")
 	client.SetOption(sn, "prefix", cfg.Tmux.Prefix)
 	tuiWidth := 100 - cfg.Tmux.PaneRatioHorizontal
@@ -123,6 +137,7 @@ func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {
 	client.ResizePane(sn+":0.2", tuiWidth, 0)
 	client.ResizePane(sn+":0.1", 0, logHeight)
 	setupKeyBindings(client, sn)
+	respawnLog(client, sn)
 	client.SelectPane(sn + ":0.0")
 }
 
@@ -147,6 +162,7 @@ func healthMonitor(ctx context.Context, client *tmux.Client, cfg *config.Config,
 				return
 			}
 			respawnTUIIfDead(client, sn)
+			respawnLogIfDead(client, sn)
 		}
 	}
 }
@@ -155,10 +171,48 @@ func respawnTUI(client *tmux.Client, sn string) {
 	client.RespawnPane(sn+":0.2", resolveExe()+" --tui sessions")
 }
 
+func respawnLog(client *tmux.Client, sn string) {
+	client.RespawnPane(sn+":0.1", resolveExe()+" --tui log")
+}
+
+func respawnLogIfDead(client *tmux.Client, sn string) {
+	dead, _ := client.Run("display-message", "-t", sn+":0.1", "-p", "#{pane_dead}")
+	if dead == "1" {
+		slog.Info("respawning dead pane", "pane", sn+":0.1")
+		respawnLog(client, sn)
+	}
+}
+
 func respawnTUIIfDead(client *tmux.Client, sn string) {
 	dead, _ := client.Run("display-message", "-t", sn+":0.2", "-p", "#{pane_dead}")
 	if dead == "1" {
+		slog.Info("respawning dead pane", "pane", sn+":0.2")
 		respawnTUI(client, sn)
+	}
+}
+
+func runLogViewer() {
+	cfg := loadConfig()
+	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
+
+	client, err := core.Dial(sockPath)
+	if err != nil {
+		// Server not ready — app log only mode
+		model := tui.NewLogModel(logger.LogFilePath(), nil)
+		if _, err := tea.NewProgram(model).Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
+			os.Exit(1)
+		}
+		return
+	}
+	defer client.Close()
+	client.StartListening()
+	client.Subscribe()
+
+	model := tui.NewLogModel(logger.LogFilePath(), client)
+	if _, err := tea.NewProgram(model).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
+		os.Exit(1)
 	}
 }
 

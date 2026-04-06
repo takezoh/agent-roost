@@ -3,6 +3,7 @@ package tmux
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -48,7 +49,11 @@ func (m *Monitor) DetectState(windowID string) session.State {
 	if err != nil {
 		return session.StateStopped
 	}
-	state, snap := computeTransition(content, m.snapshots[windowID], time.Now(), m.idleThreshold)
+	prev := m.snapshots[windowID]
+	state, snap := computeTransition(content, prev, time.Now(), m.idleThreshold)
+	if prev.lastState != state {
+		slog.Info("state changed", "window", windowID, "from", prev.lastState, "to", state)
+	}
 	m.snapshots[windowID] = snap
 	return state
 }

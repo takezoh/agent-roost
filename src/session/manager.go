@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -15,6 +16,7 @@ type TmuxClient interface {
 	KillWindow(windowID string) error
 	ListWindowIDs() ([]string, error)
 	SetOption(target, key, value string) error
+	PipePane(target, command string) error
 }
 
 type Manager struct {
@@ -32,6 +34,7 @@ func NewManager(tmux TmuxClient, dataDir string) *Manager {
 }
 
 func (m *Manager) Refresh() error {
+	slog.Info("refreshing sessions")
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -46,10 +49,12 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+	slog.Info("creating session", "project", project, "command", command, "id", id)
 
 	name := filepath.Base(project) + ":" + id
 	windowID, err := m.tmux.NewWindow(name, "cd "+project+" && "+command, project)
 	if err != nil {
+		slog.Error("create: window failed", "err", err)
 		return nil, err
 	}
 	m.tmux.SetOption(windowID, "remain-on-exit", "on")
@@ -57,10 +62,12 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 	EnsureLogDir(m.dataDir)
 	logFile, err := os.Create(LogPath(m.dataDir, id))
 	if err != nil {
+		slog.Error("create: log file failed", "err", err)
 		m.tmux.KillWindow(windowID)
 		return nil, err
 	}
 	logFile.Close()
+	m.tmux.PipePane(windowID+".0", "cat >> "+LogPath(m.dataDir, id))
 
 	s := &Session{
 		ID:        id,
@@ -74,16 +81,19 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 	m.mu.Lock()
 	m.sessions = append(m.sessions, s)
 	if err := m.save(); err != nil {
+		slog.Error("create: save failed", "err", err)
 		m.sessions = m.sessions[:len(m.sessions)-1]
 		m.mu.Unlock()
 		m.tmux.KillWindow(windowID)
 		return nil, err
 	}
 	m.mu.Unlock()
+	slog.Info("session created", "id", id, "window", windowID)
 	return s, nil
 }
 
 func (m *Manager) Stop(sessionID string) error {
+	slog.Info("stopping session", "id", sessionID)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -157,6 +167,7 @@ func (m *Manager) load() error {
 		return nil
 	}
 	if err != nil {
+		slog.Error("load sessions failed", "err", err)
 		return err
 	}
 	return json.Unmarshal(data, &m.sessions)
@@ -169,9 +180,14 @@ func (m *Manager) save() error {
 	}
 	tmpPath := m.filePath() + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		slog.Error("save sessions failed", "err", err)
 		return err
 	}
-	return os.Rename(tmpPath, m.filePath())
+	if err := os.Rename(tmpPath, m.filePath()); err != nil {
+		slog.Error("save sessions failed", "err", err)
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) reconcile() error {
@@ -192,6 +208,10 @@ func (m *Manager) reconcile() error {
 		} else {
 			changed = true
 		}
+	}
+	if changed {
+		removed := len(m.sessions) - len(filtered)
+		slog.Info("reconciled sessions", "removed", removed)
 	}
 	m.sessions = filtered
 
