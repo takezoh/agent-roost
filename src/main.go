@@ -104,6 +104,7 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
 
 	client.SetOption(sn+":0", "remain-on-exit", "on")
 	client.SetOption(sn, "prefix", cfg.Tmux.Prefix)
+	client.SetOption(sn, "mouse", "on")
 
 	tuiWidth := 100 - cfg.Tmux.PaneRatioHorizontal
 	logHeight := 100 - cfg.Tmux.PaneRatioVertical
@@ -132,6 +133,7 @@ func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {
 	slog.Info("restore session")
 	client.Run("select-window", "-t", sn+":0")
 	client.SetOption(sn, "prefix", cfg.Tmux.Prefix)
+	client.SetOption(sn, "mouse", "on")
 	tuiWidth := 100 - cfg.Tmux.PaneRatioHorizontal
 	logHeight := 100 - cfg.Tmux.PaneRatioVertical
 	client.ResizePane(sn+":0.2", tuiWidth, 0)
