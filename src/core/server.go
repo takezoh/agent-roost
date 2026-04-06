@@ -157,11 +157,11 @@ func (s *Server) handleCreateSession(cc *clientConn, args map[string]string) {
 		s.sendError(cc, err.Error())
 		return
 	}
-	activeID := args["active_window_id"]
-	if activeID != "" {
-		s.svc.Switch(sess, activeID)
-	}
-	s.sendResponse(cc, Message{Sessions: SessionsToInfo(s.svc.Sessions())})
+	s.svc.Switch(sess)
+	s.sendResponse(cc, Message{
+		Sessions:       SessionsToInfo(s.svc.Sessions()),
+		ActiveWindowID: s.svc.ActiveWindowID(),
+	})
 	s.broadcastSessions()
 }
 
@@ -202,11 +202,11 @@ func (s *Server) handlePreviewSession(cc *clientConn, args map[string]string) {
 		s.sendError(cc, "session not found: "+args["session_id"])
 		return
 	}
-	if err := s.svc.Preview(sess, args["active_window_id"]); err != nil {
+	if err := s.svc.Preview(sess); err != nil {
 		s.sendError(cc, err.Error())
 		return
 	}
-	s.sendResponse(cc, Message{})
+	s.sendResponse(cc, Message{ActiveWindowID: s.svc.ActiveWindowID()})
 }
 
 func (s *Server) handleSwitchSession(cc *clientConn, args map[string]string) {
@@ -215,11 +215,11 @@ func (s *Server) handleSwitchSession(cc *clientConn, args map[string]string) {
 		s.sendError(cc, "session not found: "+args["session_id"])
 		return
 	}
-	if err := s.svc.Switch(sess, args["active_window_id"]); err != nil {
+	if err := s.svc.Switch(sess); err != nil {
 		s.sendError(cc, err.Error())
 		return
 	}
-	s.sendResponse(cc, Message{})
+	s.sendResponse(cc, Message{ActiveWindowID: s.svc.ActiveWindowID()})
 }
 
 func (s *Server) handleFocusPane(cc *clientConn, args map[string]string) {
@@ -278,6 +278,7 @@ func (s *Server) broadcast(msg Message) {
 func (s *Server) broadcastSessions() {
 	msg := NewEvent("sessions-changed")
 	msg.Sessions = SessionsToInfo(s.svc.Sessions())
+	msg.ActiveWindowID = s.svc.ActiveWindowID()
 	s.broadcast(msg)
 }
 

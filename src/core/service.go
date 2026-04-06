@@ -11,11 +11,12 @@ import (
 )
 
 type Service struct {
-	Manager     *session.Manager
-	Monitor     *tmux.Monitor
-	Panes       tmux.PaneOperator
-	SessionName string
-	lastCount   int
+	Manager        *session.Manager
+	Monitor        *tmux.Monitor
+	Panes          tmux.PaneOperator
+	SessionName    string
+	activeWindowID string
+	lastCount      int
 }
 
 func NewService(mgr *session.Manager, mon *tmux.Monitor, panes tmux.PaneOperator, sessionName string) *Service {
@@ -27,17 +28,26 @@ func NewService(mgr *session.Manager, mon *tmux.Monitor, panes tmux.PaneOperator
 	}
 }
 
-func (s *Service) Preview(sess *session.Session, activeWindowID string) error {
-	cmds := s.buildSwapChain(sess, activeWindowID)
-	return s.Panes.RunChain(cmds...)
-}
-
-func (s *Service) Switch(sess *session.Session, activeWindowID string) error {
-	cmds := s.buildSwapChain(sess, activeWindowID)
+func (s *Service) Preview(sess *session.Session) error {
+	cmds := s.buildSwapChain(sess)
 	if err := s.Panes.RunChain(cmds...); err != nil {
 		return err
 	}
+	s.activeWindowID = sess.WindowID
+	return nil
+}
+
+func (s *Service) Switch(sess *session.Session) error {
+	cmds := s.buildSwapChain(sess)
+	if err := s.Panes.RunChain(cmds...); err != nil {
+		return err
+	}
+	s.activeWindowID = sess.WindowID
 	return s.Panes.SelectPane(s.SessionName + ":0.0")
+}
+
+func (s *Service) ActiveWindowID() string {
+	return s.activeWindowID
 }
 
 func (s *Service) FocusPane(pane string) {
@@ -93,11 +103,11 @@ func (s *Service) UpdateStates(states map[string]session.State) {
 	s.Manager.UpdateStates(states)
 }
 
-func (s *Service) buildSwapChain(sess *session.Session, activeWindowID string) [][]string {
+func (s *Service) buildSwapChain(sess *session.Session) [][]string {
 	pane0 := s.SessionName + ":0.0"
 	var cmds [][]string
-	if activeWindowID != "" {
-		cmds = append(cmds, []string{"swap-pane", "-d", "-s", pane0, "-t", activeWindowID + ".0"})
+	if s.activeWindowID != "" {
+		cmds = append(cmds, []string{"swap-pane", "-d", "-s", pane0, "-t", s.activeWindowID + ".0"})
 	}
 	cmds = append(cmds, []string{"swap-pane", "-d", "-s", pane0, "-t", sess.WindowID + ".0"})
 	cmds = append(cmds, []string{"respawn-pane", "-k", "-t", s.SessionName + ":0.1", session.TailCommand(s.Manager.DataDir(), sess.ID)})

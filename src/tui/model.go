@@ -108,6 +108,13 @@ func (m Model) handleServerEvent(msg core.Message) (tea.Model, tea.Cmd) {
 	case "sessions-changed":
 		m.sessions = msg.Sessions
 		m.rebuildItems()
+		if msg.ActiveWindowID != "" && msg.ActiveWindowID != m.active {
+			m.active = msg.ActiveWindowID
+			if i, _ := m.findItemByWindowID(msg.ActiveWindowID); i >= 0 {
+				m.cursor = i
+			}
+			return m, tea.Batch(m.listenEvents(), m.focusCmd("0.0"))
+		}
 	case "states-updated":
 		for i := range m.sessions {
 			if st, ok := msg.States[m.sessions[i].WindowID]; ok {
@@ -193,15 +200,15 @@ func (m Model) listenEvents() tea.Cmd {
 
 func (m Model) previewCmd(sess *core.SessionInfo) tea.Cmd {
 	return func() tea.Msg {
-		err := m.client.PreviewSession(sess.ID, m.active)
-		return previewDoneMsg{windowID: sess.WindowID, err: err}
+		activeWID, err := m.client.PreviewSession(sess.ID)
+		return previewDoneMsg{windowID: activeWID, err: err}
 	}
 }
 
 func (m Model) switchCmd(sess *core.SessionInfo) tea.Cmd {
 	return func() tea.Msg {
-		err := m.client.SwitchSession(sess.ID, m.active)
-		return switchDoneMsg{windowID: sess.WindowID, err: err}
+		activeWID, err := m.client.SwitchSession(sess.ID)
+		return switchDoneMsg{windowID: activeWID, err: err}
 	}
 }
 
@@ -272,6 +279,33 @@ func (m Model) cursorProjectName() string {
 		return ""
 	}
 	return m.items[m.cursor].project
+}
+
+func (m Model) hasWindowID(wid string) bool {
+	for _, s := range m.sessions {
+		if s.WindowID == wid {
+			return true
+		}
+	}
+	return false
+}
+
+func (m Model) findItemBySessionID(id string) (int, *core.SessionInfo) {
+	for i, item := range m.items {
+		if item.session != nil && item.session.ID == id {
+			return i, item.session
+		}
+	}
+	return -1, nil
+}
+
+func (m Model) findItemByWindowID(wid string) (int, *core.SessionInfo) {
+	for i, item := range m.items {
+		if item.session != nil && item.session.WindowID == wid {
+			return i, item.session
+		}
+	}
+	return -1, nil
 }
 
 func (m Model) cursorSession() *core.SessionInfo {

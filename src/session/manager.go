@@ -47,7 +47,7 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 		return nil, err
 	}
 
-	name := filepath.Base(project)
+	name := filepath.Base(project) + ":" + id
 	windowID, err := m.tmux.NewWindow(name, "cd "+project+" && "+command, project)
 	if err != nil {
 		return nil, err

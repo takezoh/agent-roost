@@ -116,20 +116,18 @@ func (c *Client) Detach() error {
 	return err
 }
 
-func (c *Client) PreviewSession(sessionID, activeWindowID string) error {
-	_, err := c.sendCommand("preview-session", map[string]string{
-		"session_id":       sessionID,
-		"active_window_id": activeWindowID,
+func (c *Client) PreviewSession(sessionID string) (string, error) {
+	resp, err := c.sendCommand("preview-session", map[string]string{
+		"session_id": sessionID,
 	})
-	return err
+	return resp.ActiveWindowID, err
 }
 
-func (c *Client) SwitchSession(sessionID, activeWindowID string) error {
-	_, err := c.sendCommand("switch-session", map[string]string{
-		"session_id":       sessionID,
-		"active_window_id": activeWindowID,
+func (c *Client) SwitchSession(sessionID string) (string, error) {
+	resp, err := c.sendCommand("switch-session", map[string]string{
+		"session_id": sessionID,
 	})
-	return err
+	return resp.ActiveWindowID, err
 }
 
 func (c *Client) FocusPane(pane string) error {

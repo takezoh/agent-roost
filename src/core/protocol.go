@@ -18,7 +18,8 @@ type Message struct {
 	Event    string                    `json:"event,omitempty"`
 	Sessions []SessionInfo             `json:"sessions,omitempty"`
 	States   map[string]session.State  `json:"states,omitempty"`
-	Error    string                    `json:"error,omitempty"`
+	Error          string                    `json:"error,omitempty"`
+	ActiveWindowID string                    `json:"active_window_id,omitempty"`
 }
 
 type SessionInfo struct {
