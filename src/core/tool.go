@@ -1,10 +1,8 @@
-package tui
+package core
 
 import (
 	"path/filepath"
 	"strings"
-
-	"github.com/take/agent-roost/core"
 )
 
 type Param struct {
@@ -20,7 +18,7 @@ type Tool struct {
 }
 
 type ToolContext struct {
-	Client *core.Client
+	Client *Client
 	Config ToolConfig
 	Args   map[string]string
 }
@@ -32,8 +30,8 @@ type ToolConfig struct {
 }
 
 type Registry struct {
-	tools   []Tool
-	byName  map[string]*Tool
+	tools  []Tool
+	byName map[string]*Tool
 }
 
 func NewRegistry() *Registry {
@@ -80,16 +78,6 @@ func DefaultRegistry() *Registry {
 		Run: func(ctx *ToolContext, args map[string]string) error {
 			_, err := ctx.Client.CreateSession(args["project"], args["command"])
 			return err
-		},
-	})
-	r.Register(Tool{
-		Name:        "add-project",
-		Description: "プロジェクトを一覧に追加",
-		Params: []Param{
-			{Name: "project", Options: func(ctx *ToolContext) []string { return ctx.Config.Projects }},
-		},
-		Run: func(ctx *ToolContext, args map[string]string) error {
-			return nil // Model 側で projects map に追加
 		},
 	})
 	r.Register(Tool{

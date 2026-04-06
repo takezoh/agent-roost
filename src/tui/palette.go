@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
+	"github.com/take/agent-roost/core"
 )
 
 type palettePhase int
@@ -18,16 +19,16 @@ const (
 )
 
 type PaletteModel struct {
-	registry    *Registry
-	ctx         *ToolContext
+	registry    *core.Registry
+	ctx         *core.ToolContext
 	initialTool string
 	phase       palettePhase
 	input       string
-	filtered    []Tool
+	filtered    []core.Tool
 	cursor      int
 
 	// パラメータ入力
-	selectedTool *Tool
+	selectedTool *core.Tool
 	paramIndex   int
 	paramArgs    map[string]string
 	paramOptions []string
@@ -38,7 +39,7 @@ type PaletteModel struct {
 	err    error
 }
 
-func NewPaletteModel(registry *Registry, ctx *ToolContext, initialTool string) PaletteModel {
+func NewPaletteModel(registry *core.Registry, ctx *core.ToolContext, initialTool string) PaletteModel {
 	m := PaletteModel{
 		registry:    registry,
 		ctx:         ctx,
@@ -120,7 +121,7 @@ func (m PaletteModel) handleToolSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	return m, nil
 }
 
-func (m PaletteModel) startTool(tool *Tool) (tea.Model, tea.Cmd) {
+func (m PaletteModel) startTool(tool *core.Tool) (tea.Model, tea.Cmd) {
 	m.selectedTool = tool
 	m.paramArgs = make(map[string]string)
 
@@ -211,7 +212,7 @@ func (m PaletteModel) filterParamOptions() []string {
 	var matched []string
 	for _, o := range m.paramOptions {
 		if strings.Contains(strings.ToLower(o), q) ||
-			strings.Contains(strings.ToLower(ProjectDisplayName(o)), q) {
+			strings.Contains(strings.ToLower(core.ProjectDisplayName(o)), q) {
 			matched = append(matched, o)
 		}
 	}
@@ -266,7 +267,7 @@ func (m PaletteModel) View() tea.View {
 
 		filtered := m.filterParamOptions()
 		for i, o := range filtered {
-			display := ProjectDisplayName(o)
+			display := core.ProjectDisplayName(o)
 			if i == m.paramCursor {
 				b.WriteString(selItemStyle.Render(fmt.Sprintf("▸ %s", display)) + "\n")
 			} else {

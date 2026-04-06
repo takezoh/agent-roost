@@ -38,13 +38,13 @@ func main() {
 		}
 		return
 	}
-	runProcessHandler()
+	runCoordinator()
 }
 
-func runProcessHandler() {
+func runCoordinator() {
 	cfg := loadConfig()
 	sessionName := cfg.Tmux.SessionName
-	slog.Info("starting process handler", "session", sessionName)
+	slog.Info("starting coordinator", "session", sessionName)
 	client := tmux.NewClient(sessionName)
 
 	if client.SessionExists() {
@@ -265,10 +265,10 @@ func runPalette(args []string) {
 		}
 	}
 
-	registry := tui.DefaultRegistry()
-	ctx := &tui.ToolContext{
+	registry := core.DefaultRegistry()
+	ctx := &core.ToolContext{
 		Client: client,
-		Config: tui.ToolConfig{
+		Config: core.ToolConfig{
 			DefaultCommand: cfg.Session.DefaultCommand,
 			Commands:       cfg.Session.Commands,
 			Projects:       cfg.ListProjects(),

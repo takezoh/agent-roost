@@ -20,14 +20,13 @@ type listItem struct {
 type Model struct {
 	client   *core.Client
 	cfg      *config.Config
-	registry *Registry
+	registry *core.Registry
 	keys     KeyMap
 
 	sessions []core.SessionInfo
 	items    []listItem
 	cursor   int
-	folded   map[string]bool
-	projects map[string]string
+	folded map[string]bool
 	active string
 	width  int
 	height int
@@ -50,10 +49,9 @@ func NewModel(client *core.Client, cfg *config.Config) Model {
 	return Model{
 		client:   client,
 		cfg:      cfg,
-		registry: DefaultRegistry(),
+		registry: core.DefaultRegistry(),
 		keys:     DefaultKeyMap(),
-		folded:   make(map[string]bool),
-		projects: make(map[string]string),
+		folded: make(map[string]bool),
 	}
 }
 
@@ -150,8 +148,6 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, m.launchToolCmd("new-session", map[string]string{
 			"project": m.cursorProjectPath(),
 		})
-	case key.Matches(msg, m.keys.AddProject):
-		return m, m.launchToolCmd("add-project", nil)
 	case key.Matches(msg, m.keys.Stop):
 		if s := m.cursorSession(); s != nil {
 			return m, m.launchToolCmd("stop-session", map[string]string{
@@ -233,12 +229,6 @@ func (m *Model) rebuildItems() {
 		byProject[name] = append(byProject[name], *s)
 		allProjects[name] = s.Project
 	}
-	for name, path := range m.projects {
-		if _, exists := allProjects[name]; !exists {
-			allProjects[name] = path
-		}
-	}
-
 	names := make([]string, 0, len(allProjects))
 	for name := range allProjects {
 		names = append(names, name)

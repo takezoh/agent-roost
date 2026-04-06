@@ -1,4 +1,4 @@
-package tui
+package core
 
 import "testing"
 
@@ -48,8 +48,8 @@ func TestRegistryMatchByDescription(t *testing.T) {
 
 func TestDefaultRegistry(t *testing.T) {
 	r := DefaultRegistry()
-	if len(r.All()) != 5 {
-		t.Fatalf("expected 5 tools, got %d", len(r.All()))
+	if len(r.All()) != 4 {
+		t.Fatalf("expected 4 tools, got %d", len(r.All()))
 	}
 	for _, name := range []string{"new-session", "shutdown"} {
 		if r.Get(name) == nil {

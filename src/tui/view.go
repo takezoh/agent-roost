@@ -110,7 +110,6 @@ func renderHelp(keys KeyMap) string {
 	items := []string{
 		keys.New.Help().Key + ":" + keys.New.Help().Desc,
 		keys.NewCmd.Help().Key + ":" + keys.NewCmd.Help().Desc,
-		keys.AddProject.Help().Key + ":" + keys.AddProject.Help().Desc,
 		keys.Enter.Help().Key + ":" + keys.Enter.Help().Desc,
 		keys.Stop.Help().Key + ":" + keys.Stop.Help().Desc,
 	}
