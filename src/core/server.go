@@ -180,9 +180,17 @@ func (s *Server) handleStopSession(cc *clientConn, args map[string]string) {
 		s.sendError(cc, "missing id arg")
 		return
 	}
+	sess := s.findSession(id)
+	var windowID string
+	if sess != nil {
+		windowID = sess.WindowID
+	}
 	if err := s.svc.Manager.Stop(id); err != nil {
 		s.sendError(cc, err.Error())
 		return
+	}
+	if windowID != "" {
+		s.svc.ClearActive(windowID)
 	}
 	s.sendResponse(cc, Message{})
 	s.broadcastSessions()
@@ -214,7 +222,7 @@ func (s *Server) handlePreviewSession(cc *clientConn, args map[string]string) {
 		return
 	}
 	if err := s.svc.Preview(sess); err != nil {
-		s.sendError(cc, err.Error())
+		s.sendResponse(cc, Message{})
 		return
 	}
 	s.sendResponse(cc, Message{
@@ -231,7 +239,7 @@ func (s *Server) handleSwitchSession(cc *clientConn, args map[string]string) {
 		return
 	}
 	if err := s.svc.Switch(sess); err != nil {
-		s.sendError(cc, err.Error())
+		s.sendResponse(cc, Message{})
 		return
 	}
 	s.sendResponse(cc, Message{

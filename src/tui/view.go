@@ -39,11 +39,6 @@ func (m Model) View() tea.View {
 		b.WriteString("\n")
 	}
 
-	if m.err != nil {
-		b.WriteString(stoppedStyle.Render("ERR: " + m.err.Error()))
-		b.WriteString("\n")
-	}
-
 	b.WriteString("\n")
 	b.WriteString(renderHelp(m.keys))
 

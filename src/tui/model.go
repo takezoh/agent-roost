@@ -28,10 +28,9 @@ type Model struct {
 	cursor   int
 	folded   map[string]bool
 	projects map[string]string
-	active   string
-	width    int
-	height   int
-	err      error
+	active string
+	width  int
+	height int
 }
 
 type serverEventMsg core.Message
@@ -79,18 +78,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleServerEvent(core.Message(msg))
 
 	case previewDoneMsg:
-		if msg.err == nil {
+		if msg.err == nil && msg.windowID != "" {
 			m.active = msg.windowID
-		} else {
-			m.err = msg.err
 		}
 		return m, m.focusCmd("0.2")
 
 	case switchDoneMsg:
-		if msg.err == nil {
+		if msg.err == nil && msg.windowID != "" {
 			m.active = msg.windowID
-		} else {
-			m.err = msg.err
 		}
 		return m, m.focusCmd("0.0")
 

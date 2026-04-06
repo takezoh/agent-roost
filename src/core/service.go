@@ -33,6 +33,7 @@ func (s *Service) Preview(sess *session.Session) error {
 	slog.Info("preview", "window", sess.WindowID)
 	cmds := s.buildSwapChain(sess)
 	if err := s.Panes.RunChain(cmds...); err != nil {
+		slog.Error("preview failed", "target", sess.WindowID, "active", s.activeWindowID, "err", err)
 		return err
 	}
 	s.activeWindowID = sess.WindowID
@@ -43,7 +44,7 @@ func (s *Service) Switch(sess *session.Session) error {
 	slog.Info("switch", "window", sess.WindowID)
 	cmds := s.buildSwapChain(sess)
 	if err := s.Panes.RunChain(cmds...); err != nil {
-		slog.Error("switch failed", "err", err)
+		slog.Error("switch failed", "target", sess.WindowID, "active", s.activeWindowID, "err", err)
 		return err
 	}
 	s.activeWindowID = sess.WindowID
@@ -52,6 +53,13 @@ func (s *Service) Switch(sess *session.Session) error {
 
 func (s *Service) ActiveWindowID() string {
 	return s.activeWindowID
+}
+
+func (s *Service) ClearActive(windowID string) {
+	if s.activeWindowID == windowID {
+		slog.Info("clear active", "window", windowID)
+		s.activeWindowID = ""
+	}
 }
 
 func (s *Service) ActiveSessionLogPath() string {

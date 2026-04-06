@@ -120,6 +120,28 @@ func TestActiveWindowID(t *testing.T) {
 	}
 }
 
+func TestClearActive_MatchingWindow(t *testing.T) {
+	svc, panes, _ := setupService(t)
+	svc.Preview(&session.Session{ID: "a", WindowID: "@2"})
+	svc.ClearActive("@2")
+	if svc.ActiveWindowID() != "" {
+		t.Fatalf("expected empty, got %s", svc.ActiveWindowID())
+	}
+	svc.Preview(&session.Session{ID: "b", WindowID: "@3"})
+	if len(panes.chainCalls) != 1 {
+		t.Fatalf("expected 1 command after clear, got %d", len(panes.chainCalls))
+	}
+}
+
+func TestClearActive_NonMatchingWindow(t *testing.T) {
+	svc, _, _ := setupService(t)
+	svc.Preview(&session.Session{ID: "a", WindowID: "@2"})
+	svc.ClearActive("@99")
+	if svc.ActiveWindowID() != "@2" {
+		t.Fatalf("expected @2, got %s", svc.ActiveWindowID())
+	}
+}
+
 func TestActiveSessionLogPath(t *testing.T) {
 	svc, _, mgr := setupService(t)
 	if svc.ActiveSessionLogPath() != "" {
