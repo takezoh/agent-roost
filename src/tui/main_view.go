@@ -20,7 +20,7 @@ var (
 func (m MainModel) View() tea.View {
 	var b strings.Builder
 
-	b.WriteString(mainTitleStyle.Render("roost"))
+	b.WriteString(mainTitleStyle.Render("ROOST"))
 	b.WriteString("\n\n")
 
 	renderKeybindings(&b)

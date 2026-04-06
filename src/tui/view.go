@@ -25,7 +25,7 @@ var (
 func (m Model) View() tea.View {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("Sessions"))
+	b.WriteString(titleStyle.Render("SESSIONS"))
 	b.WriteString("\n\n")
 
 	for i, item := range m.items {

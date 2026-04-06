@@ -288,11 +288,11 @@ func (m LogModel) View() tea.View {
 
 	var appLabel, sessionLabel string
 	if m.activeTab == tabApp {
-		appLabel = activeTabStyle.Render("[App]")
-		sessionLabel = inactiveTabStyle.Render(" Session")
+		appLabel = activeTabStyle.Render("[APP]")
+		sessionLabel = inactiveTabStyle.Render(" SESSION")
 	} else {
-		appLabel = inactiveTabStyle.Render(" App ")
-		sessionLabel = activeTabStyle.Render("[Session]")
+		appLabel = inactiveTabStyle.Render(" APP ")
+		sessionLabel = activeTabStyle.Render("[SESSION]")
 	}
 	header := appLabel + sessionLabel
 
