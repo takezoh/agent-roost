@@ -6,9 +6,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
-
-	"github.com/take/agent-roost/config"
 )
 
 type TmuxClient interface {
@@ -19,49 +18,27 @@ type TmuxClient interface {
 }
 
 type Manager struct {
-	sessions []*Session
-	filePath string
 	tmux     TmuxClient
-	cfg      *config.Config
 	dataDir  string
+	mu       sync.RWMutex
+	sessions []*Session
 }
 
-func NewManager(tmuxClient TmuxClient, cfg *config.Config) (*Manager, error) {
-	dataDir := cfg.ResolveDataDir()
-	m := &Manager{
-		filePath: sessionsFilePath(dataDir),
-		tmux:     tmuxClient,
-		cfg:      cfg,
-		dataDir:  dataDir,
+func NewManager(tmux TmuxClient, dataDir string) *Manager {
+	return &Manager{
+		tmux:    tmux,
+		dataDir: dataDir,
 	}
-	if err := m.Load(); err != nil {
-		return nil, err
-	}
-	return m, nil
 }
 
-func (m *Manager) Load() error {
-	data, err := os.ReadFile(m.filePath)
-	if os.IsNotExist(err) {
-		m.sessions = []*Session{}
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return json.Unmarshal(data, &m.sessions)
-}
+func (m *Manager) Refresh() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-func (m *Manager) Save() error {
-	data, err := json.MarshalIndent(m.sessions, "", "  ")
-	if err != nil {
+	if err := m.load(); err != nil {
 		return err
 	}
-	tmpPath := m.filePath + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, m.filePath)
+	return m.reconcile()
 }
 
 func (m *Manager) Create(project, command string) (*Session, error) {
@@ -92,38 +69,50 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 		State:     StateRunning,
 	}
 
+	m.mu.Lock()
 	m.sessions = append(m.sessions, s)
-	if err := m.Save(); err != nil {
+	err = m.save()
+	m.mu.Unlock()
+	if err != nil {
 		return nil, err
 	}
 	return s, nil
 }
 
 func (m *Manager) Stop(sessionID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	for i, s := range m.sessions {
 		if s.ID == sessionID {
 			if err := m.tmux.KillWindow(s.WindowID); err != nil {
 				return err
 			}
 			m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
-			return m.Save()
+			return m.save()
 		}
 	}
 	return nil
 }
 
 func (m *Manager) Clear() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.sessions = nil
-	return m.Save()
+	return m.save()
 }
 
 func (m *Manager) All() []*Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	out := make([]*Session, len(m.sessions))
 	copy(out, m.sessions)
 	return out
 }
 
 func (m *Manager) ByProject() map[string][]*Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	grouped := make(map[string][]*Session)
 	for _, s := range m.sessions {
 		key := s.Name()
@@ -133,6 +122,8 @@ func (m *Manager) ByProject() map[string][]*Session {
 }
 
 func (m *Manager) FindByID(id string) *Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	for _, s := range m.sessions {
 		if s.ID == id {
 			return s
@@ -142,6 +133,8 @@ func (m *Manager) FindByID(id string) *Session {
 }
 
 func (m *Manager) UpdateStates(states map[string]State) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	for _, s := range m.sessions {
 		if st, ok := states[s.WindowID]; ok {
 			s.State = st
@@ -149,7 +142,35 @@ func (m *Manager) UpdateStates(states map[string]State) {
 	}
 }
 
-func (m *Manager) Reconcile() error {
+func (m *Manager) DataDir() string {
+	return m.dataDir
+}
+
+func (m *Manager) load() error {
+	data, err := os.ReadFile(m.filePath())
+	if os.IsNotExist(err) {
+		m.sessions = []*Session{}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, &m.sessions)
+}
+
+func (m *Manager) save() error {
+	data, err := json.MarshalIndent(m.sessions, "", "  ")
+	if err != nil {
+		return err
+	}
+	tmpPath := m.filePath() + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, m.filePath())
+}
+
+func (m *Manager) reconcile() error {
 	ids, err := m.tmux.ListWindowIDs()
 	if err != nil {
 		return err
@@ -171,17 +192,13 @@ func (m *Manager) Reconcile() error {
 	m.sessions = filtered
 
 	if changed {
-		return m.Save()
+		return m.save()
 	}
 	return nil
 }
 
-func sessionsFilePath(dataDir string) string {
-	return filepath.Join(dataDir, "sessions.json")
-}
-
-func (m *Manager) DataDir() string {
-	return m.dataDir
+func (m *Manager) filePath() string {
+	return filepath.Join(m.dataDir, "sessions.json")
 }
 
 func generateID() (string, error) {

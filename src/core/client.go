@@ -51,9 +51,7 @@ func (c *Client) StartListening() {
 }
 
 func (c *Client) Subscribe() {
-	c.mu.Lock()
-	c.encoder.Encode(NewCommand("subscribe", nil))
-	c.mu.Unlock()
+	c.sendCommand("subscribe", nil)
 }
 
 func (c *Client) listen() {

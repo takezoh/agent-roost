@@ -50,12 +50,8 @@ func runProcessHandler() {
 		setupNewSession(client, cfg, sessionName)
 	}
 
-	mgr, err := session.NewManager(client, cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "roost: manager: %v\n", err)
-		os.Exit(1)
-	}
-	mgr.Reconcile()
+	mgr := session.NewManager(client, cfg.ResolveDataDir())
+	mgr.Refresh()
 
 	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec)
 	svc := core.NewService(mgr, monitor, client, sessionName)
@@ -68,6 +64,8 @@ func runProcessHandler() {
 	}
 	go srv.StartMonitor(cfg.Monitor.PollIntervalMs)
 	defer srv.Stop()
+
+	respawnTUI(client, sessionName)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -120,7 +118,6 @@ func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {
 	logHeight := 100 - cfg.Tmux.PaneRatioVertical
 	client.ResizePane(sn+":0.2", tuiWidth, 0)
 	client.ResizePane(sn+":0.1", 0, logHeight)
-	respawnTUIIfDead(client, sn)
 	setupKeyBindings(client, sn)
 	client.SelectPane(sn + ":0.0")
 }
@@ -150,10 +147,14 @@ func healthMonitor(ctx context.Context, client *tmux.Client, cfg *config.Config,
 	}
 }
 
+func respawnTUI(client *tmux.Client, sn string) {
+	client.RespawnPane(sn+":0.2", resolveExe()+" --tui sessions")
+}
+
 func respawnTUIIfDead(client *tmux.Client, sn string) {
 	dead, _ := client.Run("display-message", "-t", sn+":0.2", "-p", "#{pane_dead}")
 	if dead == "1" {
-		client.RespawnPane(sn+":0.2", resolveExe()+" --tui sessions")
+		respawnTUI(client, sn)
 	}
 }
 

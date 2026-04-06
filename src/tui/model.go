@@ -35,6 +35,7 @@ type Model struct {
 }
 
 type serverEventMsg core.Message
+type disconnectMsg struct{}
 
 type previewDoneMsg struct {
 	windowID string
@@ -70,6 +71,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		return m, nil
+
+	case disconnectMsg:
+		return m, tea.Quit
 
 	case serverEventMsg:
 		return m.handleServerEvent(core.Message(msg))
@@ -181,7 +185,7 @@ func (m Model) listenEvents() tea.Cmd {
 	return func() tea.Msg {
 		msg, ok := <-m.client.Events()
 		if !ok {
-			return nil
+			return disconnectMsg{}
 		}
 		return serverEventMsg(msg)
 	}

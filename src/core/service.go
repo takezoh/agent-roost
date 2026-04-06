@@ -64,13 +64,12 @@ func (s *Service) LaunchTool(toolName string, args map[string]string) {
 
 func (s *Service) RefreshSessions() (changed bool, latest *session.Session) {
 	oldCount := len(s.Manager.All())
-	s.Manager.Load()
-	s.Manager.Reconcile()
-	newCount := len(s.Manager.All())
+	s.Manager.Refresh()
+	sessions := s.Manager.All()
+	newCount := len(sessions)
 	if newCount != oldCount {
 		changed = true
 		if newCount > oldCount {
-			sessions := s.Manager.All()
 			latest = sessions[len(sessions)-1]
 		}
 	}
