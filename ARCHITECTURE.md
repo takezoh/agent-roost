@@ -116,26 +116,7 @@ Response は `sendResponse` メソッドで統一送信。Broadcast は `subscri
 
 ## ツールシステム
 
-すべての操作はツールとして抽象化。
-
-```go
-type Tool struct {
-    Name        string
-    Description string
-    Params      []Param
-    Run         func(ctx *ToolContext, args map[string]string) error
-}
-```
-
-| Tool | Params | 機能 |
-|------|--------|------|
-| `new-session` | project, command | tmux window 作成 + sessions.json 永続化 |
-| `add-project` | project | TUI の projects map に追加 |
-| `stop-session` | session_id | tmux window 削除 + sessions.json 更新 |
-| `detach` | - | tmux detach-client |
-| `shutdown` | - | 全終了 |
-
-TUI/パレットはツール実行をソケット経由でサーバーに委譲。パレットがパラメータ補完を担当。
+すべての操作は `Tool` として抽象化。TUI・パレット・将来の SDK から同じインターフェースで実行可能。ツールはパラメータ定義（`Param`）を持ち、パレットが不足パラメータを補完する。TUI/パレットはツール実行をソケット経由でサーバーに委譲。
 
 ## セッション切替
 
@@ -164,37 +145,15 @@ capture-pane で最後5行取得 → SHA256 ハッシュ比較
 └── エラー → StateStopped (■ 赤)
 ```
 
-## キーバインド
+## キー入力の処理分担
 
-### prefix キー（tmux レベル）
+| レベル | 処理者 | 例 |
+|--------|--------|-----|
+| prefix キー | tmux bind-key (プロセスハンドラが設定) | Space, d, q, p |
+| TUI キー | セッション一覧の Bubbletea | j/k, Enter, n, N, Tab |
+| パレットキー | パレットの Bubbletea | Esc, Enter, 文字入力 |
 
-| キー | アクション |
-|------|-----------|
-| `prefix Space` | Pane 0.0 ↔ Pane 0.2 フォーカストグル |
-| `prefix d` | detach |
-| `prefix q` | 全終了 |
-| `prefix p` | コマンドパレット |
-
-### TUI キー（Pane 0.2 フォーカス時）
-
-| キー | アクション |
-|------|-----------|
-| `j`/`k`, `↑`/`↓` | カーソル移動 (プレビュー連動) |
-| `Enter` | セッション切替 → メインにフォーカス |
-| `n` | new-session (project=cursor, command=default) |
-| `N` | new-session (project=cursor, command=prompt) |
-| `p` | add-project |
-| `d` | stop-session |
-| `Tab` | プロジェクト折りたたみ |
-
-### パレットキー（popup 内）
-
-| キー | アクション |
-|------|-----------|
-| 文字入力 | fuzzy filter |
-| `↑`/`↓`, `C-p`/`C-n` | カーソル移動 |
-| `Enter` | 選択 |
-| `Esc` | 閉じる / 戻る |
+prefix キーは tmux が横取り。bare key は各 pane のプロセスが直接受信。
 
 ## インターフェース
 
