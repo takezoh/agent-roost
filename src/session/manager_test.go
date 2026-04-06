@@ -7,9 +7,10 @@ import (
 )
 
 type mockTmux struct {
-	nextWindowID string
-	windows      map[string]bool
-	options      map[string]string
+	nextWindowID   string
+	windows        map[string]bool
+	options        map[string]string
+	lastNewCommand string
 }
 
 func newMockTmux() *mockTmux {
@@ -23,6 +24,7 @@ func newMockTmux() *mockTmux {
 func (m *mockTmux) NewWindow(name, command, startDir string) (string, error) {
 	id := m.nextWindowID
 	m.windows[id] = true
+	m.lastNewCommand = command
 	return id, nil
 }
 
@@ -171,6 +173,16 @@ func TestFindByID(t *testing.T) {
 
 	if mgr.FindByID("nonexistent") != nil {
 		t.Fatal("expected nil for nonexistent ID")
+	}
+}
+
+func TestCreateUsesExecPrefix(t *testing.T) {
+	mgr, tmux := setupManager(t)
+
+	mgr.Create("/tmp/proj", "claude")
+
+	if tmux.lastNewCommand != "exec claude" {
+		t.Fatalf("expected 'exec claude', got %q", tmux.lastNewCommand)
 	}
 }
 

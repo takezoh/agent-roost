@@ -52,7 +52,7 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 	slog.Info("creating session", "project", project, "command", command, "id", id)
 
 	name := filepath.Base(project) + ":" + id
-	windowID, err := m.tmux.NewWindow(name, "cd "+project+" && "+command, project)
+	windowID, err := m.tmux.NewWindow(name, "exec "+command, project)
 	if err != nil {
 		slog.Error("create: window failed", "err", err)
 		return nil, err
