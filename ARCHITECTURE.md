@@ -120,6 +120,186 @@ Response は `sendResponse` メソッドで統一送信。Broadcast は `subscri
 
 すべての操作は `Tool` として抽象化。TUI・パレット・将来の SDK から同じインターフェースで実行可能。ツールはパラメータ定義（`Param`）を持ち、パレットが不足パラメータを補完する。TUI/パレットはツール実行をソケット経由でサーバーに委譲。
 
+## UX 処理フロー
+
+ユーザー操作が各レイヤーをどう通過するかを主要フロー別に示す。
+
+### プレビュー (j/k でカーソル移動)
+
+```
+User        TUI (Model)           Client         Server          Service         tmux
+ │ KeyPress    │                     │              │               │              │
+ │───────────→ │ handleKey()         │              │               │              │
+ │             │ cursor++            │              │               │              │
+ │             │ previewCmd(sess)    │              │               │              │
+ │             │────────────────────→│ PreviewSession(id)           │              │
+ │             │                     │──── sock ───→│ dispatch()    │              │
+ │             │                     │              │──────────────→│ Preview()    │
+ │             │                     │              │               │ buildSwapChain()
+ │             │                     │              │               │─────────────→│ swap-pane -d
+ │             │                     │              │               │              │ (旧を戻す)
+ │             │                     │              │               │─────────────→│ swap-pane -d
+ │             │                     │              │               │              │ (新を表示)
+ │             │                     │←── resp ────│               │              │
+ │             │←─ previewDoneMsg ──│              │               │              │
+ │             │ active = windowID   │              │               │              │
+ │             │ focusCmd("0.2")     │              │               │              │
+ │             │────────────────────→│ FocusPane("0.2")             │              │
+ │             │                     │              │               │─────────────→│ select-pane
+ │             │ View() 再描画       │              │               │              │
+```
+
+**責務**: Model はカーソル管理と Cmd 発行のみ。swap-pane ロジックは Service.buildSwapChain が担う。
+
+### スイッチ (Enter)
+
+```
+User        TUI (Model)           Client         Server          Service         tmux
+ │ Enter       │                     │              │               │              │
+ │───────────→ │ switchCmd(sess)     │              │               │              │
+ │             │────────────────────→│ SwitchSession(id)            │              │
+ │             │                     │──── sock ───→│ dispatch()    │              │
+ │             │                     │              │──────────────→│ Switch()     │
+ │             │                     │              │               │ buildSwapChain()
+ │             │                     │              │               │─────────────→│ swap-pane -d ×N
+ │             │                     │              │               │─────────────→│ select-pane 0.0
+ │             │                     │←── resp ────│               │              │
+ │             │←─ switchDoneMsg ───│              │               │              │
+ │             │ active = windowID   │              │               │              │
+ │             │ focusCmd("0.0")  ──→│              │               │              │
+ │             │                     │              │               │              │
+```
+
+**Preview との違い**: Switch は SelectPane(0.0) でメインペインにフォーカスを移す。Preview は 0.2 (TUI) にフォーカスを残す。
+
+### セッション作成 (n)
+
+```
+User        TUI (Model)    Client     Server     Service    Manager    tmux     Palette
+ │ 'n'         │              │          │          │          │         │          │
+ │────────────→│ launchToolCmd │          │          │          │         │          │
+ │             │──────────────→│ LaunchTool("new-session", args)        │          │
+ │             │               │── sock ─→│─────────→│ LaunchTool()     │          │
+ │             │               │          │          │─────────────────→│ display-popup
+ │             │               │          │          │          │        │──spawn──→│
+ │             │               │          │          │          │        │          │
+ │             │               │          │          │          │        │  (ユーザーがパラメータ入力)
+ │             │               │          │          │          │        │          │
+ │             │               │          │  ┌───────│──────────│────────│──── sock ┤
+ │             │               │          │  │ create-session(project, command)     │
+ │             │               │          │──┘       │          │        │          │
+ │             │               │          │─────────→│          │        │          │
+ │             │               │          │          │─────────→│ Create()          │
+ │             │               │          │          │          │───────→│ new-window
+ │             │               │          │          │          │───────→│ pipe-pane
+ │             │               │          │          │          │ save JSON          │
+ │             │               │          │          │ Switch() │        │          │
+ │             │               │          │          │─────────────────→│ swap-pane
+ │             │               │          │ broadcastSessions()│        │          │
+ │             │  ┌── event ──│←─────────│          │          │        │          │
+ │             │←─┤ sessions-changed      │          │          │        │          │
+ │             │  rebuildItems()          │          │          │        │          │
+```
+
+**責務**: TUI は popup を起動するだけ。Palette が独立プロセスとしてパラメータ収集→コマンド送信を行う。結果は broadcast 経由で TUI に到達。
+
+### 状態更新ループ (バックグラウンド)
+
+```
+              Server              Service        Monitor         tmux
+               │ ticker (1s)        │              │              │
+               │───────────────────→│ PollStates() │              │
+               │                    │─────────────→│ PollAll()    │
+               │                    │              │─────────────→│ capture-pane ×N
+               │                    │              │ computeTransition()
+               │                    │              │ (hash比較 + 状態判定)
+               │                    │←─ states ───│              │
+               │                    │ UpdateStates()              │
+               │                    │─→ Manager.UpdateStates()    │
+               │← states ─────────│              │              │
+               │                    │              │              │
+               │ broadcast("states-updated", states)              │
+               │                    │              │              │
+            ┌──│──────────────────────────────────────────────────│
+            │  │                    │              │              │
+      TUI (Model)                   │              │              │
+            │ handleServerEvent()   │              │              │
+            │ sessions[i].State = st│              │              │
+            │ rebuildItems()        │              │              │
+            │ View() 再描画          │              │              │
+```
+
+**責務**: Monitor は capture + 純粋関数で状態計算のみ。Manager が状態を格納。Server が broadcast を配信。TUI は受信して再描画するだけ。
+
+## TUI ↔ メインプロセス通信構造
+
+### プロセス境界と責務
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  メインプロセス (roost)                    プロセスハンドラ  │
+│                                                         │
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐             │
+│  │ Server  │───→│ Service │───→│ Manager │             │
+│  │         │    │         │    │         │             │
+│  │ ソケット │    │ ビジネス │    │ セッション│             │
+│  │ 受信    │    │ ロジック │    │ CRUD    │             │
+│  │ ディスパッチ│  │ swap制御│    │ JSON永続化│            │
+│  │ broadcast│   │ popup起動│    │ tmux window│           │
+│  └────┬────┘    └────┬────┘    └────┬────┘             │
+│       │              │              │                   │
+│       │         ┌────┴────┐         │                   │
+│       │         │ Monitor │         │                   │
+│       │         │ 状態ポーリング│      │                   │
+│       │         │ capture-pane│     │                   │
+│       │         │ 状態判定   │       │                   │
+│       │         └─────────┘         │                   │
+│       │ Unix socket                  │                   │
+│       │ (~/.config/roost/roost.sock) │                   │
+├───────┼──────────────────────────────┼───────────────────┤
+│       │                              │                   │
+│  ┌────┴────┐                         │ tmux CLI          │
+│  │ Client  │                         │                   │
+│  │ JSON送受信│                        ▼                   │
+│  │ responses ch                  ┌─────────┐             │
+│  │ events ch  │                  │  tmux   │             │
+│  └────┬────┘                     │ サーバー  │             │
+│       │                          └─────────┘             │
+│  ┌────┴────┐                                             │
+│  │ Model   │ ← Pane 0.2 で実行                            │
+│  │ UI状態管理│                                             │
+│  │ カーソル  │    ┌─────────┐                              │
+│  │ キー入力  │───→│  View   │                              │
+│  │ Cmd発行  │    │ レンダリング│                             │
+│  └─────────┘    │ スタイル  │                              │
+│                  └─────────┘                              │
+│  TUI プロセス (roost --tui sessions)                       │
+└─────────────────────────────────────────────────────────┘
+```
+
+### 通信パターン
+
+| パターン | 方向 | 特徴 | 例 |
+|---------|------|------|-----|
+| **Request-Response** | TUI → Server → TUI | 同期。Client が response ch でブロック待ち | `switch-session`, `preview-session` |
+| **Event Broadcast** | Server → 全 TUI | 非同期。subscribe 済みクライアントに一斉配信 | `sessions-changed`, `states-updated` |
+| **Tool Launch** | TUI → Server → tmux popup → Palette → Server | 間接通信。popup が独立クライアントとしてコマンド送信 | `n` キー → `new-session` |
+
+### Client のメッセージ振り分け
+
+```
+Unix socket 受信
+    │
+    │ json.Decode
+    ▼
+┌────────────────┐
+│ msg.Type?      │
+├────────────────┤
+│ "response"     │──→ responses ch (buf 8)  ──→ 送信元の Cmd が受信
+│ "event"        │──→ events ch (buf 64)    ──→ listenEvents() が tea.Msg に変換
+└────────────────┘
+```
+
 ## セッション切替
 
 `core.Service` が `swap-pane -d` チェーンを `RunChain` でアトミック実行。
