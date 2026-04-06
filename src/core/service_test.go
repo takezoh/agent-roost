@@ -34,6 +34,7 @@ func (m *mockTmuxForService) ListWindowIDs() ([]string, error) {
 	return ids, nil
 }
 func (m *mockTmuxForService) SetOption(target, key, value string) error { return nil }
+func (m *mockTmuxForService) PipePane(target, command string) error     { return nil }
 
 type mockCapturer struct{ content map[string]string }
 
@@ -57,8 +58,8 @@ func TestBuildSwapChain_NoActive(t *testing.T) {
 	if err := svc.Preview(sess); err != nil {
 		t.Fatal(err)
 	}
-	if len(panes.chainCalls) != 2 {
-		t.Fatalf("expected 2 commands, got %d", len(panes.chainCalls))
+	if len(panes.chainCalls) != 1 {
+		t.Fatalf("expected 1 command, got %d", len(panes.chainCalls))
 	}
 }
 
@@ -66,8 +67,8 @@ func TestBuildSwapChain_WithActive(t *testing.T) {
 	svc, panes, _ := setupService(t)
 	svc.Preview(&session.Session{ID: "a", WindowID: "@2"})
 	svc.Preview(&session.Session{ID: "b", WindowID: "@3"})
-	if len(panes.chainCalls) != 3 {
-		t.Fatalf("expected 3 commands, got %d", len(panes.chainCalls))
+	if len(panes.chainCalls) != 2 {
+		t.Fatalf("expected 2 commands, got %d", len(panes.chainCalls))
 	}
 }
 
@@ -116,5 +117,19 @@ func TestActiveWindowID(t *testing.T) {
 	svc.Preview(&session.Session{ID: "x", WindowID: "@5"})
 	if svc.ActiveWindowID() != "@5" {
 		t.Fatalf("expected @5, got %s", svc.ActiveWindowID())
+	}
+}
+
+func TestActiveSessionLogPath(t *testing.T) {
+	svc, _, mgr := setupService(t)
+	if svc.ActiveSessionLogPath() != "" {
+		t.Fatal("expected empty path initially")
+	}
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess)
+	got := svc.ActiveSessionLogPath()
+	want := session.LogPath(mgr.DataDir(), sess.ID)
+	if got != want {
+		t.Fatalf("got %s, want %s", got, want)
 	}
 }

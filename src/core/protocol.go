@@ -20,6 +20,7 @@ type Message struct {
 	States   map[string]session.State  `json:"states,omitempty"`
 	Error          string                    `json:"error,omitempty"`
 	ActiveWindowID string                    `json:"active_window_id,omitempty"`
+	SessionLogPath string                    `json:"session_log_path,omitempty"`
 }
 
 type SessionInfo struct {

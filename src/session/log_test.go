@@ -34,10 +34,3 @@ func TestLogPath(t *testing.T) {
 	}
 }
 
-func TestTailCommand(t *testing.T) {
-	got := TailCommand("/data", "abc123")
-	want := "tail -f /data/logs/abc123.log"
-	if got != want {
-		t.Fatalf("got %q, want %q", got, want)
-	}
-}

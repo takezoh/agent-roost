@@ -51,3 +51,8 @@ func (c *Client) SendKeys(target, keys string) error {
 	_, err := c.Run("send-keys", "-t", target, keys, "Enter")
 	return err
 }
+
+func (c *Client) PipePane(target, command string) error {
+	_, err := c.Run("pipe-pane", "-t", target, command)
+	return err
+}
