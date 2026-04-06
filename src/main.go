@@ -13,6 +13,7 @@ import (
 	"golang.org/x/term"
 
 	"github.com/take/agent-roost/config"
+	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/logger"
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/tmux"
@@ -23,24 +24,23 @@ func main() {
 	logger.Init()
 	defer logger.Close()
 
-	if os.Getenv("ROOST_TUI") == "1" {
-		runSessionList()
-		return
-	}
-	if len(os.Args) > 1 && os.Args[1] == "--palette" {
-		runPalette(os.Args[2:])
+	if len(os.Args) > 1 && os.Args[1] == "--tui" && len(os.Args) > 2 {
+		switch os.Args[2] {
+		case "sessions":
+			runSessionList()
+		case "palette":
+			runPalette(os.Args[3:])
+		default:
+			fmt.Fprintf(os.Stderr, "roost: unknown tui: %s\n", os.Args[2])
+			os.Exit(1)
+		}
 		return
 	}
 	runProcessHandler()
 }
 
 func runProcessHandler() {
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "roost: %v\n", err)
-		os.Exit(1)
-	}
-
+	cfg := loadConfig()
 	sessionName := cfg.Tmux.SessionName
 	client := tmux.NewClient(sessionName)
 
@@ -50,18 +50,34 @@ func runProcessHandler() {
 		setupNewSession(client, cfg, sessionName)
 	}
 
+	mgr, err := session.NewManager(client, cfg)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "roost: manager: %v\n", err)
+		os.Exit(1)
+	}
+	mgr.Reconcile()
+
+	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec)
+	svc := core.NewService(mgr, monitor, client, sessionName)
+
+	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
+	srv := core.NewServer(svc, client, sockPath)
+	if err := srv.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "roost: server: %v\n", err)
+		os.Exit(1)
+	}
+	go srv.StartMonitor(cfg.Monitor.PollIntervalMs)
+	defer srv.Stop()
+
 	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go healthMonitor(ctx, client, cfg, sessionName)
 
 	client.Attach()
-	cancel()
 
-	if val, _ := client.GetEnv("ROOST_SHUTDOWN"); val == "1" {
+	if srv.ShutdownRequested() {
 		client.KillSession()
-		mgr, err := session.NewManager(client, cfg)
-		if err == nil {
-			mgr.Clear()
-		}
+		mgr.Clear()
 	}
 }
 
@@ -87,17 +103,13 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
 	}
 
 	exePath := resolveExe()
-	client.SendKeys(sn+":0.2", "ROOST_TUI=1 "+exePath)
+	client.SendKeys(sn+":0.2", exePath+" --tui sessions")
 	client.SendKeys(sn+":0.0", "echo 'roost: prefix+Space to toggle TUI'")
 
 	client.ResizePane(sn+":0.2", tuiWidth, 0)
 	client.ResizePane(sn+":0.1", 0, logHeight)
 
-	client.BindKeyRaw(`unbind-key -a -T prefix`)
-	client.BindKeyRaw(`bind-key -T prefix Space if-shell -F "#{==:#{pane_index},2}" "select-pane -t ` + sn + `:0.0" "select-pane -t ` + sn + `:0.2"`)
-	client.BindKeyRaw(`bind-key -T prefix d detach-client`)
-	client.BindKeyRaw(`bind-key -T prefix q set-environment -t ` + sn + ` ROOST_SHUTDOWN 1 '\;' detach-client`)
-	client.BindKeyRaw(`bind-key -T prefix p display-popup -E -w 60% -h 50% "` + resolveExe() + ` --palette"`)
+	setupKeyBindings(client, sn)
 	client.SelectPane(sn + ":0.0")
 }
 
@@ -109,7 +121,17 @@ func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {
 	client.ResizePane(sn+":0.2", tuiWidth, 0)
 	client.ResizePane(sn+":0.1", 0, logHeight)
 	respawnTUIIfDead(client, sn)
+	setupKeyBindings(client, sn)
 	client.SelectPane(sn + ":0.0")
+}
+
+func setupKeyBindings(client *tmux.Client, sn string) {
+	exePath := resolveExe()
+	client.BindKeyRaw(`unbind-key -a -T prefix`)
+	client.BindKeyRaw(`bind-key -T prefix Space if-shell -F "#{==:#{pane_index},2}" "select-pane -t ` + sn + `:0.0" "select-pane -t ` + sn + `:0.2"`)
+	client.BindKeyRaw(`bind-key -T prefix d detach-client`)
+	client.BindKeyRaw(`bind-key -T prefix q display-popup -E -w 40% -h 20% "echo 'Shutting down...' && ` + exePath + ` --tui palette --tool=shutdown"`)
+	client.BindKeyRaw(`bind-key -T prefix p display-popup -E -w 60% -h 50% "` + exePath + ` --tui palette"`)
 }
 
 func healthMonitor(ctx context.Context, client *tmux.Client, cfg *config.Config, sn string) {
@@ -131,45 +153,45 @@ func healthMonitor(ctx context.Context, client *tmux.Client, cfg *config.Config,
 func respawnTUIIfDead(client *tmux.Client, sn string) {
 	dead, _ := client.Run("display-message", "-t", sn+":0.2", "-p", "#{pane_dead}")
 	if dead == "1" {
-		client.RespawnPane(sn+":0.2", "ROOST_TUI=1 "+resolveExe())
+		client.RespawnPane(sn+":0.2", resolveExe()+" --tui sessions")
 	}
 }
 
-func resolveExe() string {
-	exe, _ := os.Executable()
-	resolved, err := filepath.EvalSymlinks(exe)
+func runSessionList() {
+	cfg := loadConfig()
+	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
+
+	client, err := core.Dial(sockPath)
 	if err != nil {
-		return exe
+		fmt.Fprintf(os.Stderr, "roost: connect: %v\n", err)
+		os.Exit(1)
 	}
-	return resolved
-}
+	defer client.Close()
+	client.StartListening()
+	client.Subscribe()
 
-type managerAdapter struct {
-	mgr *session.Manager
-}
-
-func (a *managerAdapter) Create(project, command string) error {
-	_, err := a.mgr.Create(project, command)
-	return err
-}
-
-func (a *managerAdapter) Stop(sessionID string) error {
-	return a.mgr.Stop(sessionID)
+	model := tui.NewModel(client, cfg)
+	if _, err := tea.NewProgram(model).Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "roost: tui: %v\n", err)
+		os.Exit(1)
+	}
 }
 
 func runPalette(args []string) {
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "roost: %v\n", err)
-		os.Exit(1)
-	}
+	slog.Info("palette start", "args", args)
+	cfg := loadConfig()
+	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
+	slog.Info("palette dial", "sock", sockPath)
 
-	client := tmux.NewClient(cfg.Tmux.SessionName)
-	mgr, err := session.NewManager(client, cfg)
+	client, err := core.Dial(sockPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "roost: manager: %v\n", err)
+		slog.Error("palette connect failed", "err", err)
+		fmt.Fprintf(os.Stderr, "roost: connect: %v\n", err)
 		os.Exit(1)
 	}
+	slog.Info("palette connected")
+	defer client.Close()
+	client.StartListening()
 
 	var toolName string
 	prefill := make(map[string]string)
@@ -186,10 +208,8 @@ func runPalette(args []string) {
 
 	registry := tui.DefaultRegistry()
 	ctx := &tui.ToolContext{
-		Client:  client,
-		Manager: &managerAdapter{mgr: mgr},
+		Client: client,
 		Config: tui.ToolConfig{
-			SessionName:    cfg.Tmux.SessionName,
 			DefaultCommand: cfg.Session.DefaultCommand,
 			Commands:       cfg.Session.Commands,
 			Projects:       cfg.ListProjects(),
@@ -204,31 +224,20 @@ func runPalette(args []string) {
 	}
 }
 
-func runSessionList() {
+func loadConfig() *config.Config {
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "roost: %v\n", err)
 		os.Exit(1)
 	}
+	return cfg
+}
 
-	client := tmux.NewClient(cfg.Tmux.SessionName)
-	manager, err := session.NewManager(client, cfg)
+func resolveExe() string {
+	exe, _ := os.Executable()
+	resolved, err := filepath.EvalSymlinks(exe)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "roost: manager: %v\n", err)
-		os.Exit(1)
+		return exe
 	}
-
-	if err := manager.Reconcile(); err != nil {
-		fmt.Fprintf(os.Stderr, "roost: reconcile: %v\n", err)
-		os.Exit(1)
-	}
-	slog.Info("sessionList start", "sessions", len(manager.All()))
-
-	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec)
-	model := tui.NewModel(manager, monitor, client, cfg)
-
-	if _, err := tea.NewProgram(model).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "roost: tui: %v\n", err)
-		os.Exit(1)
-	}
+	return resolved
 }

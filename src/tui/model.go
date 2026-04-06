@@ -2,35 +2,28 @@ package tui
 
 import (
 	"log/slog"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"sort"
-	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
 	"github.com/take/agent-roost/config"
-	"github.com/take/agent-roost/session"
-	"github.com/take/agent-roost/tmux"
+	"github.com/take/agent-roost/core"
 )
 
 type listItem struct {
 	isProject   bool
 	project     string
 	projectPath string
-	session     *session.Session
+	session     *core.SessionInfo
 }
 
 type Model struct {
-	manager  *session.Manager
-	monitor  *tmux.Monitor
-	tmux     *tmux.Client
+	client   *core.Client
 	cfg      *config.Config
 	registry *Registry
 	keys     KeyMap
 
+	sessions []core.SessionInfo
 	items    []listItem
 	cursor   int
 	folded   map[string]bool
@@ -41,26 +34,34 @@ type Model struct {
 	err      error
 }
 
-type tickMsg struct{}
-type statesMsg map[string]session.State
+type serverEventMsg core.Message
 
-func NewModel(mgr *session.Manager, mon *tmux.Monitor, tc *tmux.Client, cfg *config.Config) Model {
-	m := Model{
-		manager:  mgr,
-		monitor:  mon,
-		tmux:     tc,
+type previewDoneMsg struct {
+	windowID string
+	err      error
+}
+
+type switchDoneMsg struct {
+	windowID string
+	err      error
+}
+
+func NewModel(client *core.Client, cfg *config.Config) Model {
+	return Model{
+		client:   client,
 		cfg:      cfg,
 		registry: DefaultRegistry(),
 		keys:     DefaultKeyMap(),
 		folded:   make(map[string]bool),
 		projects: make(map[string]string),
 	}
-	m.rebuildItems()
-	return m
 }
 
 func (m Model) Init() tea.Cmd {
-	return doTick(time.Duration(m.cfg.Monitor.PollIntervalMs) * time.Millisecond)
+	return tea.Batch(
+		m.requestSessions(),
+		m.listenEvents(),
+	)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -70,43 +71,24 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 
-	case tickMsg:
-		oldCount := len(m.manager.All())
-		m.manager.Load()
-		m.manager.Reconcile()
-		newCount := len(m.manager.All())
-		if newCount != oldCount {
-			slog.Info("sessions changed", "old", oldCount, "new", newCount)
-			m.rebuildItems()
-			if newCount > oldCount {
-				sessions := m.manager.All()
-				if len(sessions) > 0 {
-					return m, tea.Batch(
-						switchCmd(m.tmux, sessions[len(sessions)-1], m.active),
-						doTick(time.Duration(m.cfg.Monitor.PollIntervalMs)*time.Millisecond),
-					)
-				}
-			}
-		}
-		ids := windowIDs(m.manager.All())
-		return m, tea.Batch(
-			pollCmd(m.monitor, ids),
-			doTick(time.Duration(m.cfg.Monitor.PollIntervalMs)*time.Millisecond),
-		)
+	case serverEventMsg:
+		return m.handleServerEvent(core.Message(msg))
 
-	case sessionSwitchedMsg:
-		if msg.err != nil {
+	case previewDoneMsg:
+		if msg.err == nil {
+			m.active = msg.windowID
+		} else {
 			m.err = msg.err
-			return m, nil
 		}
-		m.active = msg.windowID
-		m.err = nil
-		return m, focusPaneCmd(m.tmux, msg.focusPane)
+		return m, m.focusCmd("0.2")
 
-	case statesMsg:
-		m.manager.UpdateStates(map[string]session.State(msg))
-		m.rebuildItems()
-		return m, nil
+	case switchDoneMsg:
+		if msg.err == nil {
+			m.active = msg.windowID
+		} else {
+			m.err = msg.err
+		}
+		return m, m.focusCmd("0.0")
 
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
@@ -117,6 +99,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m Model) handleServerEvent(msg core.Message) (tea.Model, tea.Cmd) {
+	switch msg.Event {
+	case "sessions-changed":
+		m.sessions = msg.Sessions
+		m.rebuildItems()
+	case "states-updated":
+		for i := range m.sessions {
+			if st, ok := msg.States[m.sessions[i].WindowID]; ok {
+				m.sessions[i].State = st
+			}
+		}
+		m.rebuildItems()
+	}
+	return m, m.listenEvents()
+}
+
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, m.keys.Up):
@@ -124,33 +122,33 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 		if s := m.cursorSession(); s != nil && s.WindowID != m.active {
-			return m, previewCmd(m.tmux, s, m.active)
+			return m, m.previewCmd(s)
 		}
 	case key.Matches(msg, m.keys.Down):
 		if m.cursor < len(m.items)-1 {
 			m.cursor++
 		}
 		if s := m.cursorSession(); s != nil && s.WindowID != m.active {
-			return m, previewCmd(m.tmux, s, m.active)
+			return m, m.previewCmd(s)
 		}
 	case key.Matches(msg, m.keys.Enter):
 		if s := m.cursorSession(); s != nil {
-			return m, switchCmd(m.tmux, s, m.active)
+			return m, m.switchCmd(s)
 		}
 	case key.Matches(msg, m.keys.New):
-		return m, popupToolCmd(m.tmux, "new-session", map[string]string{
+		return m, m.launchToolCmd("new-session", map[string]string{
 			"project": m.cursorProjectPath(),
 			"command": m.cfg.Session.DefaultCommand,
 		})
 	case key.Matches(msg, m.keys.NewCmd):
-		return m, popupToolCmd(m.tmux, "new-session", map[string]string{
+		return m, m.launchToolCmd("new-session", map[string]string{
 			"project": m.cursorProjectPath(),
 		})
 	case key.Matches(msg, m.keys.AddProject):
-		return m, popupToolCmd(m.tmux, "add-project", nil)
+		return m, m.launchToolCmd("add-project", nil)
 	case key.Matches(msg, m.keys.Stop):
 		if s := m.cursorSession(); s != nil {
-			return m, popupToolCmd(m.tmux, "stop-session", map[string]string{
+			return m, m.launchToolCmd("stop-session", map[string]string{
 				"session_id": s.ID,
 			})
 		}
@@ -164,24 +162,55 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func popupToolCmd(tc *tmux.Client, toolName string, args map[string]string) tea.Cmd {
+// --- tea.Cmd wrappers ---
+
+func (m Model) requestSessions() tea.Cmd {
 	return func() tea.Msg {
-		exe, _ := os.Executable()
-		resolved, err := filepath.EvalSymlinks(exe)
+		sessions, err := m.client.ListSessions()
 		if err != nil {
-			resolved = exe
+			slog.Error("list-sessions failed", "err", err)
+			return nil
 		}
+		msg := core.NewEvent("sessions-changed")
+		msg.Sessions = sessions
+		return serverEventMsg(msg)
+	}
+}
 
-		paletteArgs := []string{"--palette", "--tool=" + toolName}
-		for k, v := range args {
-			if v != "" {
-				paletteArgs = append(paletteArgs, "--arg="+k+"="+v)
-			}
+func (m Model) listenEvents() tea.Cmd {
+	return func() tea.Msg {
+		msg, ok := <-m.client.Events()
+		if !ok {
+			return nil
 		}
+		return serverEventMsg(msg)
+	}
+}
 
-		popupCmd := resolved + " " + strings.Join(paletteArgs, " ")
-		cmd := exec.Command("tmux", "display-popup", "-E", "-w", "60%", "-h", "50%", popupCmd)
-		cmd.Start()
+func (m Model) previewCmd(sess *core.SessionInfo) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.PreviewSession(sess.ID, m.active)
+		return previewDoneMsg{windowID: sess.WindowID, err: err}
+	}
+}
+
+func (m Model) switchCmd(sess *core.SessionInfo) tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.SwitchSession(sess.ID, m.active)
+		return switchDoneMsg{windowID: sess.WindowID, err: err}
+	}
+}
+
+func (m Model) launchToolCmd(toolName string, args map[string]string) tea.Cmd {
+	return func() tea.Msg {
+		m.client.LaunchTool(toolName, args)
+		return nil
+	}
+}
+
+func (m Model) focusCmd(pane string) tea.Cmd {
+	return func() tea.Msg {
+		m.client.FocusPane(pane)
 		return nil
 	}
 }
@@ -189,10 +218,14 @@ func popupToolCmd(tc *tmux.Client, toolName string, args map[string]string) tea.
 // --- list building ---
 
 func (m *Model) rebuildItems() {
-	byProject := m.manager.ByProject()
+	byProject := make(map[string][]core.SessionInfo)
 	allProjects := make(map[string]string)
-	for name, sessions := range byProject {
-		allProjects[name] = sessions[0].Project
+
+	for i := range m.sessions {
+		s := &m.sessions[i]
+		name := s.Name()
+		byProject[name] = append(byProject[name], *s)
+		allProjects[name] = s.Project
 	}
 	for name, path := range m.projects {
 		if _, exists := allProjects[name]; !exists {
@@ -211,8 +244,8 @@ func (m *Model) rebuildItems() {
 		path := allProjects[name]
 		m.items = append(m.items, listItem{isProject: true, project: name, projectPath: path})
 		if !m.folded[name] {
-			for _, s := range byProject[name] {
-				m.items = append(m.items, listItem{project: name, projectPath: path, session: s})
+			for i := range byProject[name] {
+				m.items = append(m.items, listItem{project: name, projectPath: path, session: &byProject[name][i]})
 			}
 		}
 	}
@@ -220,6 +253,8 @@ func (m *Model) rebuildItems() {
 		m.cursor = len(m.items) - 1
 	}
 }
+
+// --- cursor helpers ---
 
 func (m Model) cursorProjectPath() string {
 	if m.cursor < 0 || m.cursor >= len(m.items) {
@@ -235,76 +270,9 @@ func (m Model) cursorProjectName() string {
 	return m.items[m.cursor].project
 }
 
-func (m Model) cursorSession() *session.Session {
+func (m Model) cursorSession() *core.SessionInfo {
 	if m.cursor < 0 || m.cursor >= len(m.items) {
 		return nil
 	}
 	return m.items[m.cursor].session
-}
-
-// --- tea.Cmd helpers ---
-
-func windowIDs(sessions []*session.Session) []string {
-	ids := make([]string, len(sessions))
-	for i, s := range sessions {
-		ids[i] = s.WindowID
-	}
-	return ids
-}
-
-func doTick(interval time.Duration) tea.Cmd {
-	return func() tea.Msg {
-		time.Sleep(interval)
-		return tickMsg{}
-	}
-}
-
-func pollCmd(mon *tmux.Monitor, windowIDs []string) tea.Cmd {
-	return func() tea.Msg {
-		return statesMsg(mon.PollAll(windowIDs))
-	}
-}
-
-type sessionSwitchedMsg struct {
-	windowID  string
-	focusPane string
-	err       error
-}
-
-func focusPaneCmd(tc *tmux.Client, pane string) tea.Cmd {
-	return func() tea.Msg {
-		tc.SelectPane(tc.SessionName + ":" + pane)
-		return nil
-	}
-}
-
-func buildSwapChain(sn string, sess *session.Session, activeWindowID string) [][]string {
-	pane0 := sn + ":0.0"
-	var cmds [][]string
-	if activeWindowID != "" {
-		cmds = append(cmds, []string{"swap-pane", "-d", "-s", pane0, "-t", activeWindowID + ".0"})
-	}
-	cmds = append(cmds, []string{"swap-pane", "-d", "-s", pane0, "-t", sess.WindowID + ".0"})
-	cmds = append(cmds, []string{"respawn-pane", "-k", "-t", sn + ":0.1", session.TailCommand(sess.ID)})
-	return cmds
-}
-
-func previewCmd(tc *tmux.Client, sess *session.Session, activeWindowID string) tea.Cmd {
-	return func() tea.Msg {
-		cmds := buildSwapChain(tc.SessionName, sess, activeWindowID)
-		if err := tc.RunChain(cmds...); err != nil {
-			return sessionSwitchedMsg{err: err}
-		}
-		return sessionSwitchedMsg{windowID: sess.WindowID, focusPane: "0.2"}
-	}
-}
-
-func switchCmd(tc *tmux.Client, sess *session.Session, activeWindowID string) tea.Cmd {
-	return func() tea.Msg {
-		cmds := buildSwapChain(tc.SessionName, sess, activeWindowID)
-		if err := tc.RunChain(cmds...); err != nil {
-			return sessionSwitchedMsg{err: err}
-		}
-		return sessionSwitchedMsg{windowID: sess.WindowID, focusPane: "0.0"}
-	}
 }

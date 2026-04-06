@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/session"
 )
 
@@ -18,7 +19,7 @@ var (
 	waitingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffff00"))
 	idleStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	stoppedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
-	helpStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262"))
+	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262"))
 )
 
 func (m Model) View() tea.View {
@@ -51,8 +52,6 @@ func (m Model) View() tea.View {
 	return v
 }
 
-
-
 func renderItem(item listItem, selected bool, width int, folded bool) string {
 	if item.isProject {
 		return renderProject(item.project, folded, selected)
@@ -72,15 +71,12 @@ func renderProject(name string, folded, selected bool) string {
 	return projectStyle.Render(line)
 }
 
-func renderSession(s *session.Session, selected bool) string {
+func renderSession(s *core.SessionInfo, selected bool) string {
 	symbol := stateStyle(s.State).Render(s.State.Symbol())
-	elapsed := formatElapsed(time.Since(s.CreatedAt))
+	elapsed := formatElapsed(time.Since(s.CreatedAtTime()))
 
 	line1 := fmt.Sprintf("  %s %s  %s", s.ID[:6], symbol, elapsed)
 	line2 := fmt.Sprintf("    /%s", s.DisplayCommand())
-	if s.Cost != "" {
-		line2 += fmt.Sprintf("  %s", s.Cost)
-	}
 
 	content := line1 + "\n" + line2
 	if selected {

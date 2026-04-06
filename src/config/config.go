@@ -9,6 +9,7 @@ import (
 )
 
 type Config struct {
+	DataDir  string         `toml:"data_dir"`
 	Tmux     TmuxConfig     `toml:"tmux"`
 	Monitor  MonitorConfig  `toml:"monitor"`
 	Session  SessionConfig  `toml:"session"`
@@ -95,6 +96,13 @@ func (c *Config) ListProjects() []string {
 		}
 	}
 	return projects
+}
+
+func (c *Config) ResolveDataDir() string {
+	if c.DataDir != "" {
+		return ExpandPath(c.DataDir)
+	}
+	return ConfigDir()
 }
 
 func ExpandPath(p string) string {

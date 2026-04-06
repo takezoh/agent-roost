@@ -23,13 +23,16 @@ type Manager struct {
 	filePath string
 	tmux     TmuxClient
 	cfg      *config.Config
+	dataDir  string
 }
 
 func NewManager(tmuxClient TmuxClient, cfg *config.Config) (*Manager, error) {
+	dataDir := cfg.ResolveDataDir()
 	m := &Manager{
-		filePath: sessionsFilePath(),
+		filePath: sessionsFilePath(dataDir),
 		tmux:     tmuxClient,
 		cfg:      cfg,
+		dataDir:  dataDir,
 	}
 	if err := m.Load(); err != nil {
 		return nil, err
@@ -74,7 +77,7 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 	}
 	m.tmux.SetOption(windowID, "remain-on-exit", "on")
 
-	logFile, err := os.Create(LogPath(id))
+	logFile, err := os.Create(LogPath(m.dataDir, id))
 	if err != nil {
 		return nil, err
 	}
@@ -173,8 +176,12 @@ func (m *Manager) Reconcile() error {
 	return nil
 }
 
-func sessionsFilePath() string {
-	return filepath.Join(config.ConfigDir(), "sessions.json")
+func sessionsFilePath(dataDir string) string {
+	return filepath.Join(dataDir, "sessions.json")
+}
+
+func (m *Manager) DataDir() string {
+	return m.dataDir
 }
 
 func generateID() (string, error) {

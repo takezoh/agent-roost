@@ -3,6 +3,8 @@ package tui
 import (
 	"path/filepath"
 	"strings"
+
+	"github.com/take/agent-roost/core"
 )
 
 type Param struct {
@@ -18,28 +20,12 @@ type Tool struct {
 }
 
 type ToolContext struct {
-	Client  TmuxRunner
-	Manager SessionRunner
-	Config  ToolConfig
-	Args    map[string]string
-}
-
-type TmuxRunner interface {
-	SetEnv(key, value string) error
-	DetachClient() error
-	KillSession() error
-	SendKeys(target, keys string) error
-	NewWindow(name, command, startDir string) (string, error)
-	SetOption(target, key, value string) error
-}
-
-type SessionRunner interface {
-	Create(project, command string) error
-	Stop(sessionID string) error
+	Client *core.Client
+	Config ToolConfig
+	Args   map[string]string
 }
 
 type ToolConfig struct {
-	SessionName    string
 	DefaultCommand string
 	Commands       []string
 	Projects       []string
@@ -92,7 +78,8 @@ func DefaultRegistry() *Registry {
 			{Name: "command", Options: func(ctx *ToolContext) []string { return ctx.Config.Commands }},
 		},
 		Run: func(ctx *ToolContext, args map[string]string) error {
-			return ctx.Manager.Create(args["project"], args["command"])
+			_, err := ctx.Client.CreateSession(args["project"], args["command"])
+			return err
 		},
 	})
 	r.Register(Tool{
@@ -112,22 +99,21 @@ func DefaultRegistry() *Registry {
 			{Name: "session_id", Options: func(ctx *ToolContext) []string { return nil }},
 		},
 		Run: func(ctx *ToolContext, args map[string]string) error {
-			return ctx.Manager.Stop(args["session_id"])
+			return ctx.Client.StopSession(args["session_id"])
 		},
 	})
 	r.Register(Tool{
 		Name:        "detach",
 		Description: "デタッチ（セッション維持）",
 		Run: func(ctx *ToolContext, args map[string]string) error {
-			return ctx.Client.DetachClient()
+			return ctx.Client.Detach()
 		},
 	})
 	r.Register(Tool{
-		Name:        "quit",
+		Name:        "shutdown",
 		Description: "全終了（セッション破棄）",
 		Run: func(ctx *ToolContext, args map[string]string) error {
-			ctx.Client.SetEnv("ROOST_SHUTDOWN", "1")
-			return ctx.Client.DetachClient()
+			return ctx.Client.Shutdown()
 		},
 	})
 	return r

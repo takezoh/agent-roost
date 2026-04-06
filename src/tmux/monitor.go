@@ -16,15 +16,15 @@ var (
 )
 
 type Monitor struct {
-	client        *Client
+	capturer      PaneCapturer
 	idleThreshold time.Duration
 	lastContent   map[string]string
 	lastActivity  map[string]time.Time
 }
 
-func NewMonitor(client *Client, idleThresholdSec int) *Monitor {
+func NewMonitor(capturer PaneCapturer, idleThresholdSec int) *Monitor {
 	return &Monitor{
-		client:        client,
+		capturer:      capturer,
 		idleThreshold: time.Duration(idleThresholdSec) * time.Second,
 		lastContent:   make(map[string]string),
 		lastActivity:  make(map[string]time.Time),
@@ -40,7 +40,7 @@ func (m *Monitor) PollAll(windowIDs []string) map[string]session.State {
 }
 
 func (m *Monitor) DetectState(windowID string) session.State {
-	content, err := m.client.CapturePaneLines(windowID+".0", 5)
+	content, err := m.capturer.CapturePaneLines(windowID+".0", 5)
 	if err != nil {
 		return session.StateStopped
 	}
@@ -64,7 +64,7 @@ func (m *Monitor) DetectState(windowID string) session.State {
 }
 
 func (m *Monitor) ExtractCost(windowID string) string {
-	content, err := m.client.CapturePaneLines(windowID+".0", 2)
+	content, err := m.capturer.CapturePaneLines(windowID+".0", 2)
 	if err != nil {
 		return ""
 	}
