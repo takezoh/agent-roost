@@ -55,6 +55,38 @@ func TestListProjects(t *testing.T) {
 	}
 }
 
+func TestListProjects_WithProjectPaths(t *testing.T) {
+	tmp := t.TempDir()
+	direct := filepath.Join(tmp, "direct-proj")
+	os.MkdirAll(direct, 0o755)
+	nonexistent := filepath.Join(tmp, "does-not-exist")
+
+	cfg := &Config{Projects: ProjectsConfig{ProjectPaths: []string{direct, nonexistent}}}
+	projects := cfg.ListProjects()
+	if len(projects) != 1 {
+		t.Fatalf("len(projects) = %d, want 1; got %v", len(projects), projects)
+	}
+	if projects[0] != direct {
+		t.Errorf("projects[0] = %q, want %q", projects[0], direct)
+	}
+}
+
+func TestListProjects_RootsAndPaths(t *testing.T) {
+	tmp := t.TempDir()
+	os.MkdirAll(filepath.Join(tmp, "roots", "proj-a"), 0o755)
+	direct := filepath.Join(tmp, "direct-proj")
+	os.MkdirAll(direct, 0o755)
+
+	cfg := &Config{Projects: ProjectsConfig{
+		ProjectRoots: []string{filepath.Join(tmp, "roots")},
+		ProjectPaths: []string{direct},
+	}}
+	projects := cfg.ListProjects()
+	if len(projects) != 2 {
+		t.Fatalf("len(projects) = %d, want 2; got %v", len(projects), projects)
+	}
+}
+
 func TestResolveDataDir_Explicit(t *testing.T) {
 	cfg := &Config{DataDir: "/tmp/data"}
 	if got := cfg.ResolveDataDir(); got != "/tmp/data" {

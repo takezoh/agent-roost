@@ -36,6 +36,7 @@ type SessionConfig struct {
 
 type ProjectsConfig struct {
 	ProjectRoots []string `toml:"project_roots"`
+	ProjectPaths []string `toml:"project_paths"`
 }
 
 func LoadFrom(path string) (*Config, error) {
@@ -98,6 +99,12 @@ func (c *Config) ListProjects() []string {
 			if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
 				projects = append(projects, filepath.Join(root, e.Name()))
 			}
+		}
+	}
+	for _, p := range c.Projects.ProjectPaths {
+		p = ExpandPath(p)
+		if info, err := os.Stat(p); err == nil && info.IsDir() {
+			projects = append(projects, p)
 		}
 	}
 	return projects
