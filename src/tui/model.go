@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
@@ -36,12 +37,20 @@ type Model struct {
 	cursor   int        // index into items
 	folded   map[string]bool
 	active   string
+	anchored string
+	mouseSeq int
+	hovering bool
+	lastMouseX int
+	lastMouseY int
 	width    int
 	height   int
 }
 
 type serverEventMsg core.Message
 type disconnectMsg struct{}
+type mouseLeaveMsg struct{ seq int }
+
+const mouseLeaveTimeout = 200 * time.Millisecond
 
 type previewDoneMsg struct {
 	windowID string
@@ -93,17 +102,39 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case switchDoneMsg:
 		if msg.err == nil && msg.windowID != "" {
 			m.active = msg.windowID
+			m.anchored = msg.windowID
 		}
 		return m, m.focusCmd("0.0")
 
-case tea.MouseMotionMsg:
-		mouse := msg.Mouse()
-		idx := m.rowToItemIndex(mouse.Y)
-		if idx < 0 || idx == m.cursor {
+	case mouseLeaveMsg:
+		if msg.seq != m.mouseSeq {
 			return m, nil
 		}
+		if !m.isMouseAtEdge() {
+			return m, nil
+		}
+		m.hovering = false
+		return m, m.revertToAnchorCmd()
+
+	case tea.MouseMotionMsg:
+		m.hovering = true
+		m.mouseSeq++
+		seq := m.mouseSeq
+		leaveTimer := tea.Tick(mouseLeaveTimeout, func(time.Time) tea.Msg {
+			return mouseLeaveMsg{seq: seq}
+		})
+		mouse := msg.Mouse()
+		m.lastMouseX = mouse.X
+		m.lastMouseY = mouse.Y
+		idx := m.rowToItemIndex(mouse.Y)
+		if idx < 0 || idx == m.cursor {
+			return m, leaveTimer
+		}
 		m.cursor = idx
-		return m, m.cursorPreviewCmd()
+		if cmd := m.cursorPreviewCmd(); cmd != nil {
+			return m, tea.Batch(cmd, leaveTimer)
+		}
+		return m, leaveTimer
 
 	case tea.MouseClickMsg:
 		mouse := msg.Mouse()
@@ -121,7 +152,8 @@ case tea.MouseMotionMsg:
 			return m, nil
 		}
 		m.cursor = idx
-		if m.cursorSession() != nil {
+		if s := m.cursorSession(); s != nil {
+			m.anchored = s.WindowID
 			return m, m.focusCmd("0.0")
 		}
 		return m, nil
@@ -142,6 +174,7 @@ func (m Model) handleServerEvent(msg core.Message) (tea.Model, tea.Cmd) {
 		m.rebuildItems()
 		if msg.ActiveWindowID != "" && msg.ActiveWindowID != m.active {
 			m.active = msg.ActiveWindowID
+			m.anchored = msg.ActiveWindowID
 			if sc := m.findSessionCursorByWindowID(msg.ActiveWindowID); sc >= 0 {
 				m.cursor = sc
 			}
@@ -162,19 +195,27 @@ func (m Model) handleServerEvent(msg core.Message) (tea.Model, tea.Cmd) {
 }
 
 func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	m.hovering = false
 	switch {
 	case key.Matches(msg, m.keys.Up):
 		if m.cursor > 0 {
 			m.cursor--
+		}
+		if s := m.cursorSession(); s != nil {
+			m.anchored = s.WindowID
 		}
 		return m, m.cursorPreviewCmd()
 	case key.Matches(msg, m.keys.Down):
 		if m.cursor < len(m.items)-1 {
 			m.cursor++
 		}
+		if s := m.cursorSession(); s != nil {
+			m.anchored = s.WindowID
+		}
 		return m, m.cursorPreviewCmd()
 	case key.Matches(msg, m.keys.Enter):
-		if m.cursorSession() != nil {
+		if s := m.cursorSession(); s != nil {
+			m.anchored = s.WindowID
 			return m, m.focusCmd("0.0")
 		}
 	case key.Matches(msg, m.keys.New):
@@ -247,6 +288,26 @@ func (m Model) cursorPreviewCmd() tea.Cmd {
 		return m.previewCmd(s)
 	}
 	return nil
+}
+
+func (m *Model) revertToAnchorCmd() tea.Cmd {
+	if m.anchored == "" || m.anchored == m.active {
+		return nil
+	}
+	idx := m.findSessionCursorByWindowID(m.anchored)
+	if idx < 0 {
+		m.anchored = ""
+		return nil
+	}
+	m.cursor = idx
+	return m.previewCmd(m.items[idx].session)
+}
+
+const edgeMargin = 3
+
+func (m Model) isMouseAtEdge() bool {
+	return m.lastMouseX < edgeMargin || m.lastMouseX >= m.width-edgeMargin ||
+		m.lastMouseY < edgeMargin || m.lastMouseY >= m.height-edgeMargin
 }
 
 func (m Model) launchToolCmd(toolName string, args map[string]string) tea.Cmd {
