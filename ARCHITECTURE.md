@@ -591,9 +591,10 @@ src/
 ├── tui/
 │   ├── model.go         セッション一覧 Model（UI 状態のみ）
 │   ├── view.go          セッション一覧レンダリング（driver.Registry で表示名取得、経過時間表示）
+│   ├── mouse.go         マウス入力ハンドラ（ホバー、クリック、離脱検知）
+│   ├── keys.go          キーバインド定義 + キーボード入力ハンドラ
 │   ├── main_model.go    メイン TUI Model
 │   ├── main_view.go     メイン TUI レンダリング
-│   ├── keys.go          キーバインド
 │   ├── palette.go       コマンドパレット
 │   └── log_model.go     ログ TUI（動的セッションタブ）
 └── logger/
