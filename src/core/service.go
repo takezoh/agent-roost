@@ -1,11 +1,13 @@
 package core
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
@@ -15,9 +17,11 @@ import (
 type Service struct {
 	Manager        *session.Manager
 	AgentStore     *driver.AgentStore
+	Drivers        *driver.Registry
 	Monitor        *tmux.Monitor
 	Panes          tmux.PaneOperator
 	SessionName    string
+	eventLogDir    string
 	activeWindowID string
 	syncActive     func(string)
 	syncStatus     func(string)
@@ -25,13 +29,18 @@ type Service struct {
 	lastCount      int
 }
 
-func NewService(mgr *session.Manager, store *driver.AgentStore, mon *tmux.Monitor, panes tmux.PaneOperator, sessionName, activeWindowID string) *Service {
+func NewService(mgr *session.Manager, store *driver.AgentStore, drivers *driver.Registry, mon *tmux.Monitor, panes tmux.PaneOperator, sessionName, eventLogDir, activeWindowID string) *Service {
+	if eventLogDir != "" {
+		os.MkdirAll(eventLogDir, 0o755)
+	}
 	return &Service{
 		Manager:        mgr,
 		AgentStore:     store,
+		Drivers:        drivers,
 		Monitor:        mon,
 		Panes:          panes,
 		SessionName:    sessionName,
+		eventLogDir:    eventLogDir,
 		activeWindowID: activeWindowID,
 	}
 }
@@ -263,6 +272,76 @@ func (s *Service) resolveWindowID(pane string) string {
 		}
 	}
 	return s.activeWindowID
+}
+
+// AppendEventLog writes a timestamped line to the agent session's event log file.
+func (s *Service) AppendEventLog(agentSessionID, line string) {
+	if s.eventLogDir == "" || agentSessionID == "" {
+		return
+	}
+	path := filepath.Join(s.eventLogDir, agentSessionID+".log")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s %s\n", time.Now().Format("15:04:05"), line)
+}
+
+// EventLogPathByWindow returns the event log file path for the active session's agent.
+func (s *Service) EventLogPathByWindow(windowID string) string {
+	if s.eventLogDir == "" {
+		return ""
+	}
+	id := s.AgentStore.IDByWindow(windowID)
+	if id == "" {
+		return ""
+	}
+	return filepath.Join(s.eventLogDir, id+".log")
+}
+
+// ActiveTranscriptPath returns the transcript JSONL path for the active Claude session.
+func (s *Service) ActiveTranscriptPath() string {
+	if s.activeWindowID == "" {
+		return ""
+	}
+	sess := s.Manager.FindByWindowID(s.activeWindowID)
+	if sess == nil || sess.Command != "claude" {
+		return ""
+	}
+	agent := s.AgentStore.GetByWindow(s.activeWindowID)
+	if agent == nil || agent.Source == "" {
+		return ""
+	}
+	home, _ := os.UserHomeDir()
+	return driver.TranscriptPath(home, sess.Project, agent.Source)
+}
+
+// ResolveAgentMeta resolves metadata from agent log files and updates the agent store.
+func (s *Service) ResolveAgentMeta() bool {
+	home, _ := os.UserHomeDir()
+	fsys := os.DirFS(home)
+	changed := false
+	for _, sess := range s.Manager.All() {
+		source := s.AgentStore.SourceByWindow(sess.WindowID)
+		meta := s.Drivers.Get(sess.Command).ResolveMeta(fsys, sess.Project, source)
+		if meta.Title == "" && meta.LastPrompt == "" && len(meta.Subjects) == 0 {
+			continue
+		}
+		agentID := s.AgentStore.IDByWindow(sess.WindowID)
+		if agentID == "" && meta.Source != "" {
+			s.AgentStore.Bind(sess.WindowID, meta.Source)
+			agentID = meta.Source
+			changed = true
+		}
+		if agentID == "" {
+			continue
+		}
+		if s.AgentStore.UpdateMeta(agentID, meta) {
+			changed = true
+		}
+	}
+	return changed
 }
 
 func (s *Service) buildSwapChain(sess *session.Session) [][]string {

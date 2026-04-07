@@ -138,7 +138,7 @@ runTUI("log")
 └── Bubbletea イベントループ（タブ切替、スクロール、follow モード）
 ```
 
-**タブ構成**: インデックス 0 が APP タブ（固定）、1 以降がセッションタブ（`sessions-changed` イベントで再構築）。ログパスはセッション ID から `logDir/{id}.log` として LogModel 内で計算し、サーバーへの問い合わせは不要。マウスクリックはタブラベルの累積幅でヒット判定する。
+**タブ構成**: Claude セッションがアクティブな場合 `TRANSCRIPT | EVENTS | LOG` の3タブ、それ以外は `LOG` のみ。`sessions-changed` イベントで動的に再構築。セッション切替時は TRANSCRIPT がデフォルト。タブ切替時はファイル末尾から再読み込み（状態保持不要）。マウスクリックはタブラベルの累積幅でヒット判定する。
 
 **経過時間表示**: セッション一覧とメイン TUI の両方で、`CreatedAt` からの経過時間を `formatElapsed` で表示する（分/時/日の 3 段階）。
 
@@ -259,7 +259,7 @@ flowchart TB
 - `ActiveSessionLogPath()`: アクティブセッションのログファイルパスを返す
 - `Manager` フィールドは exported（Server が直接アクセス）
 
-**Server の構成**: `Server` は `Service` に加え、`*driver.Registry`（メタデータ解決用）と `*tmux.Client`（DetachClient 用）を保持する。
+**Server の構成**: `Server` は `Service` と `*tmux.Client`（DetachClient 用）を保持する。`driver.Registry` は `Service` が保持し、メタデータ解決は `Service.ResolveAgentMeta` で行う。
 
 ### 通信パターン
 
@@ -524,7 +524,7 @@ type AgentStore struct {
 }
 ```
 
-`AgentStore` は tmux Session とは独立したエージェントセッション管理。`Bind` で windowID ↔ agentSessionID を紐付け、hook/statusline イベントは agentSessionID で直接ルックアップ。tmux の swap-pane に影響されない。
+`AgentStore` は純粋な in-memory ストアで tmux Session とは独立。`Bind` で windowID ↔ agentSessionID を紐付け、hook/statusline イベントは agentSessionID で直接ルックアップ。tmux の swap-pane に影響されない。I/O（イベントログ）は `Service` が担う。トランスクリプトパス構築は `driver.TranscriptPath` で Claude 固有ロジックとして driver に閉じる。
 
 ```go
 // session/manager.go
@@ -533,7 +533,6 @@ type TmuxClient interface {
     KillWindow(windowID string) error
     ListWindowIDs() ([]string, error)
     SetOption(target, key, value string) error
-    PipePane(target, command string) error
 }
 ```
 
@@ -585,7 +584,7 @@ type TmuxClient interface {
 |------|------|------|--------------|
 | `~/.config/roost/config.toml` | TOML | ユーザー設定（下記参照） | ユーザーが作成。存在しなければデフォルト値で動作 |
 | `~/.config/roost/sessions.json` | JSON | セッション一覧 | Coordinator 起動時に読込・整合性チェック。セッション作成/停止で更新。shutdown で全エントリ削除 |
-| `~/.config/roost/logs/{id}.log` | テキスト | セッション出力 (pipe-pane でキャプチャ) | セッション作成時に開始。stop-session で pipe-pane 停止（ファイルは残る） |
+| `~/.config/roost/events/{agentSessionID}.log` | テキスト | エージェント hook イベントログ | hook イベント受信時に追記。Service.AppendEventLog で書き込み |
 | `~/.config/roost/roost.log` | slog | アプリケーションログ | Coordinator 起動時に作成/追記 |
 | `~/.config/roost/roost.sock` | Unix socket | プロセス間通信 | Coordinator 起動時に作成。終了時に削除 |
 
@@ -616,14 +615,14 @@ src/
 │   ├── server.go        Unix socket サーバー、コマンドハンドラ、broadcast、メタデータ定期解決、エージェントイベント受信
 │   ├── client.go        ソケットクライアント（TUI・パレット用）
 │   ├── protocol.go      メッセージ型定義 (Message, SessionInfo, BuildSessionInfos)
-│   ├── service.go       ビジネスロジック（切替、プレビュー、popup 起動、エージェントイベント処理、ResolveAgentState）
+│   ├── service.go       ビジネスロジック（切替、プレビュー、popup 起動、エージェントイベント処理、ResolveAgentState、ResolveAgentMeta、イベントログ I/O）
 │   └── tool.go          ツール定義 + Registry
 ├── config/
 │   └── config.go        TOML 設定読み込み
 ├── session/
 │   ├── manager.go       セッション CRUD + JSON 永続化
 │   ├── state.go         状態 enum + Session struct（tmux 固有データのみ）
-│   ├── log.go           ログパス管理
+│   ├── log.go           ログパスヘルパー
 │   └── driver/
 │       ├── driver.go    Driver インターフェース (Name, PromptPattern, DisplayName, ResolveMeta)
 │       ├── agent_session.go  AgentSession 構造体 + AgentState 列挙型

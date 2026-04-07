@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,37 +15,30 @@ import (
 
 const (
 	tailPollInterval = 200 * time.Millisecond
-	tailInitialBytes = 4096
+	tailInitialBytes = 128 * 1024
 	maxLogLines      = 5000
 )
 
 type tickMsg time.Time
-
-// logTab is the tab index. 0 is always the APP tab; 1+ are dynamic session tabs.
 type logTab int
 
-const tabApp logTab = 0
 
 type logEventMsg core.Message
 type logDisconnectMsg struct{}
 
-type sessionTab struct {
-	sessionID string
-	label     string
-	logPath   string
+type tabState struct {
+	label   string
+	logPath string
+	file    *os.File
+	offset  int64
+	buf     string
 }
 
 type LogModel struct {
 	viewport   viewport.Model
 	activeTab  logTab
 	appLogPath string
-	logDir     string
-	sessions   []sessionTab
-
-	logPath  string
-	file     *os.File
-	offset   int64
-	buf      string
+	tabs       []*tabState
 
 	following bool
 	width     int
@@ -54,16 +46,15 @@ type LogModel struct {
 	client    *core.Client
 }
 
-// NewLogModel initializes a LogModel.
-// logDir is the directory for session logs. When empty, session tabs are disabled.
-func NewLogModel(appLogPath, logDir string, client *core.Client) LogModel {
+func NewLogModel(appLogPath string, client *core.Client) LogModel {
 	return LogModel{
 		appLogPath: appLogPath,
-		logPath:    appLogPath,
-		logDir:     logDir,
-		client:     client,
-		activeTab:  tabApp,
-		following:  true,
+		tabs: []*tabState{
+			{label: "LOG", logPath: appLogPath},
+		},
+		client:    client,
+		activeTab: 0,
+		following: true,
 	}
 }
 
@@ -98,9 +89,12 @@ func (m LogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tickMsg:
-		newContent, err := m.readNewLines()
-		if err == nil && newContent != "" {
-			m.appendContent(newContent)
+		tab := m.activeTabState()
+		if tab != nil {
+			newContent, err := readNewLines(tab)
+			if err == nil && newContent != "" {
+				m.appendContent(newContent)
+			}
 		}
 		if m.following {
 			m.viewport.GotoBottom()
@@ -129,10 +123,7 @@ func (m LogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		coreMsg := core.Message(msg)
 		switch coreMsg.Event {
 		case "sessions-changed":
-			m.rebuildSessionTabs(coreMsg.Sessions)
-		}
-		if coreMsg.SessionLogPath != "" {
-			m.switchToSessionByLogPath(coreMsg.SessionLogPath)
+			m.rebuildTabs(coreMsg.EventLogPath, coreMsg.TranscriptPath)
 		}
 		if m.client != nil {
 			return m, m.listenEvents()
@@ -153,51 +144,56 @@ func (m LogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *LogModel) rebuildSessionTabs(sessions []core.SessionInfo) {
-	if m.logDir == "" {
-		return
-	}
-	tabs := make([]sessionTab, 0, len(sessions))
-	for _, s := range sessions {
-		tabs = append(tabs, sessionTab{
-			sessionID: s.ID,
-			label:     s.ID[:6],
-			logPath:   filepath.Join(m.logDir, s.ID+".log"),
-		})
-	}
-	m.sessions = tabs
-	if int(m.activeTab) > len(m.sessions) {
-		m.switchToTab(tabApp)
-	}
-}
-
-func (m *LogModel) switchToSessionByLogPath(logPath string) {
-	for i, tab := range m.sessions {
-		if tab.logPath == logPath {
-			m.switchToTab(logTab(i + 1))
-			return
+func (m *LogModel) rebuildTabs(eventLogPath, transcriptPath string) {
+	// Detect if active session changed (transcript path differs)
+	prevTranscript := ""
+	for _, t := range m.tabs {
+		if t.label == "TRANSCRIPT" {
+			prevTranscript = t.logPath
+			break
 		}
 	}
-}
+	sessionChanged := transcriptPath != prevTranscript
 
-func (m *LogModel) switchToFile(path string) {
-	m.closeFile()
-	m.resetReader(path)
-}
+	// Close old dynamic tab files
+	for _, t := range m.tabs {
+		if t.label != "LOG" && t.file != nil {
+			t.file.Close()
+		}
+	}
 
-func (m *LogModel) closeFile() {
-	if m.file != nil {
-		m.file.Close()
-		m.file = nil
+	// Rebuild: TRANSCRIPT + EVENTS (Claude) + LOG (always last)
+	var tabs []*tabState
+	if transcriptPath != "" {
+		tabs = append(tabs, &tabState{label: "TRANSCRIPT", logPath: transcriptPath})
+	}
+	if eventLogPath != "" {
+		tabs = append(tabs, &tabState{label: "EVENTS", logPath: eventLogPath})
+	}
+	tabs = append(tabs, &tabState{label: "LOG", logPath: m.appLogPath})
+	m.tabs = tabs
+
+	if int(m.activeTab) >= len(m.tabs) {
+		m.activeTab = 0
+	}
+
+	// Default to TRANSCRIPT only when active session changes
+	if sessionChanged && transcriptPath != "" {
+		m.switchToTab(0)
 	}
 }
 
-func (m *LogModel) resetReader(path string) {
-	m.logPath = path
-	m.offset = 0
-	m.buf = ""
-	m.viewport.SetContent("")
-	m.following = true
+func (m *LogModel) isLogTab() bool {
+	tab := m.activeTabState()
+	return tab != nil && tab.label == "LOG"
+}
+
+func (m *LogModel) activeTabState() *tabState {
+	idx := int(m.activeTab)
+	if idx >= 0 && idx < len(m.tabs) {
+		return m.tabs[idx]
+	}
+	return nil
 }
 
 func (m *LogModel) switchToTab(tab logTab) {
@@ -205,22 +201,24 @@ func (m *LogModel) switchToTab(tab logTab) {
 		return
 	}
 	m.activeTab = tab
-	if tab == tabApp {
-		m.switchToFile(m.appLogPath)
-		return
-	}
-	idx := int(tab) - 1
-	if idx >= 0 && idx < len(m.sessions) {
-		m.switchToFile(m.sessions[idx].logPath)
+
+	// Reset reader to tail from end of file
+	if t := m.activeTabState(); t != nil {
+		if t.file != nil {
+			t.file.Close()
+			t.file = nil
+		}
+		t.offset = 0
+		t.buf = ""
+		m.viewport.SetContent("")
+		m.following = true
 	}
 }
 
-// tabIndexAtX returns the tab index from the X coordinate on the tab header row.
 func (m *LogModel) tabIndexAtX(x int) logTab {
 	pos := 0
-	labels := m.tabLabels()
-	for i, label := range labels {
-		w := len([]rune(label)) + 1
+	for i, tab := range m.tabs {
+		w := len([]rune(tab.label)) + 1
 		if x < pos+w {
 			return logTab(i)
 		}
@@ -229,19 +227,9 @@ func (m *LogModel) tabIndexAtX(x int) logTab {
 	return m.activeTab
 }
 
-// tabLabels returns the list of tab header labels in index order.
-func (m *LogModel) tabLabels() []string {
-	labels := make([]string, 0, 1+len(m.sessions))
-	labels = append(labels, "[APP]")
-	for _, tab := range m.sessions {
-		labels = append(labels, tab.label)
-	}
-	return labels
-}
-
 func (m *LogModel) appendContent(newContent string) {
 	var styled string
-	if m.activeTab == tabApp {
+	if m.isLogTab() {
 		styled = colorizeLines(newContent)
 	} else {
 		styled = newContent
@@ -257,58 +245,58 @@ func (m *LogModel) appendContent(newContent string) {
 	m.viewport.SetContent(content)
 }
 
-func (m *LogModel) readNewLines() (string, error) {
-	if m.file == nil {
-		f, err := os.Open(m.logPath)
+func readNewLines(tab *tabState) (string, error) {
+	if tab.file == nil {
+		f, err := os.Open(tab.logPath)
 		if err != nil {
 			return "", err
 		}
-		m.file = f
+		tab.file = f
 		info, err := f.Stat()
 		if err != nil {
 			return "", err
 		}
 		size := info.Size()
 		if size > tailInitialBytes {
-			m.offset = size - tailInitialBytes
+			tab.offset = size - tailInitialBytes
 		}
 	}
 
-	info, err := m.file.Stat()
+	info, err := tab.file.Stat()
 	if err != nil {
-		m.file.Close()
-		m.file = nil
+		tab.file.Close()
+		tab.file = nil
 		return "", err
 	}
-	if info.Size() < m.offset {
-		m.file.Close()
-		m.file = nil
-		m.offset = 0
-		m.buf = ""
+	if info.Size() < tab.offset {
+		tab.file.Close()
+		tab.file = nil
+		tab.offset = 0
+		tab.buf = ""
 		return "", nil
 	}
-	if info.Size() == m.offset {
+	if info.Size() == tab.offset {
 		return "", nil
 	}
 
-	m.file.Seek(m.offset, io.SeekStart)
-	data, err := io.ReadAll(io.LimitReader(m.file, info.Size()-m.offset))
+	tab.file.Seek(tab.offset, io.SeekStart)
+	data, err := io.ReadAll(io.LimitReader(tab.file, info.Size()-tab.offset))
 	if err != nil {
 		return "", err
 	}
-	m.offset += int64(len(data))
+	tab.offset += int64(len(data))
 
-	text := m.buf + string(data)
+	text := tab.buf + string(data)
 	if !strings.HasSuffix(text, "\n") {
 		lastNL := strings.LastIndex(text, "\n")
 		if lastNL < 0 {
-			m.buf = text
+			tab.buf = text
 			return "", nil
 		}
-		m.buf = text[lastNL+1:]
+		tab.buf = text[lastNL+1:]
 		text = text[:lastNL]
 	} else {
-		m.buf = ""
+		tab.buf = ""
 		text = strings.TrimRight(text, "\n")
 	}
 	return text, nil
@@ -350,7 +338,7 @@ func (m LogModel) View() tea.View {
 	}
 	b.WriteString("\n")
 
-	if m.activeTab != tabApp && len(m.sessions) == 0 {
+	if len(m.tabs) == 0 {
 		b.WriteString(inactiveTabStyle.Render("  No sessions"))
 	} else {
 		b.WriteString(m.viewport.View())
@@ -363,21 +351,15 @@ func (m LogModel) View() tea.View {
 }
 
 func (m LogModel) renderTabHeader() string {
-	labels := m.tabLabels()
 	var b strings.Builder
-	for i, label := range labels {
-		tab := logTab(i)
+	for i, tab := range m.tabs {
 		if i > 0 {
 			b.WriteString(" ")
 		}
-		if tab == m.activeTab {
-			if i == 0 {
-				b.WriteString(activeTabStyle.Render(label))
-			} else {
-				b.WriteString(activeTabStyle.Render("[" + label + "]"))
-			}
+		if logTab(i) == m.activeTab {
+			b.WriteString(activeTabStyle.Render("[" + tab.label + "]"))
 		} else {
-			b.WriteString(inactiveTabStyle.Render(label))
+			b.WriteString(inactiveTabStyle.Render(tab.label))
 		}
 	}
 	return b.String()

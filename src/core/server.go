@@ -17,7 +17,6 @@ import (
 type Server struct {
 	svc               *Service
 	tmux              *tmux.Client
-	drivers           *driver.Registry
 	listener          net.Listener
 	clients           []*clientConn
 	mu                sync.Mutex
@@ -32,11 +31,10 @@ type clientConn struct {
 	broadcastEnabled bool
 }
 
-func NewServer(svc *Service, tmuxClient *tmux.Client, sockPath string, drivers *driver.Registry) *Server {
+func NewServer(svc *Service, tmuxClient *tmux.Client, sockPath string) *Server {
 	s := &Server{
 		svc:      svc,
 		tmux:     tmuxClient,
-		drivers:  drivers,
 		sockPath: sockPath,
 		done:     make(chan struct{}),
 	}
@@ -133,6 +131,14 @@ func (s *Server) dispatch(cc *clientConn, msg Message) {
 	case "subscribe":
 		cc.broadcastEnabled = true
 		s.sendResponse(cc, Message{})
+		// Push current state immediately
+		msg := NewEvent("sessions-changed")
+		msg.Sessions = BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore)
+		msg.ActiveWindowID = s.svc.ActiveWindowID()
+		msg.SessionLogPath = s.svc.ActiveSessionLogPath()
+		msg.EventLogPath = s.svc.EventLogPathByWindow(s.svc.ActiveWindowID())
+		msg.TranscriptPath = s.svc.ActiveTranscriptPath()
+		cc.encoder.Encode(msg)
 	case "create-session":
 		s.handleCreateSession(cc, msg.Args)
 	case "stop-session":
@@ -214,6 +220,8 @@ func (s *Server) handleListSessions(cc *clientConn) {
 		Sessions:       BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore),
 		ActiveWindowID: s.svc.ActiveWindowID(),
 		SessionLogPath: s.svc.ActiveSessionLogPath(),
+		EventLogPath:   s.svc.EventLogPathByWindow(s.svc.ActiveWindowID()),
+		TranscriptPath: s.svc.ActiveTranscriptPath(),
 	})
 }
 
@@ -243,6 +251,7 @@ func (s *Server) handlePreviewSession(cc *clientConn, args map[string]string) {
 		return
 	}
 	s.svc.SyncActiveStatusLine()
+	s.broadcastSessions()
 	s.sendResponse(cc, Message{
 		ActiveWindowID: s.svc.ActiveWindowID(),
 		SessionLogPath: s.svc.ActiveSessionLogPath(),
@@ -261,6 +270,7 @@ func (s *Server) handleSwitchSession(cc *clientConn, args map[string]string) {
 		return
 	}
 	s.svc.SyncActiveStatusLine()
+	s.broadcastSessions()
 	s.sendResponse(cc, Message{
 		ActiveWindowID: s.svc.ActiveWindowID(),
 		SessionLogPath: s.svc.ActiveSessionLogPath(),
@@ -328,6 +338,11 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 		if s.svc.HandleSessionStart(pane, agentSessionID, source) {
 			s.broadcastSessions()
 		}
+		logLine := "SessionStart"
+		if source != "" {
+			logLine += " source=" + source
+		}
+		s.svc.AppendEventLog(agentSessionID, logLine)
 		s.sendResponse(cc, Message{})
 	case "status-update":
 		sid := args["session_id"]
@@ -355,6 +370,11 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 		if s.svc.HandleStateChange(sid, agentState) {
 			s.broadcastSessions()
 		}
+		logLine := args["log"]
+		if logLine == "" {
+			logLine = stateStr
+		}
+		s.svc.AppendEventLog(sid, logLine)
 		s.sendResponse(cc, Message{})
 	default:
 		s.sendError(cc, "unknown agent event type: "+eventType)
@@ -386,32 +406,6 @@ func parseAgentState(s string) driver.AgentState {
 	}
 }
 
-// resolveAgentMeta resolves metadata from agent log files and updates the agent store.
-func (s *Server) resolveAgentMeta(sessions []*session.Session) bool {
-	home, _ := os.UserHomeDir()
-	fsys := os.DirFS(home)
-	changed := false
-	for _, sess := range sessions {
-		source := s.svc.AgentStore.SourceByWindow(sess.WindowID)
-		meta := s.drivers.Get(sess.Command).ResolveMeta(fsys, sess.Project, source)
-		if meta.Title == "" && meta.LastPrompt == "" && len(meta.Subjects) == 0 {
-			continue
-		}
-		agentID := s.svc.AgentStore.IDByWindow(sess.WindowID)
-		if agentID == "" && meta.Source != "" {
-			s.svc.AgentStore.Bind(sess.WindowID, meta.Source)
-			agentID = meta.Source
-			changed = true
-		}
-		if agentID == "" {
-			continue
-		}
-		if s.svc.AgentStore.UpdateMeta(agentID, meta) {
-			changed = true
-		}
-	}
-	return changed
-}
 
 func (s *Server) sendResponse(cc *clientConn, msg Message) {
 	msg.Type = "response"
@@ -437,14 +431,18 @@ func (s *Server) broadcastSessions() {
 	msg.Sessions = BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore)
 	msg.ActiveWindowID = s.svc.ActiveWindowID()
 	msg.SessionLogPath = s.svc.ActiveSessionLogPath()
+	msg.EventLogPath = s.svc.EventLogPathByWindow(s.svc.ActiveWindowID())
+	msg.TranscriptPath = s.svc.ActiveTranscriptPath()
 	s.broadcast(msg)
 }
+
 
 func (s *Server) StartMonitor(intervalMs int) {
 	slog.Info("monitor started", "interval_ms", intervalMs)
 	ticker := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
 	defer ticker.Stop()
-	var titleTick int
+	const metaResolveCycle = 5
+	titleTick := metaResolveCycle - 1 // resolve on first tick
 	for {
 		select {
 		case <-s.done:
@@ -462,9 +460,9 @@ func (s *Server) StartMonitor(intervalMs int) {
 			s.broadcast(msg)
 
 			titleTick++
-			if titleTick >= 5 {
+			if titleTick >= metaResolveCycle {
 				titleTick = 0
-				if s.resolveAgentMeta(sessions) {
+				if s.svc.ResolveAgentMeta() {
 					s.broadcastSessions()
 				}
 			}

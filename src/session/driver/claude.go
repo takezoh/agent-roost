@@ -76,6 +76,14 @@ func ProjectDir(projectPath string) string {
 	return strings.NewReplacer("/", "-", ".", "-").Replace(projectPath)
 }
 
+// TranscriptPath returns the JSONL transcript path for a Claude session.
+func TranscriptPath(homeDir, projectPath, agentSessionID string) string {
+	if homeDir == "" || projectPath == "" || agentSessionID == "" {
+		return ""
+	}
+	return filepath.Join(homeDir, ".claude", "projects", ProjectDir(projectPath), agentSessionID+".jsonl")
+}
+
 const maxSubjects = 10
 
 func parseSessionMeta(fsys fs.FS, path string) SessionMeta {

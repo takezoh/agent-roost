@@ -18,7 +18,6 @@ type TmuxClient interface {
 	KillWindow(windowID string) error
 	ListWindowIDs() ([]string, error)
 	SetOption(target, key, value string) error
-	PipePane(target, command string) error
 }
 
 type Manager struct {
@@ -66,16 +65,6 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 		return nil, err
 	}
 	m.tmux.SetOption(windowID, "remain-on-exit", "on")
-
-	EnsureLogDir(m.dataDir)
-	logFile, err := os.Create(LogPath(m.dataDir, id))
-	if err != nil {
-		slog.Error("create: log file failed", "err", err)
-		m.tmux.KillWindow(windowID)
-		return nil, err
-	}
-	logFile.Close()
-	m.tmux.PipePane(windowID+".0", "cat >> "+LogPath(m.dataDir, id))
 
 	s := &Session{
 		ID:        id,

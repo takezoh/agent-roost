@@ -22,6 +22,8 @@ type Message struct {
 	Error          string                    `json:"error,omitempty"`
 	ActiveWindowID  string                    `json:"active_window_id,omitempty"`
 	SessionLogPath  string                    `json:"session_log_path,omitempty"`
+	EventLogPath    string                    `json:"event_log_path,omitempty"`
+	TranscriptPath  string                    `json:"transcript_path,omitempty"`
 	SelectedProject string                    `json:"selected_project,omitempty"`
 }
 

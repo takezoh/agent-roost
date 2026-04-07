@@ -106,6 +106,8 @@ func (c *Client) ListSessions() ([]SessionInfo, string, error) {
 	return resp.Sessions, resp.ActiveWindowID, err
 }
 
+
+
 func (c *Client) Shutdown() error {
 	_, err := c.sendCommand("shutdown", nil)
 	return err

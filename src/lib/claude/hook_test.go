@@ -29,6 +29,26 @@ func TestParseHookEvent_Invalid(t *testing.T) {
 	}
 }
 
+func TestFormatLog(t *testing.T) {
+	tests := []struct {
+		event HookEvent
+		want  string
+	}{
+		{HookEvent{HookEventName: "UserPromptSubmit"}, "UserPromptSubmit"},
+		{HookEvent{HookEventName: "PreToolUse", ToolName: "Read", ToolInput: map[string]any{"file_path": "/src/main.go"}}, "PreToolUse Read /src/main.go"},
+		{HookEvent{HookEventName: "PostToolUse", ToolName: "Bash", ToolInput: map[string]any{"command": "go test ./..."}}, "PostToolUse Bash go test ./..."},
+		{HookEvent{HookEventName: "Notification", NotificationType: "permission_prompt"}, "Notification permission_prompt"},
+		{HookEvent{HookEventName: "SessionStart", Source: "startup"}, "SessionStart startup"},
+		{HookEvent{HookEventName: "Stop"}, "Stop"},
+	}
+	for _, tt := range tests {
+		got := tt.event.FormatLog()
+		if got != tt.want {
+			t.Errorf("FormatLog() = %q, want %q", got, tt.want)
+		}
+	}
+}
+
 func TestDeriveState(t *testing.T) {
 	tests := []struct {
 		event string

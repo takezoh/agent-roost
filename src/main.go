@@ -71,7 +71,6 @@ func runCoordinator() {
 
 	dataDir := cfg.ResolveDataDir()
 	os.MkdirAll(dataDir, 0o755)
-	session.EnsureLogDir(dataDir)
 
 	mgr := session.NewManager(client, dataDir)
 	mgr.Refresh()
@@ -82,7 +81,8 @@ func runCoordinator() {
 	drivers := driver.DefaultRegistry()
 	agentStore := driver.NewAgentStore()
 	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec, drivers)
-	svc := core.NewService(mgr, agentStore, monitor, client, sessionName, activeWID)
+	eventLogDir := filepath.Join(dataDir, "events")
+	svc := core.NewService(mgr, agentStore, drivers, monitor, client, sessionName, eventLogDir, activeWID)
 	svc.SetSyncActive(func(wid string) {
 		if wid != "" {
 			client.SetEnv("ROOST_ACTIVE_WINDOW", wid)
@@ -100,7 +100,7 @@ func runCoordinator() {
 	})
 
 	sockPath := filepath.Join(dataDir, "roost.sock")
-	srv := core.NewServer(svc, client, sockPath, drivers)
+	srv := core.NewServer(svc, client, sockPath)
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: server: %v\n", err)
 		os.Exit(1)
@@ -109,7 +109,8 @@ func runCoordinator() {
 	go srv.StartMonitor(cfg.Monitor.PollIntervalMs)
 	defer srv.Stop()
 
-	respawnTUI(client, sessionName)
+	respawnSessionsPane(client, sessionName)
+	respawnLogPane(client, sessionName)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -174,7 +175,6 @@ func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {
 	client.ResizePane(sn+":0.1", 0, logHeight)
 	setupKeyBindings(client, sn)
 	setupStatusBar(client, sn)
-	respawnLog(client, sn)
 	client.SelectPane(sn + ":0.0")
 }
 
@@ -211,33 +211,33 @@ func healthMonitor(ctx context.Context, client *tmux.Client, cfg *config.Config,
 			if !client.SessionExists() {
 				return
 			}
-			respawnTUIIfDead(client, sn)
-			respawnLogIfDead(client, sn)
+			respawnSessionsPaneIfDead(client, sn)
+			respawnLogPaneIfDead(client, sn)
 		}
 	}
 }
 
-func respawnTUI(client *tmux.Client, sn string) {
+func respawnSessionsPane(client *tmux.Client, sn string) {
 	client.RespawnPane(sn+":0.2", resolveExe()+" --tui sessions")
 }
 
-func respawnLog(client *tmux.Client, sn string) {
+func respawnLogPane(client *tmux.Client, sn string) {
 	client.RespawnPane(sn+":0.1", resolveExe()+" --tui log")
 }
 
-func respawnLogIfDead(client *tmux.Client, sn string) {
+func respawnLogPaneIfDead(client *tmux.Client, sn string) {
 	dead, _ := client.Run("display-message", "-t", sn+":0.1", "-p", "#{pane_dead}")
 	if dead == "1" {
 		slog.Info("respawning dead pane", "pane", sn+":0.1")
-		respawnLog(client, sn)
+		respawnLogPane(client, sn)
 	}
 }
 
-func respawnTUIIfDead(client *tmux.Client, sn string) {
+func respawnSessionsPaneIfDead(client *tmux.Client, sn string) {
 	dead, _ := client.Run("display-message", "-t", sn+":0.2", "-p", "#{pane_dead}")
 	if dead == "1" {
 		slog.Info("respawning dead pane", "pane", sn+":0.2")
-		respawnTUI(client, sn)
+		respawnSessionsPane(client, sn)
 	}
 }
 
@@ -269,12 +269,9 @@ func runLogViewer() {
 	cfg := loadConfig()
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
-	logDir := session.LogDirPath(cfg.ResolveDataDir())
-
 	client, err := core.Dial(sockPath)
 	if err != nil {
-		// Server not ready — app log only mode
-		model := tui.NewLogModel(logger.LogFilePath(), logDir, nil)
+		model := tui.NewLogModel(logger.LogFilePath(), nil)
 		if _, err := tea.NewProgram(model).Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
 			os.Exit(1)
@@ -285,7 +282,7 @@ func runLogViewer() {
 	client.StartListening()
 	client.Subscribe()
 
-	model := tui.NewLogModel(logger.LogFilePath(), logDir, client)
+	model := tui.NewLogModel(logger.LogFilePath(), client)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
 		os.Exit(1)

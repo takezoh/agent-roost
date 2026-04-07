@@ -118,6 +118,7 @@ func runEvent() {
 		client.SendAgentEvent("state-change", map[string]string{
 			"session_id": event.SessionID,
 			"state":      state,
+			"log":        event.FormatLog(),
 		})
 	}
 }

@@ -51,7 +51,7 @@ func setupService(t *testing.T) (*Service, *mockPaneOp, *session.Manager) {
 	store := driver.NewAgentStore()
 	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, store, mon, panes, "roost", "")
+	svc := NewService(mgr, store, driver.DefaultRegistry(), mon, panes, "roost", "", "")
 	return svc, panes, mgr
 }
 
@@ -93,7 +93,7 @@ func TestRefreshSessions_Changed(t *testing.T) {
 	store := driver.NewAgentStore()
 	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, store, mon, panes, "roost", "")
+	svc := NewService(mgr, store, driver.DefaultRegistry(), mon, panes, "roost", "", "")
 
 	// Create via a separate manager so svc.Manager has empty in-memory state.
 	mgr2 := session.NewManager(mt, dataDir)
@@ -176,7 +176,7 @@ func TestNewService_RestoresActiveWindowID(t *testing.T) {
 	store := driver.NewAgentStore()
 	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, store, mon, panes, "roost", "@5")
+	svc := NewService(mgr, store, driver.DefaultRegistry(), mon, panes, "roost", "", "@5")
 	if svc.ActiveWindowID() != "@5" {
 		t.Fatalf("expected @5, got %s", svc.ActiveWindowID())
 	}
