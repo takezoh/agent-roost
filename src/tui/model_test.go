@@ -103,6 +103,44 @@ func TestRebuildItemsCursorOnSession(t *testing.T) {
 	}
 }
 
+func TestRowToItemIndex(t *testing.T) {
+	m := NewModel(nil, &config.Config{})
+	m.sessions = []core.SessionInfo{
+		{ID: "aaa111", Project: "/tmp/proj", Command: "claude", WindowID: "@1"},
+		{ID: "bbb222", Project: "/tmp/proj", Command: "claude", WindowID: "@2", LastPrompt: "hello"},
+	}
+	m.rebuildItems()
+
+	// Render to populate rows cache.
+	m.View()
+
+	// Header: 2 rows (row 0: "SESSIONS", row 1: blank)
+	// Row 2: project header (1 row)
+	// Row 3-4: session aaa111 (no LastPrompt → 2 rows)
+	// Row 5-7: session bbb222 (has LastPrompt → 3 rows)
+
+	tests := []struct {
+		y    int
+		want int // expected item index, -1 for outside
+	}{
+		{0, -1},  // header
+		{1, -1},  // blank
+		{2, 0},   // project
+		{3, 1},   // session aaa111 line1
+		{4, 1},   // session aaa111 line2 (tags)
+		{5, 2},   // session bbb222 line1
+		{6, 2},   // session bbb222 line2 (lastPrompt)
+		{7, 2},   // session bbb222 line3 (tags)
+		{8, -1},  // outside
+	}
+	for _, tt := range tests {
+		got := m.rowToItemIndex(tt.y)
+		if got != tt.want {
+			t.Errorf("rowToItemIndex(%d) = %d, want %d", tt.y, got, tt.want)
+		}
+	}
+}
+
 func TestStatesUpdatedPreservesExistingSessions(t *testing.T) {
 	m := NewModel(nil, &config.Config{})
 	m.sessions = []core.SessionInfo{

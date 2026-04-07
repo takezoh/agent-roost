@@ -31,9 +31,11 @@ func (m Model) View() tea.View {
 	b.WriteString("\n\n")
 
 	cursorSession := m.cursorSession()
-	for _, item := range m.items {
-		selected := !item.isProject && cursorSession != nil && item.session == cursorSession
-		b.WriteString(renderItem(item, selected, m.width, m.folded[item.project], m.drivers))
+	for i := range m.items {
+		selected := !m.items[i].isProject && cursorSession != nil && m.items[i].session == cursorSession
+		rendered := renderItem(m.items[i], selected, m.width, m.folded[m.items[i].project], m.drivers)
+		m.items[i].SetRows(rendered)
+		b.WriteString(rendered)
 		b.WriteString("\n")
 	}
 

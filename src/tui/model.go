@@ -3,6 +3,7 @@ package tui
 import (
 	"log/slog"
 	"sort"
+	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
@@ -16,6 +17,11 @@ type listItem struct {
 	project     string
 	projectPath string
 	session     *core.SessionInfo
+	rows        int
+}
+
+func (li *listItem) SetRows(rendered string) {
+	li.rows = strings.Count(rendered, "\n") + 1
 }
 
 type Model struct {
@@ -322,23 +328,19 @@ func (m *Model) rebuildItems() {
 }
 
 // rowToItemIndex maps a terminal row Y (0-based) to an item index.
-// Header takes 2 rows ("SESSIONS" + blank line). Project items take 1 row,
-// session items take 2 rows (line1 + line2). Returns -1 if outside items.
+// Row counts are cached per item by SetRows during View rendering.
+// Returns -1 if outside items.
 func (m Model) rowToItemIndex(y int) int {
 	const headerRows = 2
 	row := headerRows
 	for i, item := range m.items {
-		if item.isProject {
-			if y == row {
-				return i
-			}
-			row++
-		} else {
-			if y == row || y == row+1 {
-				return i
-			}
-			row += 2
+		if item.rows <= 0 {
+			continue
 		}
+		if y >= row && y < row+item.rows {
+			return i
+		}
+		row += item.rows
 	}
 	return -1
 }
