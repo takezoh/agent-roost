@@ -86,6 +86,15 @@ func renderSession(s *core.SessionInfo, selected bool, registry *driver.Registry
 		content += "\n  " + idleStyle.Render(truncate(s.LastPrompt, 30))
 	}
 
+	const maxDisplaySubjects = 5
+	subjects := s.Subjects
+	if len(subjects) > maxDisplaySubjects {
+		subjects = subjects[len(subjects)-maxDisplaySubjects:]
+	}
+	for _, subj := range subjects {
+		content += "\n    " + idleStyle.Render("• "+truncate(subj, 26))
+	}
+
 	displayName := registry.Get(s.Command).DisplayName()
 	var tagParts []string
 	tagParts = append(tagParts, tagStyle.Render("["+displayName+"]"))

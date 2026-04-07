@@ -16,6 +16,7 @@ func (m *mockPaneOp) SwapPane(src, dst string) error                { return nil
 func (m *mockPaneOp) SelectPane(target string) error                { m.selectCalls = append(m.selectCalls, target); return nil }
 func (m *mockPaneOp) RespawnPane(target, cmd string) error          { return nil }
 func (m *mockPaneOp) RunChain(cmds ...[]string) error               { m.chainCalls = cmds; return nil }
+func (m *mockPaneOp) WindowIDFromPane(paneID string) (string, error) { return "@0", nil }
 
 type mockTmuxForService struct {
 	nextID  string

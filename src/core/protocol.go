@@ -34,6 +34,7 @@ type SessionInfo struct {
 	Tags       []session.Tag  `json:"tags,omitempty"`
 	Title      string        `json:"title,omitempty"`
 	LastPrompt string        `json:"last_prompt,omitempty"`
+	Subjects   []string      `json:"subjects,omitempty"`
 }
 
 func (si SessionInfo) DisplayCommand() string {
@@ -73,6 +74,7 @@ func SessionsToInfo(sessions []*session.Session) []SessionInfo {
 			Tags:       s.Tags,
 			Title:      s.Title,
 			LastPrompt: s.LastPrompt,
+			Subjects:   s.Subjects,
 		}
 	}
 	return infos

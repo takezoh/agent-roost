@@ -140,6 +140,16 @@ func (c *Client) FocusPane(pane string) error {
 	return err
 }
 
+func (c *Client) SendAgentEvent(eventType string, args map[string]string) error {
+	a := make(map[string]string, len(args)+1)
+	for k, v := range args {
+		a[k] = v
+	}
+	a["type"] = eventType
+	_, err := c.sendCommand("agent-event", a)
+	return err
+}
+
 func (c *Client) LaunchTool(toolName string, args map[string]string) {
 	a := make(map[string]string, len(args)+1)
 	for k, v := range args {

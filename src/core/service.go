@@ -171,6 +171,16 @@ func (s *Service) UpdateStates(states map[string]session.State) {
 	s.Manager.UpdateStates(states)
 }
 
+// HandleSessionStart resolves a tmux pane to a window and updates the session's meta source.
+// Returns true if the source was changed.
+func (s *Service) HandleSessionStart(pane, source string) (bool, error) {
+	windowID, err := s.Panes.WindowIDFromPane(pane)
+	if err != nil {
+		return false, err
+	}
+	return s.Manager.UpdateSourceByWindow(windowID, source), nil
+}
+
 func (s *Service) buildSwapChain(sess *session.Session) [][]string {
 	pane0 := s.SessionName + ":0.0"
 	var cmds [][]string

@@ -19,11 +19,31 @@ func (Claude) Name() string          { return "claude" }
 func (Claude) PromptPattern() string { return claudePromptPattern }
 func (Claude) DisplayName() string   { return "claude" }
 
-func (Claude) ResolveMeta(fsys fs.FS, projectPath string) SessionMeta {
+// ResolveMeta resolves session metadata from Claude Code JSONL logs.
+// If source is non-empty, it reads that specific file; otherwise it picks the most recent .jsonl.
+func (Claude) ResolveMeta(fsys fs.FS, projectPath string, source string) SessionMeta {
 	dir := filepath.Join(".claude", "projects", ProjectDir(projectPath))
+
+	if source != "" {
+		path := filepath.Join(dir, source)
+		meta := parseSessionMeta(fsys, path)
+		meta.Source = source
+		return meta
+	}
+
+	target := findNewestJSONL(fsys, dir)
+	if target == "" {
+		return SessionMeta{}
+	}
+	meta := parseSessionMeta(fsys, filepath.Join(dir, target))
+	meta.Source = target
+	return meta
+}
+
+func findNewestJSONL(fsys fs.FS, dir string) string {
 	entries, err := fs.ReadDir(fsys, dir)
 	if err != nil {
-		return SessionMeta{}
+		return ""
 	}
 
 	type file struct {
@@ -42,13 +62,12 @@ func (Claude) ResolveMeta(fsys fs.FS, projectPath string) SessionMeta {
 		jsonls = append(jsonls, file{name: e.Name(), mtime: info.ModTime().UnixNano()})
 	}
 	if len(jsonls) == 0 {
-		return SessionMeta{}
+		return ""
 	}
 	sort.Slice(jsonls, func(i, j int) bool {
 		return jsonls[i].mtime > jsonls[j].mtime
 	})
-
-	return parseSessionMeta(fsys, filepath.Join(dir, jsonls[0].name))
+	return jsonls[0].name
 }
 
 // ProjectDir converts a project path to a ~/.claude/projects/ directory name.
@@ -56,6 +75,8 @@ func (Claude) ResolveMeta(fsys fs.FS, projectPath string) SessionMeta {
 func ProjectDir(projectPath string) string {
 	return strings.NewReplacer("/", "-", ".", "-").Replace(projectPath)
 }
+
+const maxSubjects = 10
 
 func parseSessionMeta(fsys fs.FS, path string) SessionMeta {
 	f, err := fsys.Open(path)
@@ -73,7 +94,7 @@ func parseSessionMeta(fsys fs.FS, path string) SessionMeta {
 			CustomTitle string `json:"customTitle"`
 			LastPrompt  string `json:"lastPrompt"`
 			Message     *struct {
-				Content string `json:"content"`
+				Content json.RawMessage `json:"content"`
 			} `json:"message"`
 		}
 		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
@@ -89,10 +110,35 @@ func parseSessionMeta(fsys fs.FS, path string) SessionMeta {
 				meta.LastPrompt = entry.LastPrompt
 			}
 		case "user":
-			if entry.Message != nil && entry.Message.Content != "" {
-				meta.LastPrompt = entry.Message.Content
+			if entry.Message != nil {
+				var s string
+				if json.Unmarshal(entry.Message.Content, &s) == nil && s != "" {
+					meta.LastPrompt = s
+				}
+			}
+		case "assistant":
+			if entry.Message != nil {
+				extractSubjects(&meta, entry.Message.Content)
 			}
 		}
 	}
 	return meta
+}
+
+func extractSubjects(meta *SessionMeta, raw json.RawMessage) {
+	var blocks []struct {
+		Type  string `json:"type"`
+		Name  string `json:"name"`
+		Input struct {
+			Subject string `json:"subject"`
+		} `json:"input"`
+	}
+	if json.Unmarshal(raw, &blocks) != nil {
+		return
+	}
+	for _, b := range blocks {
+		if b.Type == "tool_use" && b.Name == "TaskCreate" && b.Input.Subject != "" && len(meta.Subjects) < maxSubjects {
+			meta.Subjects = append(meta.Subjects, b.Input.Subject)
+		}
+	}
 }

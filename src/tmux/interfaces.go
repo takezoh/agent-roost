@@ -5,6 +5,7 @@ type PaneOperator interface {
 	SelectPane(target string) error
 	RespawnPane(target, command string) error
 	RunChain(commands ...[]string) error
+	WindowIDFromPane(paneID string) (string, error)
 }
 
 type PaneCapturer interface {

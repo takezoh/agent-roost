@@ -14,6 +14,8 @@ import (
 
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
+	"github.com/take/agent-roost/lib"
+	_ "github.com/take/agent-roost/lib/claude"
 	"github.com/take/agent-roost/logger"
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
@@ -24,6 +26,15 @@ import (
 func main() {
 	logger.Init()
 	defer logger.Close()
+
+	if lib.Dispatch(os.Args[1:]) {
+		return
+	}
+
+	if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help") {
+		printUsage()
+		return
+	}
 
 	if len(os.Args) > 1 && os.Args[1] == "--tui" && len(os.Args) > 2 {
 		switch os.Args[2] {
@@ -346,6 +357,18 @@ func loadConfig() *config.Config {
 		os.Exit(1)
 	}
 	return cfg
+}
+
+
+func printUsage() {
+	fmt.Println("roost - AI agent session manager on tmux")
+	fmt.Println()
+	fmt.Println("Usage:")
+	fmt.Println("  roost          Start or attach to the roost tmux session")
+	for _, pair := range lib.RegisteredHelp() {
+		fmt.Printf("  roost %-8s %s\n", pair[0], pair[1])
+	}
+	fmt.Println("  roost help     Show this help message")
 }
 
 func resolveExe() string {

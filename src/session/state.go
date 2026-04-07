@@ -49,14 +49,16 @@ type Session struct {
 	Project   string    `json:"project"`
 	Command   string    `json:"command"`
 	WindowID  string    `json:"window_id"`
-	CreatedAt time.Time `json:"created_at"`
-	Tags      []Tag     `json:"tags,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	Tags       []Tag     `json:"tags,omitempty"`
+	MetaSource string    `json:"meta_source,omitempty"`
 
 	State   State         `json:"-"`
 	Cost    string        `json:"-"`
 	Elapsed time.Duration `json:"-"`
 	Title      string        `json:"-"`
 	LastPrompt string        `json:"-"`
+	Subjects   []string      `json:"-"`
 }
 
 type Tag struct {
@@ -69,6 +71,8 @@ type Tag struct {
 type SessionMeta struct {
 	Title      string
 	LastPrompt string
+	Subjects   []string
+	Source     string
 }
 
 func (s *Session) Name() string {

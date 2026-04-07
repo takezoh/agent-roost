@@ -151,6 +151,8 @@ func (s *Server) dispatch(cc *clientConn, msg Message) {
 		s.handlePreviewProject(cc, msg.Args)
 	case "launch-tool":
 		s.handleLaunchTool(cc, msg.Args)
+	case "agent-event":
+		s.handleAgentEvent(cc, msg.Args)
 	case "detach":
 		s.handleDetach(cc)
 	default:
@@ -310,6 +312,30 @@ func (s *Server) handleDetach(cc *clientConn) {
 	s.sendResponse(cc, Message{})
 }
 
+func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
+	eventType := args["type"]
+	switch eventType {
+	case "session-start":
+		pane := args["pane"]
+		source := args["source"]
+		if pane == "" || source == "" {
+			s.sendError(cc, "session-start: pane and source required")
+			return
+		}
+		changed, err := s.svc.HandleSessionStart(pane, source)
+		if err != nil {
+			s.sendError(cc, fmt.Sprintf("session-start: %v", err))
+			return
+		}
+		if changed {
+			s.broadcastSessions()
+		}
+		s.sendResponse(cc, Message{})
+	default:
+		s.sendError(cc, "unknown agent event type: "+eventType)
+	}
+}
+
 func (s *Server) sendResponse(cc *clientConn, msg Message) {
 	msg.Type = "response"
 	cc.encoder.Encode(msg)
@@ -364,9 +390,9 @@ func (s *Server) StartMonitor(intervalMs int) {
 				fsys := os.DirFS(home)
 				metas := make(map[string]session.SessionMeta, len(sessions))
 				for _, sess := range sessions {
-					m := s.drivers.Get(sess.Command).ResolveMeta(fsys, sess.Project)
-					if m.Title != "" || m.LastPrompt != "" {
-						metas[sess.ID] = session.SessionMeta{Title: m.Title, LastPrompt: m.LastPrompt}
+					m := s.drivers.Get(sess.Command).ResolveMeta(fsys, sess.Project, sess.MetaSource)
+					if m.Title != "" || m.LastPrompt != "" || len(m.Subjects) > 0 {
+						metas[sess.ID] = session.SessionMeta{Title: m.Title, LastPrompt: m.LastPrompt, Subjects: m.Subjects, Source: m.Source}
 					}
 				}
 				if s.svc.Manager.UpdateMeta(metas) {

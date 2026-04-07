@@ -56,3 +56,8 @@ func (c *Client) PipePane(target, command string) error {
 	_, err := c.Run("pipe-pane", "-t", target, command)
 	return err
 }
+
+// WindowIDFromPane returns the tmux window ID for a given pane ID (e.g. "%5" → "@3").
+func (c *Client) WindowIDFromPane(paneID string) (string, error) {
+	return c.Run("display-message", "-t", paneID, "-p", "#{window_id}")
+}
