@@ -197,6 +197,28 @@ func TestSyncActiveCallback(t *testing.T) {
 	}
 }
 
+func TestPreviewEmitsOnPreview(t *testing.T) {
+	svc, _, _ := setupService(t)
+	var ids1, ids2 []string
+	svc.OnPreview(func(id string) { ids1 = append(ids1, id) })
+	svc.OnPreview(func(id string) { ids2 = append(ids2, id) })
+
+	svc.Preview(&session.Session{ID: "a", WindowID: "@2"})
+	svc.Preview(&session.Session{ID: "b", WindowID: "@3"})
+
+	want := []string{"a", "b"}
+	for _, ids := range [][]string{ids1, ids2} {
+		if len(ids) != 2 {
+			t.Fatalf("expected 2 calls, got %d", len(ids))
+		}
+		for i, w := range want {
+			if ids[i] != w {
+				t.Fatalf("ids[%d]: expected %q, got %q", i, w, ids[i])
+			}
+		}
+	}
+}
+
 func TestActiveSessionLogPath(t *testing.T) {
 	svc, _, mgr := setupService(t)
 	if svc.ActiveSessionLogPath() != "" {

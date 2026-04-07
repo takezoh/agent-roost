@@ -33,13 +33,19 @@ type clientConn struct {
 }
 
 func NewServer(svc *Service, tmuxClient *tmux.Client, sockPath string, drivers *driver.Registry) *Server {
-	return &Server{
+	s := &Server{
 		svc:      svc,
 		tmux:     tmuxClient,
 		drivers:  drivers,
 		sockPath: sockPath,
 		done:     make(chan struct{}),
 	}
+	svc.OnPreview(func(sessionID string) {
+		if svc.Manager.RefreshBranch(sessionID) {
+			s.broadcastSessions()
+		}
+	})
+	return s
 }
 
 func (s *Server) Done() <-chan struct{} {

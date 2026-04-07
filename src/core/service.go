@@ -18,6 +18,7 @@ type Service struct {
 	SessionName    string
 	activeWindowID string
 	syncActive     func(string)
+	onPreview      []func(string)
 	lastCount      int
 }
 
@@ -42,6 +43,16 @@ func (s *Service) setActiveWindowID(wid string) {
 	}
 }
 
+func (s *Service) OnPreview(fn func(sessionID string)) {
+	s.onPreview = append(s.onPreview, fn)
+}
+
+func (s *Service) emitPreview(sessionID string) {
+	for _, fn := range s.onPreview {
+		fn(sessionID)
+	}
+}
+
 func (s *Service) Preview(sess *session.Session) error {
 	slog.Info("preview", "window", sess.WindowID)
 	cmds := s.buildSwapChain(sess)
@@ -50,6 +61,7 @@ func (s *Service) Preview(sess *session.Session) error {
 		return err
 	}
 	s.setActiveWindowID(sess.WindowID)
+	s.emitPreview(sess.ID)
 	return nil
 }
 

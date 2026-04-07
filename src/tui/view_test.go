@@ -33,7 +33,7 @@ func TestRenderSession_TagsAndTitle(t *testing.T) {
 	s := &core.SessionInfo{
 		ID:         "abc123",
 		Command:    "claude",
-		GitBranch:  "main",
+		Tags:       []session.Tag{{Text: "main", Foreground: "#A9DC76"}},
 		Title:      "my-session-name",
 		LastPrompt: "最後のプロンプト",
 		State:      session.StateWaiting,
@@ -59,7 +59,8 @@ func TestRenderSession_NoTitle_ShowsID(t *testing.T) {
 	s := &core.SessionInfo{
 		ID:        "abc123",
 		Command:   "gemini",
-		GitBranch: "",
+		Tags:      nil,
+
 		Title:     "",
 		State:     session.StateIdle,
 		CreatedAt: time.Now().Add(-5 * time.Minute).Format("2006-01-02T15:04:05Z07:00"),

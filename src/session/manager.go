@@ -22,16 +22,18 @@ type TmuxClient interface {
 }
 
 type Manager struct {
-	tmux     TmuxClient
-	dataDir  string
-	mu       sync.RWMutex
-	sessions []*Session
+	tmux         TmuxClient
+	dataDir      string
+	detectBranch func(string) string
+	mu           sync.RWMutex
+	sessions     []*Session
 }
 
 func NewManager(tmux TmuxClient, dataDir string) *Manager {
 	return &Manager{
-		tmux:    tmux,
-		dataDir: dataDir,
+		tmux:         tmux,
+		dataDir:      dataDir,
+		detectBranch: lib.DetectGitBranch,
 	}
 }
 
@@ -43,7 +45,11 @@ func (m *Manager) Refresh() error {
 	if err := m.load(); err != nil {
 		return err
 	}
-	return m.reconcile()
+	if err := m.reconcile(); err != nil {
+		return err
+	}
+	m.refreshBranches()
+	return nil
 }
 
 func (m *Manager) Create(project, command string) (*Session, error) {
@@ -78,7 +84,7 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 		WindowID:  windowID,
 		CreatedAt: time.Now(),
 		State:     StateRunning,
-		GitBranch: lib.DetectGitBranch(project),
+		Tags:      buildTags(m.detectBranch(project)),
 	}
 
 	m.mu.Lock()
@@ -174,6 +180,61 @@ func (m *Manager) UpdateMeta(metas map[string]SessionMeta) bool {
 		}
 	}
 	return changed
+}
+
+func (m *Manager) RefreshBranch(sessionID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.sessions {
+		if s.ID == sessionID {
+			if m.refreshSessionBranch(s) {
+				m.save()
+				return true
+			}
+			return false
+		}
+	}
+	return false
+}
+
+func (m *Manager) refreshBranches() {
+	changed := false
+	for _, s := range m.sessions {
+		if m.refreshSessionBranch(s) {
+			changed = true
+		}
+	}
+	if changed {
+		m.save()
+	}
+}
+
+func (m *Manager) refreshSessionBranch(s *Session) bool {
+	tags := buildTags(m.detectBranch(s.Project))
+	if !tagsEqual(s.Tags, tags) {
+		s.Tags = tags
+		return true
+	}
+	return false
+}
+
+func buildTags(branch string) []Tag {
+	if branch == "" {
+		return nil
+	}
+	return []Tag{{Text: branch, Foreground: "#A9DC76"}}
+}
+
+func tagsEqual(a, b []Tag) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (m *Manager) DataDir() string {

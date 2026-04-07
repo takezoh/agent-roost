@@ -186,6 +186,44 @@ func TestCreateUsesExecPrefix(t *testing.T) {
 	}
 }
 
+func TestRefreshBranch(t *testing.T) {
+	mgr, _ := setupManager(t)
+	mgr.detectBranch = func(string) string { return "main" }
+
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	if len(sess.Tags) != 1 || sess.Tags[0].Text != "main" {
+		t.Fatalf("expected tag main, got %v", sess.Tags)
+	}
+
+	// ブランチ変更をシミュレート
+	mgr.detectBranch = func(string) string { return "feature" }
+	if !mgr.RefreshBranch(sess.ID) {
+		t.Fatal("expected true on branch change")
+	}
+	found := mgr.FindByID(sess.ID)
+	if len(found.Tags) != 1 || found.Tags[0].Text != "feature" {
+		t.Fatalf("expected tag feature, got %v", found.Tags)
+	}
+
+	// 変更なし
+	if mgr.RefreshBranch(sess.ID) {
+		t.Fatal("expected false when unchanged")
+	}
+
+	// 存在しない ID
+	if mgr.RefreshBranch("nonexistent") {
+		t.Fatal("expected false for nonexistent ID")
+	}
+
+	// 永続化の確認
+	mgr2 := NewManager(newMockTmux(), mgr.DataDir())
+	mgr2.load()
+	found = mgr2.FindByID(sess.ID)
+	if found == nil || len(found.Tags) != 1 || found.Tags[0].Text != "feature" {
+		t.Fatalf("expected persisted tag feature, got %v", found.Tags)
+	}
+}
+
 func TestByProject(t *testing.T) {
 	mgr, tmux := setupManager(t)
 

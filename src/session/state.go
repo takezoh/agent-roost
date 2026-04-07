@@ -50,13 +50,19 @@ type Session struct {
 	Command   string    `json:"command"`
 	WindowID  string    `json:"window_id"`
 	CreatedAt time.Time `json:"created_at"`
-	GitBranch string    `json:"git_branch,omitempty"`
+	Tags      []Tag     `json:"tags,omitempty"`
 
 	State   State         `json:"-"`
 	Cost    string        `json:"-"`
 	Elapsed time.Duration `json:"-"`
 	Title      string        `json:"-"`
 	LastPrompt string        `json:"-"`
+}
+
+type Tag struct {
+	Text       string `json:"text"`
+	Foreground string `json:"fg,omitempty"`
+	Background string `json:"bg,omitempty"`
 }
 
 // SessionMeta はセッションのメタ情報。

@@ -81,11 +81,12 @@ func renderSession(s *core.SessionInfo, selected bool, registry *driver.Registry
 	line1 := fmt.Sprintf("  %s %s  %s", name, symbol, elapsed)
 
 	displayName := registry.Get(s.Command).DisplayName()
-	tags := "[" + displayName + "]"
-	if s.GitBranch != "" {
-		tags += " [" + s.GitBranch + "]"
+	var tagParts []string
+	tagParts = append(tagParts, tagStyle.Render("["+displayName+"]"))
+	for _, tag := range s.Tags {
+		tagParts = append(tagParts, renderTag(tag))
 	}
-	line2 := "  " + tagStyle.Render(tags)
+	line2 := "  " + strings.Join(tagParts, " ")
 
 	content := line1 + "\n" + line2
 	if s.LastPrompt != "" {
@@ -96,6 +97,17 @@ func renderSession(s *core.SessionInfo, selected bool, registry *driver.Registry
 		return selectedStyle.Render(content)
 	}
 	return content
+}
+
+func renderTag(tag session.Tag) string {
+	style := lipgloss.NewStyle()
+	if tag.Foreground != "" {
+		style = style.Foreground(lipgloss.Color(tag.Foreground))
+	}
+	if tag.Background != "" {
+		style = style.Background(lipgloss.Color(tag.Background))
+	}
+	return style.Render("[" + tag.Text + "]")
 }
 
 func truncate(s string, n int) string {
