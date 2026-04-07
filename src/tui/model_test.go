@@ -44,6 +44,65 @@ func TestSessionsChangedUpdatesModel(t *testing.T) {
 	}
 }
 
+func TestCursorNavigatesSessions(t *testing.T) {
+	m := NewModel(nil, &config.Config{})
+	m.sessions = []core.SessionInfo{
+		{ID: "aaa111", Project: "/tmp/proj1", Command: "claude", WindowID: "@1"},
+		{ID: "bbb222", Project: "/tmp/proj2", Command: "claude", WindowID: "@2"},
+	}
+	m.rebuildItems()
+	// visible: [session1, session2], cursor indexes into visible
+
+	// initial cursor is on a session
+	if m.cursorSession() == nil {
+		t.Fatal("initial cursor must point to a session")
+	}
+
+	// cursor=0 (session1); Down -> cursor=1 (session2)
+	m.cursor = 0
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	model := result.(Model)
+	if model.cursorSession() == nil {
+		t.Fatal("cursor after Down must point to a session")
+	}
+	if model.cursorSession().ID != "bbb222" {
+		t.Fatalf("expected bbb222, got %s", model.cursorSession().ID)
+	}
+
+	// cursor=1 (session2); Up -> cursor=0 (session1)
+	model.cursor = 1
+	result2, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	model2 := result2.(Model)
+	if model2.cursorSession() == nil {
+		t.Fatal("cursor after Up must point to a session")
+	}
+	if model2.cursorSession().ID != "aaa111" {
+		t.Fatalf("expected aaa111, got %s", model2.cursorSession().ID)
+	}
+
+	// cursor=0 (topmost); Up should not move
+	model2.cursor = 0
+	result3, _ := model2.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	model3 := result3.(Model)
+	if model3.cursor != 0 {
+		t.Fatalf("cursor should stay at 0, got %d", model3.cursor)
+	}
+}
+
+func TestRebuildItemsCursorOnSession(t *testing.T) {
+	m := NewModel(nil, &config.Config{})
+	m.sessions = []core.SessionInfo{
+		{ID: "abc123", Project: "/tmp/proj", Command: "claude", WindowID: "@1"},
+	}
+	m.rebuildItems()
+	if m.cursorSession() == nil {
+		t.Fatal("cursor after rebuildItems must point to a session")
+	}
+	if m.cursorSession().ID != "abc123" {
+		t.Fatalf("expected abc123, got %s", m.cursorSession().ID)
+	}
+}
+
 func TestStatesUpdatedPreservesExistingSessions(t *testing.T) {
 	m := NewModel(nil, &config.Config{})
 	m.sessions = []core.SessionInfo{
