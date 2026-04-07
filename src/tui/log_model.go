@@ -11,6 +11,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 	"github.com/take/agent-roost/core"
+	"github.com/take/agent-roost/lib/claude"
 )
 
 const (
@@ -188,6 +189,11 @@ func (m *LogModel) isLogTab() bool {
 	return tab != nil && tab.label == "LOG"
 }
 
+func (m *LogModel) isTranscriptTab() bool {
+	tab := m.activeTabState()
+	return tab != nil && tab.label == "TRANSCRIPT"
+}
+
 func (m *LogModel) activeTabState() *tabState {
 	idx := int(m.activeTab)
 	if idx >= 0 && idx < len(m.tabs) {
@@ -231,6 +237,8 @@ func (m *LogModel) appendContent(newContent string) {
 	var styled string
 	if m.isLogTab() {
 		styled = colorizeLines(newContent)
+	} else if m.isTranscriptTab() {
+		styled = claude.FormatTranscript(newContent)
 	} else {
 		styled = newContent
 	}
