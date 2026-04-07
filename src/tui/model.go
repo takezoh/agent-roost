@@ -122,8 +122,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuildItems()
 			return m, nil
 		}
-		if s := m.cursorSession(); s != nil {
-			return m, m.switchCmd(s)
+		if m.cursorSession() != nil {
+			return m, m.focusCmd("0.0")
 		}
 		return m, nil
 
@@ -172,8 +172,8 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.cursorPreviewCmd()
 	case key.Matches(msg, m.keys.Enter):
-		if s := m.cursorSession(); s != nil {
-			return m, m.switchCmd(s)
+		if m.cursorSession() != nil {
+			return m, m.focusCmd("0.0")
 		}
 	case key.Matches(msg, m.keys.New):
 		return m, m.launchToolCmd("new-session", map[string]string{
