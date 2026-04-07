@@ -10,12 +10,14 @@ import (
 	"time"
 
 	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/session/driver"
 	"github.com/take/agent-roost/tmux"
 )
 
 type Server struct {
 	svc               *Service
 	tmux              *tmux.Client
+	drivers           *driver.Registry
 	listener          net.Listener
 	clients           []*clientConn
 	mu                sync.Mutex
@@ -30,10 +32,11 @@ type clientConn struct {
 	broadcastEnabled bool
 }
 
-func NewServer(svc *Service, tmuxClient *tmux.Client, sockPath string) *Server {
+func NewServer(svc *Service, tmuxClient *tmux.Client, sockPath string, drivers *driver.Registry) *Server {
 	return &Server{
 		svc:      svc,
 		tmux:     tmuxClient,
+		drivers:  drivers,
 		sockPath: sockPath,
 		done:     make(chan struct{}),
 	}
@@ -332,6 +335,7 @@ func (s *Server) StartMonitor(intervalMs int) {
 	slog.Info("monitor started", "interval_ms", intervalMs)
 	ticker := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
 	defer ticker.Stop()
+	var titleTick int
 	for {
 		select {
 		case <-s.done:
@@ -346,6 +350,22 @@ func (s *Server) StartMonitor(intervalMs int) {
 			msg := NewEvent("states-updated")
 			msg.States = states
 			s.broadcast(msg)
+
+			titleTick++
+			if titleTick >= 5 {
+				titleTick = 0
+				home, _ := os.UserHomeDir()
+				fsys := os.DirFS(home)
+				titles := make(map[string]string, len(sessions))
+				for _, sess := range sessions {
+					if t := s.drivers.Get(sess.Command).ResolveTitle(fsys, sess.Project); t != "" {
+						titles[sess.ID] = t
+					}
+				}
+				if s.svc.Manager.UpdateTitles(titles) {
+					s.broadcastSessions()
+				}
+			}
 		}
 	}
 }

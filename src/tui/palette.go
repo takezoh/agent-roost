@@ -19,7 +19,7 @@ const (
 )
 
 type PaletteModel struct {
-	registry    *core.Registry
+	registry    *core.ToolRegistry
 	ctx         *core.ToolContext
 	initialTool string
 	phase       palettePhase
@@ -39,7 +39,7 @@ type PaletteModel struct {
 	err    error
 }
 
-func NewPaletteModel(registry *core.Registry, ctx *core.ToolContext, initialTool string) PaletteModel {
+func NewPaletteModel(registry *core.ToolRegistry, ctx *core.ToolContext, initialTool string) PaletteModel {
 	m := PaletteModel{
 		registry:    registry,
 		ctx:         ctx,

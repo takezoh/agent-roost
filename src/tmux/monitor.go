@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/take/agent-roost/agent"
 	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/session/driver"
 )
 
 var defaultPromptPattern = regexp.MustCompile(`(?m)(^>|[>$❯]\s*$)`)
@@ -28,17 +28,17 @@ type Monitor struct {
 	capturer      PaneCapturer
 	idleThreshold time.Duration
 	snapshots     map[string]snapshot
-	agents        *agent.Registry
+	registry      *driver.Registry
 }
 
 // NewMonitor は Monitor を初期化する。
-// agents が nil のときはデフォルトの汎用パターンを使用する。
-func NewMonitor(capturer PaneCapturer, idleThresholdSec int, agents *agent.Registry) *Monitor {
+// registry が nil のときはデフォルトの汎用パターンを使用する。
+func NewMonitor(capturer PaneCapturer, idleThresholdSec int, registry *driver.Registry) *Monitor {
 	return &Monitor{
 		capturer:      capturer,
 		idleThreshold: time.Duration(idleThresholdSec) * time.Second,
 		snapshots:     make(map[string]snapshot),
-		agents:        agents,
+		registry:      registry,
 	}
 }
 
@@ -68,8 +68,8 @@ func (m *Monitor) DetectState(windowID, command string) session.State {
 }
 
 func (m *Monitor) patternFor(command string) *regexp.Regexp {
-	if m.agents != nil {
-		return m.agents.CompiledPattern(command)
+	if m.registry != nil {
+		return m.registry.CompiledPattern(command)
 	}
 	return defaultPromptPattern
 }

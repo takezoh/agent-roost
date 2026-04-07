@@ -3,7 +3,7 @@ package core
 import "testing"
 
 func TestRegistryRegisterAndGet(t *testing.T) {
-	r := NewRegistry()
+	r := NewToolRegistry()
 	r.Register(Tool{Name: "alpha", Description: "desc"})
 	if got := r.Get("alpha"); got == nil || got.Name != "alpha" {
 		t.Fatal("expected registered tool")
@@ -11,14 +11,14 @@ func TestRegistryRegisterAndGet(t *testing.T) {
 }
 
 func TestRegistryGetMissing(t *testing.T) {
-	r := NewRegistry()
+	r := NewToolRegistry()
 	if r.Get("nonexistent") != nil {
 		t.Fatal("expected nil for missing tool")
 	}
 }
 
 func TestRegistryAll(t *testing.T) {
-	r := NewRegistry()
+	r := NewToolRegistry()
 	r.Register(Tool{Name: "a"})
 	r.Register(Tool{Name: "b"})
 	if len(r.All()) != 2 {
@@ -27,7 +27,7 @@ func TestRegistryAll(t *testing.T) {
 }
 
 func TestRegistryMatch(t *testing.T) {
-	r := NewRegistry()
+	r := NewToolRegistry()
 	r.Register(Tool{Name: "foo-bar"})
 	r.Register(Tool{Name: "baz-qux"})
 	if len(r.Match("foo")) != 1 {
@@ -39,7 +39,7 @@ func TestRegistryMatch(t *testing.T) {
 }
 
 func TestRegistryMatchByDescription(t *testing.T) {
-	r := NewRegistry()
+	r := NewToolRegistry()
 	r.Register(Tool{Name: "x", Description: "hello world"})
 	if len(r.Match("hello")) != 1 {
 		t.Fatal("expected match by description")
@@ -47,7 +47,7 @@ func TestRegistryMatchByDescription(t *testing.T) {
 }
 
 func TestDefaultRegistry(t *testing.T) {
-	r := DefaultRegistry()
+	r := DefaultToolRegistry()
 	if len(r.All()) != 4 {
 		t.Fatalf("expected 4 tools, got %d", len(r.All()))
 	}

@@ -1,9 +1,73 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/take/agent-roost/core"
+	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/session/driver"
 )
+
+func TestTruncate(t *testing.T) {
+	tests := []struct {
+		s    string
+		n    int
+		want string
+	}{
+		{"hello", 10, "hello"},
+		{"hello world", 8, "hello w…"},
+		{"あいうえお", 3, "あい…"},
+	}
+	for _, tt := range tests {
+		got := truncate(tt.s, tt.n)
+		if got != tt.want {
+			t.Errorf("truncate(%q, %d) = %q, want %q", tt.s, tt.n, got, tt.want)
+		}
+	}
+}
+
+func TestRenderSession_TagsAndTitle(t *testing.T) {
+	registry := driver.DefaultRegistry()
+	s := &core.SessionInfo{
+		ID:        "abc123",
+		Command:   "claude",
+		GitBranch: "main",
+		Title:     "My last prompt",
+		State:     session.StateWaiting,
+		CreatedAt: time.Now().Add(-3 * time.Minute).Format("2006-01-02T15:04:05Z07:00"),
+	}
+	out := renderSession(s, false, registry)
+	if !strings.Contains(out, "My last prompt") {
+		t.Errorf("expected title in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "[claude]") {
+		t.Errorf("expected [claude] tag in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "[main]") {
+		t.Errorf("expected [main] tag in output, got:\n%s", out)
+	}
+}
+
+func TestRenderSession_NoTitle_ShowsID(t *testing.T) {
+	registry := driver.DefaultRegistry()
+	s := &core.SessionInfo{
+		ID:        "abc123",
+		Command:   "gemini",
+		GitBranch: "",
+		Title:     "",
+		State:     session.StateIdle,
+		CreatedAt: time.Now().Add(-5 * time.Minute).Format("2006-01-02T15:04:05Z07:00"),
+	}
+	out := renderSession(s, false, registry)
+	if !strings.Contains(out, "abc123") {
+		t.Errorf("expected ID in output when no title, got:\n%s", out)
+	}
+	if !strings.Contains(out, "[gemini]") {
+		t.Errorf("expected [gemini] tag in output, got:\n%s", out)
+	}
+}
 
 func TestFormatElapsed(t *testing.T) {
 	tests := []struct {

@@ -29,29 +29,29 @@ type ToolConfig struct {
 	Projects       []string
 }
 
-type Registry struct {
+type ToolRegistry struct {
 	tools  []Tool
 	byName map[string]*Tool
 }
 
-func NewRegistry() *Registry {
-	return &Registry{byName: make(map[string]*Tool)}
+func NewToolRegistry() *ToolRegistry {
+	return &ToolRegistry{byName: make(map[string]*Tool)}
 }
 
-func (r *Registry) Register(t Tool) {
+func (r *ToolRegistry) Register(t Tool) {
 	r.tools = append(r.tools, t)
 	r.byName[t.Name] = &r.tools[len(r.tools)-1]
 }
 
-func (r *Registry) Get(name string) *Tool {
+func (r *ToolRegistry) Get(name string) *Tool {
 	return r.byName[name]
 }
 
-func (r *Registry) All() []Tool {
+func (r *ToolRegistry) All() []Tool {
 	return r.tools
 }
 
-func (r *Registry) Match(query string) []Tool {
+func (r *ToolRegistry) Match(query string) []Tool {
 	if query == "" {
 		return r.tools
 	}
@@ -66,8 +66,8 @@ func (r *Registry) Match(query string) []Tool {
 	return matched
 }
 
-func DefaultRegistry() *Registry {
-	r := NewRegistry()
+func DefaultToolRegistry() *ToolRegistry {
+	r := NewToolRegistry()
 	r.Register(Tool{
 		Name:        "new-session",
 		Description: "セッション作成",

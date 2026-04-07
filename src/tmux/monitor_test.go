@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/take/agent-roost/agent"
 	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/session/driver"
 )
 
 type mockCapturer struct {
@@ -160,9 +160,9 @@ func TestComputeTransition_PreservesWaiting(t *testing.T) {
 
 func TestDetectState_ClaudePattern_DollarNotPrompt(t *testing.T) {
 	// claude パターンでは $ はプロンプトとして認識されない
-	agents := agent.DefaultRegistry()
+	registry := driver.DefaultRegistry()
 	cap := &mockCapturer{content: map[string]string{"@1.0": "output\n$ "}}
-	m := NewMonitor(cap, 60, agents)
+	m := NewMonitor(cap, 60, registry)
 	if got := m.DetectState("@1", "claude"); got != session.StateRunning {
 		t.Fatalf("claude: got %v, want StateRunning ($ should not match claude pattern)", got)
 	}
@@ -170,9 +170,9 @@ func TestDetectState_ClaudePattern_DollarNotPrompt(t *testing.T) {
 
 func TestDetectState_ClaudePattern_ArrowPrompt(t *testing.T) {
 	// claude パターンでは ❯ はプロンプトとして認識される
-	agents := agent.DefaultRegistry()
+	registry := driver.DefaultRegistry()
 	cap := &mockCapturer{content: map[string]string{"@1.0": "output\n❯ "}}
-	m := NewMonitor(cap, 60, agents)
+	m := NewMonitor(cap, 60, registry)
 	if got := m.DetectState("@1", "claude"); got != session.StateWaiting {
 		t.Fatalf("claude: got %v, want StateWaiting (❯ should match claude pattern)", got)
 	}

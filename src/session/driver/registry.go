@@ -1,4 +1,4 @@
-package agent
+package driver
 
 import "regexp"
 
@@ -46,10 +46,10 @@ func (r *Registry) CompiledPattern(command string) *regexp.Regexp {
 // DefaultRegistry は既知コマンド用の Registry を返す。
 func DefaultRegistry() *Registry {
 	drivers := []Driver{
-		claudeDriver{},
-		NewGenericDriver("gemini"),
-		NewGenericDriver("codex"),
-		NewGenericDriver("bash"),
+		Claude{},
+		NewGeneric("gemini"),
+		NewGeneric("codex"),
+		NewGeneric("bash"),
 	}
-	return NewRegistry(drivers, NewGenericDriver(""))
+	return NewRegistry(drivers, NewGeneric(""))
 }

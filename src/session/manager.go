@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/take/agent-roost/lib"
 )
 
 type TmuxClient interface {
@@ -76,6 +78,7 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 		WindowID:  windowID,
 		CreatedAt: time.Now(),
 		State:     StateRunning,
+		GitBranch: lib.DetectGitBranch(project),
 	}
 
 	m.mu.Lock()
@@ -154,6 +157,20 @@ func (m *Manager) UpdateStates(states map[string]State) {
 			s.State = st
 		}
 	}
+}
+
+// UpdateTitles はセッション ID → タイトルのマップでタイトルを更新し、変更があれば true を返す。
+func (m *Manager) UpdateTitles(titles map[string]string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	changed := false
+	for _, s := range m.sessions {
+		if title, ok := titles[s.ID]; ok && s.Title != title {
+			s.Title = title
+			changed = true
+		}
+	}
+	return changed
 }
 
 func (m *Manager) DataDir() string {

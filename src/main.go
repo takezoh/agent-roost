@@ -12,11 +12,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"golang.org/x/term"
 
-	"github.com/take/agent-roost/agent"
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/logger"
 	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/session/driver"
 	"github.com/take/agent-roost/tmux"
 	"github.com/take/agent-roost/tui"
 )
@@ -68,8 +68,8 @@ func runCoordinator() {
 
 	activeWID := restoreActiveWindowID(client, mgr)
 
-	agents := agent.DefaultRegistry()
-	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec, agents)
+	drivers := driver.DefaultRegistry()
+	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec, drivers)
 	svc := core.NewService(mgr, monitor, client, sessionName, activeWID)
 	svc.SetSyncActive(func(wid string) {
 		if wid != "" {
@@ -80,7 +80,7 @@ func runCoordinator() {
 	})
 
 	sockPath := filepath.Join(dataDir, "roost.sock")
-	srv := core.NewServer(svc, client, sockPath)
+	srv := core.NewServer(svc, client, sockPath, drivers)
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: server: %v\n", err)
 		os.Exit(1)
@@ -306,7 +306,7 @@ func runPalette(args []string) {
 		}
 	}
 
-	registry := core.DefaultRegistry()
+	tools := core.DefaultToolRegistry()
 	ctx := &core.ToolContext{
 		Client: client,
 		Config: core.ToolConfig{
@@ -317,7 +317,7 @@ func runPalette(args []string) {
 		Args: prefill,
 	}
 
-	model := tui.NewPaletteModel(registry, ctx, toolName)
+	model := tui.NewPaletteModel(tools, ctx, toolName)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: palette: %v\n", err)
 		os.Exit(1)

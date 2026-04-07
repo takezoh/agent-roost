@@ -1,4 +1,4 @@
-package agent
+package driver
 
 import "testing"
 
@@ -60,7 +60,6 @@ func TestClaudePromptPattern_Matches(t *testing.T) {
 func TestClaudePromptPattern_NoDollar(t *testing.T) {
 	r := DefaultRegistry()
 	p := r.CompiledPattern("claude")
-	// Claude パターンは $ にマッチしない（bash との誤検知防止）
 	if p.MatchString("$ ") {
 		t.Error("claude pattern should not match '$ '")
 	}
