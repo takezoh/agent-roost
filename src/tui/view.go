@@ -80,19 +80,18 @@ func renderSession(s *core.SessionInfo, selected bool, registry *driver.Registry
 	}
 	line1 := fmt.Sprintf("  %s %s  %s", name, symbol, elapsed)
 
+	content := line1
+	if s.LastPrompt != "" {
+		content += "\n  " + idleStyle.Render(truncate(s.LastPrompt, 30))
+	}
+
 	displayName := registry.Get(s.Command).DisplayName()
 	var tagParts []string
 	tagParts = append(tagParts, tagStyle.Render("["+displayName+"]"))
 	for _, tag := range s.Tags {
 		tagParts = append(tagParts, renderTag(tag))
 	}
-	line2 := "  " + strings.Join(tagParts, " ")
-
-	content := line1 + "\n" + line2
-	if s.LastPrompt != "" {
-		line3 := "  " + idleStyle.Render(truncate(s.LastPrompt, 30))
-		content += "\n" + line3
-	}
+	content += "\n  " + strings.Join(tagParts, " ")
 	if selected {
 		return selectedStyle.Render(content)
 	}
