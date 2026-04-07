@@ -46,7 +46,7 @@ func setupService(t *testing.T) (*Service, *mockPaneOp, *session.Manager) {
 	t.Helper()
 	mt := &mockTmuxForService{nextID: "@1", windows: make(map[string]bool)}
 	mgr := session.NewManager(mt, t.TempDir())
-	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30)
+	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
 	svc := NewService(mgr, mon, panes, "roost", "")
 	return svc, panes, mgr
@@ -87,7 +87,7 @@ func TestRefreshSessions_Changed(t *testing.T) {
 	mt := &mockTmuxForService{nextID: "@1", windows: make(map[string]bool)}
 	dataDir := t.TempDir()
 	mgr := session.NewManager(mt, dataDir)
-	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30)
+	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
 	svc := NewService(mgr, mon, panes, "roost", "")
 
@@ -169,7 +169,7 @@ func TestClearActive_NonMatchingWindow(t *testing.T) {
 func TestNewService_RestoresActiveWindowID(t *testing.T) {
 	mt := &mockTmuxForService{nextID: "@1", windows: make(map[string]bool)}
 	mgr := session.NewManager(mt, t.TempDir())
-	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30)
+	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
 	svc := NewService(mgr, mon, panes, "roost", "@5")
 	if svc.ActiveWindowID() != "@5" {

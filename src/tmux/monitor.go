@@ -8,12 +8,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/take/agent-roost/agent"
 	"github.com/take/agent-roost/session"
 )
 
+var defaultPromptPattern = regexp.MustCompile(`(?m)(^>|[>$❯]\s*$)`)
+
 var (
-	promptPattern = regexp.MustCompile(`(?m)(^>|[>$❯]\s*$)`)
-	costPattern   = regexp.MustCompile(`\$[\d.]+`)
+	costPattern = regexp.MustCompile(`\$[\d.]+`)
 )
 
 type snapshot struct {
@@ -26,31 +28,38 @@ type Monitor struct {
 	capturer      PaneCapturer
 	idleThreshold time.Duration
 	snapshots     map[string]snapshot
+	agents        *agent.Registry
 }
 
-func NewMonitor(capturer PaneCapturer, idleThresholdSec int) *Monitor {
+// NewMonitor は Monitor を初期化する。
+// agents が nil のときはデフォルトの汎用パターンを使用する。
+func NewMonitor(capturer PaneCapturer, idleThresholdSec int, agents *agent.Registry) *Monitor {
 	return &Monitor{
 		capturer:      capturer,
 		idleThreshold: time.Duration(idleThresholdSec) * time.Second,
 		snapshots:     make(map[string]snapshot),
+		agents:        agents,
 	}
 }
 
-func (m *Monitor) PollAll(windowIDs []string) map[string]session.State {
-	states := make(map[string]session.State, len(windowIDs))
-	for _, id := range windowIDs {
-		states[id] = m.DetectState(id)
+// PollAll は windowID → command のマップを受け取り、各ウィンドウの状態を返す。
+func (m *Monitor) PollAll(windowCommands map[string]string) map[string]session.State {
+	states := make(map[string]session.State, len(windowCommands))
+	for id, cmd := range windowCommands {
+		states[id] = m.DetectState(id, cmd)
 	}
 	return states
 }
 
-func (m *Monitor) DetectState(windowID string) session.State {
+// DetectState は指定ウィンドウの現在の状態を検出する。
+func (m *Monitor) DetectState(windowID, command string) session.State {
 	content, err := m.capturer.CapturePaneLines(windowID+".0", 5)
 	if err != nil {
 		return session.StateStopped
 	}
+	pattern := m.patternFor(command)
 	prev := m.snapshots[windowID]
-	state, snap := computeTransition(content, prev, time.Now(), m.idleThreshold)
+	state, snap := computeTransition(content, prev, time.Now(), m.idleThreshold, pattern)
 	if prev.lastState != state {
 		slog.Info("state changed", "window", windowID, "from", prev.lastState, "to", state)
 	}
@@ -58,11 +67,21 @@ func (m *Monitor) DetectState(windowID string) session.State {
 	return state
 }
 
-func computeTransition(content string, prev snapshot, now time.Time, threshold time.Duration) (session.State, snapshot) {
+func (m *Monitor) patternFor(command string) *regexp.Regexp {
+	if m.agents != nil {
+		return m.agents.CompiledPattern(command)
+	}
+	return defaultPromptPattern
+}
+
+func computeTransition(content string, prev snapshot, now time.Time, threshold time.Duration, pattern *regexp.Regexp) (session.State, snapshot) {
+	if pattern == nil {
+		pattern = defaultPromptPattern
+	}
 	hash := hashContent(content)
 	if prev.hash == "" || hash != prev.hash {
 		state := session.StateRunning
-		if hasPromptIndicator(content) {
+		if hasPromptIndicator(content, pattern) {
 			state = session.StateWaiting
 		}
 		return state, snapshot{hash: hash, lastActivity: now, lastState: state}
@@ -86,13 +105,16 @@ func hashContent(s string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func hasPromptIndicator(content string) bool {
+func hasPromptIndicator(content string, pattern *regexp.Regexp) bool {
+	if pattern == nil {
+		pattern = defaultPromptPattern
+	}
 	for _, line := range strings.Split(content, "\n") {
 		trimmed := strings.TrimRight(line, " ")
 		if trimmed == "" {
 			continue
 		}
-		if promptPattern.MatchString(trimmed) {
+		if pattern.MatchString(trimmed) {
 			return true
 		}
 	}

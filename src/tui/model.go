@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
+	"github.com/take/agent-roost/agent"
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
 )
@@ -21,6 +22,7 @@ type Model struct {
 	client   *core.Client
 	cfg      *config.Config
 	registry *core.Registry
+	agents   *agent.Registry
 	keys     KeyMap
 
 	sessions []core.SessionInfo
@@ -55,6 +57,7 @@ func NewModel(client *core.Client, cfg *config.Config) Model {
 		client:   client,
 		cfg:      cfg,
 		registry: core.DefaultRegistry(),
+		agents:   agent.DefaultRegistry(),
 		keys:     DefaultKeyMap(),
 		folded:   make(map[string]bool),
 	}

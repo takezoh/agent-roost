@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/take/agent-roost/agent"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/session"
 )
@@ -31,7 +32,7 @@ func (m Model) View() tea.View {
 	cursorSession := m.cursorSession()
 	for _, item := range m.items {
 		selected := !item.isProject && cursorSession != nil && item.session == cursorSession
-		b.WriteString(renderItem(item, selected, m.width, m.folded[item.project]))
+		b.WriteString(renderItem(item, selected, m.width, m.folded[item.project], m.agents))
 		b.WriteString("\n")
 	}
 
@@ -49,11 +50,11 @@ func (m Model) View() tea.View {
 	return v
 }
 
-func renderItem(item listItem, selected bool, width int, folded bool) string {
+func renderItem(item listItem, selected bool, width int, folded bool, agents *agent.Registry) string {
 	if item.isProject {
 		return renderProject(item.project, folded, selected)
 	}
-	return renderSession(item.session, selected)
+	return renderSession(item.session, selected, agents)
 }
 
 func renderProject(name string, folded, selected bool) string {
@@ -68,12 +69,13 @@ func renderProject(name string, folded, selected bool) string {
 	return projectStyle.Render(line)
 }
 
-func renderSession(s *core.SessionInfo, selected bool) string {
+func renderSession(s *core.SessionInfo, selected bool, agents *agent.Registry) string {
 	symbol := stateStyle(s.State).Render(s.State.Symbol())
 	elapsed := formatElapsed(time.Since(s.CreatedAtTime()))
+	displayName := agents.Get(s.Command).DisplayName()
 
 	line1 := fmt.Sprintf("  %s %s  %s", s.ID[:6], symbol, elapsed)
-	line2 := fmt.Sprintf("    /%s", s.DisplayCommand())
+	line2 := fmt.Sprintf("    /%s", displayName)
 
 	content := line1 + "\n" + line2
 	if selected {

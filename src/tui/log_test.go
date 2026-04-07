@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/take/agent-roost/core"
 )
 
 func TestParseLogLevel(t *testing.T) {
@@ -30,7 +32,7 @@ func TestReadNewLines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.log")
 	os.WriteFile(path, []byte("line1\nline2\n"), 0o644)
 
-	m := NewLogModel(path, nil)
+	m := NewLogModel(path, "", nil)
 	got, err := m.readNewLines()
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +71,7 @@ func TestReadNewLines_Truncated(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.log")
 	os.WriteFile(path, []byte("long content here\n"), 0o644)
 
-	m := NewLogModel(path, nil)
+	m := NewLogModel(path, "", nil)
 	m.readNewLines()
 
 	// Truncate file
@@ -89,7 +91,7 @@ func TestReadNewLines_PartialLine(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.log")
 	os.WriteFile(path, []byte("complete\npartial"), 0o644)
 
-	m := NewLogModel(path, nil)
+	m := NewLogModel(path, "", nil)
 	got, err := m.readNewLines()
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +134,7 @@ func TestTrimLines_UnderLimit(t *testing.T) {
 }
 
 func TestResetReader(t *testing.T) {
-	m := NewLogModel("/old/path", nil)
+	m := NewLogModel("/old/path", "", nil)
 	m.offset = 100
 	m.buf = "leftover"
 	m.resetReader("/new/path")
@@ -147,31 +149,103 @@ func TestResetReader(t *testing.T) {
 	}
 }
 
-func TestSwitchToTab(t *testing.T) {
-	m := NewLogModel("/app.log", nil)
-	m.sessionLogPath = "/session.log"
-
-	m.switchToTab(tabSession)
-	if m.activeTab != tabSession {
-		t.Fatal("expected tabSession")
+func TestSwitchToTab_App(t *testing.T) {
+	logDir := t.TempDir()
+	m := NewLogModel("/app.log", logDir, nil)
+	m.sessions = []sessionTab{
+		{sessionID: "abc123456789", label: "abc123", logPath: filepath.Join(logDir, "abc123456789.log")},
 	}
-	if m.logPath != "/session.log" {
-		t.Fatalf("logPath = %s, want /session.log", m.logPath)
+	m.switchToTab(1)
+	if m.activeTab != 1 {
+		t.Fatal("expected tab 1")
 	}
-
 	m.switchToTab(tabApp)
+	if m.activeTab != tabApp {
+		t.Fatal("expected tabApp")
+	}
 	if m.logPath != "/app.log" {
 		t.Fatalf("logPath = %s, want /app.log", m.logPath)
 	}
 }
 
-func TestSwitchToTab_NoSessionPath(t *testing.T) {
-	m := NewLogModel("/app.log", nil)
-	m.switchToTab(tabSession)
-	if m.activeTab != tabSession {
-		t.Fatal("expected tabSession")
+func TestSwitchToTab_Session(t *testing.T) {
+	logDir := t.TempDir()
+	sessLogPath := filepath.Join(logDir, "abc123456789.log")
+	m := NewLogModel("/app.log", logDir, nil)
+	m.sessions = []sessionTab{
+		{sessionID: "abc123456789", label: "abc123", logPath: sessLogPath},
 	}
-	if m.logPath != "/app.log" {
-		t.Fatalf("logPath should stay /app.log when no session path, got %s", m.logPath)
+
+	m.switchToTab(1)
+	if m.activeTab != 1 {
+		t.Fatal("expected tab index 1")
+	}
+	if m.logPath != sessLogPath {
+		t.Fatalf("logPath = %s, want %s", m.logPath, sessLogPath)
+	}
+}
+
+func TestRebuildSessionTabs(t *testing.T) {
+	logDir := t.TempDir()
+	m := NewLogModel("/app.log", logDir, nil)
+
+	sessions := []core.SessionInfo{
+		{ID: "abc123456789", Command: "claude"},
+		{ID: "def456789012", Command: "gemini"},
+	}
+	m.rebuildSessionTabs(sessions)
+
+	if len(m.sessions) != 2 {
+		t.Fatalf("got %d sessions, want 2", len(m.sessions))
+	}
+	if m.sessions[0].label != "abc123" {
+		t.Errorf("label = %q, want %q", m.sessions[0].label, "abc123")
+	}
+	if m.sessions[1].label != "def456" {
+		t.Errorf("label = %q, want %q", m.sessions[1].label, "def456")
+	}
+}
+
+func TestRebuildSessionTabs_NoLogDir(t *testing.T) {
+	m := NewLogModel("/app.log", "", nil)
+	m.rebuildSessionTabs([]core.SessionInfo{{ID: "abc123456789", Command: "claude"}})
+	if len(m.sessions) != 0 {
+		t.Fatal("expected no sessions when logDir is empty")
+	}
+}
+
+func TestRebuildSessionTabs_ActiveTabFallback(t *testing.T) {
+	logDir := t.TempDir()
+	m := NewLogModel("/app.log", logDir, nil)
+	m.sessions = []sessionTab{{sessionID: "abc", label: "abc123", logPath: "/x.log"}}
+	m.activeTab = 1
+
+	// セッションを空にするとアクティブタブが tabApp に戻る
+	m.rebuildSessionTabs([]core.SessionInfo{})
+	if m.activeTab != tabApp {
+		t.Fatalf("activeTab = %d, want %d (tabApp)", m.activeTab, tabApp)
+	}
+}
+
+func TestTabIndexAtX(t *testing.T) {
+	logDir := t.TempDir()
+	m := NewLogModel("/app.log", logDir, nil)
+	m.sessions = []sessionTab{
+		{label: "abc123"},
+		{label: "def456"},
+	}
+	// tabLabels = ["[APP]", "abc123", "def456"]
+	// [APP] = 5文字+区切り1 = 0..5
+	// abc123 = 6文字+区切り1 = 6..12
+	// def456 = 6文字 = 13..18
+
+	if got := m.tabIndexAtX(0); got != tabApp {
+		t.Errorf("X=0: got %d, want tabApp(0)", got)
+	}
+	if got := m.tabIndexAtX(6); got != 1 {
+		t.Errorf("X=6: got %d, want 1", got)
+	}
+	if got := m.tabIndexAtX(13); got != 2 {
+		t.Errorf("X=13: got %d, want 2", got)
 	}
 }

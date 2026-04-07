@@ -4,12 +4,14 @@ import (
 	"log/slog"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/take/agent-roost/agent"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/session"
 )
 
 type MainModel struct {
 	client          *core.Client
+	agents          *agent.Registry
 	sessions        []core.SessionInfo
 	selectedProject string
 	width           int
@@ -20,7 +22,10 @@ type mainEventMsg core.Message
 type mainDisconnectMsg struct{}
 
 func NewMainModel(client *core.Client) MainModel {
-	return MainModel{client: client}
+	return MainModel{
+		client: client,
+		agents: agent.DefaultRegistry(),
+	}
 }
 
 func (m MainModel) Init() tea.Cmd {

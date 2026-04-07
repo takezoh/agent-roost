@@ -12,6 +12,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"golang.org/x/term"
 
+	"github.com/take/agent-roost/agent"
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/logger"
@@ -67,7 +68,8 @@ func runCoordinator() {
 
 	activeWID := restoreActiveWindowID(client, mgr)
 
-	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec)
+	agents := agent.DefaultRegistry()
+	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec, agents)
 	svc := core.NewService(mgr, monitor, client, sessionName, activeWID)
 	svc.SetSyncActive(func(wid string) {
 		if wid != "" {
@@ -232,10 +234,12 @@ func runLogViewer() {
 	cfg := loadConfig()
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
+	logDir := session.LogDirPath(cfg.ResolveDataDir())
+
 	client, err := core.Dial(sockPath)
 	if err != nil {
 		// Server not ready — app log only mode
-		model := tui.NewLogModel(logger.LogFilePath(), nil)
+		model := tui.NewLogModel(logger.LogFilePath(), logDir, nil)
 		if _, err := tea.NewProgram(model).Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
 			os.Exit(1)
@@ -246,7 +250,7 @@ func runLogViewer() {
 	client.StartListening()
 	client.Subscribe()
 
-	model := tui.NewLogModel(logger.LogFilePath(), client)
+	model := tui.NewLogModel(logger.LogFilePath(), logDir, client)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
 		os.Exit(1)

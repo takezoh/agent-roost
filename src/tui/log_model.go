@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -21,21 +22,26 @@ const (
 
 type tickMsg time.Time
 
+// logTab はタブのインデックス。0 は常に APP タブ、1以降は動的セッションタブ。
 type logTab int
 
-const (
-	tabApp logTab = iota
-	tabSession
-)
+const tabApp logTab = 0
 
 type logEventMsg core.Message
 type logDisconnectMsg struct{}
 
+type sessionTab struct {
+	sessionID string
+	label     string
+	logPath   string
+}
+
 type LogModel struct {
-	viewport       viewport.Model
-	activeTab      logTab
-	appLogPath     string
-	sessionLogPath string
+	viewport   viewport.Model
+	activeTab  logTab
+	appLogPath string
+	logDir     string
+	sessions   []sessionTab
 
 	logPath  string
 	file     *os.File
@@ -48,10 +54,13 @@ type LogModel struct {
 	client    *core.Client
 }
 
-func NewLogModel(appLogPath string, client *core.Client) LogModel {
+// NewLogModel は LogModel を初期化する。
+// logDir はセッションログの格納ディレクトリ。空のときはセッションタブを無効化する。
+func NewLogModel(appLogPath, logDir string, client *core.Client) LogModel {
 	return LogModel{
 		appLogPath: appLogPath,
 		logPath:    appLogPath,
+		logDir:     logDir,
 		client:     client,
 		activeTab:  tabApp,
 		following:  true,
@@ -118,11 +127,12 @@ func (m LogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case logEventMsg:
 		coreMsg := core.Message(msg)
+		switch coreMsg.Event {
+		case "sessions-changed":
+			m.rebuildSessionTabs(coreMsg.Sessions)
+		}
 		if coreMsg.SessionLogPath != "" {
-			m.sessionLogPath = coreMsg.SessionLogPath
-			if m.activeTab == tabSession {
-				m.switchToFile(m.sessionLogPath)
-			}
+			m.switchToSessionByLogPath(coreMsg.SessionLogPath)
 		}
 		if m.client != nil {
 			return m, m.listenEvents()
@@ -136,16 +146,38 @@ func (m LogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseClickMsg:
 		mouse := msg.Mouse()
 		if mouse.Y == 0 && mouse.Button == tea.MouseLeft {
-			appWidth := 5
-			if mouse.X < appWidth {
-				m.switchToTab(tabApp)
-			} else {
-				m.switchToTab(tabSession)
-			}
+			m.switchToTab(m.tabIndexAtX(mouse.X))
 		}
 		return m, nil
 	}
 	return m, nil
+}
+
+func (m *LogModel) rebuildSessionTabs(sessions []core.SessionInfo) {
+	if m.logDir == "" {
+		return
+	}
+	tabs := make([]sessionTab, 0, len(sessions))
+	for _, s := range sessions {
+		tabs = append(tabs, sessionTab{
+			sessionID: s.ID,
+			label:     s.ID[:6],
+			logPath:   filepath.Join(m.logDir, s.ID+".log"),
+		})
+	}
+	m.sessions = tabs
+	if int(m.activeTab) > len(m.sessions) {
+		m.switchToTab(tabApp)
+	}
+}
+
+func (m *LogModel) switchToSessionByLogPath(logPath string) {
+	for i, tab := range m.sessions {
+		if tab.logPath == logPath {
+			m.switchToTab(logTab(i + 1))
+			return
+		}
+	}
 }
 
 func (m *LogModel) switchToFile(path string) {
@@ -173,14 +205,38 @@ func (m *LogModel) switchToTab(tab logTab) {
 		return
 	}
 	m.activeTab = tab
-	switch tab {
-	case tabApp:
+	if tab == tabApp {
 		m.switchToFile(m.appLogPath)
-	case tabSession:
-		if m.sessionLogPath != "" {
-			m.switchToFile(m.sessionLogPath)
-		}
+		return
 	}
+	idx := int(tab) - 1
+	if idx >= 0 && idx < len(m.sessions) {
+		m.switchToFile(m.sessions[idx].logPath)
+	}
+}
+
+// tabIndexAtX はタブヘッダー行の X 座標からタブインデックスを返す。
+func (m *LogModel) tabIndexAtX(x int) logTab {
+	pos := 0
+	labels := m.tabLabels()
+	for i, label := range labels {
+		w := len([]rune(label)) + 1
+		if x < pos+w {
+			return logTab(i)
+		}
+		pos += w
+	}
+	return m.activeTab
+}
+
+// tabLabels はタブヘッダーのラベル一覧を返す（インデックス順）。
+func (m *LogModel) tabLabels() []string {
+	labels := make([]string, 0, 1+len(m.sessions))
+	labels = append(labels, "[APP]")
+	for _, tab := range m.sessions {
+		labels = append(labels, tab.label)
+	}
+	return labels
 }
 
 func (m *LogModel) appendContent(newContent string) {
@@ -285,26 +341,16 @@ var (
 
 func (m LogModel) View() tea.View {
 	var b strings.Builder
-
-	var appLabel, sessionLabel string
-	if m.activeTab == tabApp {
-		appLabel = activeTabStyle.Render("[APP]")
-		sessionLabel = inactiveTabStyle.Render(" SESSION")
-	} else {
-		appLabel = inactiveTabStyle.Render(" APP ")
-		sessionLabel = activeTabStyle.Render("[SESSION]")
-	}
-	header := appLabel + sessionLabel
+	b.WriteString(m.renderTabHeader())
 
 	if m.following {
-		header += " " + followStyle.Render("↓")
+		b.WriteString(" " + followStyle.Render("↓"))
 	} else {
-		header += " " + logDebugStyle.Render(fmt.Sprintf("%.0f%%", m.viewport.ScrollPercent()*100))
+		b.WriteString(" " + logDebugStyle.Render(fmt.Sprintf("%.0f%%", m.viewport.ScrollPercent()*100)))
 	}
-	b.WriteString(header)
 	b.WriteString("\n")
 
-	if m.activeTab == tabSession && m.sessionLogPath == "" {
+	if m.activeTab != tabApp && len(m.sessions) == 0 {
 		b.WriteString(inactiveTabStyle.Render("  セッションなし"))
 	} else {
 		b.WriteString(m.viewport.View())
@@ -314,6 +360,27 @@ func (m LogModel) View() tea.View {
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeCellMotion
 	return v
+}
+
+func (m LogModel) renderTabHeader() string {
+	labels := m.tabLabels()
+	var b strings.Builder
+	for i, label := range labels {
+		tab := logTab(i)
+		if i > 0 {
+			b.WriteString(" ")
+		}
+		if tab == m.activeTab {
+			if i == 0 {
+				b.WriteString(activeTabStyle.Render(label))
+			} else {
+				b.WriteString(activeTabStyle.Render("[" + label + "]"))
+			}
+		} else {
+			b.WriteString(inactiveTabStyle.Render(label))
+		}
+	}
+	return b.String()
 }
 
 func colorizeLines(text string) string {

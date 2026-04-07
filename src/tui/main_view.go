@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/take/agent-roost/agent"
 	"github.com/take/agent-roost/core"
 )
 
@@ -29,7 +30,7 @@ func (m MainModel) View() tea.View {
 		b.WriteString("\n")
 		b.WriteString(mainSectionStyle.Render("─── " + name + " ───"))
 		b.WriteString("\n\n")
-		renderProjectSessions(&b, m.projectSessions())
+		renderProjectSessions(&b, m.projectSessions(), m.agents)
 	}
 
 	v := tea.NewView(b.String())
@@ -52,7 +53,7 @@ func renderKeybindings(b *strings.Builder) {
 	}
 }
 
-func renderProjectSessions(b *strings.Builder, sessions []core.SessionInfo) {
+func renderProjectSessions(b *strings.Builder, sessions []core.SessionInfo, agents *agent.Registry) {
 	if len(sessions) == 0 {
 		b.WriteString(mainDescStyle.Render("  セッションなし"))
 		b.WriteString("\n")
@@ -61,7 +62,8 @@ func renderProjectSessions(b *strings.Builder, sessions []core.SessionInfo) {
 	for _, s := range sessions {
 		symbol := stateSymbol(s.State)
 		elapsed := formatElapsed(time.Since(s.CreatedAtTime()))
+		displayName := agents.Get(s.Command).DisplayName()
 		b.WriteString(fmt.Sprintf("  %s  %s %-5s /%s\n",
-			s.ID[:6], symbol, elapsed, s.DisplayCommand()))
+			s.ID[:6], symbol, elapsed, displayName))
 	}
 }

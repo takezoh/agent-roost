@@ -337,11 +337,11 @@ func (s *Server) StartMonitor(intervalMs int) {
 		case <-s.done:
 			return
 		case <-ticker.C:
-			ids := windowIDs(s.svc.Sessions())
-			if len(ids) == 0 {
+			sessions := s.svc.Sessions()
+			if len(sessions) == 0 {
 				continue
 			}
-			states := s.svc.PollStates(ids)
+			states := s.svc.PollStates(sessions)
 			s.svc.UpdateStates(states)
 			msg := NewEvent("states-updated")
 			msg.States = states
@@ -366,12 +366,4 @@ func (s *Server) removeClient(cc *clientConn) {
 			return
 		}
 	}
-}
-
-func windowIDs(sessions []*session.Session) []string {
-	ids := make([]string, len(sessions))
-	for i, s := range sessions {
-		ids[i] = s.WindowID
-	}
-	return ids
 }

@@ -147,8 +147,12 @@ func (s *Service) SessionsByProject() map[string][]*session.Session {
 	return s.Manager.ByProject()
 }
 
-func (s *Service) PollStates(windowIDs []string) map[string]session.State {
-	return s.Monitor.PollAll(windowIDs)
+func (s *Service) PollStates(sessions []*session.Session) map[string]session.State {
+	windowCommands := make(map[string]string, len(sessions))
+	for _, sess := range sessions {
+		windowCommands[sess.WindowID] = sess.Command
+	}
+	return s.Monitor.PollAll(windowCommands)
 }
 
 func (s *Service) UpdateStates(states map[string]session.State) {
