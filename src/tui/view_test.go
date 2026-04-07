@@ -31,15 +31,16 @@ func TestTruncate(t *testing.T) {
 func TestRenderSession_TagsAndTitle(t *testing.T) {
 	registry := driver.DefaultRegistry()
 	s := &core.SessionInfo{
-		ID:        "abc123",
-		Command:   "claude",
-		GitBranch: "main",
-		Title:     "My last prompt",
-		State:     session.StateWaiting,
-		CreatedAt: time.Now().Add(-3 * time.Minute).Format("2006-01-02T15:04:05Z07:00"),
+		ID:         "abc123",
+		Command:    "claude",
+		GitBranch:  "main",
+		Title:      "my-session-name",
+		LastPrompt: "最後のプロンプト",
+		State:      session.StateWaiting,
+		CreatedAt:  time.Now().Add(-3 * time.Minute).Format("2006-01-02T15:04:05Z07:00"),
 	}
 	out := renderSession(s, false, registry)
-	if !strings.Contains(out, "My last prompt") {
+	if !strings.Contains(out, "my-session-name") {
 		t.Errorf("expected title in output, got:\n%s", out)
 	}
 	if !strings.Contains(out, "[claude]") {
@@ -47,6 +48,9 @@ func TestRenderSession_TagsAndTitle(t *testing.T) {
 	}
 	if !strings.Contains(out, "[main]") {
 		t.Errorf("expected [main] tag in output, got:\n%s", out)
+	}
+	if !strings.Contains(out, "最後のプロンプト") {
+		t.Errorf("expected last prompt in output, got:\n%s", out)
 	}
 }
 

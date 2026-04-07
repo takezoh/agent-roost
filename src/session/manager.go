@@ -159,15 +159,18 @@ func (m *Manager) UpdateStates(states map[string]State) {
 	}
 }
 
-// UpdateTitles はセッション ID → タイトルのマップでタイトルを更新し、変更があれば true を返す。
-func (m *Manager) UpdateTitles(titles map[string]string) bool {
+// UpdateMeta はセッション ID → SessionMeta のマップでメタ情報を更新し、変更があれば true を返す。
+func (m *Manager) UpdateMeta(metas map[string]SessionMeta) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	changed := false
 	for _, s := range m.sessions {
-		if title, ok := titles[s.ID]; ok && s.Title != title {
-			s.Title = title
-			changed = true
+		if meta, ok := metas[s.ID]; ok {
+			if s.Title != meta.Title || s.LastPrompt != meta.LastPrompt {
+				s.Title = meta.Title
+				s.LastPrompt = meta.LastPrompt
+				changed = true
+			}
 		}
 	}
 	return changed

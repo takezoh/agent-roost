@@ -31,8 +31,9 @@ type SessionInfo struct {
 	WindowID  string        `json:"window_id"`
 	CreatedAt string        `json:"created_at"`
 	State     session.State `json:"state"`
-	GitBranch string        `json:"git_branch,omitempty"`
-	Title     string        `json:"title,omitempty"`
+	GitBranch  string        `json:"git_branch,omitempty"`
+	Title      string        `json:"title,omitempty"`
+	LastPrompt string        `json:"last_prompt,omitempty"`
 }
 
 func (si SessionInfo) DisplayCommand() string {
@@ -69,8 +70,9 @@ func SessionsToInfo(sessions []*session.Session) []SessionInfo {
 			WindowID:  s.WindowID,
 			CreatedAt: s.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			State:     s.State,
-			GitBranch: s.GitBranch,
-			Title:     s.Title,
+			GitBranch:  s.GitBranch,
+			Title:      s.Title,
+			LastPrompt: s.LastPrompt,
 		}
 	}
 	return infos

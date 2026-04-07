@@ -55,7 +55,14 @@ type Session struct {
 	State   State         `json:"-"`
 	Cost    string        `json:"-"`
 	Elapsed time.Duration `json:"-"`
-	Title   string        `json:"-"`
+	Title      string        `json:"-"`
+	LastPrompt string        `json:"-"`
+}
+
+// SessionMeta はセッションのメタ情報。
+type SessionMeta struct {
+	Title      string
+	LastPrompt string
 }
 
 func (s *Session) Name() string {

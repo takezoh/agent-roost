@@ -356,13 +356,14 @@ func (s *Server) StartMonitor(intervalMs int) {
 				titleTick = 0
 				home, _ := os.UserHomeDir()
 				fsys := os.DirFS(home)
-				titles := make(map[string]string, len(sessions))
+				metas := make(map[string]session.SessionMeta, len(sessions))
 				for _, sess := range sessions {
-					if t := s.drivers.Get(sess.Command).ResolveTitle(fsys, sess.Project); t != "" {
-						titles[sess.ID] = t
+					m := s.drivers.Get(sess.Command).ResolveMeta(fsys, sess.Project)
+					if m.Title != "" || m.LastPrompt != "" {
+						metas[sess.ID] = session.SessionMeta{Title: m.Title, LastPrompt: m.LastPrompt}
 					}
 				}
-				if s.svc.Manager.UpdateTitles(titles) {
+				if s.svc.Manager.UpdateMeta(metas) {
 					s.broadcastSessions()
 				}
 			}

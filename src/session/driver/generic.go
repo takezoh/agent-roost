@@ -14,8 +14,8 @@ func (g Generic) Name() string          { return g.name }
 func (g Generic) PromptPattern() string { return genericPromptPattern }
 func (g Generic) DisplayName() string   { return g.name }
 
-func (g Generic) ResolveTitle(fsys fs.FS, projectPath string) string {
-	return ""
+func (g Generic) ResolveMeta(fsys fs.FS, projectPath string) SessionMeta {
+	return SessionMeta{}
 }
 
 // NewGeneric は任意のコマンド名に対する汎用 Driver を返す。

@@ -88,6 +88,10 @@ func renderSession(s *core.SessionInfo, selected bool, registry *driver.Registry
 	line2 := "  " + tagStyle.Render(tags)
 
 	content := line1 + "\n" + line2
+	if s.LastPrompt != "" {
+		line3 := "  " + idleStyle.Render(truncate(s.LastPrompt, 30))
+		content += "\n" + line3
+	}
 	if selected {
 		return selectedStyle.Render(content)
 	}

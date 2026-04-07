@@ -23,9 +23,10 @@ func TestClaudeProjectDir(t *testing.T) {
 	}
 }
 
-func TestClaude_ResolveTitle(t *testing.T) {
-	jsonl := `{"type":"user","message":{"role":"user","content":"hello"}}
-{"type":"last-prompt","lastPrompt":"最後のプロンプト","sessionId":"abc"}
+func TestClaude_ResolveMeta(t *testing.T) {
+	jsonl := `{"type":"user","message":{"role":"user","content":"first prompt"}}
+{"type":"custom-title","customTitle":"my-session-name","sessionId":"abc"}
+{"type":"user","message":{"role":"user","content":"最後のプロンプト"}}
 `
 	fsys := fstest.MapFS{
 		".claude/projects/-workspace-myproject/abc.jsonl": &fstest.MapFile{
@@ -33,41 +34,47 @@ func TestClaude_ResolveTitle(t *testing.T) {
 		},
 	}
 	d := Claude{}
-	got := d.ResolveTitle(fsys, "/workspace/myproject")
-	if got != "最後のプロンプト" {
-		t.Errorf("ResolveTitle() = %q, want %q", got, "最後のプロンプト")
+	meta := d.ResolveMeta(fsys, "/workspace/myproject")
+	if meta.Title != "my-session-name" {
+		t.Errorf("Title = %q, want %q", meta.Title, "my-session-name")
+	}
+	if meta.LastPrompt != "最後のプロンプト" {
+		t.Errorf("LastPrompt = %q, want %q", meta.LastPrompt, "最後のプロンプト")
 	}
 }
 
-func TestClaude_ResolveTitle_NoFiles(t *testing.T) {
+func TestClaude_ResolveMeta_NoCustomTitle(t *testing.T) {
+	jsonl := `{"type":"user","message":{"role":"user","content":"fallback prompt"}}
+`
+	fsys := fstest.MapFS{
+		".claude/projects/-workspace-myproject/abc.jsonl": &fstest.MapFile{
+			Data: []byte(jsonl),
+		},
+	}
+	d := Claude{}
+	meta := d.ResolveMeta(fsys, "/workspace/myproject")
+	if meta.Title != "" {
+		t.Errorf("Title = %q, want empty", meta.Title)
+	}
+	if meta.LastPrompt != "fallback prompt" {
+		t.Errorf("LastPrompt = %q, want %q", meta.LastPrompt, "fallback prompt")
+	}
+}
+
+func TestClaude_ResolveMeta_NoFiles(t *testing.T) {
 	fsys := fstest.MapFS{}
 	d := Claude{}
-	got := d.ResolveTitle(fsys, "/workspace/myproject")
-	if got != "" {
-		t.Errorf("ResolveTitle() = %q, want empty", got)
+	meta := d.ResolveMeta(fsys, "/workspace/myproject")
+	if meta.Title != "" || meta.LastPrompt != "" {
+		t.Errorf("expected empty meta, got Title=%q LastPrompt=%q", meta.Title, meta.LastPrompt)
 	}
 }
 
-func TestClaude_ResolveTitle_NoLastPrompt(t *testing.T) {
-	jsonl := `{"type":"user","message":{"role":"user","content":"hello"}}
-`
-	fsys := fstest.MapFS{
-		".claude/projects/-workspace-myproject/abc.jsonl": &fstest.MapFile{
-			Data: []byte(jsonl),
-		},
-	}
-	d := Claude{}
-	got := d.ResolveTitle(fsys, "/workspace/myproject")
-	if got != "" {
-		t.Errorf("ResolveTitle() = %q, want empty", got)
-	}
-}
-
-func TestGeneric_ResolveTitle_Empty(t *testing.T) {
+func TestGeneric_ResolveMeta_Empty(t *testing.T) {
 	fsys := fstest.MapFS{}
 	d := NewGeneric("gemini")
-	got := d.ResolveTitle(fsys, "/workspace/myproject")
-	if got != "" {
-		t.Errorf("ResolveTitle() = %q, want empty", got)
+	meta := d.ResolveMeta(fsys, "/workspace/myproject")
+	if meta.Title != "" || meta.LastPrompt != "" {
+		t.Errorf("expected empty meta, got Title=%q LastPrompt=%q", meta.Title, meta.LastPrompt)
 	}
 }
