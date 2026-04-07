@@ -97,6 +97,36 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.focusCmd("0.2")
 
+	case tea.MouseMotionMsg:
+		mouse := msg.Mouse()
+		idx := m.rowToItemIndex(mouse.Y)
+		if idx < 0 || idx == m.cursor {
+			return m, nil
+		}
+		m.cursor = idx
+		return m, m.cursorPreviewCmd()
+
+	case tea.MouseClickMsg:
+		mouse := msg.Mouse()
+		if mouse.Button != tea.MouseLeft {
+			return m, nil
+		}
+		idx := m.rowToItemIndex(mouse.Y)
+		if idx < 0 {
+			return m, nil
+		}
+		m.cursor = idx
+		if m.items[idx].isProject {
+			name := m.items[idx].project
+			m.folded[name] = !m.folded[name]
+			m.rebuildItems()
+			return m, nil
+		}
+		if s := m.cursorSession(); s != nil {
+			return m, m.switchCmd(s)
+		}
+		return m, nil
+
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			return m, nil
@@ -272,6 +302,28 @@ func (m *Model) rebuildItems() {
 	if m.cursor >= len(m.items) && len(m.items) > 0 {
 		m.cursor = len(m.items) - 1
 	}
+}
+
+// rowToItemIndex maps a terminal row Y (0-based) to an item index.
+// Header takes 2 rows ("SESSIONS" + blank line). Project items take 1 row,
+// session items take 2 rows (line1 + line2). Returns -1 if outside items.
+func (m Model) rowToItemIndex(y int) int {
+	const headerRows = 2
+	row := headerRows
+	for i, item := range m.items {
+		if item.isProject {
+			if y == row {
+				return i
+			}
+			row++
+		} else {
+			if y == row || y == row+1 {
+				return i
+			}
+			row += 2
+		}
+	}
+	return -1
 }
 
 // --- cursor helpers ---
