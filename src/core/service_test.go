@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/session/driver"
 	"github.com/take/agent-roost/tmux"
 )
 
@@ -47,9 +48,10 @@ func setupService(t *testing.T) (*Service, *mockPaneOp, *session.Manager) {
 	t.Helper()
 	mt := &mockTmuxForService{nextID: "@1", windows: make(map[string]bool)}
 	mgr := session.NewManager(mt, t.TempDir())
+	store := driver.NewAgentStore()
 	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, mon, panes, "roost", "")
+	svc := NewService(mgr, store, mon, panes, "roost", "")
 	return svc, panes, mgr
 }
 
@@ -88,9 +90,10 @@ func TestRefreshSessions_Changed(t *testing.T) {
 	mt := &mockTmuxForService{nextID: "@1", windows: make(map[string]bool)}
 	dataDir := t.TempDir()
 	mgr := session.NewManager(mt, dataDir)
+	store := driver.NewAgentStore()
 	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, mon, panes, "roost", "")
+	svc := NewService(mgr, store, mon, panes, "roost", "")
 
 	// Create via a separate manager so svc.Manager has empty in-memory state.
 	mgr2 := session.NewManager(mt, dataDir)
@@ -170,9 +173,10 @@ func TestClearActive_NonMatchingWindow(t *testing.T) {
 func TestNewService_RestoresActiveWindowID(t *testing.T) {
 	mt := &mockTmuxForService{nextID: "@1", windows: make(map[string]bool)}
 	mgr := session.NewManager(mt, t.TempDir())
+	store := driver.NewAgentStore()
 	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, mon, panes, "roost", "@5")
+	svc := NewService(mgr, store, mon, panes, "roost", "@5")
 	if svc.ActiveWindowID() != "@5" {
 		t.Fatalf("expected @5, got %s", svc.ActiveWindowID())
 	}

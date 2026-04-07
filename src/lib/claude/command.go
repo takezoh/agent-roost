@@ -24,6 +24,8 @@ func Run(args []string) {
 	switch args[0] {
 	case "event":
 		runEvent()
+	case "status":
+		runStatus()
 	case "setup":
 		runSetup()
 	case "help", "-h", "--help":
@@ -35,24 +37,14 @@ func Run(args []string) {
 	}
 }
 
-func printHelp() {
-	fmt.Print(`Usage: roost claude <command>
-
-Commands:
-  setup   Register roost hooks in ~/.claude/settings.json
-  event   Receive a hook event from Claude Code (called by hooks)
-  help    Show this help message
-`)
-}
-
-func runEvent() {
+func runStatus() {
 	input, _ := io.ReadAll(os.Stdin)
-	event, err := ParseHookEvent(input)
+	status, err := ParseStatusLine(input)
 	if err != nil {
 		return
 	}
-	pane := os.Getenv("TMUX_PANE")
-	if pane == "" || event.TranscriptPath == "" {
+	line := status.FormatStatusLine()
+	if line == "" {
 		return
 	}
 	cfg, err := config.Load()
@@ -66,10 +58,68 @@ func runEvent() {
 	}
 	defer client.Close()
 	client.StartListening()
-	client.SendAgentEvent("session-start", map[string]string{
-		"pane":   pane,
-		"source": event.TranscriptFile(),
-	})
+	args := map[string]string{
+		"session_id": status.SessionID,
+		"line":       line,
+	}
+	client.SendAgentEvent("status-update", args)
+}
+
+func printHelp() {
+	fmt.Print(`Usage: roost claude <command>
+
+Commands:
+  setup    Register roost hooks in ~/.claude/settings.json
+  event    Receive a hook event from Claude Code (called by hooks)
+  status   Receive status line data from Claude Code (called by statusline script)
+  help     Show this help message
+
+Status line integration:
+  Add to your statusline script:
+    echo "$json" | roost claude status &
+`)
+}
+
+func runEvent() {
+	input, _ := io.ReadAll(os.Stdin)
+	event, err := ParseHookEvent(input)
+	if err != nil {
+		return
+	}
+	if event.SessionID == "" {
+		return
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return
+	}
+	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
+	client, err := core.Dial(sockPath)
+	if err != nil {
+		return
+	}
+	defer client.Close()
+	client.StartListening()
+
+	if event.HookEventName == "SessionStart" {
+		args := map[string]string{
+			"session_id": event.SessionID,
+		}
+		if pane := os.Getenv("TMUX_PANE"); pane != "" {
+			args["pane"] = pane
+		}
+		if event.TranscriptPath != "" {
+			args["source"] = event.TranscriptFile()
+		}
+		client.SendAgentEvent("session-start", args)
+	}
+
+	if state := event.DeriveState(); state != "" {
+		client.SendAgentEvent("state-change", map[string]string{
+			"session_id": event.SessionID,
+			"state":      state,
+		})
+	}
 }
 
 func runSetup() {

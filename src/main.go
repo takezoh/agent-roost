@@ -80,14 +80,23 @@ func runCoordinator() {
 	activeWID := restoreActiveWindowID(client, mgr)
 
 	drivers := driver.DefaultRegistry()
+	agentStore := driver.NewAgentStore()
 	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec, drivers)
-	svc := core.NewService(mgr, monitor, client, sessionName, activeWID)
+	svc := core.NewService(mgr, agentStore, monitor, client, sessionName, activeWID)
 	svc.SetSyncActive(func(wid string) {
 		if wid != "" {
 			client.SetEnv("ROOST_ACTIVE_WINDOW", wid)
 		} else {
 			client.Run("set-environment", "-t", sessionName, "-u", "ROOST_ACTIVE_WINDOW")
 		}
+	})
+	svc.SetSyncStatus(func(line string) {
+		left := " " + paneLabel
+		if line != "" {
+			left += " " + line
+		}
+		left += " "
+		client.SetOption(sessionName, "status-left", left)
 	})
 
 	sockPath := filepath.Join(dataDir, "roost.sock")
@@ -150,6 +159,7 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
 	client.ResizePane(sn+":0.1", 0, logHeight)
 
 	setupKeyBindings(client, sn)
+	setupStatusBar(client, sn)
 	client.SelectPane(sn + ":0.0")
 }
 
@@ -163,8 +173,22 @@ func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {
 	client.ResizePane(sn+":0.2", tuiWidth, 0)
 	client.ResizePane(sn+":0.1", 0, logHeight)
 	setupKeyBindings(client, sn)
+	setupStatusBar(client, sn)
 	respawnLog(client, sn)
 	client.SelectPane(sn + ":0.0")
+}
+
+const paneLabel = `#{?#{==:#{window_index},0},` +
+	`#{?#{==:#{pane_index},0},[MAIN],#{?#{==:#{pane_index},1},[LOG],[SESSIONS]}},` +
+	`[#{window_name}]}`
+
+func setupStatusBar(client *tmux.Client, sn string) {
+	client.SetOption(sn, "status-left", " "+paneLabel+" ")
+	client.SetOption(sn, "status-left-length", "120")
+	client.SetOption(sn, "status-right", "")
+	client.SetOption(sn, "status-style", "bg=#1d2021,fg=#ebdbb2")
+	client.SetOption(sn, "window-status-format", "")
+	client.SetOption(sn, "window-status-current-format", "")
 }
 
 func setupKeyBindings(client *tmux.Client, sn string) {

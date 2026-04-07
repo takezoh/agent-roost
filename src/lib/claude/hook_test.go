@@ -28,3 +28,31 @@ func TestParseHookEvent_Invalid(t *testing.T) {
 		t.Error("expected error for invalid JSON")
 	}
 }
+
+func TestDeriveState(t *testing.T) {
+	tests := []struct {
+		event string
+		ntype string
+		want  string
+	}{
+		{"UserPromptSubmit", "", "running"},
+		{"PreToolUse", "", "running"},
+		{"PostToolUse", "", "running"},
+		{"SubagentStart", "", "running"},
+		{"Stop", "", "waiting"},
+		{"StopFailure", "", "waiting"},
+		{"SessionEnd", "", "stopped"},
+		{"Notification", "permission_prompt", "pending"},
+		{"Notification", "idle_prompt", "waiting"},
+		{"Notification", "auth_success", ""},
+		{"SessionStart", "", ""},
+		{"PostCompact", "", ""},
+	}
+	for _, tt := range tests {
+		e := HookEvent{HookEventName: tt.event, NotificationType: tt.ntype}
+		got := e.DeriveState()
+		if got != tt.want {
+			t.Errorf("DeriveState(%s/%s) = %q, want %q", tt.event, tt.ntype, got, tt.want)
+		}
+	}
+}

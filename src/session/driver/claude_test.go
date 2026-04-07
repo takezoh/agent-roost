@@ -41,8 +41,8 @@ func TestClaude_ResolveMeta(t *testing.T) {
 	if meta.LastPrompt != "the last prompt" {
 		t.Errorf("LastPrompt = %q, want %q", meta.LastPrompt, "the last prompt")
 	}
-	if meta.Source != "abc.jsonl" {
-		t.Errorf("Source = %q, want %q", meta.Source, "abc.jsonl")
+	if meta.Source != "abc" {
+		t.Errorf("Source = %q, want %q", meta.Source, "abc")
 	}
 }
 
@@ -60,12 +60,12 @@ func TestClaude_ResolveMeta_WithSource(t *testing.T) {
 		},
 	}
 	d := Claude{}
-	meta := d.ResolveMeta(fsys, "/workspace/myproject", "aaa.jsonl")
+	meta := d.ResolveMeta(fsys, "/workspace/myproject", "aaa")
 	if meta.Title != "session-one" {
 		t.Errorf("Title = %q, want %q", meta.Title, "session-one")
 	}
-	if meta.Source != "aaa.jsonl" {
-		t.Errorf("Source = %q, want %q", meta.Source, "aaa.jsonl")
+	if meta.Source != "aaa" {
+		t.Errorf("Source = %q, want %q", meta.Source, "aaa")
 	}
 }
 

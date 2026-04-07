@@ -20,6 +20,7 @@ var (
 	waitingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffff00"))
 	idleStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
 	stoppedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
+	pendingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff8800"))
 	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262"))
 	tagStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4"))
 )
@@ -72,14 +73,15 @@ func renderProject(name string, folded, selected bool) string {
 }
 
 func renderSession(s *core.SessionInfo, selected bool, registry *driver.Registry) string {
-	symbol := stateStyle(s.State).Render(s.State.Symbol())
-	elapsed := formatElapsed(time.Since(s.CreatedAtTime()))
+	style := stateStyle(s.State)
+	stateStr := style.Render(s.State.Symbol() + " " + s.State.String())
+	elapsed := formatElapsed(time.Since(s.StateChangedAtTime()))
 
 	name := s.ID[:6]
 	if s.Title != "" {
 		name = truncate(s.Title, 28)
 	}
-	line1 := fmt.Sprintf("  %s %s  %s", name, symbol, elapsed)
+	line1 := fmt.Sprintf("  %s %s  %s", name, stateStr, elapsed)
 
 	content := line1
 	if s.LastPrompt != "" {
@@ -137,6 +139,8 @@ func stateStyle(s session.State) lipgloss.Style {
 		return idleStyle
 	case session.StateStopped:
 		return stoppedStyle
+	case session.StatePending:
+		return pendingStyle
 	default:
 		return idleStyle
 	}

@@ -12,7 +12,9 @@ const (
 	StateWaiting
 	StateIdle
 	StateStopped
+	StatePending // waiting for tool permission approval
 )
+
 
 func (s State) String() string {
 	switch s {
@@ -24,6 +26,8 @@ func (s State) String() string {
 		return "idle"
 	case StateStopped:
 		return "stopped"
+	case StatePending:
+		return "pending"
 	default:
 		return "unknown"
 	}
@@ -39,6 +43,8 @@ func (s State) Symbol() string {
 		return "○"
 	case StateStopped:
 		return "■"
+	case StatePending:
+		return "◇"
 	default:
 		return "?"
 	}
@@ -49,16 +55,11 @@ type Session struct {
 	Project   string    `json:"project"`
 	Command   string    `json:"command"`
 	WindowID  string    `json:"window_id"`
-	CreatedAt  time.Time `json:"created_at"`
-	Tags       []Tag     `json:"tags,omitempty"`
-	MetaSource string    `json:"meta_source,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	Tags      []Tag     `json:"tags,omitempty"`
 
-	State   State         `json:"-"`
-	Cost    string        `json:"-"`
-	Elapsed time.Duration `json:"-"`
-	Title      string        `json:"-"`
-	LastPrompt string        `json:"-"`
-	Subjects   []string      `json:"-"`
+	State          State     `json:"-"`
+	StateChangedAt time.Time `json:"-"`
 }
 
 type Tag struct {
@@ -67,13 +68,6 @@ type Tag struct {
 	Background string `json:"bg,omitempty"`
 }
 
-// SessionMeta holds session metadata.
-type SessionMeta struct {
-	Title      string
-	LastPrompt string
-	Subjects   []string
-	Source     string
-}
 
 func (s *Session) Name() string {
 	return filepath.Base(s.Project)

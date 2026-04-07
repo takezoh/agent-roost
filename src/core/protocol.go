@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/session/driver"
 )
 
 type Message struct {
@@ -30,11 +31,13 @@ type SessionInfo struct {
 	Command   string        `json:"command"`
 	WindowID  string        `json:"window_id"`
 	CreatedAt string        `json:"created_at"`
-	State     session.State `json:"state"`
-	Tags       []session.Tag  `json:"tags,omitempty"`
+	State          session.State `json:"state"`
+	StateChangedAt string        `json:"state_changed_at,omitempty"`
+	Tags           []session.Tag  `json:"tags,omitempty"`
 	Title      string        `json:"title,omitempty"`
 	LastPrompt string        `json:"last_prompt,omitempty"`
 	Subjects   []string      `json:"subjects,omitempty"`
+	StatusLine string        `json:"status_line,omitempty"`
 }
 
 func (si SessionInfo) DisplayCommand() string {
@@ -53,6 +56,14 @@ func (si SessionInfo) CreatedAtTime() time.Time {
 	return t
 }
 
+func (si SessionInfo) StateChangedAtTime() time.Time {
+	if si.StateChangedAt == "" {
+		return si.CreatedAtTime()
+	}
+	t, _ := time.Parse(time.RFC3339, si.StateChangedAt)
+	return t
+}
+
 func NewCommand(cmd string, args map[string]string) Message {
 	return Message{Type: "command", Command: cmd, Args: args}
 }
@@ -61,21 +72,30 @@ func NewEvent(event string) Message {
 	return Message{Type: "event", Event: event}
 }
 
-func SessionsToInfo(sessions []*session.Session) []SessionInfo {
+// BuildSessionInfos merges tmux sessions with agent session data.
+func BuildSessionInfos(sessions []*session.Session, store *driver.AgentStore) []SessionInfo {
 	infos := make([]SessionInfo, len(sessions))
 	for i, s := range sessions {
-		infos[i] = SessionInfo{
+		agent := store.GetByWindow(s.WindowID)
+		info := SessionInfo{
 			ID:        s.ID,
 			Project:   s.Project,
 			Command:   s.Command,
 			WindowID:  s.WindowID,
 			CreatedAt: s.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			State:     s.State,
-			Tags:       s.Tags,
-			Title:      s.Title,
-			LastPrompt: s.LastPrompt,
-			Subjects:   s.Subjects,
+			State:     ResolveAgentState(s.Command, s.State, agent),
+			Tags:      s.Tags,
 		}
+		if !s.StateChangedAt.IsZero() {
+			info.StateChangedAt = s.StateChangedAt.Format("2006-01-02T15:04:05Z07:00")
+		}
+		if agent != nil {
+			info.Title = agent.Title
+			info.LastPrompt = agent.LastPrompt
+			info.Subjects = agent.Subjects
+			info.StatusLine = agent.StatusLine
+		}
+		infos[i] = info
 	}
 	return infos
 }

@@ -25,7 +25,7 @@ func (Claude) ResolveMeta(fsys fs.FS, projectPath string, source string) Session
 	dir := filepath.Join(".claude", "projects", ProjectDir(projectPath))
 
 	if source != "" {
-		path := filepath.Join(dir, source)
+		path := filepath.Join(dir, source+".jsonl")
 		meta := parseSessionMeta(fsys, path)
 		meta.Source = source
 		return meta
@@ -36,7 +36,7 @@ func (Claude) ResolveMeta(fsys fs.FS, projectPath string, source string) Session
 		return SessionMeta{}
 	}
 	meta := parseSessionMeta(fsys, filepath.Join(dir, target))
-	meta.Source = target
+	meta.Source = strings.TrimSuffix(target, ".jsonl")
 	return meta
 }
 

@@ -144,6 +144,17 @@ func (m *Manager) ByProject() map[string][]*Session {
 	return grouped
 }
 
+func (m *Manager) FindByWindowID(windowID string) *Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, s := range m.sessions {
+		if s.WindowID == windowID {
+			return s
+		}
+	}
+	return nil
+}
+
 func (m *Manager) FindByID(id string) *Session {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -158,38 +169,17 @@ func (m *Manager) FindByID(id string) *Session {
 func (m *Manager) UpdateStates(states map[string]State) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	now := time.Now()
 	for _, s := range m.sessions {
 		if st, ok := states[s.WindowID]; ok {
+			if s.State != st {
+				s.StateChangedAt = now
+			}
 			s.State = st
 		}
 	}
 }
 
-// UpdateMeta updates metadata from a session ID to SessionMeta map. Returns true if anything changed.
-func (m *Manager) UpdateMeta(metas map[string]SessionMeta) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	changed := false
-	persist := false
-	for _, s := range m.sessions {
-		if meta, ok := metas[s.ID]; ok {
-			if s.Title != meta.Title || s.LastPrompt != meta.LastPrompt || !slicesEqual(s.Subjects, meta.Subjects) {
-				s.Title = meta.Title
-				s.LastPrompt = meta.LastPrompt
-				s.Subjects = meta.Subjects
-				changed = true
-			}
-			if meta.Source != "" && s.MetaSource != meta.Source {
-				s.MetaSource = meta.Source
-				persist = true
-			}
-		}
-	}
-	if persist {
-		m.save()
-	}
-	return changed
-}
 
 func (m *Manager) RefreshBranch(sessionID string) bool {
 	m.mu.Lock()
@@ -313,33 +303,6 @@ func (m *Manager) reconcile() error {
 
 func (m *Manager) filePath() string {
 	return filepath.Join(m.dataDir, "sessions.json")
-}
-
-// UpdateSourceByWindow updates the MetaSource for the session matching the given window ID.
-// Returns true if the source was changed.
-func (m *Manager) UpdateSourceByWindow(windowID, source string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, s := range m.sessions {
-		if s.WindowID == windowID && s.MetaSource != source {
-			s.MetaSource = source
-			m.save()
-			return true
-		}
-	}
-	return false
-}
-
-func slicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func generateID() (string, error) {

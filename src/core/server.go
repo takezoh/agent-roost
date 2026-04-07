@@ -179,7 +179,7 @@ func (s *Server) handleCreateSession(cc *clientConn, args map[string]string) {
 	}
 	s.svc.Switch(sess)
 	s.sendResponse(cc, Message{
-		Sessions:       SessionsToInfo(s.svc.Sessions()),
+		Sessions:       BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore),
 		ActiveWindowID: s.svc.ActiveWindowID(),
 		SessionLogPath: s.svc.ActiveSessionLogPath(),
 	})
@@ -211,7 +211,7 @@ func (s *Server) handleStopSession(cc *clientConn, args map[string]string) {
 
 func (s *Server) handleListSessions(cc *clientConn) {
 	s.sendResponse(cc, Message{
-		Sessions:       SessionsToInfo(s.svc.Sessions()),
+		Sessions:       BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore),
 		ActiveWindowID: s.svc.ActiveWindowID(),
 		SessionLogPath: s.svc.ActiveSessionLogPath(),
 	})
@@ -242,6 +242,7 @@ func (s *Server) handlePreviewSession(cc *clientConn, args map[string]string) {
 		s.sendResponse(cc, Message{})
 		return
 	}
+	s.svc.SyncActiveStatusLine()
 	s.sendResponse(cc, Message{
 		ActiveWindowID: s.svc.ActiveWindowID(),
 		SessionLogPath: s.svc.ActiveSessionLogPath(),
@@ -259,6 +260,7 @@ func (s *Server) handleSwitchSession(cc *clientConn, args map[string]string) {
 		s.sendResponse(cc, Message{})
 		return
 	}
+	s.svc.SyncActiveStatusLine()
 	s.sendResponse(cc, Message{
 		ActiveWindowID: s.svc.ActiveWindowID(),
 		SessionLogPath: s.svc.ActiveSessionLogPath(),
@@ -317,23 +319,98 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 	switch eventType {
 	case "session-start":
 		pane := args["pane"]
+		agentSessionID := args["session_id"]
 		source := args["source"]
-		if pane == "" || source == "" {
-			s.sendError(cc, "session-start: pane and source required")
+		if agentSessionID == "" {
+			s.sendError(cc, "session-start: session_id required")
 			return
 		}
-		changed, err := s.svc.HandleSessionStart(pane, source)
-		if err != nil {
-			s.sendError(cc, fmt.Sprintf("session-start: %v", err))
+		if s.svc.HandleSessionStart(pane, agentSessionID, source) {
+			s.broadcastSessions()
+		}
+		s.sendResponse(cc, Message{})
+	case "status-update":
+		sid := args["session_id"]
+		line := args["line"]
+		if line == "" {
+			s.sendError(cc, "status-update: line required")
 			return
 		}
-		if changed {
+		if s.svc.HandleStatusLine(sid, line) {
+			s.broadcastSessions()
+		}
+		s.sendResponse(cc, Message{})
+	case "state-change":
+		sid := args["session_id"]
+		stateStr := args["state"]
+		if stateStr == "" {
+			s.sendError(cc, "state-change: state required")
+			return
+		}
+		agentState := parseAgentState(stateStr)
+		if agentState == driver.AgentStateUnset {
+			s.sendError(cc, "state-change: unknown state: "+stateStr)
+			return
+		}
+		if s.svc.HandleStateChange(sid, agentState) {
 			s.broadcastSessions()
 		}
 		s.sendResponse(cc, Message{})
 	default:
 		s.sendError(cc, "unknown agent event type: "+eventType)
 	}
+}
+
+// resolveAgentStates overrides capture-pane states using agent session data.
+func (s *Server) resolveAgentStates(sessions []*session.Session, states map[string]session.State) {
+	for _, sess := range sessions {
+		agent := s.svc.AgentStore.GetByWindow(sess.WindowID)
+		states[sess.WindowID] = ResolveAgentState(sess.Command, states[sess.WindowID], agent)
+	}
+}
+
+func parseAgentState(s string) driver.AgentState {
+	switch s {
+	case "running":
+		return driver.AgentStateRunning
+	case "waiting":
+		return driver.AgentStateWaiting
+	case "idle":
+		return driver.AgentStateIdle
+	case "stopped":
+		return driver.AgentStateStopped
+	case "pending":
+		return driver.AgentStatePending
+	default:
+		return driver.AgentStateUnset
+	}
+}
+
+// resolveAgentMeta resolves metadata from agent log files and updates the agent store.
+func (s *Server) resolveAgentMeta(sessions []*session.Session) bool {
+	home, _ := os.UserHomeDir()
+	fsys := os.DirFS(home)
+	changed := false
+	for _, sess := range sessions {
+		source := s.svc.AgentStore.SourceByWindow(sess.WindowID)
+		meta := s.drivers.Get(sess.Command).ResolveMeta(fsys, sess.Project, source)
+		if meta.Title == "" && meta.LastPrompt == "" && len(meta.Subjects) == 0 {
+			continue
+		}
+		agentID := s.svc.AgentStore.IDByWindow(sess.WindowID)
+		if agentID == "" && meta.Source != "" {
+			s.svc.AgentStore.Bind(sess.WindowID, meta.Source)
+			agentID = meta.Source
+			changed = true
+		}
+		if agentID == "" {
+			continue
+		}
+		if s.svc.AgentStore.UpdateMeta(agentID, meta) {
+			changed = true
+		}
+	}
+	return changed
 }
 
 func (s *Server) sendResponse(cc *clientConn, msg Message) {
@@ -357,7 +434,7 @@ func (s *Server) broadcast(msg Message) {
 
 func (s *Server) broadcastSessions() {
 	msg := NewEvent("sessions-changed")
-	msg.Sessions = SessionsToInfo(s.svc.Sessions())
+	msg.Sessions = BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore)
 	msg.ActiveWindowID = s.svc.ActiveWindowID()
 	msg.SessionLogPath = s.svc.ActiveSessionLogPath()
 	s.broadcast(msg)
@@ -378,6 +455,7 @@ func (s *Server) StartMonitor(intervalMs int) {
 				continue
 			}
 			states := s.svc.PollStates(sessions)
+			s.resolveAgentStates(sessions, states)
 			s.svc.UpdateStates(states)
 			msg := NewEvent("states-updated")
 			msg.States = states
@@ -386,16 +464,7 @@ func (s *Server) StartMonitor(intervalMs int) {
 			titleTick++
 			if titleTick >= 5 {
 				titleTick = 0
-				home, _ := os.UserHomeDir()
-				fsys := os.DirFS(home)
-				metas := make(map[string]session.SessionMeta, len(sessions))
-				for _, sess := range sessions {
-					m := s.drivers.Get(sess.Command).ResolveMeta(fsys, sess.Project, sess.MetaSource)
-					if m.Title != "" || m.LastPrompt != "" || len(m.Subjects) > 0 {
-						metas[sess.ID] = session.SessionMeta{Title: m.Title, LastPrompt: m.LastPrompt, Subjects: m.Subjects, Source: m.Source}
-					}
-				}
-				if s.svc.Manager.UpdateMeta(metas) {
+				if s.resolveAgentMeta(sessions) {
 					s.broadcastSessions()
 				}
 			}

@@ -79,7 +79,15 @@ func computeTransition(content string, prev snapshot, now time.Time, threshold t
 		pattern = defaultPromptPattern
 	}
 	hash := hashContent(content)
-	if prev.hash == "" || hash != prev.hash {
+	if prev.hash == "" {
+		// Initial observation — not a change, just first capture
+		state := session.StateIdle
+		if hasPromptIndicator(content, pattern) {
+			state = session.StateWaiting
+		}
+		return state, snapshot{hash: hash, lastActivity: now, lastState: state}
+	}
+	if hash != prev.hash {
 		state := session.StateRunning
 		if hasPromptIndicator(content, pattern) {
 			state = session.StateWaiting

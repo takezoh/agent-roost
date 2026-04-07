@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/session/driver"
 )
 
 func TestSessionInfoDisplayCommand(t *testing.T) {
@@ -63,13 +64,14 @@ func TestNewEvent(t *testing.T) {
 	}
 }
 
-func TestSessionsToInfo(t *testing.T) {
+func TestBuildSessionInfos(t *testing.T) {
 	created := time.Date(2024, 3, 10, 12, 0, 0, 0, time.UTC)
 	sessions := []*session.Session{{
 		ID: "s1", Project: "/tmp/proj", Command: "test",
 		WindowID: "w1", CreatedAt: created, State: session.StateRunning,
 	}}
-	infos := SessionsToInfo(sessions)
+	store := driver.NewAgentStore()
+	infos := BuildSessionInfos(sessions, store)
 	if len(infos) != 1 {
 		t.Fatalf("len = %d, want 1", len(infos))
 	}

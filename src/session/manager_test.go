@@ -241,3 +241,17 @@ func TestByProject(t *testing.T) {
 		t.Fatalf("expected 1 session for proj-b, got %d", len(grouped["proj-b"]))
 	}
 }
+
+func TestFindByWindowID(t *testing.T) {
+	mgr, _ := setupManager(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+
+	found := mgr.FindByWindowID(sess.WindowID)
+	if found == nil || found.ID != sess.ID {
+		t.Fatal("expected to find session by WindowID")
+	}
+	if mgr.FindByWindowID("@99") != nil {
+		t.Fatal("expected nil for unknown WindowID")
+	}
+}
+

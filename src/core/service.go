@@ -8,28 +8,36 @@ import (
 	"strings"
 
 	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/session/driver"
 	"github.com/take/agent-roost/tmux"
 )
 
 type Service struct {
 	Manager        *session.Manager
+	AgentStore     *driver.AgentStore
 	Monitor        *tmux.Monitor
 	Panes          tmux.PaneOperator
 	SessionName    string
 	activeWindowID string
 	syncActive     func(string)
+	syncStatus     func(string)
 	onPreview      []func(string)
 	lastCount      int
 }
 
-func NewService(mgr *session.Manager, mon *tmux.Monitor, panes tmux.PaneOperator, sessionName, activeWindowID string) *Service {
+func NewService(mgr *session.Manager, store *driver.AgentStore, mon *tmux.Monitor, panes tmux.PaneOperator, sessionName, activeWindowID string) *Service {
 	return &Service{
 		Manager:        mgr,
+		AgentStore:     store,
 		Monitor:        mon,
 		Panes:          panes,
 		SessionName:    sessionName,
 		activeWindowID: activeWindowID,
 	}
+}
+
+func (s *Service) SetSyncStatus(fn func(string)) {
+	s.syncStatus = fn
 }
 
 func (s *Service) SetSyncActive(fn func(string)) {
@@ -171,14 +179,90 @@ func (s *Service) UpdateStates(states map[string]session.State) {
 	s.Manager.UpdateStates(states)
 }
 
-// HandleSessionStart resolves a tmux pane to a window and updates the session's meta source.
-// Returns true if the source was changed.
-func (s *Service) HandleSessionStart(pane, source string) (bool, error) {
-	windowID, err := s.Panes.WindowIDFromPane(pane)
-	if err != nil {
-		return false, err
+// HandleSessionStart binds an agent session to a tmux window.
+// Uses pane → WindowID for identification, falls back to active session.
+func (s *Service) HandleSessionStart(pane, agentSessionID, source string) bool {
+	windowID := s.resolveWindowID(pane)
+	if windowID == "" {
+		return false
 	}
-	return s.Manager.UpdateSourceByWindow(windowID, source), nil
+	s.AgentStore.Bind(windowID, agentSessionID)
+	if source != "" {
+		return s.AgentStore.UpdateSource(agentSessionID, source)
+	}
+	return false
+}
+
+// HandleStateChange updates the agent state by agentSessionID.
+func (s *Service) HandleStateChange(agentSessionID string, state driver.AgentState) bool {
+	return s.AgentStore.UpdateState(agentSessionID, state)
+}
+
+// HandleStatusLine updates the agent status line by agentSessionID.
+// If the agent is bound to the active session, syncs to tmux.
+func (s *Service) HandleStatusLine(agentSessionID, line string) bool {
+	changed := s.AgentStore.UpdateStatusLine(agentSessionID, line)
+	if s.syncStatus != nil && s.activeWindowID != "" {
+		active := s.AgentStore.GetByWindow(s.activeWindowID)
+		if active != nil && active.ID == agentSessionID {
+			s.syncStatus(line)
+		}
+	}
+	return changed
+}
+
+// SyncActiveStatusLine pushes the active session's cached status line to tmux.
+func (s *Service) SyncActiveStatusLine() {
+	if s.syncStatus == nil {
+		return
+	}
+	if s.activeWindowID == "" {
+		s.syncStatus("")
+		return
+	}
+	agent := s.AgentStore.GetByWindow(s.activeWindowID)
+	if agent != nil {
+		s.syncStatus(agent.StatusLine)
+	} else {
+		s.syncStatus("")
+	}
+}
+
+// ResolveAgentState returns the final display state for a session,
+// merging capture-pane state with agent hook state.
+func ResolveAgentState(command string, captureState session.State, agent *driver.AgentSession) session.State {
+	if command != "claude" {
+		return captureState
+	}
+	if agent == nil || agent.State == driver.AgentStateUnset {
+		return session.StateIdle
+	}
+	switch agent.State {
+	case driver.AgentStateRunning:
+		return session.StateRunning
+	case driver.AgentStateWaiting:
+		return session.StateWaiting
+	case driver.AgentStatePending:
+		return session.StatePending
+	case driver.AgentStateStopped:
+		return session.StateStopped
+	case driver.AgentStateIdle:
+		return session.StateIdle
+	default:
+		return session.StateIdle
+	}
+}
+
+// resolveWindowID finds a window ID by pane, falling back to active session.
+func (s *Service) resolveWindowID(pane string) string {
+	if pane != "" {
+		if wid, err := s.Panes.WindowIDFromPane(pane); err == nil {
+			if s.Manager.FindByWindowID(wid) != nil {
+				return wid
+			}
+		}
+	}
+	return s.activeWindowID
 }
 
 func (s *Service) buildSwapChain(sess *session.Session) [][]string {

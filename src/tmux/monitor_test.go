@@ -21,8 +21,18 @@ func (m *mockCapturer) CapturePaneLines(target string, n int) (string, error) {
 	return m.content[target], nil
 }
 
-func TestDetectStateRunning(t *testing.T) {
+func TestDetectState_InitialNoPrompt(t *testing.T) {
 	m := NewMonitor(&mockCapturer{content: map[string]string{"@1.0": "compiling..."}}, 60, nil)
+	if got := m.DetectState("@1", "bash"); got != session.StateIdle {
+		t.Fatalf("got %v, want StateIdle (initial)", got)
+	}
+}
+
+func TestDetectStateRunning(t *testing.T) {
+	cap := &mockCapturer{content: map[string]string{"@1.0": "line1"}}
+	m := NewMonitor(cap, 60, nil)
+	m.DetectState("@1", "bash") // initial
+	cap.content["@1.0"] = "line2" // content changed
 	if got := m.DetectState("@1", "bash"); got != session.StateRunning {
 		t.Fatalf("got %v, want StateRunning", got)
 	}
@@ -51,8 +61,10 @@ func TestDetectStateStopped(t *testing.T) {
 }
 
 func TestDetectState_PreservesRunning(t *testing.T) {
-	cap := &mockCapturer{content: map[string]string{"@1.0": "compiling..."}}
+	cap := &mockCapturer{content: map[string]string{"@1.0": "line1"}}
 	m := NewMonitor(cap, 30, nil)
+	m.DetectState("@1", "bash")        // initial → Idle
+	cap.content["@1.0"] = "line2"       // change → Running
 	m.DetectState("@1", "bash")
 	if got := m.DetectState("@1", "bash"); got != session.StateRunning {
 		t.Fatalf("got %v, want Running (preserved)", got)
@@ -69,8 +81,9 @@ func TestPollAll(t *testing.T) {
 	if len(states) != 2 {
 		t.Fatalf("got %d states, want 2", len(states))
 	}
-	if states["@1"] != session.StateRunning {
-		t.Errorf("@1: got %v, want StateRunning", states["@1"])
+	// Initial poll: no prompt → Idle, prompt → Waiting
+	if states["@1"] != session.StateIdle {
+		t.Errorf("@1: got %v, want StateIdle (initial)", states["@1"])
 	}
 	if states["@2"] != session.StateWaiting {
 		t.Errorf("@2: got %v, want StateWaiting", states["@2"])
@@ -109,14 +122,26 @@ func TestHasPromptIndicator(t *testing.T) {
 	}
 }
 
-func TestComputeTransition_NewContent_NoPrompt(t *testing.T) {
+func TestComputeTransition_Initial_NoPrompt(t *testing.T) {
 	now := time.Now()
 	state, snap := computeTransition("compiling...", snapshot{}, now, 30*time.Second, nil)
+	if state != session.StateIdle {
+		t.Fatalf("got %v, want Idle (initial)", state)
+	}
+	if snap.lastState != session.StateIdle {
+		t.Fatalf("snap state: got %v, want Idle", snap.lastState)
+	}
+}
+
+func TestComputeTransition_ContentChanged_NoPrompt(t *testing.T) {
+	now := time.Now()
+	_, snap := computeTransition("line1", snapshot{}, now, 30*time.Second, nil)
+	state, snap2 := computeTransition("line2", snap, now.Add(time.Second), 30*time.Second, nil)
 	if state != session.StateRunning {
 		t.Fatalf("got %v, want Running", state)
 	}
-	if snap.lastState != session.StateRunning {
-		t.Fatalf("snap state: got %v, want Running", snap.lastState)
+	if snap2.lastState != session.StateRunning {
+		t.Fatalf("snap state: got %v, want Running", snap2.lastState)
 	}
 }
 
@@ -133,8 +158,9 @@ func TestComputeTransition_NewContent_WithPrompt(t *testing.T) {
 
 func TestComputeTransition_UnchangedWithinThreshold(t *testing.T) {
 	now := time.Now()
-	_, snap := computeTransition("compiling...", snapshot{}, now, 30*time.Second, nil)
-	state, _ := computeTransition("compiling...", snap, now.Add(5*time.Second), 30*time.Second, nil)
+	_, snap := computeTransition("line1", snapshot{}, now, 30*time.Second, nil)
+	_, snap2 := computeTransition("line2", snap, now.Add(time.Second), 30*time.Second, nil) // → Running
+	state, _ := computeTransition("line2", snap2, now.Add(5*time.Second), 30*time.Second, nil)
 	if state != session.StateRunning {
 		t.Fatalf("got %v, want Running (preserved)", state)
 	}
@@ -142,8 +168,9 @@ func TestComputeTransition_UnchangedWithinThreshold(t *testing.T) {
 
 func TestComputeTransition_UnchangedExceedsThreshold(t *testing.T) {
 	now := time.Now()
-	_, snap := computeTransition("compiling...", snapshot{}, now, 30*time.Second, nil)
-	state, _ := computeTransition("compiling...", snap, now.Add(31*time.Second), 30*time.Second, nil)
+	_, snap := computeTransition("line1", snapshot{}, now, 30*time.Second, nil)
+	_, snap2 := computeTransition("line2", snap, now.Add(time.Second), 30*time.Second, nil) // → Running
+	state, _ := computeTransition("line2", snap2, now.Add(32*time.Second), 30*time.Second, nil)
 	if state != session.StateIdle {
 		t.Fatalf("got %v, want Idle", state)
 	}
@@ -159,12 +186,12 @@ func TestComputeTransition_PreservesWaiting(t *testing.T) {
 }
 
 func TestDetectState_ClaudePattern_DollarNotPrompt(t *testing.T) {
-	// In the claude pattern, $ is not recognized as a prompt
+	// In the claude pattern, $ is not recognized as a prompt → initial Idle
 	registry := driver.DefaultRegistry()
 	cap := &mockCapturer{content: map[string]string{"@1.0": "output\n$ "}}
 	m := NewMonitor(cap, 60, registry)
-	if got := m.DetectState("@1", "claude"); got != session.StateRunning {
-		t.Fatalf("claude: got %v, want StateRunning ($ should not match claude pattern)", got)
+	if got := m.DetectState("@1", "claude"); got != session.StateIdle {
+		t.Fatalf("claude: got %v, want StateIdle ($ should not match claude pattern, initial)", got)
 	}
 }
 
