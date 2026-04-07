@@ -44,62 +44,158 @@ func TestSessionsChangedUpdatesModel(t *testing.T) {
 	}
 }
 
-func TestCursorNavigatesSessions(t *testing.T) {
+func TestCursorNavigatesItems(t *testing.T) {
 	m := NewModel(nil, &config.Config{})
 	m.sessions = []core.SessionInfo{
 		{ID: "aaa111", Project: "/tmp/proj1", Command: "claude", WindowID: "@1"},
 		{ID: "bbb222", Project: "/tmp/proj2", Command: "claude", WindowID: "@2"},
 	}
 	m.rebuildItems()
-	// visible: [session1, session2], cursor indexes into visible
+	// items: [proj1(0), sess1(1), proj2(2), sess2(3)]
 
-	// initial cursor is on a session
-	if m.cursorSession() == nil {
-		t.Fatal("initial cursor must point to a session")
+	if len(m.items) != 4 {
+		t.Fatalf("expected 4 items, got %d", len(m.items))
 	}
 
-	// cursor=0 (session1); Down -> cursor=1 (session2)
+	// cursor=0 -> project row, cursorSession() == nil
 	m.cursor = 0
+	if m.cursorSession() != nil {
+		t.Fatal("cursor on project row should return nil session")
+	}
+	if m.cursorProjectName() != "proj1" {
+		t.Fatalf("expected proj1, got %s", m.cursorProjectName())
+	}
+
+	// Down -> cursor=1 (session1)
 	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyDown})
 	model := result.(Model)
-	if model.cursorSession() == nil {
-		t.Fatal("cursor after Down must point to a session")
+	if model.cursor != 1 {
+		t.Fatalf("expected cursor=1, got %d", model.cursor)
 	}
-	if model.cursorSession().ID != "bbb222" {
-		t.Fatalf("expected bbb222, got %s", model.cursorSession().ID)
-	}
-
-	// cursor=1 (session2); Up -> cursor=0 (session1)
-	model.cursor = 1
-	result2, _ := model.Update(tea.KeyPressMsg{Code: tea.KeyUp})
-	model2 := result2.(Model)
-	if model2.cursorSession() == nil {
-		t.Fatal("cursor after Up must point to a session")
-	}
-	if model2.cursorSession().ID != "aaa111" {
-		t.Fatalf("expected aaa111, got %s", model2.cursorSession().ID)
+	if model.cursorSession() == nil || model.cursorSession().ID != "aaa111" {
+		t.Fatal("cursor=1 should point to session aaa111")
 	}
 
-	// cursor=0 (topmost); Up should not move
-	model2.cursor = 0
-	result3, _ := model2.Update(tea.KeyPressMsg{Code: tea.KeyUp})
-	model3 := result3.(Model)
-	if model3.cursor != 0 {
-		t.Fatalf("cursor should stay at 0, got %d", model3.cursor)
+	// Down -> cursor=2 (project2)
+	result, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	model = result.(Model)
+	if model.cursor != 2 {
+		t.Fatalf("expected cursor=2, got %d", model.cursor)
+	}
+	if model.cursorSession() != nil {
+		t.Fatal("cursor=2 should be project row")
+	}
+
+	// Down -> cursor=3 (session2)
+	result, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	model = result.(Model)
+	if model.cursor != 3 {
+		t.Fatalf("expected cursor=3, got %d", model.cursor)
+	}
+	if model.cursorSession() == nil || model.cursorSession().ID != "bbb222" {
+		t.Fatal("cursor=3 should point to session bbb222")
+	}
+
+	// Down at bottom -> stays at 3
+	result, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	model = result.(Model)
+	if model.cursor != 3 {
+		t.Fatalf("cursor should stay at 3, got %d", model.cursor)
+	}
+
+	// Up -> cursor=2 (project2)
+	result, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	model = result.(Model)
+	if model.cursor != 2 {
+		t.Fatalf("expected cursor=2, got %d", model.cursor)
+	}
+
+	// Up to top -> cursor=0
+	model.cursor = 0
+	result, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	model = result.(Model)
+	if model.cursor != 0 {
+		t.Fatalf("cursor should stay at 0, got %d", model.cursor)
 	}
 }
 
-func TestRebuildItemsCursorOnSession(t *testing.T) {
+func TestRebuildItemsCursorOnProject(t *testing.T) {
 	m := NewModel(nil, &config.Config{})
 	m.sessions = []core.SessionInfo{
 		{ID: "abc123", Project: "/tmp/proj", Command: "claude", WindowID: "@1"},
 	}
 	m.rebuildItems()
-	if m.cursorSession() == nil {
-		t.Fatal("cursor after rebuildItems must point to a session")
+	// items: [proj(0), sess(1)], cursor=0 is project row
+	if m.cursor != 0 {
+		t.Fatalf("expected cursor=0, got %d", m.cursor)
 	}
-	if m.cursorSession().ID != "abc123" {
-		t.Fatalf("expected abc123, got %s", m.cursorSession().ID)
+	if !m.items[0].isProject {
+		t.Fatal("items[0] should be project row")
+	}
+	if m.cursorSession() != nil {
+		t.Fatal("cursor on project row should return nil session")
+	}
+}
+
+func TestFoldedProjectNavigable(t *testing.T) {
+	m := NewModel(nil, &config.Config{})
+	m.sessions = []core.SessionInfo{
+		{ID: "aaa111", Project: "/tmp/proj1", Command: "claude", WindowID: "@1"},
+		{ID: "bbb222", Project: "/tmp/proj2", Command: "claude", WindowID: "@2"},
+	}
+	m.folded["proj1"] = true
+	m.rebuildItems()
+	// items: [proj1(0), proj2(1), sess2(2)]
+
+	if len(m.items) != 3 {
+		t.Fatalf("expected 3 items, got %d", len(m.items))
+	}
+
+	m.cursor = 0
+	if m.cursorProjectName() != "proj1" {
+		t.Fatalf("expected proj1, got %s", m.cursorProjectName())
+	}
+
+	// Tab to unfold proj1
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	model := result.(Model)
+	// items: [proj1(0), sess1(1), proj2(2), sess2(3)]
+	if len(model.items) != 4 {
+		t.Fatalf("expected 4 items after unfold, got %d", len(model.items))
+	}
+	// cursor should stay on proj1
+	if model.cursor != 0 {
+		t.Fatalf("expected cursor=0 after unfold, got %d", model.cursor)
+	}
+}
+
+func TestToggleFromProjectRow(t *testing.T) {
+	m := NewModel(nil, &config.Config{})
+	m.sessions = []core.SessionInfo{
+		{ID: "aaa111", Project: "/tmp/proj1", Command: "claude", WindowID: "@1"},
+	}
+	m.rebuildItems()
+	// items: [proj1(0), sess1(1)]
+
+	m.cursor = 0 // on project row
+	result, _ := m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	model := result.(Model)
+	if !model.folded["proj1"] {
+		t.Fatal("proj1 should be folded after toggle")
+	}
+	// items: [proj1(0)]
+	if len(model.items) != 1 {
+		t.Fatalf("expected 1 item after fold, got %d", len(model.items))
+	}
+
+	// Toggle again to unfold
+	result, _ = model.Update(tea.KeyPressMsg{Code: tea.KeyTab})
+	model = result.(Model)
+	if model.folded["proj1"] {
+		t.Fatal("proj1 should be unfolded after second toggle")
+	}
+	if len(model.items) != 2 {
+		t.Fatalf("expected 2 items after unfold, got %d", len(model.items))
 	}
 }
 
@@ -158,5 +254,50 @@ func TestStatesUpdatedPreservesExistingSessions(t *testing.T) {
 	}
 	if model.sessions[0].State != session.StateWaiting {
 		t.Fatalf("expected Waiting, got %s", model.sessions[0].State)
+	}
+}
+
+func TestFirstSessionIndex(t *testing.T) {
+	m := NewModel(nil, &config.Config{})
+	m.sessions = []core.SessionInfo{
+		{ID: "aaa111", Project: "/tmp/proj1", Command: "claude", WindowID: "@1"},
+	}
+	m.rebuildItems()
+	// items: [proj1(0), sess1(1)]
+	if got := m.firstSessionIndex(); got != 1 {
+		t.Fatalf("expected firstSessionIndex()=1, got %d", got)
+	}
+
+	// All folded -> no session rows -> returns 0
+	m.folded["proj1"] = true
+	m.rebuildItems()
+	if got := m.firstSessionIndex(); got != 0 {
+		t.Fatalf("expected firstSessionIndex()=0 when all folded, got %d", got)
+	}
+}
+
+func TestRebuildItemsPreservesCursor(t *testing.T) {
+	m := NewModel(nil, &config.Config{})
+	m.sessions = []core.SessionInfo{
+		{ID: "aaa111", Project: "/tmp/proj1", Command: "claude", WindowID: "@1"},
+		{ID: "bbb222", Project: "/tmp/proj2", Command: "claude", WindowID: "@2"},
+	}
+	m.rebuildItems()
+	// items: [proj1(0), sess1(1), proj2(2), sess2(3)]
+
+	// cursor on sess2
+	m.cursor = 3
+	m.rebuildItems()
+	if m.cursor != 3 {
+		t.Fatalf("expected cursor=3 preserved, got %d", m.cursor)
+	}
+
+	// cursor on proj2, fold proj1
+	m.cursor = 2
+	m.folded["proj1"] = true
+	m.rebuildItems()
+	// items: [proj1(0), proj2(1), sess2(2)]
+	if m.cursor != 1 || m.items[m.cursor].project != "proj2" {
+		t.Fatalf("expected cursor on proj2 after fold, cursor=%d project=%s", m.cursor, m.items[m.cursor].project)
 	}
 }

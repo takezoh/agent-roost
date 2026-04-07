@@ -30,9 +30,8 @@ func (m Model) View() tea.View {
 	b.WriteString(titleStyle.Render("SESSIONS"))
 	b.WriteString("\n\n")
 
-	cursorSession := m.cursorSession()
 	for i := range m.items {
-		selected := !m.items[i].isProject && cursorSession != nil && m.items[i].session == cursorSession
+		selected := i == m.cursor
 		rendered := renderItem(m.items[i], selected, m.width, m.folded[m.items[i].project], m.drivers)
 		m.items[i].SetRows(rendered)
 		b.WriteString(rendered)

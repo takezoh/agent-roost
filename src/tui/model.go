@@ -32,9 +32,8 @@ type Model struct {
 	keys     KeyMap
 
 	sessions []core.SessionInfo
-	items    []listItem            // 描画・マウスY変換用（プロジェクト行含む）
-	visible  []*core.SessionInfo   // 表示中のセッション一覧（cursor はここのインデックス）
-	cursor   int
+	items    []listItem // 描画用（プロジェクト行 + セッション行）
+	cursor   int        // items のインデックス
 	folded   map[string]bool
 	active   string
 	width    int
@@ -52,10 +51,6 @@ type previewDoneMsg struct {
 type switchDoneMsg struct {
 	windowID string
 	err      error
-}
-
-type previewProjectDoneMsg struct {
-	err error
 }
 
 func NewModel(client *core.Client, cfg *config.Config) Model {
@@ -101,23 +96,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.focusCmd("0.0")
 
-	case previewProjectDoneMsg:
-		if msg.err == nil {
-			m.active = ""
-		}
-		return m, m.focusCmd("0.2")
-
-	case tea.MouseMotionMsg:
+case tea.MouseMotionMsg:
 		mouse := msg.Mouse()
 		idx := m.rowToItemIndex(mouse.Y)
-		if idx < 0 || m.items[idx].isProject {
+		if idx < 0 || idx == m.cursor {
 			return m, nil
 		}
-		sc := m.itemToSessionCursor(idx)
-		if sc < 0 || sc == m.cursor {
-			return m, nil
-		}
-		m.cursor = sc
+		m.cursor = idx
 		return m, m.cursorPreviewCmd()
 
 	case tea.MouseClickMsg:
@@ -135,11 +120,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.rebuildItems()
 			return m, nil
 		}
-		sc := m.itemToSessionCursor(idx)
-		if sc < 0 {
-			return m, nil
-		}
-		m.cursor = sc
+		m.cursor = idx
 		if m.cursorSession() != nil {
 			return m, m.focusCmd("0.0")
 		}
@@ -166,6 +147,9 @@ func (m Model) handleServerEvent(msg core.Message) (tea.Model, tea.Cmd) {
 			}
 			return m, tea.Batch(m.listenEvents(), m.focusCmd("0.0"))
 		}
+		if msg.ActiveWindowID == "" && m.active == "" {
+			m.cursor = m.firstSessionIndex()
+		}
 	case "states-updated":
 		for i := range m.sessions {
 			if st, ok := msg.States[m.sessions[i].WindowID]; ok {
@@ -185,7 +169,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.cursorPreviewCmd()
 	case key.Matches(msg, m.keys.Down):
-		if m.cursor < len(m.visible)-1 {
+		if m.cursor < len(m.items)-1 {
 			m.cursor++
 		}
 		return m, m.cursorPreviewCmd()
@@ -262,19 +246,7 @@ func (m Model) cursorPreviewCmd() tea.Cmd {
 	if s := m.cursorSession(); s != nil && s.WindowID != m.active {
 		return m.previewCmd(s)
 	}
-	if m.cursorSession() == nil && m.active != "" {
-		if project := m.cursorProjectPath(); project != "" {
-			return m.previewProjectCmd(project)
-		}
-	}
 	return nil
-}
-
-func (m Model) previewProjectCmd(project string) tea.Cmd {
-	return func() tea.Msg {
-		err := m.client.PreviewProject(project)
-		return previewProjectDoneMsg{err: err}
-	}
 }
 
 func (m Model) launchToolCmd(toolName string, args map[string]string) tea.Cmd {
@@ -294,6 +266,11 @@ func (m Model) focusCmd(pane string) tea.Cmd {
 // --- list building ---
 
 func (m *Model) rebuildItems() {
+	var prev listItem
+	if m.cursor >= 0 && m.cursor < len(m.items) {
+		prev = m.items[m.cursor]
+	}
+
 	byProject := make(map[string][]core.SessionInfo)
 	allProjects := make(map[string]string)
 
@@ -310,7 +287,6 @@ func (m *Model) rebuildItems() {
 	sort.Strings(names)
 
 	m.items = m.items[:0]
-	m.visible = m.visible[:0]
 	for _, name := range names {
 		path := allProjects[name]
 		m.items = append(m.items, listItem{isProject: true, project: name, projectPath: path})
@@ -318,12 +294,30 @@ func (m *Model) rebuildItems() {
 			for i := range byProject[name] {
 				s := &byProject[name][i]
 				m.items = append(m.items, listItem{project: name, projectPath: path, session: s})
-				m.visible = append(m.visible, s)
 			}
 		}
 	}
-	if m.cursor >= len(m.visible) && len(m.visible) > 0 {
-		m.cursor = len(m.visible) - 1
+
+	restored := false
+	if prev.session != nil {
+		for i, item := range m.items {
+			if item.session != nil && item.session.WindowID == prev.session.WindowID {
+				m.cursor = i
+				restored = true
+				break
+			}
+		}
+	} else if prev.isProject {
+		for i, item := range m.items {
+			if item.isProject && item.project == prev.project {
+				m.cursor = i
+				restored = true
+				break
+			}
+		}
+	}
+	if !restored && len(m.items) > 0 && m.cursor >= len(m.items) {
+		m.cursor = len(m.items) - 1
 	}
 }
 
@@ -345,43 +339,27 @@ func (m Model) rowToItemIndex(y int) int {
 	return -1
 }
 
-// itemToSessionCursor maps an items index to a cursor (visible session) index.
-// Returns -1 if the item is a project row.
-func (m Model) itemToSessionCursor(idx int) int {
-	count := 0
-	for i, item := range m.items {
-		if item.isProject {
-			continue
-		}
-		if i == idx {
-			return count
-		}
-		count++
-	}
-	return -1
-}
-
 // --- cursor helpers ---
 
 func (m Model) cursorSession() *core.SessionInfo {
-	if m.cursor < 0 || m.cursor >= len(m.visible) {
+	if m.cursor < 0 || m.cursor >= len(m.items) {
 		return nil
 	}
-	return m.visible[m.cursor]
+	return m.items[m.cursor].session
 }
 
 func (m Model) cursorProjectPath() string {
-	if s := m.cursorSession(); s != nil {
-		return s.Project
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return ""
 	}
-	return ""
+	return m.items[m.cursor].projectPath
 }
 
 func (m Model) cursorProjectName() string {
-	if s := m.cursorSession(); s != nil {
-		return s.Name()
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		return ""
 	}
-	return ""
+	return m.items[m.cursor].project
 }
 
 func (m Model) hasWindowID(wid string) bool {
@@ -394,10 +372,19 @@ func (m Model) hasWindowID(wid string) bool {
 }
 
 func (m Model) findSessionCursorByWindowID(wid string) int {
-	for i, s := range m.visible {
-		if s.WindowID == wid {
+	for i, item := range m.items {
+		if item.session != nil && item.session.WindowID == wid {
 			return i
 		}
 	}
 	return -1
+}
+
+func (m Model) firstSessionIndex() int {
+	for i, item := range m.items {
+		if !item.isProject {
+			return i
+		}
+	}
+	return 0
 }
