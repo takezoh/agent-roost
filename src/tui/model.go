@@ -107,62 +107,78 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.focusCmd("0.0")
 
 	case mouseLeaveMsg:
-		if msg.seq != m.mouseSeq {
-			return m, nil
-		}
-		if !m.isMouseAtEdge() {
-			return m, nil
-		}
-		m.hovering = false
-		return m, m.revertToAnchorCmd()
-
+		return m.handleMouseLeave(msg)
 	case tea.MouseMotionMsg:
-		m.hovering = true
-		m.mouseSeq++
-		seq := m.mouseSeq
-		leaveTimer := tea.Tick(mouseLeaveTimeout, func(time.Time) tea.Msg {
-			return mouseLeaveMsg{seq: seq}
-		})
-		mouse := msg.Mouse()
-		m.lastMouseX = mouse.X
-		m.lastMouseY = mouse.Y
-		idx := m.rowToItemIndex(mouse.Y)
-		if idx < 0 || idx == m.cursor {
-			return m, leaveTimer
-		}
-		m.cursor = idx
-		if cmd := m.cursorPreviewCmd(); cmd != nil {
-			return m, tea.Batch(cmd, leaveTimer)
-		}
-		return m, leaveTimer
-
+		return m.handleMouseMotion(msg)
 	case tea.MouseClickMsg:
-		mouse := msg.Mouse()
-		if mouse.Button != tea.MouseLeft {
-			return m, nil
-		}
-		idx := m.rowToItemIndex(mouse.Y)
-		if idx < 0 {
-			return m, nil
-		}
-		if m.items[idx].isProject {
-			name := m.items[idx].project
-			m.folded[name] = !m.folded[name]
-			m.rebuildItems()
-			return m, nil
-		}
-		m.cursor = idx
-		if s := m.cursorSession(); s != nil {
-			m.anchored = s.WindowID
-			return m, m.focusCmd("0.0")
-		}
-		return m, nil
+		return m.handleMouseClick(msg)
 
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
 			return m, nil
 		}
 		return m.handleKey(msg)
+	}
+	return m, nil
+}
+
+func (m Model) handleMouseLeave(msg mouseLeaveMsg) (tea.Model, tea.Cmd) {
+	if msg.seq != m.mouseSeq || !m.isMouseAtEdge() {
+		return m, nil
+	}
+	m.hovering = false
+	if m.anchored == "" || m.anchored == m.active {
+		return m, nil
+	}
+	idx := m.findSessionCursorByWindowID(m.anchored)
+	if idx < 0 {
+		m.anchored = ""
+		return m, nil
+	}
+	m.cursor = idx
+	return m, m.anchoredPreviewCmd()
+}
+
+func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
+	m.hovering = true
+	m.mouseSeq++
+	seq := m.mouseSeq
+	leaveTimer := tea.Tick(mouseLeaveTimeout, func(time.Time) tea.Msg {
+		return mouseLeaveMsg{seq: seq}
+	})
+	mouse := msg.Mouse()
+	m.lastMouseX = mouse.X
+	m.lastMouseY = mouse.Y
+	idx := m.rowToItemIndex(mouse.Y)
+	if idx < 0 || idx == m.cursor {
+		return m, leaveTimer
+	}
+	m.cursor = idx
+	if cmd := m.cursorPreviewCmd(); cmd != nil {
+		return m, tea.Batch(cmd, leaveTimer)
+	}
+	return m, leaveTimer
+}
+
+func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	mouse := msg.Mouse()
+	if mouse.Button != tea.MouseLeft {
+		return m, nil
+	}
+	idx := m.rowToItemIndex(mouse.Y)
+	if idx < 0 {
+		return m, nil
+	}
+	if m.items[idx].isProject {
+		name := m.items[idx].project
+		m.folded[name] = !m.folded[name]
+		m.rebuildItems()
+		return m, nil
+	}
+	m.cursor = idx
+	if s := m.cursorSession(); s != nil {
+		m.anchored = s.WindowID
+		return m, m.focusCmd("0.0")
 	}
 	return m, nil
 }
@@ -290,16 +306,11 @@ func (m Model) cursorPreviewCmd() tea.Cmd {
 	return nil
 }
 
-func (m *Model) revertToAnchorCmd() tea.Cmd {
-	if m.anchored == "" || m.anchored == m.active {
-		return nil
-	}
+func (m Model) anchoredPreviewCmd() tea.Cmd {
 	idx := m.findSessionCursorByWindowID(m.anchored)
 	if idx < 0 {
-		m.anchored = ""
 		return nil
 	}
-	m.cursor = idx
 	return m.previewCmd(m.items[idx].session)
 }
 
