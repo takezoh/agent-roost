@@ -55,7 +55,7 @@ func renderKeybindings(b *strings.Builder) {
 
 func renderProjectSessions(b *strings.Builder, sessions []core.SessionInfo, registry *driver.Registry) {
 	if len(sessions) == 0 {
-		b.WriteString(mainDescStyle.Render("  セッションなし"))
+		b.WriteString(mainDescStyle.Render("  No sessions"))
 		b.WriteString("\n")
 		return
 	}

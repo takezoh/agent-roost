@@ -22,7 +22,7 @@ const (
 
 type tickMsg time.Time
 
-// logTab はタブのインデックス。0 は常に APP タブ、1以降は動的セッションタブ。
+// logTab is the tab index. 0 is always the APP tab; 1+ are dynamic session tabs.
 type logTab int
 
 const tabApp logTab = 0
@@ -54,8 +54,8 @@ type LogModel struct {
 	client    *core.Client
 }
 
-// NewLogModel は LogModel を初期化する。
-// logDir はセッションログの格納ディレクトリ。空のときはセッションタブを無効化する。
+// NewLogModel initializes a LogModel.
+// logDir is the directory for session logs. When empty, session tabs are disabled.
 func NewLogModel(appLogPath, logDir string, client *core.Client) LogModel {
 	return LogModel{
 		appLogPath: appLogPath,
@@ -215,7 +215,7 @@ func (m *LogModel) switchToTab(tab logTab) {
 	}
 }
 
-// tabIndexAtX はタブヘッダー行の X 座標からタブインデックスを返す。
+// tabIndexAtX returns the tab index from the X coordinate on the tab header row.
 func (m *LogModel) tabIndexAtX(x int) logTab {
 	pos := 0
 	labels := m.tabLabels()
@@ -229,7 +229,7 @@ func (m *LogModel) tabIndexAtX(x int) logTab {
 	return m.activeTab
 }
 
-// tabLabels はタブヘッダーのラベル一覧を返す（インデックス順）。
+// tabLabels returns the list of tab header labels in index order.
 func (m *LogModel) tabLabels() []string {
 	labels := make([]string, 0, 1+len(m.sessions))
 	labels = append(labels, "[APP]")
@@ -351,7 +351,7 @@ func (m LogModel) View() tea.View {
 	b.WriteString("\n")
 
 	if m.activeTab != tabApp && len(m.sessions) == 0 {
-		b.WriteString(inactiveTabStyle.Render("  セッションなし"))
+		b.WriteString(inactiveTabStyle.Render("  No sessions"))
 	} else {
 		b.WriteString(m.viewport.View())
 	}

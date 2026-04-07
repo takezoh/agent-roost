@@ -65,7 +65,7 @@ type Tag struct {
 	Background string `json:"bg,omitempty"`
 }
 
-// SessionMeta はセッションのメタ情報。
+// SessionMeta holds session metadata.
 type SessionMeta struct {
 	Title      string
 	LastPrompt string

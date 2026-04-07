@@ -27,7 +27,7 @@ type PaletteModel struct {
 	filtered    []core.Tool
 	cursor      int
 
-	// パラメータ入力
+	// parameter input
 	selectedTool *core.Tool
 	paramIndex   int
 	paramArgs    map[string]string
@@ -253,7 +253,7 @@ func (m PaletteModel) View() tea.View {
 			}
 		}
 		if len(m.filtered) == 0 {
-			b.WriteString(descStyle.Render("  (一致するツールなし)\n"))
+			b.WriteString(descStyle.Render("  (no matching tools)\n"))
 		}
 
 	case phaseParamSelect:
@@ -275,7 +275,7 @@ func (m PaletteModel) View() tea.View {
 			}
 		}
 		if len(filtered) == 0 {
-			b.WriteString(descStyle.Render("  (一致する項目なし)\n"))
+			b.WriteString(descStyle.Render("  (no matching items)\n"))
 		}
 	}
 

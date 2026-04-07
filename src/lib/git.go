@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// DetectGitBranch は指定ディレクトリの現在の git ブランチ名を返す。
-// git リポジトリでない場合は空文字を返す。
+// DetectGitBranch returns the current git branch name for the given directory.
+// Returns an empty string if the directory is not a git repository.
 func DetectGitBranch(dir string) string {
 	out, err := exec.Command("git", "-C", dir, "branch", "--show-current").Output()
 	if err != nil {

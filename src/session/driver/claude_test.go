@@ -26,7 +26,7 @@ func TestClaudeProjectDir(t *testing.T) {
 func TestClaude_ResolveMeta(t *testing.T) {
 	jsonl := `{"type":"user","message":{"role":"user","content":"first prompt"}}
 {"type":"custom-title","customTitle":"my-session-name","sessionId":"abc"}
-{"type":"user","message":{"role":"user","content":"最後のプロンプト"}}
+{"type":"user","message":{"role":"user","content":"the last prompt"}}
 `
 	fsys := fstest.MapFS{
 		".claude/projects/-workspace-myproject/abc.jsonl": &fstest.MapFile{
@@ -38,8 +38,8 @@ func TestClaude_ResolveMeta(t *testing.T) {
 	if meta.Title != "my-session-name" {
 		t.Errorf("Title = %q, want %q", meta.Title, "my-session-name")
 	}
-	if meta.LastPrompt != "最後のプロンプト" {
-		t.Errorf("LastPrompt = %q, want %q", meta.LastPrompt, "最後のプロンプト")
+	if meta.LastPrompt != "the last prompt" {
+		t.Errorf("LastPrompt = %q, want %q", meta.LastPrompt, "the last prompt")
 	}
 }
 

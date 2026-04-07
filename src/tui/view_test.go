@@ -18,7 +18,7 @@ func TestTruncate(t *testing.T) {
 	}{
 		{"hello", 10, "hello"},
 		{"hello world", 8, "hello w…"},
-		{"あいうえお", 3, "あい…"},
+		{"αβγδε", 3, "αβ…"},
 	}
 	for _, tt := range tests {
 		got := truncate(tt.s, tt.n)
@@ -35,7 +35,7 @@ func TestRenderSession_TagsAndTitle(t *testing.T) {
 		Command:    "claude",
 		Tags:       []session.Tag{{Text: "main", Foreground: "#A9DC76"}},
 		Title:      "my-session-name",
-		LastPrompt: "最後のプロンプト",
+		LastPrompt: "the last prompt",
 		State:      session.StateWaiting,
 		CreatedAt:  time.Now().Add(-3 * time.Minute).Format("2006-01-02T15:04:05Z07:00"),
 	}
@@ -49,7 +49,7 @@ func TestRenderSession_TagsAndTitle(t *testing.T) {
 	if !strings.Contains(out, "[main]") {
 		t.Errorf("expected [main] tag in output, got:\n%s", out)
 	}
-	if !strings.Contains(out, "最後のプロンプト") {
+	if !strings.Contains(out, "the last prompt") {
 		t.Errorf("expected last prompt in output, got:\n%s", out)
 	}
 }

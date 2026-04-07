@@ -159,7 +159,7 @@ func TestComputeTransition_PreservesWaiting(t *testing.T) {
 }
 
 func TestDetectState_ClaudePattern_DollarNotPrompt(t *testing.T) {
-	// claude パターンでは $ はプロンプトとして認識されない
+	// In the claude pattern, $ is not recognized as a prompt
 	registry := driver.DefaultRegistry()
 	cap := &mockCapturer{content: map[string]string{"@1.0": "output\n$ "}}
 	m := NewMonitor(cap, 60, registry)
@@ -169,7 +169,7 @@ func TestDetectState_ClaudePattern_DollarNotPrompt(t *testing.T) {
 }
 
 func TestDetectState_ClaudePattern_ArrowPrompt(t *testing.T) {
-	// claude パターンでは ❯ はプロンプトとして認識される
+	// In the claude pattern, ❯ is recognized as a prompt
 	registry := driver.DefaultRegistry()
 	cap := &mockCapturer{content: map[string]string{"@1.0": "output\n❯ "}}
 	m := NewMonitor(cap, 60, registry)

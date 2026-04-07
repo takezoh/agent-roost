@@ -70,7 +70,7 @@ func DefaultToolRegistry() *ToolRegistry {
 	r := NewToolRegistry()
 	r.Register(Tool{
 		Name:        "new-session",
-		Description: "セッション作成",
+		Description: "Create session",
 		Params: []Param{
 			{Name: "project", Options: func(ctx *ToolContext) []string { return ctx.Config.Projects }},
 			{Name: "command", Options: func(ctx *ToolContext) []string { return ctx.Config.Commands }},
@@ -82,7 +82,7 @@ func DefaultToolRegistry() *ToolRegistry {
 	})
 	r.Register(Tool{
 		Name:        "stop-session",
-		Description: "セッションを停止",
+		Description: "Stop session",
 		Params: []Param{
 			{Name: "session_id", Options: func(ctx *ToolContext) []string { return nil }},
 		},
@@ -92,14 +92,14 @@ func DefaultToolRegistry() *ToolRegistry {
 	})
 	r.Register(Tool{
 		Name:        "detach",
-		Description: "デタッチ（セッション維持）",
+		Description: "Detach (keep session)",
 		Run: func(ctx *ToolContext, args map[string]string) error {
 			return ctx.Client.Detach()
 		},
 	})
 	r.Register(Tool{
 		Name:        "shutdown",
-		Description: "全終了（セッション破棄）",
+		Description: "Shutdown (discard sessions)",
 		Run: func(ctx *ToolContext, args map[string]string) error {
 			return ctx.Client.Shutdown()
 		},

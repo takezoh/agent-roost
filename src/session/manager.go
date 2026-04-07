@@ -165,7 +165,7 @@ func (m *Manager) UpdateStates(states map[string]State) {
 	}
 }
 
-// UpdateMeta はセッション ID → SessionMeta のマップでメタ情報を更新し、変更があれば true を返す。
+// UpdateMeta updates metadata from a session ID to SessionMeta map. Returns true if anything changed.
 func (m *Manager) UpdateMeta(metas map[string]SessionMeta) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()

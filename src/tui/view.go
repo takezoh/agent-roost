@@ -39,7 +39,7 @@ func (m Model) View() tea.View {
 	}
 
 	if len(m.items) == 0 {
-		b.WriteString(idleStyle.Render("  セッションなし"))
+		b.WriteString(idleStyle.Render("  No sessions"))
 		b.WriteString("\n")
 	}
 

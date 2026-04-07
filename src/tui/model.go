@@ -32,8 +32,8 @@ type Model struct {
 	keys     KeyMap
 
 	sessions []core.SessionInfo
-	items    []listItem // 描画用（プロジェクト行 + セッション行）
-	cursor   int        // items のインデックス
+	items    []listItem // for rendering (project rows + session rows)
+	cursor   int        // index into items
 	folded   map[string]bool
 	active   string
 	width    int

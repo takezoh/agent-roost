@@ -220,7 +220,7 @@ func TestRebuildSessionTabs_ActiveTabFallback(t *testing.T) {
 	m.sessions = []sessionTab{{sessionID: "abc", label: "abc123", logPath: "/x.log"}}
 	m.activeTab = 1
 
-	// セッションを空にするとアクティブタブが tabApp に戻る
+	// Clearing sessions resets active tab to tabApp
 	m.rebuildSessionTabs([]core.SessionInfo{})
 	if m.activeTab != tabApp {
 		t.Fatalf("activeTab = %d, want %d (tabApp)", m.activeTab, tabApp)
@@ -235,9 +235,9 @@ func TestTabIndexAtX(t *testing.T) {
 		{label: "def456"},
 	}
 	// tabLabels = ["[APP]", "abc123", "def456"]
-	// [APP] = 5文字+区切り1 = 0..5
-	// abc123 = 6文字+区切り1 = 6..12
-	// def456 = 6文字 = 13..18
+	// [APP] = 5 chars + 1 sep = 0..5
+	// abc123 = 6 chars + 1 sep = 6..12
+	// def456 = 6 chars = 13..18
 
 	if got := m.tabIndexAtX(0); got != tabApp {
 		t.Errorf("X=0: got %d, want tabApp(0)", got)

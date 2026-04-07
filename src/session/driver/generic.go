@@ -2,8 +2,8 @@ package driver
 
 import "io/fs"
 
-// Generic は bash, codex, gemini などの汎用コマンドを実装する。
-// プロンプトパターンは $, >, ❯ の行末または行頭を対象とする。
+// Generic implements general-purpose commands like bash, codex, and gemini.
+// Prompt pattern targets $, >, ❯ at line end or beginning.
 type Generic struct {
 	name string
 }
@@ -18,7 +18,7 @@ func (g Generic) ResolveMeta(fsys fs.FS, projectPath string) SessionMeta {
 	return SessionMeta{}
 }
 
-// NewGeneric は任意のコマンド名に対する汎用 Driver を返す。
+// NewGeneric returns a generic Driver for the given command name.
 func NewGeneric(name string) Driver {
 	return Generic{name: name}
 }

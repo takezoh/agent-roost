@@ -195,7 +195,7 @@ func TestRefreshBranch(t *testing.T) {
 		t.Fatalf("expected tag main, got %v", sess.Tags)
 	}
 
-	// ブランチ変更をシミュレート
+	// Simulate branch change
 	mgr.detectBranch = func(string) string { return "feature" }
 	if !mgr.RefreshBranch(sess.ID) {
 		t.Fatal("expected true on branch change")
@@ -205,17 +205,17 @@ func TestRefreshBranch(t *testing.T) {
 		t.Fatalf("expected tag feature, got %v", found.Tags)
 	}
 
-	// 変更なし
+	// No change
 	if mgr.RefreshBranch(sess.ID) {
 		t.Fatal("expected false when unchanged")
 	}
 
-	// 存在しない ID
+	// Non-existent ID
 	if mgr.RefreshBranch("nonexistent") {
 		t.Fatal("expected false for nonexistent ID")
 	}
 
-	// 永続化の確認
+	// Verify persistence
 	mgr2 := NewManager(newMockTmux(), mgr.DataDir())
 	mgr2.load()
 	found = mgr2.FindByID(sess.ID)

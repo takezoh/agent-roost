@@ -9,8 +9,8 @@ import (
 	"strings"
 )
 
-// Claude は Claude Code CLI のふるまいを実装する。
-// プロンプトパターンは ❯ または > のみ（bash の $ との誤検知を避ける）。
+// Claude implements the Claude Code CLI behavior.
+// Prompt pattern matches only ❯ or > (to avoid false positives with bash $).
 type Claude struct{}
 
 const claudePromptPattern = `(?m)(^>|❯\s*$)`
@@ -51,8 +51,8 @@ func (Claude) ResolveMeta(fsys fs.FS, projectPath string) SessionMeta {
 	return parseSessionMeta(fsys, filepath.Join(dir, jsonls[0].name))
 }
 
-// ProjectDir はプロジェクトパスを ~/.claude/projects/ のディレクトリ名に変換する。
-// エンコード: / と . を - に置換
+// ProjectDir converts a project path to a ~/.claude/projects/ directory name.
+// Encoding: replaces / and . with -
 func ProjectDir(projectPath string) string {
 	return strings.NewReplacer("/", "-", ".", "-").Replace(projectPath)
 }

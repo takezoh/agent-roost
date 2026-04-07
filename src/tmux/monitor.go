@@ -31,8 +31,8 @@ type Monitor struct {
 	registry      *driver.Registry
 }
 
-// NewMonitor は Monitor を初期化する。
-// registry が nil のときはデフォルトの汎用パターンを使用する。
+// NewMonitor initializes a Monitor.
+// When registry is nil, the default generic pattern is used.
 func NewMonitor(capturer PaneCapturer, idleThresholdSec int, registry *driver.Registry) *Monitor {
 	return &Monitor{
 		capturer:      capturer,
@@ -42,7 +42,7 @@ func NewMonitor(capturer PaneCapturer, idleThresholdSec int, registry *driver.Re
 	}
 }
 
-// PollAll は windowID → command のマップを受け取り、各ウィンドウの状態を返す。
+// PollAll takes a windowID-to-command map and returns the state of each window.
 func (m *Monitor) PollAll(windowCommands map[string]string) map[string]session.State {
 	states := make(map[string]session.State, len(windowCommands))
 	for id, cmd := range windowCommands {
@@ -51,7 +51,7 @@ func (m *Monitor) PollAll(windowCommands map[string]string) map[string]session.S
 	return states
 }
 
-// DetectState は指定ウィンドウの現在の状態を検出する。
+// DetectState detects the current state of the specified window.
 func (m *Monitor) DetectState(windowID, command string) session.State {
 	content, err := m.capturer.CapturePaneLines(windowID+".0", 5)
 	if err != nil {
