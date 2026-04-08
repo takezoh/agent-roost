@@ -106,11 +106,17 @@ func (s *Server) acceptLoop() {
 }
 
 func (s *Server) handleConn(conn net.Conn) {
-	slog.Info("client connected")
+	slog.Debug("client connected")
 	cc := &clientConn{conn: conn, encoder: json.NewEncoder(conn)}
 	s.addClient(cc)
-	defer slog.Info("client disconnected")
-	defer s.removeClient(cc)
+	defer func() {
+		if cc.broadcastEnabled {
+			slog.Info("subscriber disconnected")
+		} else {
+			slog.Debug("client disconnected")
+		}
+		s.removeClient(cc)
+	}()
 
 	dec := json.NewDecoder(conn)
 	for {
@@ -126,10 +132,15 @@ func (s *Server) handleConn(conn net.Conn) {
 }
 
 func (s *Server) dispatch(cc *clientConn, msg Message) {
-	slog.Info("dispatch", "command", msg.Command)
+	if msg.Command == "agent-event" {
+		slog.Debug("dispatch", "command", msg.Command)
+	} else {
+		slog.Info("dispatch", "command", msg.Command)
+	}
 	switch msg.Command {
 	case "subscribe":
 		cc.broadcastEnabled = true
+		slog.Info("subscriber connected")
 		s.sendResponse(cc, Message{})
 		// Push current state immediately
 		msg := NewEvent("sessions-changed")
