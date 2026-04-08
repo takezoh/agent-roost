@@ -93,15 +93,19 @@ func renderSession(s *core.SessionInfo, selected bool, width int, registry *driv
 func sessionCardLines(s *core.SessionInfo, textWidth int, registry *driver.Registry) []string {
 	stateStr := stateStyle(s.State).Render(s.State.Symbol() + " " + s.State.String())
 	elapsed := mutedStyle.Render(formatElapsed(time.Since(s.StateChangedAtTime())))
-	displayName := mutedStyle.Render(registry.Get(s.Command).DisplayName())
-
-	lines := []string{stateStr + "  " + elapsed + "   " + displayName}
 
 	title := s.Title
 	if title == "" {
 		title = s.ID[:6]
 	}
-	lines = append(lines, lipgloss.NewStyle().Foreground(DefaultTheme.Fg).Render(truncate(title, textWidth)))
+	prefix := stateStr + "  " + elapsed + "  "
+	titleWidth := textWidth - lipgloss.Width(prefix)
+	if titleWidth < 1 {
+		titleWidth = 1
+	}
+	titleStr := lipgloss.NewStyle().Foreground(DefaultTheme.Fg).Render(truncate(title, titleWidth))
+
+	lines := []string{prefix + titleStr}
 
 	if s.LastPrompt != "" {
 		lines = append(lines, mutedStyle.Render(truncate(s.LastPrompt, textWidth)))
