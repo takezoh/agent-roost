@@ -1,6 +1,9 @@
 package session
 
-import "log/slog"
+import (
+	"log/slog"
+	"time"
+)
 
 // This file groups the runtime-mutation methods that update agent-reported
 // driver state on a Session and persist it to tmux user options. Pulled out
@@ -69,6 +72,51 @@ func mergeDriverStateMap(current, updates map[string]string) (map[string]string,
 		return nil, changed
 	}
 	return merged, changed
+}
+
+// UpdateStates merges polled states into the in-memory cache and persists
+// each session whose state actually changed. The hot-loop case (no changes)
+// only takes the lock and reads — no I/O is performed. State and the
+// derived StateChangedAt are written to dedicated tmux user options
+// (@roost_state, @roost_state_changed_at) so warm restart of the
+// Coordinator restores the previously displayed state without waiting for
+// the next poll cycle, and cold-boot recovery via sessions.json sees the
+// last-known state too.
+func (m *Manager) UpdateStates(states map[string]State) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	dirty := false
+	for _, s := range m.sessions {
+		st, ok := states[s.WindowID]
+		if !ok || s.State == st {
+			continue
+		}
+		s.State = st
+		s.StateChangedAt = now
+		m.persistStateLocked(s)
+		dirty = true
+	}
+	if dirty {
+		m.saveSnapshotLocked()
+	}
+}
+
+// persistStateLocked writes the @roost_state and @roost_state_changed_at
+// user options for the session. Caller must hold m.mu. Errors are logged
+// but not propagated since the polling loop has nothing actionable to do
+// on tmux write failure.
+func (m *Manager) persistStateLocked(s *Session) {
+	if err := m.tmux.SetWindowUserOption(s.WindowID, "@roost_state", s.State.String()); err != nil {
+		slog.Warn("set state option failed", "window", s.WindowID, "err", err)
+		return
+	}
+	if s.StateChangedAt.IsZero() {
+		return
+	}
+	if err := m.tmux.SetWindowUserOption(s.WindowID, "@roost_state_changed_at", s.StateChangedAt.UTC().Format(time.RFC3339)); err != nil {
+		slog.Warn("set state changed_at option failed", "window", s.WindowID, "err", err)
+	}
 }
 
 // RefreshBranch re-detects the git branch for the given session and updates

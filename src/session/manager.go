@@ -124,12 +124,16 @@ func (m *Manager) Recreate() error {
 			slog.Warn("recreate: set remain-on-exit failed", "err", err)
 		}
 		s.WindowID = windowID
+		// We just spawned a fresh agent process, so the persisted state is
+		// stale — reset before writing options so tmux records the new
+		// runtime, not whatever the previous Coordinator left behind.
+		s.State = StateRunning
+		s.StateChangedAt = time.Now()
 		if err := m.tmux.SetWindowUserOptions(windowID, sessionUserOptions(s)); err != nil {
 			slog.Error("recreate: SetWindowUserOptions failed", "id", s.ID, "err", err)
 			m.tmux.KillWindow(windowID)
 			continue
 		}
-		s.State = StateRunning
 		m.sessions = append(m.sessions, s)
 	}
 	m.saveSnapshotLocked()
@@ -147,6 +151,10 @@ func sessionUserOptions(s *Session) map[string]string {
 		"@roost_command":    s.Command,
 		"@roost_created_at": s.CreatedAt.UTC().Format(time.RFC3339),
 		"@roost_tags":       encodeTags(s.Tags),
+		"@roost_state":      s.State.String(),
+	}
+	if !s.StateChangedAt.IsZero() {
+		opts["@roost_state_changed_at"] = s.StateChangedAt.UTC().Format(time.RFC3339)
 	}
 	if encoded := encodeDriverState(s.DriverState); encoded != "" {
 		opts["@roost_driver_state"] = encoded
@@ -201,13 +209,15 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 	}
 	slog.Info("creating session", "project", project, "command", command, "id", id)
 
+	now := time.Now()
 	s := &Session{
-		ID:        id,
-		Project:   project,
-		Command:   command,
-		CreatedAt: time.Now(),
-		State:     StateRunning,
-		Tags:      buildTags(m.detectBranch(project)),
+		ID:             id,
+		Project:        project,
+		Command:        command,
+		CreatedAt:      now,
+		State:          StateRunning,
+		StateChangedAt: now,
+		Tags:           buildTags(m.detectBranch(project)),
 	}
 
 	name := filepath.Base(project) + ":" + id
@@ -353,20 +363,6 @@ func (m *Manager) FindByID(id string) *Session {
 	return nil
 }
 
-func (m *Manager) UpdateStates(states map[string]State) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	now := time.Now()
-	for _, s := range m.sessions {
-		if st, ok := states[s.WindowID]; ok {
-			if s.State != st {
-				s.StateChangedAt = now
-			}
-			s.State = st
-		}
-	}
-}
-
 func (m *Manager) DataDir() string {
 	return m.dataDir
 }
@@ -464,14 +460,17 @@ func decodeTags(s string) []Tag {
 
 func windowToSession(w RoostWindow) *Session {
 	createdAt, _ := time.Parse(time.RFC3339, w.CreatedAt)
+	stateChangedAt, _ := time.Parse(time.RFC3339, w.StateChangedAt)
 	return &Session{
-		ID:          w.ID,
-		Project:     w.Project,
-		Command:     w.Command,
-		WindowID:    w.WindowID,
-		CreatedAt:   createdAt,
-		Tags:        decodeTags(w.Tags),
-		DriverState: decodeDriverState(w.DriverState),
+		ID:             w.ID,
+		Project:        w.Project,
+		Command:        w.Command,
+		WindowID:       w.WindowID,
+		CreatedAt:      createdAt,
+		Tags:           decodeTags(w.Tags),
+		DriverState:    decodeDriverState(w.DriverState),
+		State:          ParseState(w.State),
+		StateChangedAt: stateChangedAt,
 	}
 }
 

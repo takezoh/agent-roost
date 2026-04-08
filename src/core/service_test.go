@@ -72,13 +72,15 @@ func (m *mockTmuxForService) ListRoostWindows() ([]session.RoostWindow, error) {
 			continue
 		}
 		out = append(out, session.RoostWindow{
-			WindowID:    id,
-			ID:          opts["@roost_id"],
-			Project:     opts["@roost_project"],
-			Command:     opts["@roost_command"],
-			CreatedAt:   opts["@roost_created_at"],
-			Tags:        opts["@roost_tags"],
-			DriverState: opts["@roost_driver_state"],
+			WindowID:       id,
+			ID:             opts["@roost_id"],
+			Project:        opts["@roost_project"],
+			Command:        opts["@roost_command"],
+			CreatedAt:      opts["@roost_created_at"],
+			Tags:           opts["@roost_tags"],
+			DriverState:    opts["@roost_driver_state"],
+			State:          opts["@roost_state"],
+			StateChangedAt: opts["@roost_state_changed_at"],
 		})
 	}
 	return out, nil

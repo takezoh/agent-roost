@@ -86,13 +86,15 @@ func (m *mockTmux) ListRoostWindows() ([]RoostWindow, error) {
 			continue
 		}
 		out = append(out, RoostWindow{
-			WindowID:    id,
-			ID:          opts["@roost_id"],
-			Project:     opts["@roost_project"],
-			Command:     opts["@roost_command"],
-			CreatedAt:   opts["@roost_created_at"],
-			Tags:        opts["@roost_tags"],
-			DriverState: opts["@roost_driver_state"],
+			WindowID:       id,
+			ID:             opts["@roost_id"],
+			Project:        opts["@roost_project"],
+			Command:        opts["@roost_command"],
+			CreatedAt:      opts["@roost_created_at"],
+			Tags:           opts["@roost_tags"],
+			DriverState:    opts["@roost_driver_state"],
+			State:          opts["@roost_state"],
+			StateChangedAt: opts["@roost_state_changed_at"],
 		})
 	}
 	return out, nil
@@ -223,6 +225,102 @@ func TestUpdateStates(t *testing.T) {
 	all := mgr.All()
 	if all[0].State != StateWaiting {
 		t.Fatalf("expected Waiting, got %s", all[0].State)
+	}
+}
+
+func TestUpdateStates_PersistsToTmuxAndSnapshot(t *testing.T) {
+	mgr, tmux := setupManager(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+
+	// Create writes the initial state proactively so warm restart finds
+	// something even before the first poll cycle.
+	if got := tmux.userOptions[sess.WindowID]["@roost_state"]; got != "running" {
+		t.Fatalf("@roost_state after Create = %q, want running", got)
+	}
+	if tmux.userOptions[sess.WindowID]["@roost_state_changed_at"] == "" {
+		t.Fatal("expected @roost_state_changed_at after Create")
+	}
+
+	mgr.UpdateStates(map[string]State{sess.WindowID: StateWaiting})
+
+	if got := tmux.userOptions[sess.WindowID]["@roost_state"]; got != "waiting" {
+		t.Fatalf("@roost_state after UpdateStates = %q, want waiting", got)
+	}
+
+	// Snapshot must carry the state for cold-boot Recreate.
+	loaded, err := mgr.loadSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 || loaded[0].State != StateWaiting {
+		t.Fatalf("snapshot State = %+v, want waiting", loaded)
+	}
+	if loaded[0].StateChangedAt.IsZero() {
+		t.Fatal("snapshot StateChangedAt should be set")
+	}
+}
+
+func TestUpdateStates_NoOpDoesNotWriteTmux(t *testing.T) {
+	mgr, tmux := setupManager(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+
+	mgr.UpdateStates(map[string]State{sess.WindowID: StateWaiting})
+	before := tmux.userOptions[sess.WindowID]["@roost_state_changed_at"]
+
+	// Identical state — must NOT bump state_changed_at or rewrite tmux.
+	mgr.UpdateStates(map[string]State{sess.WindowID: StateWaiting})
+	after := tmux.userOptions[sess.WindowID]["@roost_state_changed_at"]
+	if before != after {
+		t.Fatalf("state_changed_at moved on no-op update: %q -> %q", before, after)
+	}
+}
+
+func TestRefresh_RestoresState(t *testing.T) {
+	mgr, tmux := setupManager(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	mgr.UpdateStates(map[string]State{sess.WindowID: StateWaiting})
+
+	// Fresh Manager talking to the same tmux mock — simulates a Coordinator
+	// warm restart.
+	mgr2 := NewManager(tmux, mgr.DataDir(), driver.DefaultRegistry())
+	if err := mgr2.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	restored := mgr2.FindByID(sess.ID)
+	if restored == nil || restored.State != StateWaiting {
+		t.Fatalf("expected restored State=waiting, got %+v", restored)
+	}
+	if restored.StateChangedAt.IsZero() {
+		t.Fatal("expected restored StateChangedAt")
+	}
+}
+
+func TestRecreate_ResetsStateForFreshSpawn(t *testing.T) {
+	mgr1, _ := setupManager(t)
+	sess, _ := mgr1.Create("/tmp/proj", "claude")
+	// Prior Coordinator left the session in StateWaiting.
+	mgr1.UpdateStates(map[string]State{sess.WindowID: StateWaiting})
+
+	tmux2 := newMockTmux()
+	mgr2 := NewManager(tmux2, mgr1.DataDir(), driver.DefaultRegistry())
+	if err := mgr2.Recreate(); err != nil {
+		t.Fatal(err)
+	}
+
+	all := mgr2.All()
+	if len(all) != 1 {
+		t.Fatalf("expected 1 recreated session, got %d", len(all))
+	}
+	// Cold boot spawned a fresh agent — state must reset to Running so the
+	// TUI doesn't display a stale "waiting" left over from the prior process.
+	if all[0].State != StateRunning {
+		t.Errorf("Recreate State = %s, want running", all[0].State)
+	}
+	if all[0].StateChangedAt.IsZero() {
+		t.Error("Recreate must set a fresh StateChangedAt")
+	}
+	if got := tmux2.userOptions[all[0].WindowID]["@roost_state"]; got != "running" {
+		t.Errorf("@roost_state after Recreate = %q, want running", got)
 	}
 }
 

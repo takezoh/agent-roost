@@ -160,7 +160,8 @@ func (c *Client) SetWindowUserOptions(windowID string, kv map[string]string) err
 // ListRoostWindows returns all windows that carry the @roost_id user option.
 // Driver-specific persistent state is packed into a single JSON-encoded
 // @roost_driver_state user option so this layer never has to know about
-// individual driver keys.
+// individual driver keys. Generic runtime state (current State + when it
+// last changed) lives in dedicated columns since it applies to every driver.
 func (c *Client) ListRoostWindows() ([]session.RoostWindow, error) {
 	fmtStr := strings.Join([]string{
 		"#{window_id}",
@@ -170,6 +171,8 @@ func (c *Client) ListRoostWindows() ([]session.RoostWindow, error) {
 		"#{@roost_created_at}",
 		"#{@roost_tags}",
 		"#{@roost_driver_state}",
+		"#{@roost_state}",
+		"#{@roost_state_changed_at}",
 	}, "\t")
 	out, err := c.Run("list-windows", "-t", c.SessionName, "-F", fmtStr)
 	if err != nil {
@@ -187,20 +190,22 @@ func parseRoostWindows(out string) []session.RoostWindow {
 			continue
 		}
 		parts := strings.Split(line, "\t")
-		if len(parts) < 7 {
+		if len(parts) < 9 {
 			continue
 		}
 		if parts[1] == "" {
 			continue
 		}
 		windows = append(windows, session.RoostWindow{
-			WindowID:    parts[0],
-			ID:          parts[1],
-			Project:     parts[2],
-			Command:     parts[3],
-			CreatedAt:   parts[4],
-			Tags:        parts[5],
-			DriverState: parts[6],
+			WindowID:       parts[0],
+			ID:             parts[1],
+			Project:        parts[2],
+			Command:        parts[3],
+			CreatedAt:      parts[4],
+			Tags:           parts[5],
+			DriverState:    parts[6],
+			State:          parts[7],
+			StateChangedAt: parts[8],
 		})
 	}
 	return windows
