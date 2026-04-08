@@ -224,6 +224,80 @@ func TestPreviewEmitsOnPreview(t *testing.T) {
 	}
 }
 
+func TestHandleStateChangeWithContext_AutoBind(t *testing.T) {
+	svc, _, mgr := setupService(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess)
+
+	// No prior session-start: state-change with pane should auto-bind
+	changed := svc.HandleStateChangeWithContext("new-agent", driver.AgentStateRunning, "%0", "transcript.jsonl")
+	if !changed {
+		t.Fatal("expected true on auto-bind state change")
+	}
+	agent := svc.AgentStore.GetByWindow(sess.WindowID)
+	if agent == nil {
+		t.Fatal("expected agent after auto-bind")
+	}
+	if agent.ID != "new-agent" {
+		t.Errorf("got ID %q, want %q", agent.ID, "new-agent")
+	}
+	if agent.State != driver.AgentStateRunning {
+		t.Errorf("got state %v, want running", agent.State)
+	}
+	if agent.Source != "transcript.jsonl" {
+		t.Errorf("got source %q, want %q", agent.Source, "transcript.jsonl")
+	}
+}
+
+func TestHandleStateChangeWithContext_NoPane(t *testing.T) {
+	svc, _, _ := setupService(t)
+
+	// No pane: should not auto-bind, returns false
+	changed := svc.HandleStateChangeWithContext("unknown", driver.AgentStateRunning, "", "")
+	if changed {
+		t.Fatal("expected false without pane")
+	}
+	if svc.AgentStore.Get("unknown") != nil {
+		t.Fatal("should not create session without pane")
+	}
+}
+
+func TestHandleStateChangeWithContext_KnownSession(t *testing.T) {
+	svc, _, mgr := setupService(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess)
+
+	// Bind normally first
+	svc.HandleSessionStart("%0", "agent-1", "old.jsonl")
+
+	// state-change on known session works without re-binding
+	changed := svc.HandleStateChangeWithContext("agent-1", driver.AgentStateRunning, "%0", "old.jsonl")
+	if !changed {
+		t.Fatal("expected true on state change")
+	}
+	if svc.AgentStore.Get("agent-1").State != driver.AgentStateRunning {
+		t.Fatal("state not updated")
+	}
+}
+
+func TestHandleStatusLineWithContext_AutoBind(t *testing.T) {
+	svc, _, mgr := setupService(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess)
+
+	changed := svc.HandleStatusLineWithContext("new-agent", "thinking...", "%0")
+	if !changed {
+		t.Fatal("expected true on auto-bind status line")
+	}
+	agent := svc.AgentStore.GetByWindow(sess.WindowID)
+	if agent == nil || agent.ID != "new-agent" {
+		t.Fatal("expected agent after auto-bind")
+	}
+	if agent.StatusLine != "thinking..." {
+		t.Errorf("got status %q, want %q", agent.StatusLine, "thinking...")
+	}
+}
+
 func TestActiveSessionLogPath(t *testing.T) {
 	svc, _, mgr := setupService(t)
 	if svc.ActiveSessionLogPath() != "" {

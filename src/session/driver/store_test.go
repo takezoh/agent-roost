@@ -5,7 +5,9 @@ import "testing"
 func TestBind(t *testing.T) {
 	s := NewAgentStore()
 
-	s.Bind("win1", "agent-abc")
+	if !s.Bind("win1", "agent-abc") {
+		t.Fatal("expected true on first Bind")
+	}
 	sess := s.GetByWindow("win1")
 	if sess == nil {
 		t.Fatal("expected session after Bind")
@@ -17,8 +19,15 @@ func TestBind(t *testing.T) {
 		t.Errorf("got State %v, want AgentStateUnset", sess.State)
 	}
 
+	// rebind same window to same agent returns false
+	if s.Bind("win1", "agent-abc") {
+		t.Fatal("expected false on same rebind")
+	}
+
 	// rebind same window to different agent
-	s.Bind("win1", "agent-xyz")
+	if !s.Bind("win1", "agent-xyz") {
+		t.Fatal("expected true on rebind to different agent")
+	}
 	sess = s.GetByWindow("win1")
 	if sess == nil {
 		t.Fatal("expected session after rebind")
@@ -41,7 +50,9 @@ func TestBind_Resume(t *testing.T) {
 	s.UpdateState("agent-abc", AgentStateRunning)
 
 	// resume: same agentID, different window
-	s.Bind("win2", "agent-abc")
+	if !s.Bind("win2", "agent-abc") {
+		t.Fatal("expected true on resume bind to different window")
+	}
 	sess := s.Get("agent-abc")
 	if sess.State != AgentStateRunning {
 		t.Errorf("resume should preserve state, got %v", sess.State)

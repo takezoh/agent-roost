@@ -195,15 +195,25 @@ func (s *Service) HandleSessionStart(pane, agentSessionID, source string) bool {
 	if windowID == "" {
 		return false
 	}
-	s.AgentStore.Bind(windowID, agentSessionID)
+	changed := s.AgentStore.Bind(windowID, agentSessionID)
 	if source != "" {
-		return s.AgentStore.UpdateSource(agentSessionID, source)
+		if s.AgentStore.UpdateSource(agentSessionID, source) {
+			changed = true
+		}
 	}
-	return false
+	return changed
 }
 
 // HandleStateChange updates the agent state by agentSessionID.
 func (s *Service) HandleStateChange(agentSessionID string, state driver.AgentState) bool {
+	return s.AgentStore.UpdateState(agentSessionID, state)
+}
+
+// HandleStateChangeWithContext updates agent state, auto-binding if the session is unknown.
+func (s *Service) HandleStateChangeWithContext(agentSessionID string, state driver.AgentState, pane, source string) bool {
+	if s.AgentStore.Get(agentSessionID) == nil && pane != "" {
+		s.HandleSessionStart(pane, agentSessionID, source)
+	}
 	return s.AgentStore.UpdateState(agentSessionID, state)
 }
 
@@ -218,6 +228,14 @@ func (s *Service) HandleStatusLine(agentSessionID, line string) bool {
 		}
 	}
 	return changed
+}
+
+// HandleStatusLineWithContext updates agent status line, auto-binding if the session is unknown.
+func (s *Service) HandleStatusLineWithContext(agentSessionID, line, pane string) bool {
+	if s.AgentStore.Get(agentSessionID) == nil && pane != "" {
+		s.HandleSessionStart(pane, agentSessionID, "")
+	}
+	return s.HandleStatusLine(agentSessionID, line)
 }
 
 // SyncActiveStatusLine pushes the active session's cached status line to tmux.

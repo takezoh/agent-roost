@@ -62,6 +62,9 @@ func runStatus() {
 		"session_id": status.SessionID,
 		"line":       line,
 	}
+	if pane := os.Getenv("TMUX_PANE"); pane != "" {
+		args["pane"] = pane
+	}
 	client.SendAgentEvent("status-update", args)
 }
 
@@ -115,11 +118,18 @@ func runEvent() {
 	}
 
 	if state := event.DeriveState(); state != "" {
-		client.SendAgentEvent("state-change", map[string]string{
+		args := map[string]string{
 			"session_id": event.SessionID,
 			"state":      state,
 			"log":        event.FormatLog(),
-		})
+		}
+		if pane := os.Getenv("TMUX_PANE"); pane != "" {
+			args["pane"] = pane
+		}
+		if event.TranscriptPath != "" {
+			args["source"] = event.TranscriptFile()
+		}
+		client.SendAgentEvent("state-change", args)
 	}
 }
 

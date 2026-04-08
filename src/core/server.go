@@ -347,17 +347,20 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 	case "status-update":
 		sid := args["session_id"]
 		line := args["line"]
+		pane := args["pane"]
 		if line == "" {
 			s.sendError(cc, "status-update: line required")
 			return
 		}
-		if s.svc.HandleStatusLine(sid, line) {
+		if s.svc.HandleStatusLineWithContext(sid, line, pane) {
 			s.broadcastSessions()
 		}
 		s.sendResponse(cc, Message{})
 	case "state-change":
 		sid := args["session_id"]
 		stateStr := args["state"]
+		pane := args["pane"]
+		source := args["source"]
 		if stateStr == "" {
 			s.sendError(cc, "state-change: state required")
 			return
@@ -367,7 +370,7 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 			s.sendError(cc, "state-change: unknown state: "+stateStr)
 			return
 		}
-		if s.svc.HandleStateChange(sid, agentState) {
+		if s.svc.HandleStateChangeWithContext(sid, agentState, pane, source) {
 			s.broadcastSessions()
 		}
 		logLine := args["log"]

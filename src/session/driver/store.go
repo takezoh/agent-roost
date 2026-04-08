@@ -15,9 +15,10 @@ func NewAgentStore() *AgentStore {
 	}
 }
 
-func (s *AgentStore) Bind(windowID, agentSessionID string) {
+func (s *AgentStore) Bind(windowID, agentSessionID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	oldID := s.bindings[windowID]
 	s.bindings[windowID] = agentSessionID
 	if _, ok := s.sessions[agentSessionID]; !ok {
 		s.sessions[agentSessionID] = &AgentSession{
@@ -25,6 +26,7 @@ func (s *AgentStore) Bind(windowID, agentSessionID string) {
 			State: AgentStateUnset,
 		}
 	}
+	return oldID != agentSessionID
 }
 
 func (s *AgentStore) Unbind(windowID string) {
