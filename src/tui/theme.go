@@ -108,6 +108,12 @@ var (
 	selItemStyle lipgloss.Style
 	itemStyle    lipgloss.Style
 
+	// Sessions filter bar chips
+	filterChipOnStyle  lipgloss.Style
+	filterChipOffStyle lipgloss.Style
+	filterAllOnStyle   lipgloss.Style
+	filterAllOffStyle  lipgloss.Style
+
 	// Minimal mode
 	minimalProjectSelStyle      lipgloss.Style // Primary + Bold
 	minimalTagTextStyle         lipgloss.Style // Fg
@@ -131,6 +137,7 @@ func ApplyTheme(name string) {
 	rebuildLogStyles(t)
 	rebuildCardStyles(t)
 	rebuildPaletteStyles(t)
+	rebuildFilterStyles(t)
 	rebuildMinimalStyles(t)
 }
 
@@ -189,6 +196,23 @@ func rebuildPaletteStyles(t Theme) {
 	itemStyle = lipgloss.NewStyle()
 }
 
+func rebuildFilterStyles(t Theme) {
+	filterChipOnStyle = lipgloss.NewStyle().
+		Background(t.SelBg).
+		Padding(0, 1)
+	filterChipOffStyle = lipgloss.NewStyle().
+		Foreground(t.Dim).
+		Padding(0, 1)
+	filterAllOnStyle = lipgloss.NewStyle().
+		Bold(true).
+		Background(t.SelBg).
+		Foreground(t.Primary).
+		Padding(0, 1)
+	filterAllOffStyle = lipgloss.NewStyle().
+		Foreground(t.Dim).
+		Padding(0, 1)
+}
+
 func rebuildMinimalStyles(t Theme) {
 	minimalProjectSelStyle = lipgloss.NewStyle().Foreground(t.Primary).Bold(true)
 	minimalTagTextStyle = lipgloss.NewStyle().Foreground(t.Fg)
@@ -211,5 +235,25 @@ func stateStyle(s session.State) lipgloss.Style {
 		return pendingStyle
 	default:
 		return idleStyle
+	}
+}
+
+// stateColor returns the foreground color associated with a session State.
+// Used by the filter bar so chips can wear their state color while keeping
+// the shared chip background.
+func stateColor(s session.State) color.Color {
+	switch s {
+	case session.StateRunning:
+		return Active.Running
+	case session.StateWaiting:
+		return Active.Waiting
+	case session.StateIdle:
+		return Active.Idle
+	case session.StateStopped:
+		return Active.Stopped
+	case session.StatePending:
+		return Active.Pending
+	default:
+		return Active.Fg
 	}
 }

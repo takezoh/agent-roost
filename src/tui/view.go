@@ -14,9 +14,9 @@ import (
 )
 
 // sessionsHeaderRows is the number of rendered rows before the first list
-// item inside the Sessions view (header line + blank).
+// item inside the Sessions view (header line + filter bar + blank).
 // The mouse row→item mapping relies on this staying in sync with View().
-const sessionsHeaderRows = 2
+const sessionsHeaderRows = 3
 
 func (m Model) View() tea.View {
 	width := m.width
@@ -24,11 +24,14 @@ func (m Model) View() tea.View {
 		width = 60
 	}
 
-	header := titleStyle.Render("SESSIONS") + "  " + badgeStyle.Render(fmt.Sprintf("%d sessions", countSessions(m.items)))
+	visible := countSessions(m.items)
+	total := len(m.sessions)
+	header := titleStyle.Render("SESSIONS") + "  " + badgeStyle.Render(fmt.Sprintf("%d/%d sessions", visible, total))
+	filterBar, _ := filterBarLayout(m.filter)
 	body := renderSessionsBody(m, width)
-	footer := Footer([]key.Binding{m.keys.New, m.keys.NewCmd, m.keys.Enter, m.keys.Stop, m.keys.Toggle})
+	footer := Footer([]key.Binding{m.keys.New, m.keys.NewCmd, m.keys.Enter, m.keys.Stop, m.keys.Toggle, m.keys.FilterHelp})
 
-	screen := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
+	screen := lipgloss.JoinVertical(lipgloss.Left, header, filterBar, "", body, "", footer)
 
 	v := tea.NewView(screen)
 	v.AltScreen = true

@@ -166,32 +166,40 @@ func (m LogModel) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *LogModel) rebuildTabs(eventLogPath, transcriptPath string) {
-	// Detect if active session changed (transcript path differs)
-	prevTranscript := ""
+	prev := make(map[string]*tabState, len(m.tabs))
 	for _, t := range m.tabs {
-		if t.label == "TRANSCRIPT" {
-			prevTranscript = t.logPath
-			break
-		}
+		prev[t.label] = t
+	}
+
+	prevTranscript := ""
+	if t, ok := prev["TRANSCRIPT"]; ok {
+		prevTranscript = t.logPath
 	}
 	sessionChanged := transcriptPath != prevTranscript
 
-	// Close old dynamic tab files
-	for _, t := range m.tabs {
-		if t.label != "LOG" && t.file != nil {
-			t.file.Close()
+	reuseOrNew := func(label, path string) *tabState {
+		if t, ok := prev[label]; ok && t.logPath == path {
+			delete(prev, label)
+			return t
 		}
+		return &tabState{label: label, logPath: path}
 	}
 
 	// Rebuild: TRANSCRIPT + EVENTS (Claude) + LOG (always last)
 	var tabs []*tabState
 	if transcriptPath != "" {
-		tabs = append(tabs, &tabState{label: "TRANSCRIPT", logPath: transcriptPath})
+		tabs = append(tabs, reuseOrNew("TRANSCRIPT", transcriptPath))
 	}
 	if eventLogPath != "" {
-		tabs = append(tabs, &tabState{label: "EVENTS", logPath: eventLogPath})
+		tabs = append(tabs, reuseOrNew("EVENTS", eventLogPath))
 	}
-	tabs = append(tabs, &tabState{label: "LOG", logPath: m.appLogPath})
+	tabs = append(tabs, reuseOrNew("LOG", m.appLogPath))
+
+	for _, t := range prev {
+		if t.file != nil {
+			t.file.Close()
+		}
+	}
 	m.tabs = tabs
 
 	if int(m.activeTab) >= len(m.tabs) {

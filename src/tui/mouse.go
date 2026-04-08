@@ -55,6 +55,15 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	if mouse.Button != tea.MouseLeft {
 		return m, nil
 	}
+	if state, isAll, hit := m.hitTestFilterChip(mouse.X, mouse.Y); hit {
+		if isAll {
+			m.filter.reset()
+		} else {
+			m.filter.toggle(state)
+		}
+		m.rebuildItems()
+		return m, nil
+	}
 	idx := m.rowToItemIndex(mouse.Y)
 	if idx < 0 {
 		return m, nil
