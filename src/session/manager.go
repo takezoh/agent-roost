@@ -90,7 +90,15 @@ func (m *Manager) Recreate(drivers *driver.Registry) error {
 	for _, s := range snapshot {
 		spawn := drivers.Get(s.Command).SpawnCommand(s.Command, s.AgentSessionID)
 		name := filepath.Base(s.Project) + ":" + s.ID
-		windowID, err := m.tmux.NewWindow(name, "exec "+spawn, s.Project)
+		// Worktree sessions need to be respawned inside the worktree dir,
+		// not the original launch dir. AgentWorkingDir is the agent's own
+		// reported cwd (set by hook), which equals the worktree path for
+		// `claude --worktree` invocations.
+		startDir := s.Project
+		if s.AgentWorkingDir != "" {
+			startDir = s.AgentWorkingDir
+		}
+		windowID, err := m.tmux.NewWindow(name, "exec "+spawn, startDir)
 		if err != nil {
 			slog.Error("recreate: NewWindow failed", "id", s.ID, "err", err)
 			continue

@@ -19,6 +19,7 @@ type mockTmux struct {
 	userOptions    map[string]map[string]string
 	lastNewCommand string
 	commands       map[string]string // windowID → spawn command
+	startDirs      map[string]string // windowID → startDir passed to NewWindow
 }
 
 func newMockTmux() *mockTmux {
@@ -28,6 +29,7 @@ func newMockTmux() *mockTmux {
 		options:      make(map[string]string),
 		userOptions:  make(map[string]map[string]string),
 		commands:     make(map[string]string),
+		startDirs:    make(map[string]string),
 	}
 }
 
@@ -43,6 +45,7 @@ func (m *mockTmux) NewWindow(name, command, startDir string) (string, error) {
 	m.windows[id] = true
 	m.lastNewCommand = command
 	m.commands[id] = command
+	m.startDirs[id] = startDir
 	return id, nil
 }
 
@@ -478,6 +481,38 @@ func TestRecreate_PreservesAgentRuntime(t *testing.T) {
 	}
 	if opts["@roost_agent_transcript"] != tpath {
 		t.Errorf("@roost_agent_transcript not written on Recreate, got %q", opts["@roost_agent_transcript"])
+	}
+}
+
+// Cold-boot recovery for `claude --worktree` sessions: the new window must
+// spawn inside the recorded worktree dir (not the original launch dir) and
+// the spawn command must drop the --worktree flag, since Claude treats it
+// as "create a new worktree" and is incompatible with --resume.
+func TestRecreate_WorktreeUsesAgentWorkingDir(t *testing.T) {
+	mgr1, _ := setupManager(t)
+	sess, _ := mgr1.Create("/tmp/proj", "claude --worktree")
+	mgr1.SetAgentSessionID(sess.WindowID, "agent-x")
+	worktree := "/tmp/proj/.claude/worktrees/foo"
+	mgr1.SetAgentWorkingDir(sess.WindowID, worktree)
+
+	tmux2 := newMockTmux()
+	mgr2 := NewManager(tmux2, mgr1.DataDir())
+	if err := mgr2.Recreate(driver.DefaultRegistry()); err != nil {
+		t.Fatal(err)
+	}
+
+	all := mgr2.All()
+	if len(all) != 1 {
+		t.Fatalf("expected 1 recreated session, got %d", len(all))
+	}
+	wid := all[0].WindowID
+
+	wantCmd := "exec claude --resume agent-x"
+	if got := tmux2.commands[wid]; got != wantCmd {
+		t.Errorf("spawn command = %q, want %q (--worktree must be stripped on resume)", got, wantCmd)
+	}
+	if got := tmux2.startDirs[wid]; got != worktree {
+		t.Errorf("startDir = %q, want %q (must use AgentWorkingDir for worktree sessions)", got, worktree)
 	}
 }
 
