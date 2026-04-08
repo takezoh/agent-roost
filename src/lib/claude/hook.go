@@ -5,9 +5,12 @@ import (
 )
 
 // HookEvent represents a Claude Code hook event received on stdin.
+// Field names mirror the Claude Code hook payload — this struct is the
+// only place in roost that knows about Claude's wire format.
 type HookEvent struct {
 	SessionID        string         `json:"session_id"`
 	TranscriptPath   string         `json:"transcript_path"`
+	Cwd              string         `json:"cwd"`
 	HookEventName    string         `json:"hook_event_name"`
 	Source           string         `json:"source"`
 	NotificationType string         `json:"notification_type"`

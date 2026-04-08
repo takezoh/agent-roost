@@ -1,6 +1,8 @@
 package core
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/take/agent-roost/session"
@@ -70,13 +72,15 @@ func (m *mockTmuxForService) ListRoostWindows() ([]session.RoostWindow, error) {
 			continue
 		}
 		out = append(out, session.RoostWindow{
-			WindowID:       id,
-			ID:             opts["@roost_id"],
-			Project:        opts["@roost_project"],
-			Command:        opts["@roost_command"],
-			CreatedAt:      opts["@roost_created_at"],
-			Tags:           opts["@roost_tags"],
-			AgentSessionID: opts["@roost_agent_session"],
+			WindowID:            id,
+			ID:                  opts["@roost_id"],
+			Project:             opts["@roost_project"],
+			Command:             opts["@roost_command"],
+			CreatedAt:           opts["@roost_created_at"],
+			Tags:                opts["@roost_tags"],
+			AgentSessionID:      opts["@roost_agent_session"],
+			AgentWorkingDir:     opts["@roost_agent_workdir"],
+			AgentTranscriptPath: opts["@roost_agent_transcript"],
 		})
 	}
 	return out, nil
@@ -384,6 +388,109 @@ func TestResolveAgentMeta_DoesNotAutoBind(t *testing.T) {
 	}
 	if svc.AgentStore.GetByWindow(b.WindowID) != nil {
 		t.Fatal("session b should remain unbound")
+	}
+}
+
+func TestHandleAgentTranscriptPath_PersistsToManagerAndTmux(t *testing.T) {
+	svc, _, mgr, mt := setupServiceWithTmux(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess) // sets activeWindowID so HandleSessionStart can fall back
+	svc.HandleSessionStart("%0", "agent-1")
+
+	path := "/home/u/.claude/projects/-tmp-proj--claude-worktrees-foo/agent-1.jsonl"
+	if !svc.HandleAgentTranscriptPath("agent-1", path) {
+		t.Fatal("expected true on first transcript path set")
+	}
+	updated := mgr.FindByWindowID(sess.WindowID)
+	if updated == nil || updated.AgentTranscriptPath != path {
+		t.Fatalf("Session.AgentTranscriptPath not updated, got %+v", updated)
+	}
+	if got := mt.userOptions[sess.WindowID]["@roost_agent_transcript"]; got != path {
+		t.Fatalf("@roost_agent_transcript = %q, want %q", got, path)
+	}
+
+	// Idempotent: same path is a no-op.
+	if svc.HandleAgentTranscriptPath("agent-1", path) {
+		t.Fatal("expected false on idempotent set")
+	}
+	// Empty inputs are no-ops too.
+	if svc.HandleAgentTranscriptPath("", path) {
+		t.Fatal("expected false on empty agent ID")
+	}
+	if svc.HandleAgentTranscriptPath("agent-1", "") {
+		t.Fatal("expected false on empty path")
+	}
+}
+
+func TestHandleAgentTranscriptPath_BeforeBindIsNoop(t *testing.T) {
+	svc, _, _ := setupService(t)
+	// Without a binding there is no window to attach the path to. The next
+	// hook event will carry the path again so dropping it here is safe.
+	if svc.HandleAgentTranscriptPath("agent-orphan", "/x/y/agent-orphan.jsonl") {
+		t.Fatal("expected false without binding")
+	}
+}
+
+func TestHandleAgentWorkingDir_PersistsAndRefreshesBranch(t *testing.T) {
+	svc, _, mgr, mt := setupServiceWithTmux(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess)
+	svc.HandleSessionStart("%0", "agent-1")
+
+	workdir := "/tmp/proj/.claude/worktrees/foo"
+	if !svc.HandleAgentWorkingDir("agent-1", workdir) {
+		t.Fatal("expected true on first set")
+	}
+	updated := mgr.FindByWindowID(sess.WindowID)
+	if updated == nil || updated.AgentWorkingDir != workdir {
+		t.Fatalf("Session.AgentWorkingDir not updated, got %+v", updated)
+	}
+	if got := mt.userOptions[sess.WindowID]["@roost_agent_workdir"]; got != workdir {
+		t.Fatalf("@roost_agent_workdir = %q, want %q", got, workdir)
+	}
+}
+
+func TestActiveTranscriptPath_PrefersReportedPath(t *testing.T) {
+	svc, _, mgr := setupService(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess)
+	svc.HandleSessionStart("%0", "agent-1")
+
+	// Before any hook reports a path, ActiveTranscriptPath falls back to a
+	// driver-computed path from sess.Project.
+	home, _ := os.UserHomeDir()
+	wantFallback := filepath.Join(home, ".claude", "projects", "-tmp-proj", "agent-1.jsonl")
+	if got := svc.ActiveTranscriptPath(); got != wantFallback {
+		t.Fatalf("expected fallback %q, got %q", wantFallback, got)
+	}
+
+	// Once the agent reports its real transcript path, that wins over the
+	// fallback (worktree case: claude wrote to a different ProjectDir).
+	reported := "/home/u/.claude/projects/-tmp-proj--claude-worktrees-foo/agent-1.jsonl"
+	svc.HandleAgentTranscriptPath("agent-1", reported)
+
+	if got := svc.ActiveTranscriptPath(); got != reported {
+		t.Fatalf("ActiveTranscriptPath = %q, want %q", got, reported)
+	}
+}
+
+func TestResolveAgentMeta_FallbackToProject(t *testing.T) {
+	svc, _, mgr := setupService(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess)
+	svc.HandleSessionStart("%0", "agent-1")
+
+	// AgentTranscriptPath is empty, AgentWorkingDir is empty, but we should
+	// fall through to driver.TranscriptFilePath(home, sess.Project, agentID).
+	// The file does not exist on disk so meta stays empty — but the path
+	// resolves cleanly without panicking, which is what matters.
+	_ = svc.ResolveAgentMeta()
+	agent := svc.AgentStore.GetByWindow(sess.WindowID)
+	if agent == nil {
+		t.Fatal("expected agent after bind")
+	}
+	if agent.Title != "" {
+		t.Fatalf("expected empty Title without on-disk transcript, got %q", agent.Title)
 	}
 }
 

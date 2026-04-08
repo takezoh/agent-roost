@@ -3,7 +3,6 @@ package driver
 import (
 	"io/fs"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/take/agent-roost/lib/claude/cli"
@@ -26,70 +25,34 @@ func (Claude) SpawnCommand(baseCommand, agentSessionID string) string {
 	return cli.ResumeCommand(baseCommand, agentSessionID)
 }
 
-// ResolveMeta resolves session metadata from Claude Code JSONL logs.
-// If sessionID is non-empty, it reads that specific file; otherwise it
-// picks the most recent .jsonl in the project directory.
-func (Claude) ResolveMeta(fsys fs.FS, projectPath string, sessionID string) SessionMeta {
-	dir := filepath.Join(".claude", "projects", ProjectDir(projectPath))
-
-	if sessionID != "" {
-		path := filepath.Join(dir, sessionID+".jsonl")
-		meta := parseSessionMeta(fsys, path)
-		meta.SessionID = sessionID
-		return meta
+// TranscriptFilePath returns the JSONL transcript file Claude writes for the
+// given runtime context. Claude derives its project directory name from the
+// process working directory (replacing / and . with -), so for worktree-style
+// invocations the file lives under the worktree path, not the session's
+// recorded project. Used as a fallback when the agent hasn't yet reported its
+// transcript path via a hook event.
+func (Claude) TranscriptFilePath(home, workingDir, agentSessionID string) string {
+	if home == "" || workingDir == "" || agentSessionID == "" {
+		return ""
 	}
+	return filepath.Join(home, ".claude", "projects", projectDir(workingDir), agentSessionID+".jsonl")
+}
 
-	target := findNewestJSONL(fsys, dir)
-	if target == "" {
+// ResolveMeta reads session metadata from Claude's JSONL transcript at the
+// given absolute path. Missing files yield an empty SessionMeta silently.
+func (Claude) ResolveMeta(fsys fs.FS, transcriptPath string) SessionMeta {
+	if transcriptPath == "" {
 		return SessionMeta{}
 	}
-	meta := parseSessionMeta(fsys, filepath.Join(dir, target))
-	meta.SessionID = strings.TrimSuffix(target, ".jsonl")
-	return meta
+	// fs.FS treats absolute paths as invalid; strip the leading "/" so the
+	// caller can pass an os.DirFS("/") and have absolute paths work directly.
+	return parseSessionMeta(fsys, strings.TrimPrefix(transcriptPath, "/"))
 }
 
-func findNewestJSONL(fsys fs.FS, dir string) string {
-	entries, err := fs.ReadDir(fsys, dir)
-	if err != nil {
-		return ""
-	}
-
-	type file struct {
-		name  string
-		mtime int64
-	}
-	var jsonls []file
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		jsonls = append(jsonls, file{name: e.Name(), mtime: info.ModTime().UnixNano()})
-	}
-	if len(jsonls) == 0 {
-		return ""
-	}
-	sort.Slice(jsonls, func(i, j int) bool {
-		return jsonls[i].mtime > jsonls[j].mtime
-	})
-	return jsonls[0].name
-}
-
-// ProjectDir converts a project path to a ~/.claude/projects/ directory name.
-// Encoding: replaces / and . with -
-func ProjectDir(projectPath string) string {
-	return strings.NewReplacer("/", "-", ".", "-").Replace(projectPath)
-}
-
-// TranscriptFilePath returns the JSONL transcript file path for a Claude session ID.
-func TranscriptFilePath(homeDir, projectPath, sessionID string) string {
-	if homeDir == "" || projectPath == "" || sessionID == "" {
-		return ""
-	}
-	return filepath.Join(homeDir, ".claude", "projects", ProjectDir(projectPath), sessionID+".jsonl")
+// projectDir mirrors Claude Code's encoding of working dir → ~/.claude/projects/
+// dir name: replace / and . with -.
+func projectDir(p string) string {
+	return strings.NewReplacer("/", "-", ".", "-").Replace(p)
 }
 
 // parseSessionMeta delegates to transcript.AggregateMeta for the heavy

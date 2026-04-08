@@ -167,6 +167,8 @@ func (c *Client) ListRoostWindows() ([]session.RoostWindow, error) {
 		"#{@roost_created_at}",
 		"#{@roost_tags}",
 		"#{@roost_agent_session}",
+		"#{@roost_agent_workdir}",
+		"#{@roost_agent_transcript}",
 	}, "\t")
 	out, err := c.Run("list-windows", "-t", c.SessionName, "-F", fmtStr)
 	if err != nil {
@@ -184,20 +186,22 @@ func parseRoostWindows(out string) []session.RoostWindow {
 			continue
 		}
 		parts := strings.Split(line, "\t")
-		if len(parts) < 7 {
+		if len(parts) < 9 {
 			continue
 		}
 		if parts[1] == "" {
 			continue
 		}
 		windows = append(windows, session.RoostWindow{
-			WindowID:       parts[0],
-			ID:             parts[1],
-			Project:        parts[2],
-			Command:        parts[3],
-			CreatedAt:      parts[4],
-			Tags:           parts[5],
-			AgentSessionID: parts[6],
+			WindowID:            parts[0],
+			ID:                  parts[1],
+			Project:             parts[2],
+			Command:             parts[3],
+			CreatedAt:           parts[4],
+			Tags:                parts[5],
+			AgentSessionID:      parts[6],
+			AgentWorkingDir:     parts[7],
+			AgentTranscriptPath: parts[8],
 		})
 	}
 	return windows

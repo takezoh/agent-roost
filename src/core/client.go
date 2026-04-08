@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net"
 	"sync"
+
+	"github.com/take/agent-roost/session/driver"
 )
 
 type Client struct {
@@ -142,13 +144,11 @@ func (c *Client) FocusPane(pane string) error {
 	return err
 }
 
-func (c *Client) SendAgentEvent(eventType string, args map[string]string) error {
-	a := make(map[string]string, len(args)+1)
-	for k, v := range args {
-		a[k] = v
-	}
-	a["type"] = eventType
-	_, err := c.sendCommand("agent-event", a)
+// SendAgentEvent ships a driver-neutral AgentEvent over IPC. Drivers
+// (e.g. lib/claude/command.go) construct the event by translating their
+// tool-specific hook payload; this method serializes it onto the wire.
+func (c *Client) SendAgentEvent(ev driver.AgentEvent) error {
+	_, err := c.sendCommand("agent-event", ev.ToArgs())
 	return err
 }
 

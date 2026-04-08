@@ -9,6 +9,7 @@ import (
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/lib"
+	"github.com/take/agent-roost/session/driver"
 )
 
 func init() {
@@ -66,26 +67,31 @@ func runEvent() {
 	defer client.Close()
 	client.StartListening()
 
+	// Translate Claude-specific hook payload (cwd, transcript_path, ...) into
+	// the driver-neutral AgentEvent the coordinator understands. This is the
+	// only place in roost that touches Claude hook field names.
+	pane := os.Getenv("TMUX_PANE")
+
 	if event.HookEventName == "SessionStart" {
-		args := map[string]string{
-			"session_id": event.SessionID,
-		}
-		if pane := os.Getenv("TMUX_PANE"); pane != "" {
-			args["pane"] = pane
-		}
-		client.SendAgentEvent("session-start", args)
+		client.SendAgentEvent(driver.AgentEvent{
+			Type:           driver.AgentEventSessionStart,
+			AgentSessionID: event.SessionID,
+			WorkingDir:     event.Cwd,
+			TranscriptPath: event.TranscriptPath,
+			Pane:           pane,
+		})
 	}
 
 	if state := event.DeriveState(); state != "" {
-		args := map[string]string{
-			"session_id": event.SessionID,
-			"state":      state,
-			"log":        event.FormatLog(),
-		}
-		if pane := os.Getenv("TMUX_PANE"); pane != "" {
-			args["pane"] = pane
-		}
-		client.SendAgentEvent("state-change", args)
+		client.SendAgentEvent(driver.AgentEvent{
+			Type:           driver.AgentEventStateChange,
+			AgentSessionID: event.SessionID,
+			State:          state,
+			WorkingDir:     event.Cwd,
+			TranscriptPath: event.TranscriptPath,
+			Pane:           pane,
+			Log:            event.FormatLog(),
+		})
 	}
 }
 

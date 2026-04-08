@@ -98,29 +98,40 @@ func (m *Manager) Recreate(drivers *driver.Registry) error {
 		if err := m.tmux.SetOption(windowID, "remain-on-exit", "off"); err != nil {
 			slog.Warn("recreate: set remain-on-exit failed", "err", err)
 		}
-
-		opts := map[string]string{
-			"@roost_id":         s.ID,
-			"@roost_project":    s.Project,
-			"@roost_command":    s.Command,
-			"@roost_created_at": s.CreatedAt.UTC().Format(time.RFC3339),
-			"@roost_tags":       encodeTags(s.Tags),
-		}
-		if s.AgentSessionID != "" {
-			opts["@roost_agent_session"] = s.AgentSessionID
-		}
-		if err := m.tmux.SetWindowUserOptions(windowID, opts); err != nil {
+		s.WindowID = windowID
+		if err := m.tmux.SetWindowUserOptions(windowID, sessionUserOptions(s)); err != nil {
 			slog.Error("recreate: SetWindowUserOptions failed", "id", s.ID, "err", err)
 			m.tmux.KillWindow(windowID)
 			continue
 		}
-
-		s.WindowID = windowID
 		s.State = StateRunning
 		m.sessions = append(m.sessions, s)
 	}
 	m.saveSnapshotLocked()
 	return nil
+}
+
+// sessionUserOptions converts a Session into the @roost_* user options that
+// represent its runtime truth in tmux. Empty optional fields are omitted so
+// the parsing path on read can distinguish "unset" from explicit empty.
+func sessionUserOptions(s *Session) map[string]string {
+	opts := map[string]string{
+		"@roost_id":         s.ID,
+		"@roost_project":    s.Project,
+		"@roost_command":    s.Command,
+		"@roost_created_at": s.CreatedAt.UTC().Format(time.RFC3339),
+		"@roost_tags":       encodeTags(s.Tags),
+	}
+	if s.AgentSessionID != "" {
+		opts["@roost_agent_session"] = s.AgentSessionID
+	}
+	if s.AgentWorkingDir != "" {
+		opts["@roost_agent_workdir"] = s.AgentWorkingDir
+	}
+	if s.AgentTranscriptPath != "" {
+		opts["@roost_agent_transcript"] = s.AgentTranscriptPath
+	}
+	return opts
 }
 
 // SyncBranches re-detects the git branch for every session and writes
@@ -140,8 +151,14 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 	}
 	slog.Info("creating session", "project", project, "command", command, "id", id)
 
-	tags := buildTags(m.detectBranch(project))
-	createdAt := time.Now()
+	s := &Session{
+		ID:        id,
+		Project:   project,
+		Command:   command,
+		CreatedAt: time.Now(),
+		State:     StateRunning,
+		Tags:      buildTags(m.detectBranch(project)),
+	}
 
 	name := filepath.Base(project) + ":" + id
 	windowID, err := m.tmux.NewWindow(name, "exec "+command, project)
@@ -152,28 +169,11 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 	if err := m.tmux.SetOption(windowID, "remain-on-exit", "off"); err != nil {
 		slog.Warn("create: set remain-on-exit failed", "err", err)
 	}
-
-	options := map[string]string{
-		"@roost_id":         id,
-		"@roost_project":    project,
-		"@roost_command":    command,
-		"@roost_created_at": createdAt.UTC().Format(time.RFC3339),
-		"@roost_tags":       encodeTags(tags),
-	}
-	if err := m.tmux.SetWindowUserOptions(windowID, options); err != nil {
+	s.WindowID = windowID
+	if err := m.tmux.SetWindowUserOptions(windowID, sessionUserOptions(s)); err != nil {
 		slog.Error("create: set window options failed", "err", err)
 		m.tmux.KillWindow(windowID)
 		return nil, err
-	}
-
-	s := &Session{
-		ID:        id,
-		Project:   project,
-		Command:   command,
-		WindowID:  windowID,
-		CreatedAt: createdAt,
-		State:     StateRunning,
-		Tags:      tags,
 	}
 
 	m.mu.Lock()
@@ -317,53 +317,6 @@ func (m *Manager) UpdateStates(states map[string]State) {
 	}
 }
 
-// SetAgentSessionID writes the @roost_agent_session user option for the given
-// window and updates the in-memory cache. Returns true if the value changed.
-func (m *Manager) SetAgentSessionID(windowID, agentSessionID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, s := range m.sessions {
-		if s.WindowID == windowID {
-			if s.AgentSessionID == agentSessionID {
-				return false
-			}
-			if err := m.tmux.SetWindowUserOption(windowID, "@roost_agent_session", agentSessionID); err != nil {
-				slog.Error("set agent session option failed", "window", windowID, "err", err)
-				return false
-			}
-			s.AgentSessionID = agentSessionID
-			m.saveSnapshotLocked()
-			return true
-		}
-	}
-	return false
-}
-
-func (m *Manager) RefreshBranch(sessionID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, s := range m.sessions {
-		if s.ID == sessionID {
-			return m.refreshSessionBranchLocked(s)
-		}
-	}
-	return false
-}
-
-func (m *Manager) refreshSessionBranchLocked(s *Session) bool {
-	tags := buildTags(m.detectBranch(s.Project))
-	if tagsEqual(s.Tags, tags) {
-		return false
-	}
-	if err := m.tmux.SetWindowUserOption(s.WindowID, "@roost_tags", encodeTags(tags)); err != nil {
-		slog.Warn("refresh branch: set tags failed", "window", s.WindowID, "err", err)
-		return false
-	}
-	s.Tags = tags
-	m.saveSnapshotLocked()
-	return true
-}
-
 func (m *Manager) DataDir() string {
 	return m.dataDir
 }
@@ -462,13 +415,15 @@ func decodeTags(s string) []Tag {
 func windowToSession(w RoostWindow) *Session {
 	createdAt, _ := time.Parse(time.RFC3339, w.CreatedAt)
 	return &Session{
-		ID:             w.ID,
-		Project:        w.Project,
-		Command:        w.Command,
-		WindowID:       w.WindowID,
-		AgentSessionID: w.AgentSessionID,
-		CreatedAt:      createdAt,
-		Tags:           decodeTags(w.Tags),
+		ID:                  w.ID,
+		Project:             w.Project,
+		Command:             w.Command,
+		WindowID:            w.WindowID,
+		AgentSessionID:      w.AgentSessionID,
+		AgentWorkingDir:     w.AgentWorkingDir,
+		AgentTranscriptPath: w.AgentTranscriptPath,
+		CreatedAt:           createdAt,
+		Tags:                decodeTags(w.Tags),
 	}
 }
 
