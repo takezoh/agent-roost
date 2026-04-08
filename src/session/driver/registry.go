@@ -26,18 +26,20 @@ func NewRegistry(drivers []Driver, fallback Driver) *Registry {
 	return r
 }
 
-// Get returns the Driver for the given command name. Unknown commands return fallback.
+// Get returns the Driver for the given command line. The command is parsed
+// via Kind so invocations like "claude --worktree" or "FOO=bar claude" still
+// resolve to the registered "claude" driver. Unknown commands return fallback.
 func (r *Registry) Get(command string) Driver {
-	if d, ok := r.drivers[command]; ok {
+	if d, ok := r.drivers[Kind(command)]; ok {
 		return d
 	}
 	return r.fallback
 }
 
-// CompiledPattern returns the compiled regexp for the given command name.
+// CompiledPattern returns the compiled regexp for the given command line.
 // Unknown commands return the fallback pattern.
 func (r *Registry) CompiledPattern(command string) *regexp.Regexp {
-	if p, ok := r.patterns[command]; ok {
+	if p, ok := r.patterns[Kind(command)]; ok {
 		return p
 	}
 	return r.patterns[""]

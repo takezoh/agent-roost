@@ -245,7 +245,7 @@ func (s *Service) TranscriptPathByAgent(agentSessionID string) string {
 		return ""
 	}
 	sess := s.Manager.FindByWindowID(wid)
-	if sess == nil || sess.Command != "claude" {
+	if sess == nil || driver.Kind(sess.Command) != "claude" {
 		return ""
 	}
 	home, _ := os.UserHomeDir()
@@ -282,7 +282,7 @@ func (s *Service) SyncActiveStatusLine() {
 // ResolveAgentState returns the final display state for a session,
 // merging capture-pane state with agent hook state.
 func ResolveAgentState(command string, captureState session.State, agent *driver.AgentSession) session.State {
-	if command != "claude" {
+	if driver.Kind(command) != "claude" {
 		return captureState
 	}
 	if agent == nil || agent.State == driver.AgentStateUnset {
@@ -348,7 +348,7 @@ func (s *Service) ActiveTranscriptPath() string {
 		return ""
 	}
 	sess := s.Manager.FindByWindowID(s.activeWindowID)
-	if sess == nil || sess.Command != "claude" {
+	if sess == nil || driver.Kind(sess.Command) != "claude" {
 		return ""
 	}
 	agent := s.AgentStore.GetByWindow(s.activeWindowID)

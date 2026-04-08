@@ -28,6 +28,25 @@ func TestRegistryGet_KnownCommands(t *testing.T) {
 	}
 }
 
+func TestRegistryGet_NormalizesCommandLine(t *testing.T) {
+	r := DefaultRegistry()
+	tests := []string{
+		"claude --worktree",
+		"FOO=bar claude --worktree",
+		"/usr/local/bin/claude --resume abc",
+		`claude --system-prompt "be terse"`,
+	}
+	for _, cmd := range tests {
+		d := r.Get(cmd)
+		if d.Name() != "claude" {
+			t.Errorf("Get(%q).Name() = %q, want %q", cmd, d.Name(), "claude")
+		}
+		if r.CompiledPattern(cmd) == nil {
+			t.Errorf("CompiledPattern(%q) returned nil", cmd)
+		}
+	}
+}
+
 func TestRegistryCompiledPattern_NotNil(t *testing.T) {
 	r := DefaultRegistry()
 	for _, cmd := range []string{"claude", "gemini", "codex", "bash", "unknown"} {

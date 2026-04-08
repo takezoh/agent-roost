@@ -23,6 +23,7 @@ type Server struct {
 	sockPath          string
 	done              chan struct{}
 	shutdownRequested bool
+	aliases           map[string]string
 }
 
 type clientConn struct {
@@ -186,6 +187,10 @@ func (s *Server) handleCreateSession(cc *clientConn, args map[string]string) {
 	}
 	if command == "" {
 		command = "claude"
+	}
+	if expanded := ResolveCommandAlias(s.aliases, command); expanded != command {
+		slog.Info("alias expanded", "from", command, "to", expanded)
+		command = expanded
 	}
 	slog.Info("create session", "project", project, "command", command)
 	sess, err := s.svc.Manager.Create(project, command)
