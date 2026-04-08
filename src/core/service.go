@@ -260,18 +260,31 @@ func (s *Service) HandleStatusLine(agentSessionID, line string) bool {
 	return changed
 }
 
+// HandleTranscriptPath records the JSONL transcript path Claude reports for an
+// agent session. The path is cached in the AgentStore for runtime lookups and
+// persisted as a tmux window user option so cold-boot restore can recover it
+// before the first hook event of the new process arrives.
+func (s *Service) HandleTranscriptPath(agentSessionID, transcriptPath string) bool {
+	if agentSessionID == "" || transcriptPath == "" {
+		return false
+	}
+	changed := s.AgentStore.UpdateTranscriptPath(agentSessionID, transcriptPath)
+	if !changed {
+		return false
+	}
+	if wid := s.AgentStore.WindowIDByAgent(agentSessionID); wid != "" {
+		s.Manager.SetAgentTranscriptPath(wid, transcriptPath)
+	}
+	return true
+}
+
 // TranscriptPathByAgent returns the transcript path for a given agent session ID.
 func (s *Service) TranscriptPathByAgent(agentSessionID string) string {
-	wid := s.AgentStore.WindowIDByAgent(agentSessionID)
-	if wid == "" {
+	agent := s.AgentStore.Get(agentSessionID)
+	if agent == nil {
 		return ""
 	}
-	sess := s.Manager.FindByWindowID(wid)
-	if sess == nil || driver.Kind(sess.Command) != "claude" {
-		return ""
-	}
-	home, _ := os.UserHomeDir()
-	return driver.TranscriptFilePath(home, sess.Project, agentSessionID)
+	return agent.TranscriptPath
 }
 
 // UpdateStatusFromTranscript reads new transcript content and updates the status line.
@@ -377,25 +390,27 @@ func (s *Service) ActiveTranscriptPath() string {
 	if agent == nil {
 		return ""
 	}
-	home, _ := os.UserHomeDir()
-	return driver.TranscriptFilePath(home, sess.Project, agent.ID)
+	return agent.TranscriptPath
 }
 
-// ResolveAgentMeta resolves metadata from agent log files for windows that
-// already have a known agent session binding. Unbound windows are skipped —
-// binding only happens through hook events that carry pane context, since
-// guessing from "newest .jsonl in project dir" causes multiple sessions in the
-// same project to collapse onto a single agent session.
+// ResolveAgentMeta resolves metadata from agent transcript files for windows
+// that have already received a transcript path via hook events. Unbound
+// windows and windows whose agent session has no transcript path yet are
+// skipped — both bindings and transcript paths only become known through
+// hook events.
 func (s *Service) ResolveAgentMeta() bool {
-	home, _ := os.UserHomeDir()
-	fsys := os.DirFS(home)
+	fsys := os.DirFS("/")
 	changed := false
 	for _, sess := range s.Manager.All() {
 		agentID := s.AgentStore.IDByWindow(sess.WindowID)
 		if agentID == "" {
 			continue
 		}
-		meta := s.Drivers.Get(sess.Command).ResolveMeta(fsys, sess.Project, agentID)
+		agent := s.AgentStore.Get(agentID)
+		if agent == nil || agent.TranscriptPath == "" {
+			continue
+		}
+		meta := s.Drivers.Get(sess.Command).ResolveMeta(fsys, agent.TranscriptPath)
 		if meta.Title == "" && meta.LastPrompt == "" && len(meta.Subjects) == 0 {
 			continue
 		}

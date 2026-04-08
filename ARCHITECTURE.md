@@ -519,12 +519,12 @@ type Driver interface {
     Name() string
     PromptPattern() string
     DisplayName() string
-    ResolveMeta(fsys fs.FS, projectPath string, source string) SessionMeta
+    ResolveMeta(fsys fs.FS, transcriptPath string) SessionMeta
     SpawnCommand(baseCommand, agentSessionID string) string
 }
 ```
 
-`Driver.ResolveMeta` は `fs.FS` を受け取ることでファイルシステムを注入可能にする。本番では `os.DirFS(home)` を渡し、テストでは `fstest.MapFS` を使用できる。`source` はエージェントセッション ID（空文字の場合は最新ファイルにフォールバック）。Claude ドライバは `source + ".jsonl"` でファイルを開く。
+`Driver.ResolveMeta` は `fs.FS` と「Claude が hook イベントで報告した transcript の絶対パス」を受け取る。本番では `os.DirFS("/")` を渡し (Claude が返すパスは絶対パス)、テストでは `fstest.MapFS` を使用できる。Claude ドライバは roost 側でパスを推測しない — `claude --worktree` のような worktree 起動だと cwd と元のプロジェクトパスから派生する `~/.claude/projects/{ProjectDir}` ディレクトリが食い違うため、必ず Claude 自身が報告した値を使う。
 
 `Driver.SpawnCommand` は cold-boot 復元時に `Manager.Recreate` から呼ばれ、ドライバごとに固有の resume 方法でコマンド文字列を組み立てる。Claude ドライバは `lib/claude/cli.ResumeCommand` に委譲して `claude --resume <id>` を返し、Generic ドライバは base コマンドをそのまま返す。
 
@@ -536,7 +536,7 @@ type AgentStore struct {
 }
 ```
 
-`AgentStore` は純粋な in-memory ストアで tmux Session とは独立。`Bind` で windowID ↔ agentSessionID を紐付け、hook イベントは agentSessionID で直接ルックアップ。`WindowIDByAgent` で逆引きも可能。tmux の swap-pane に影響されない。I/O（イベントログ）は `Service` が担う。トランスクリプトパス構築は `driver.TranscriptPath` で Claude 固有ロジックとして driver に閉じる。
+`AgentStore` は純粋な in-memory ストアで tmux Session とは独立。`Bind` で windowID ↔ agentSessionID を紐付け、hook イベントは agentSessionID で直接ルックアップ。`WindowIDByAgent` で逆引きも可能。tmux の swap-pane に影響されない。I/O（イベントログ）は `Service` が担う。トランスクリプトパスは `AgentSession.TranscriptPath` に Claude が hook イベント (`transcript_path`) で報告したものをそのまま保持する — roost は project パスから推測しない。`Manager.SetAgentTranscriptPath` で `@roost_agent_transcript_path` を tmux window user option に永続化し、cold-boot 復帰直後にも前回値を使えるようにする。
 
 ```go
 // session/manager.go
@@ -605,7 +605,7 @@ type TmuxClient interface {
 | パス | 形式 | 内容 | ライフサイクル |
 |------|------|------|--------------|
 | `~/.config/roost/config.toml` | TOML | ユーザー設定（下記参照） | ユーザーが作成。存在しなければデフォルト値で動作 |
-| `~/.config/roost/sessions.json` | JSON | セッション一覧の cold-boot スナップショット | Manager の各ミューテーション (Create/Stop/SetAgentSessionID/RefreshBranch/Refresh) で書き出し。読まれるのは PC 再起動 (`!client.SessionExists()`) 時の `Manager.Recreate` のみ。runtime の真実は tmux user options |
+| `~/.config/roost/sessions.json` | JSON | セッション一覧の cold-boot スナップショット | Manager の各ミューテーション (Create/Stop/SetAgentSessionID/SetAgentTranscriptPath/RefreshBranch/Refresh) で書き出し。読まれるのは PC 再起動 (`!client.SessionExists()`) 時の `Manager.Recreate` のみ。runtime の真実は tmux user options |
 | `~/.config/roost/events/{agentSessionID}.log` | テキスト | エージェント hook イベントログ | hook イベント受信時に追記。Service.AppendEventLog で書き込み |
 | `~/.config/roost/roost.log` | slog | アプリケーションログ | Coordinator 起動時に作成/追記 |
 | `~/.config/roost/roost.sock` | Unix socket | プロセス間通信 | Coordinator 起動時に作成。終了時に削除 |

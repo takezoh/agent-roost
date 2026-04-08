@@ -30,12 +30,13 @@ func (s AgentState) String() string {
 }
 
 type AgentSession struct {
-	ID         string
-	State      AgentState
-	StatusLine string
-	Title      string
-	LastPrompt string
-	Subjects   []string
+	ID             string
+	State          AgentState
+	StatusLine     string
+	Title          string
+	LastPrompt     string
+	Subjects       []string
+	TranscriptPath string // absolute JSONL path reported by Claude hook events
 
 	// Driver-derived insight fields. These are populated by ResolveMeta
 	// and consumed via Indicators() to keep the core layer agnostic of

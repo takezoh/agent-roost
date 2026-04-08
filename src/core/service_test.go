@@ -60,13 +60,14 @@ func (m *mockTmuxForService) ListRoostWindows() ([]session.RoostWindow, error) {
 			continue
 		}
 		out = append(out, session.RoostWindow{
-			WindowID:       id,
-			ID:             opts["@roost_id"],
-			Project:        opts["@roost_project"],
-			Command:        opts["@roost_command"],
-			CreatedAt:      opts["@roost_created_at"],
-			Tags:           opts["@roost_tags"],
-			AgentSessionID: opts["@roost_agent_session"],
+			WindowID:            id,
+			ID:                  opts["@roost_id"],
+			Project:             opts["@roost_project"],
+			Command:             opts["@roost_command"],
+			CreatedAt:           opts["@roost_created_at"],
+			Tags:                opts["@roost_tags"],
+			AgentSessionID:      opts["@roost_agent_session"],
+			AgentTranscriptPath: opts["@roost_agent_transcript_path"],
 		})
 	}
 	return out, nil
@@ -408,6 +409,88 @@ func TestReapDeadSessions(t *testing.T) {
 	}
 	if svc.AgentStore.GetByWindow(sess.WindowID) != nil {
 		t.Fatal("expected AgentStore.Unbind to fire")
+	}
+}
+
+func TestHandleTranscriptPath_PersistsToStoreAndTmux(t *testing.T) {
+	svc, _, mgr, mt := setupServiceWithTmux(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess) // sets activeWindowID so HandleSessionStart can fall back
+	svc.HandleSessionStart("%0", "agent-1")
+
+	path := "/home/u/.claude/projects/-workspace-worktree/agent-1.jsonl"
+	if !svc.HandleTranscriptPath("agent-1", path) {
+		t.Fatal("expected true on first transcript path set")
+	}
+	agent := svc.AgentStore.Get("agent-1")
+	if agent == nil || agent.TranscriptPath != path {
+		t.Fatalf("AgentStore did not record TranscriptPath, got %+v", agent)
+	}
+	if got := mt.userOptions[sess.WindowID]["@roost_agent_transcript_path"]; got != path {
+		t.Fatalf("@roost_agent_transcript_path = %q, want %q", got, path)
+	}
+
+	// Idempotent: same path is a no-op.
+	if svc.HandleTranscriptPath("agent-1", path) {
+		t.Fatal("expected false on idempotent set")
+	}
+	// Empty inputs are no-ops too.
+	if svc.HandleTranscriptPath("", path) {
+		t.Fatal("expected false on empty agent ID")
+	}
+	if svc.HandleTranscriptPath("agent-1", "") {
+		t.Fatal("expected false on empty path")
+	}
+}
+
+func TestHandleTranscriptPath_BeforeBindStillCachesInStore(t *testing.T) {
+	svc, _, _ := setupService(t)
+	// state-change can arrive before SessionStart establishes the binding;
+	// the path should still be cached so the eventual bind has it ready.
+	if !svc.HandleTranscriptPath("agent-orphan", "/x/y/agent-orphan.jsonl") {
+		t.Fatal("expected true even without binding")
+	}
+	agent := svc.AgentStore.Get("agent-orphan")
+	if agent == nil || agent.TranscriptPath != "/x/y/agent-orphan.jsonl" {
+		t.Fatalf("expected store to cache path even without window binding, got %+v", agent)
+	}
+}
+
+func TestActiveTranscriptPath_FromAgentStore(t *testing.T) {
+	svc, _, mgr := setupService(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess)
+	svc.HandleSessionStart("%0", "agent-1")
+
+	// Without a recorded transcript path, ActiveTranscriptPath returns "".
+	if got := svc.ActiveTranscriptPath(); got != "" {
+		t.Fatalf("expected empty before transcript_path, got %q", got)
+	}
+
+	worktreePath := "/home/u/.claude/projects/-workspace-agent-roost--claude-worktrees-foo/agent-1.jsonl"
+	svc.HandleTranscriptPath("agent-1", worktreePath)
+
+	// Path returned is what Claude reported, NOT derived from sess.Project.
+	if got := svc.ActiveTranscriptPath(); got != worktreePath {
+		t.Fatalf("ActiveTranscriptPath = %q, want %q", got, worktreePath)
+	}
+}
+
+func TestResolveAgentMeta_SkipsWithoutTranscriptPath(t *testing.T) {
+	svc, _, mgr := setupService(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess)
+	svc.HandleSessionStart("%0", "agent-1")
+
+	// Bind exists but no transcript path → ResolveAgentMeta must not crash
+	// or attempt any guesswork; AgentStore meta stays empty.
+	_ = svc.ResolveAgentMeta()
+	agent := svc.AgentStore.GetByWindow(sess.WindowID)
+	if agent == nil {
+		t.Fatal("expected agent after bind")
+	}
+	if agent.Title != "" {
+		t.Fatalf("expected empty Title without transcript_path, got %q", agent.Title)
 	}
 }
 

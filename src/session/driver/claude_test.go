@@ -26,21 +26,11 @@ func TestGeneric_SpawnCommand(t *testing.T) {
 	}
 }
 
-func TestClaudeProjectDir(t *testing.T) {
-	tests := []struct {
-		path string
-		want string
-	}{
-		{"/home/take", "-home-take"},
-		{"/home/take/.claude", "-home-take--claude"},
-		{"/workspace/agent-roost", "-workspace-agent-roost"},
-		{"/home/take/.dotfiles/config/nvim", "-home-take--dotfiles-config-nvim"},
-	}
-	for _, tt := range tests {
-		got := ProjectDir(tt.path)
-		if got != tt.want {
-			t.Errorf("ProjectDir(%q) = %q, want %q", tt.path, got, tt.want)
-		}
+// fstest.MapFS keys are unrooted; ResolveMeta strips the leading "/" before
+// calling fs.Open, so absolute hook-event paths map directly onto these keys.
+func mapFSWithTranscript(path, jsonl string) fstest.MapFS {
+	return fstest.MapFS{
+		path: &fstest.MapFile{Data: []byte(jsonl)},
 	}
 }
 
@@ -49,71 +39,45 @@ func TestClaude_ResolveMeta(t *testing.T) {
 {"type":"custom-title","customTitle":"my-session-name","sessionId":"abc"}
 {"type":"user","message":{"role":"user","content":"the last prompt"}}
 `
-	fsys := fstest.MapFS{
-		".claude/projects/-workspace-myproject/abc.jsonl": &fstest.MapFile{
-			Data: []byte(jsonl),
-		},
-	}
+	fsys := mapFSWithTranscript("home/u/.claude/projects/-workspace-myproject/abc.jsonl", jsonl)
 	d := Claude{}
-	meta := d.ResolveMeta(fsys, "/workspace/myproject", "")
+	meta := d.ResolveMeta(fsys, "/home/u/.claude/projects/-workspace-myproject/abc.jsonl")
 	if meta.Title != "my-session-name" {
 		t.Errorf("Title = %q, want %q", meta.Title, "my-session-name")
 	}
 	if meta.LastPrompt != "the last prompt" {
 		t.Errorf("LastPrompt = %q, want %q", meta.LastPrompt, "the last prompt")
 	}
-	if meta.SessionID != "abc" {
-		t.Errorf("Source = %q, want %q", meta.SessionID, "abc")
-	}
 }
 
-func TestClaude_ResolveMeta_WithSource(t *testing.T) {
-	jsonl1 := `{"type":"custom-title","customTitle":"session-one"}
+func TestClaude_ResolveMeta_WorktreePath(t *testing.T) {
+	// Worktree-style transcript path: project recorded in roost is the
+	// canonical repo, but Claude wrote the JSONL under the worktree directory.
+	// Driver must read the path as given (not derive it from project).
+	jsonl := `{"type":"custom-title","customTitle":"worktree-session"}
 `
-	jsonl2 := `{"type":"custom-title","customTitle":"session-two"}
-`
-	fsys := fstest.MapFS{
-		".claude/projects/-workspace-myproject/aaa.jsonl": &fstest.MapFile{
-			Data: []byte(jsonl1),
-		},
-		".claude/projects/-workspace-myproject/bbb.jsonl": &fstest.MapFile{
-			Data: []byte(jsonl2),
-		},
-	}
+	fsys := mapFSWithTranscript("home/u/.claude/projects/-workspace-agent-roost--claude-worktrees-foo/abc.jsonl", jsonl)
 	d := Claude{}
-	meta := d.ResolveMeta(fsys, "/workspace/myproject", "aaa")
-	if meta.Title != "session-one" {
-		t.Errorf("Title = %q, want %q", meta.Title, "session-one")
-	}
-	if meta.SessionID != "aaa" {
-		t.Errorf("Source = %q, want %q", meta.SessionID, "aaa")
+	meta := d.ResolveMeta(fsys, "/home/u/.claude/projects/-workspace-agent-roost--claude-worktrees-foo/abc.jsonl")
+	if meta.Title != "worktree-session" {
+		t.Errorf("Title = %q, want %q", meta.Title, "worktree-session")
 	}
 }
 
-func TestClaude_ResolveMeta_NoCustomTitle(t *testing.T) {
-	jsonl := `{"type":"user","message":{"role":"user","content":"fallback prompt"}}
-`
-	fsys := fstest.MapFS{
-		".claude/projects/-workspace-myproject/abc.jsonl": &fstest.MapFile{
-			Data: []byte(jsonl),
-		},
-	}
+func TestClaude_ResolveMeta_EmptyPath(t *testing.T) {
 	d := Claude{}
-	meta := d.ResolveMeta(fsys, "/workspace/myproject", "")
-	if meta.Title != "" {
-		t.Errorf("Title = %q, want empty", meta.Title)
-	}
-	if meta.LastPrompt != "fallback prompt" {
-		t.Errorf("LastPrompt = %q, want %q", meta.LastPrompt, "fallback prompt")
+	meta := d.ResolveMeta(fstest.MapFS{}, "")
+	if meta.Title != "" || meta.LastPrompt != "" {
+		t.Errorf("expected empty meta for empty transcriptPath, got %+v", meta)
 	}
 }
 
-func TestClaude_ResolveMeta_NoFiles(t *testing.T) {
+func TestClaude_ResolveMeta_NoFile(t *testing.T) {
 	fsys := fstest.MapFS{}
 	d := Claude{}
-	meta := d.ResolveMeta(fsys, "/workspace/myproject", "")
+	meta := d.ResolveMeta(fsys, "/home/u/.claude/projects/-x/missing.jsonl")
 	if meta.Title != "" || meta.LastPrompt != "" {
-		t.Errorf("expected empty meta, got Title=%q LastPrompt=%q", meta.Title, meta.LastPrompt)
+		t.Errorf("expected empty meta when file is missing, got %+v", meta)
 	}
 }
 
@@ -122,13 +86,9 @@ func TestClaude_ResolveMeta_TaskCreateSubjects(t *testing.T) {
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Fix login bug"}},{"type":"tool_use","name":"Read","input":{"file_path":"main.go"}}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Add login tests"}}]}}
 `
-	fsys := fstest.MapFS{
-		".claude/projects/-workspace-myproject/abc.jsonl": &fstest.MapFile{
-			Data: []byte(jsonl),
-		},
-	}
+	fsys := mapFSWithTranscript("home/u/.claude/projects/-workspace-myproject/abc.jsonl", jsonl)
 	d := Claude{}
-	meta := d.ResolveMeta(fsys, "/workspace/myproject", "")
+	meta := d.ResolveMeta(fsys, "/home/u/.claude/projects/-workspace-myproject/abc.jsonl")
 	if len(meta.Subjects) != 2 {
 		t.Fatalf("Subjects len = %d, want 2", len(meta.Subjects))
 	}
@@ -146,13 +106,9 @@ func TestClaude_ResolveMeta_TaskCreateSubjects(t *testing.T) {
 func TestClaude_ResolveMeta_NoTaskCreate(t *testing.T) {
 	jsonl := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"main.go"}}]}}
 `
-	fsys := fstest.MapFS{
-		".claude/projects/-workspace-myproject/abc.jsonl": &fstest.MapFile{
-			Data: []byte(jsonl),
-		},
-	}
+	fsys := mapFSWithTranscript("home/u/.claude/projects/-workspace-myproject/abc.jsonl", jsonl)
 	d := Claude{}
-	meta := d.ResolveMeta(fsys, "/workspace/myproject", "")
+	meta := d.ResolveMeta(fsys, "/home/u/.claude/projects/-workspace-myproject/abc.jsonl")
 	if len(meta.Subjects) != 0 {
 		t.Errorf("Subjects len = %d, want 0", len(meta.Subjects))
 	}
@@ -161,7 +117,7 @@ func TestClaude_ResolveMeta_NoTaskCreate(t *testing.T) {
 func TestGeneric_ResolveMeta_Empty(t *testing.T) {
 	fsys := fstest.MapFS{}
 	d := NewGeneric("gemini")
-	meta := d.ResolveMeta(fsys, "/workspace/myproject", "")
+	meta := d.ResolveMeta(fsys, "/home/u/.claude/projects/x/abc.jsonl")
 	if meta.Title != "" || meta.LastPrompt != "" {
 		t.Errorf("expected empty meta, got Title=%q LastPrompt=%q", meta.Title, meta.LastPrompt)
 	}

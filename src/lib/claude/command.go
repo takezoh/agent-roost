@@ -70,6 +70,9 @@ func runEvent() {
 		args := map[string]string{
 			"session_id": event.SessionID,
 		}
+		if event.TranscriptPath != "" {
+			args["transcript_path"] = event.TranscriptPath
+		}
 		if pane := os.Getenv("TMUX_PANE"); pane != "" {
 			args["pane"] = pane
 		}
@@ -81,6 +84,9 @@ func runEvent() {
 			"session_id": event.SessionID,
 			"state":      state,
 			"log":        event.FormatLog(),
+		}
+		if event.TranscriptPath != "" {
+			args["transcript_path"] = event.TranscriptPath
 		}
 		if pane := os.Getenv("TMUX_PANE"); pane != "" {
 			args["pane"] = pane

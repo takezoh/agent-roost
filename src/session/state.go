@@ -55,13 +55,14 @@ func (s State) Symbol() string {
 // the same struct can be serialized into sessions.json as a cold-boot snapshot
 // (tmux user options are wiped when the tmux server dies, e.g. on PC reboot).
 type Session struct {
-	ID             string    `json:"id"`
-	Project        string    `json:"project"`
-	Command        string    `json:"command"`
-	WindowID       string    `json:"window_id"`
-	AgentSessionID string    `json:"agent_session_id,omitempty"`
-	CreatedAt      time.Time `json:"created_at"`
-	Tags           []Tag     `json:"tags,omitempty"`
+	ID                  string    `json:"id"`
+	Project             string    `json:"project"`
+	Command             string    `json:"command"`
+	WindowID            string    `json:"window_id"`
+	AgentSessionID      string    `json:"agent_session_id,omitempty"`
+	AgentTranscriptPath string    `json:"agent_transcript_path,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
+	Tags                []Tag     `json:"tags,omitempty"`
 
 	State          State     `json:"-"`
 	StateChangedAt time.Time `json:"-"`
@@ -79,13 +80,14 @@ type Tag struct {
 // session.Manager can declare its TmuxClient interface without importing tmux,
 // avoiding an import cycle (tmux already imports session for State).
 type RoostWindow struct {
-	WindowID       string
-	ID             string
-	Project        string
-	Command        string
-	CreatedAt      string
-	Tags           string
-	AgentSessionID string
+	WindowID            string
+	ID                  string
+	Project             string
+	Command             string
+	CreatedAt           string
+	Tags                string
+	AgentSessionID      string
+	AgentTranscriptPath string
 }
 
 

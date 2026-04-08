@@ -7,7 +7,6 @@ type SessionMeta struct {
 	Title      string   // session name (e.g. custom-title)
 	LastPrompt string   // most recent prompt text
 	Subjects   []string // TaskCreate subjects
-	SessionID  string   // agent session ID resolved from log files
 
 	// PR5 additions: derived from transcript.SessionInsight.
 	AgentName      string         // type=agent-name event (Claude-assigned slug)
@@ -23,9 +22,11 @@ type Driver interface {
 	Name() string
 	PromptPattern() string
 	DisplayName() string
-	// ResolveMeta resolves session metadata from log files.
-	// sessionID identifies which log file to read (empty for auto-discovery).
-	ResolveMeta(fsys fs.FS, projectPath string, sessionID string) SessionMeta
+	// ResolveMeta resolves session metadata from a transcript file. The
+	// transcriptPath is the absolute path Claude itself reports via hook
+	// events; drivers that don't have a transcript concept should return an
+	// empty SessionMeta.
+	ResolveMeta(fsys fs.FS, transcriptPath string) SessionMeta
 	// SpawnCommand returns the shell command for (re)starting an agent
 	// process. Drivers that support resuming a prior agent session augment
 	// the base command (e.g. "claude --resume <id>"). Empty agentSessionID

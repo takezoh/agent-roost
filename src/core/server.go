@@ -350,7 +350,9 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 			s.sendError(cc, "session-start: session_id required")
 			return
 		}
-		if s.svc.HandleSessionStart(pane, agentSessionID) {
+		bindChanged := s.svc.HandleSessionStart(pane, agentSessionID)
+		pathChanged := s.svc.HandleTranscriptPath(agentSessionID, args["transcript_path"])
+		if bindChanged || pathChanged {
 			s.broadcastSessions()
 		}
 		s.svc.AppendEventLog(agentSessionID, "SessionStart")
@@ -369,8 +371,11 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 			return
 		}
 		stateChanged := s.svc.HandleStateChangeWithContext(sid, agentState, pane)
+		// Record the transcript path before reading from it: state-change can
+		// arrive before SessionStart, and the transcript reader needs the path.
+		pathChanged := s.svc.HandleTranscriptPath(sid, args["transcript_path"])
 		usageChanged := s.svc.UpdateStatusFromTranscript(sid)
-		if stateChanged || usageChanged {
+		if stateChanged || pathChanged || usageChanged {
 			s.broadcastSessions()
 		}
 		logLine := args["log"]

@@ -2,8 +2,6 @@ package driver
 
 import (
 	"io/fs"
-	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/take/agent-roost/lib/claude/cli"
@@ -26,70 +24,20 @@ func (Claude) SpawnCommand(baseCommand, agentSessionID string) string {
 	return cli.ResumeCommand(baseCommand, agentSessionID)
 }
 
-// ResolveMeta resolves session metadata from Claude Code JSONL logs.
-// If sessionID is non-empty, it reads that specific file; otherwise it
-// picks the most recent .jsonl in the project directory.
-func (Claude) ResolveMeta(fsys fs.FS, projectPath string, sessionID string) SessionMeta {
-	dir := filepath.Join(".claude", "projects", ProjectDir(projectPath))
-
-	if sessionID != "" {
-		path := filepath.Join(dir, sessionID+".jsonl")
-		meta := parseSessionMeta(fsys, path)
-		meta.SessionID = sessionID
-		return meta
-	}
-
-	target := findNewestJSONL(fsys, dir)
-	if target == "" {
+// ResolveMeta resolves session metadata from a Claude Code JSONL transcript.
+// transcriptPath is the absolute path Claude reports via hook events. An empty
+// path returns an empty SessionMeta — roost no longer guesses the JSONL
+// location from the project path because worktree-relative invocations like
+// `claude --worktree` write to a different ~/.claude/projects directory than
+// the session's recorded project.
+func (Claude) ResolveMeta(fsys fs.FS, transcriptPath string) SessionMeta {
+	if transcriptPath == "" {
 		return SessionMeta{}
 	}
-	meta := parseSessionMeta(fsys, filepath.Join(dir, target))
-	meta.SessionID = strings.TrimSuffix(target, ".jsonl")
-	return meta
-}
-
-func findNewestJSONL(fsys fs.FS, dir string) string {
-	entries, err := fs.ReadDir(fsys, dir)
-	if err != nil {
-		return ""
-	}
-
-	type file struct {
-		name  string
-		mtime int64
-	}
-	var jsonls []file
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".jsonl") {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		jsonls = append(jsonls, file{name: e.Name(), mtime: info.ModTime().UnixNano()})
-	}
-	if len(jsonls) == 0 {
-		return ""
-	}
-	sort.Slice(jsonls, func(i, j int) bool {
-		return jsonls[i].mtime > jsonls[j].mtime
-	})
-	return jsonls[0].name
-}
-
-// ProjectDir converts a project path to a ~/.claude/projects/ directory name.
-// Encoding: replaces / and . with -
-func ProjectDir(projectPath string) string {
-	return strings.NewReplacer("/", "-", ".", "-").Replace(projectPath)
-}
-
-// TranscriptFilePath returns the JSONL transcript file path for a Claude session ID.
-func TranscriptFilePath(homeDir, projectPath, sessionID string) string {
-	if homeDir == "" || projectPath == "" || sessionID == "" {
-		return ""
-	}
-	return filepath.Join(homeDir, ".claude", "projects", ProjectDir(projectPath), sessionID+".jsonl")
+	// fs.FS treats absolute paths as invalid; strip the leading "/" so the
+	// caller can pass either an os.DirFS("/") or an os.DirFS(home) without
+	// having to know which.
+	return parseSessionMeta(fsys, strings.TrimPrefix(transcriptPath, "/"))
 }
 
 // parseSessionMeta delegates to transcript.AggregateMeta for the heavy

@@ -97,6 +97,28 @@ func (s *AgentStore) UpdateStatusLine(agentSessionID string, line string) bool {
 	return true
 }
 
+// UpdateTranscriptPath sets the absolute JSONL transcript path for the given
+// agent session. The agent session is created on demand so this can be called
+// before any explicit Bind (e.g. when a hook event arrives without a prior
+// SessionStart). Returns true when the value changed.
+func (s *AgentStore) UpdateTranscriptPath(agentSessionID, path string) bool {
+	if agentSessionID == "" || path == "" {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess, ok := s.sessions[agentSessionID]
+	if !ok {
+		sess = &AgentSession{ID: agentSessionID, State: AgentStateUnset}
+		s.sessions[agentSessionID] = sess
+	}
+	if sess.TranscriptPath == path {
+		return false
+	}
+	sess.TranscriptPath = path
+	return true
+}
+
 func (s *AgentStore) IDByWindow(windowID string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

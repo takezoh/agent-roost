@@ -83,13 +83,14 @@ func (m *mockTmux) ListRoostWindows() ([]RoostWindow, error) {
 			continue
 		}
 		out = append(out, RoostWindow{
-			WindowID:       id,
-			ID:             opts["@roost_id"],
-			Project:        opts["@roost_project"],
-			Command:        opts["@roost_command"],
-			CreatedAt:      opts["@roost_created_at"],
-			Tags:           opts["@roost_tags"],
-			AgentSessionID: opts["@roost_agent_session"],
+			WindowID:            id,
+			ID:                  opts["@roost_id"],
+			Project:             opts["@roost_project"],
+			Command:             opts["@roost_command"],
+			CreatedAt:           opts["@roost_created_at"],
+			Tags:                opts["@roost_tags"],
+			AgentSessionID:      opts["@roost_agent_session"],
+			AgentTranscriptPath: opts["@roost_agent_transcript_path"],
 		})
 	}
 	return out, nil
@@ -333,6 +334,77 @@ func TestSetAgentSessionID(t *testing.T) {
 	found = mgr2.FindByID(sess.ID)
 	if found == nil || found.AgentSessionID != "agent-1" {
 		t.Fatalf("expected restored AgentSessionID, got %+v", found)
+	}
+}
+
+func TestSetAgentTranscriptPath(t *testing.T) {
+	mgr, tmux := setupManager(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+
+	path := "/home/u/.claude/projects/-tmp-proj-worktree/agent-1.jsonl"
+	if !mgr.SetAgentTranscriptPath(sess.WindowID, path) {
+		t.Fatal("expected true on first set")
+	}
+	if mgr.SetAgentTranscriptPath(sess.WindowID, path) {
+		t.Fatal("expected false on no-op set")
+	}
+	if mgr.SetAgentTranscriptPath("@nonexistent", "x") {
+		t.Fatal("expected false for unknown window")
+	}
+
+	if got := tmux.userOptions[sess.WindowID]["@roost_agent_transcript_path"]; got != path {
+		t.Fatalf("tmux user option = %q, want %q", got, path)
+	}
+
+	found := mgr.FindByID(sess.ID)
+	if found.AgentTranscriptPath != path {
+		t.Fatalf("cache AgentTranscriptPath = %q, want %q", found.AgentTranscriptPath, path)
+	}
+
+	// A fresh Manager should pick up the persisted path from tmux.
+	mgr2 := NewManager(tmux, mgr.DataDir())
+	if err := mgr2.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	restored := mgr2.FindByID(sess.ID)
+	if restored == nil || restored.AgentTranscriptPath != path {
+		t.Fatalf("expected restored AgentTranscriptPath, got %+v", restored)
+	}
+
+	// Snapshot should also carry the value for cold-boot Recreate.
+	loaded, err := mgr.loadSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 || loaded[0].AgentTranscriptPath != path {
+		t.Fatalf("snapshot AgentTranscriptPath = %+v, want %q", loaded, path)
+	}
+}
+
+func TestRecreate_PreservesTranscriptPath(t *testing.T) {
+	mgr1, _ := setupManager(t)
+	sess, _ := mgr1.Create("/tmp/proj", "claude")
+	mgr1.SetAgentSessionID(sess.WindowID, "agent-x")
+	path := "/home/u/.claude/projects/-tmp-proj-worktree/agent-x.jsonl"
+	mgr1.SetAgentTranscriptPath(sess.WindowID, path)
+
+	dataDir := mgr1.DataDir()
+	tmux2 := newMockTmux()
+	mgr2 := NewManager(tmux2, dataDir)
+	if err := mgr2.Recreate(driver.DefaultRegistry()); err != nil {
+		t.Fatal(err)
+	}
+
+	all := mgr2.All()
+	if len(all) != 1 {
+		t.Fatalf("expected 1 recreated session, got %d", len(all))
+	}
+	if all[0].AgentTranscriptPath != path {
+		t.Errorf("AgentTranscriptPath not preserved: got %q, want %q", all[0].AgentTranscriptPath, path)
+	}
+	opts := tmux2.userOptions[all[0].WindowID]
+	if opts["@roost_agent_transcript_path"] != path {
+		t.Errorf("@roost_agent_transcript_path not written on Recreate, got %q", opts["@roost_agent_transcript_path"])
 	}
 }
 
