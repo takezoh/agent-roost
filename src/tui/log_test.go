@@ -211,6 +211,104 @@ func TestRebuildTabs_ActiveTabFallback(t *testing.T) {
 	}
 }
 
+func TestRebuildTabs_PreservesStateWhenUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	appLog := filepath.Join(dir, "app.log")
+	eventsLog := filepath.Join(dir, "events.log")
+	transcriptLog := filepath.Join(dir, "transcript.jsonl")
+	os.WriteFile(appLog, []byte("app1\napp2\n"), 0o644)
+	os.WriteFile(eventsLog, []byte("ev1\nev2\n"), 0o644)
+	os.WriteFile(transcriptLog, []byte("tr1\ntr2\n"), 0o644)
+
+	m := NewLogModel(appLog, nil, false)
+	m.rebuildTabs(eventsLog, transcriptLog)
+	if len(m.tabs) != 3 {
+		t.Fatalf("got %d tabs, want 3", len(m.tabs))
+	}
+
+	// Read tail content for every tab so each has a non-zero offset.
+	for _, tab := range m.tabs {
+		if _, err := readNewLines(tab); err != nil {
+			t.Fatalf("readNewLines(%s): %v", tab.label, err)
+		}
+		if tab.offset == 0 {
+			t.Fatalf("tab %s offset still 0 after read", tab.label)
+		}
+	}
+
+	// Snapshot pointers and offsets for later comparison.
+	prev := make([]*tabState, len(m.tabs))
+	prevOffsets := make([]int64, len(m.tabs))
+	copy(prev, m.tabs)
+	for i, tab := range m.tabs {
+		prevOffsets[i] = tab.offset
+	}
+
+	// Rebuild with identical paths — should be a no-op for state.
+	m.rebuildTabs(eventsLog, transcriptLog)
+	if len(m.tabs) != 3 {
+		t.Fatalf("got %d tabs after rebuild, want 3", len(m.tabs))
+	}
+	for i, tab := range m.tabs {
+		if tab != prev[i] {
+			t.Errorf("tab[%d] (%s) pointer changed across rebuild", i, tab.label)
+		}
+		if tab.offset != prevOffsets[i] {
+			t.Errorf("tab[%d] (%s) offset = %d, want %d", i, tab.label, tab.offset, prevOffsets[i])
+		}
+	}
+
+	// A subsequent read with no file changes must return empty (no duplicates).
+	for _, tab := range m.tabs {
+		got, err := readNewLines(tab)
+		if err != nil {
+			t.Fatalf("readNewLines(%s) after rebuild: %v", tab.label, err)
+		}
+		if got != "" {
+			t.Errorf("tab %s returned %q after rebuild, want empty", tab.label, got)
+		}
+	}
+}
+
+func TestRebuildTabs_NewTabFreshState(t *testing.T) {
+	m := NewLogModel("/app.log", nil, false)
+	logTabPtr := m.tabs[0]
+
+	m.rebuildTabs("/events.log", "/transcript.jsonl")
+	if len(m.tabs) != 3 {
+		t.Fatalf("got %d tabs, want 3", len(m.tabs))
+	}
+
+	transcript := m.tabs[0]
+	events := m.tabs[1]
+	logTab := m.tabs[2]
+
+	if transcript.label != "TRANSCRIPT" || transcript.file != nil || transcript.offset != 0 {
+		t.Errorf("TRANSCRIPT not fresh: %+v", transcript)
+	}
+	if events.label != "EVENTS" || events.file != nil || events.offset != 0 {
+		t.Errorf("EVENTS not fresh: %+v", events)
+	}
+	if logTab != logTabPtr {
+		t.Errorf("LOG tab pointer changed; want reuse")
+	}
+}
+
+func TestRebuildTabs_ChangedPathReplacesState(t *testing.T) {
+	m := NewLogModel("/app.log", nil, false)
+	m.rebuildTabs("/events1.log", "/transcript1.jsonl")
+	oldTranscript := m.tabs[0]
+	oldEvents := m.tabs[1]
+
+	m.rebuildTabs("/events2.log", "/transcript2.jsonl")
+	if m.tabs[0] == oldTranscript {
+		t.Errorf("TRANSCRIPT pointer should change when path changes")
+	}
+	if m.tabs[1] == oldEvents {
+		t.Errorf("EVENTS pointer should change when path changes")
+	}
+}
+
 func TestTabIndexAtX(t *testing.T) {
 	m := NewLogModel("/app.log", nil, false)
 	m.tabs = append(m.tabs,
