@@ -68,17 +68,20 @@ func (m *mockTmux) KillWindow(windowID string) error {
 }
 
 func (m *mockTmux) DisplayMessage(target, format string) (string, error) {
-	// Tests target wid+":0.0" to fetch the pane id of pane 0 in a freshly
-	// created window. Strip the trailing :0.0 to recover the window id.
-	wid := target
-	if i := strings.Index(wid, ":"); i >= 0 {
-		wid = wid[:i]
-	}
-	if format == "#{pane_id}" {
-		if pid, ok := m.windowPanes[wid]; ok {
-			return pid, nil
-		}
+	// Mirror real tmux: only the <window-id>.<pane-index> form resolves to
+	// a pane. The legacy "@N:0.0" form silently returns empty (no error),
+	// which is exactly how real tmux behaves and how the queryAgentPaneID
+	// silent-failure bug went undetected before.
+	if format != "#{pane_id}" {
 		return "", nil
+	}
+	dot := strings.Index(target, ".")
+	if dot < 0 {
+		return "", nil
+	}
+	wid := target[:dot]
+	if pid, ok := m.windowPanes[wid]; ok {
+		return pid, nil
 	}
 	return "", nil
 }
@@ -828,5 +831,65 @@ func TestFindByWindowID(t *testing.T) {
 	}
 	if mgr.FindByWindowID("@99") != nil {
 		t.Fatal("expected nil for unknown WindowID")
+	}
+}
+
+// Regression: Create must persist @roost_agent_pane to tmux user options.
+// Previously queryAgentPaneID built an invalid target ("@N:0.0") that real
+// tmux silently resolved to nothing, leaving AgentPaneID empty and the
+// reaper unable to find the session by pane id.
+func TestCreate_PersistsAgentPaneIDUserOption(t *testing.T) {
+	mgr, mt := setupManager(t)
+	sess, err := mgr.Create("/tmp/proj", "claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sess.AgentPaneID == "" {
+		t.Fatal("expected Session.AgentPaneID to be set")
+	}
+	got := mt.userOptions[sess.WindowID]["@roost_agent_pane"]
+	if got == "" {
+		t.Fatal("expected @roost_agent_pane user option to be set")
+	}
+	if got != sess.AgentPaneID {
+		t.Fatalf("user option mismatch: got %q, want %q", got, sess.AgentPaneID)
+	}
+}
+
+// Regression: Refresh must backfill AgentPaneID for sessions whose
+// @roost_agent_pane user option is missing (legacy sessions created before
+// pane id tracking landed). Without this, reapDeadPane00 cannot identify
+// dead panes by pane id and silently bails out.
+func TestRefresh_BackfillsMissingAgentPaneID(t *testing.T) {
+	mgr, mt := setupManager(t)
+	// Simulate a legacy session: window exists with all roost user options
+	// EXCEPT @roost_agent_pane.
+	mt.windows["@5"] = true
+	mt.windowPanes["@5"] = "%42"
+	mt.userOptions["@5"] = map[string]string{
+		"@roost_id":         "legacy",
+		"@roost_project":    "/tmp/proj",
+		"@roost_command":    "claude",
+		"@roost_created_at": "2026-04-08T16:00:00Z",
+		"@roost_state":      "running",
+	}
+
+	if err := mgr.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+
+	sess := mgr.FindByWindowID("@5")
+	if sess == nil {
+		t.Fatal("expected legacy session to be loaded")
+	}
+	if sess.AgentPaneID != "%42" {
+		t.Fatalf("expected backfilled AgentPaneID=%%42, got %q", sess.AgentPaneID)
+	}
+	if got := mt.userOptions["@5"]["@roost_agent_pane"]; got != "%42" {
+		t.Fatalf("expected @roost_agent_pane user option to be backfilled, got %q", got)
+	}
+	// FindByAgentPaneID is what reapDeadPane00 uses; verify it now resolves.
+	if found := mgr.FindByAgentPaneID("%42"); found == nil || found.ID != "legacy" {
+		t.Fatal("expected FindByAgentPaneID to resolve backfilled session")
 	}
 }

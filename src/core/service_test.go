@@ -72,15 +72,20 @@ func (m *mockTmuxForService) KillWindow(windowID string) error {
 	return nil
 }
 func (m *mockTmuxForService) DisplayMessage(target, format string) (string, error) {
-	wid := target
-	if i := strings.Index(wid, ":"); i >= 0 {
-		wid = wid[:i]
-	}
-	if format == "#{pane_id}" {
-		if pid, ok := m.windowPanes[wid]; ok {
-			return pid, nil
-		}
+	// Mirror real tmux: only the <window-id>.<pane-index> form resolves to
+	// a pane. The legacy "@N:0.0" form silently returns empty (no error),
+	// which is exactly how real tmux behaves and how the queryAgentPaneID
+	// silent-failure bug went undetected before.
+	if format != "#{pane_id}" {
 		return "", nil
+	}
+	dot := strings.Index(target, ".")
+	if dot < 0 {
+		return "", nil
+	}
+	wid := target[:dot]
+	if pid, ok := m.windowPanes[wid]; ok {
+		return pid, nil
 	}
 	return "", nil
 }

@@ -65,7 +65,11 @@ func sessionContext(s *Session) driver.SessionContext {
 
 // Refresh rebuilds the in-memory cache from tmux user options and writes the
 // result to the cold-boot snapshot. Branch synchronization is the caller's
-// responsibility (see SyncBranches).
+// responsibility (see SyncBranches). Sessions whose @roost_agent_pane user
+// option is missing (e.g. created before pane id tracking landed) get the
+// pane id queried and backfilled here — Refresh runs once at coordinator
+// startup before any swap-pane has happened, so each session window's pane 0
+// is still the agent pane and the lookup is reliable.
 func (m *Manager) Refresh() error {
 	slog.Info("refreshing sessions")
 	windows, err := m.tmux.ListRoostWindows()
@@ -79,6 +83,19 @@ func (m *Manager) Refresh() error {
 	m.sessions = m.sessions[:0]
 	for _, w := range windows {
 		m.sessions = append(m.sessions, windowToSession(w))
+	}
+	for _, s := range m.sessions {
+		if s.AgentPaneID != "" {
+			continue
+		}
+		pid := m.queryAgentPaneID(s.WindowID)
+		if pid == "" {
+			continue
+		}
+		s.AgentPaneID = pid
+		if err := m.tmux.SetWindowUserOption(s.WindowID, "@roost_agent_pane", pid); err != nil {
+			slog.Warn("backfill agent pane id failed", "window", s.WindowID, "err", err)
+		}
 	}
 	m.saveSnapshotLocked()
 	return nil
@@ -261,7 +278,7 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 // empty pane id just means the reaper falls back to ReconcileWindows-only
 // cleanup for this session.
 func (m *Manager) queryAgentPaneID(windowID string) string {
-	out, err := m.tmux.DisplayMessage(windowID+":0.0", "#{pane_id}")
+	out, err := m.tmux.DisplayMessage(windowID+".0", "#{pane_id}")
 	if err != nil {
 		slog.Warn("query agent pane id failed", "window", windowID, "err", err)
 		return ""
