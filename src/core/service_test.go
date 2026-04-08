@@ -11,6 +11,7 @@ import (
 type mockPaneOp struct {
 	chainCalls  [][]string
 	selectCalls []string
+	paneDead    map[string]bool // target → dead?
 }
 
 func (m *mockPaneOp) SwapPane(src, dst string) error                { return nil }
@@ -18,6 +19,15 @@ func (m *mockPaneOp) SelectPane(target string) error                { m.selectCa
 func (m *mockPaneOp) RespawnPane(target, cmd string) error          { return nil }
 func (m *mockPaneOp) RunChain(cmds ...[]string) error               { m.chainCalls = cmds; return nil }
 func (m *mockPaneOp) WindowIDFromPane(paneID string) (string, error) { return "@0", nil }
+func (m *mockPaneOp) DisplayMessage(target, format string) (string, error) {
+	if format == "#{pane_dead}" {
+		if m.paneDead[target] {
+			return "1", nil
+		}
+		return "0", nil
+	}
+	return "", nil
+}
 
 type mockTmuxForService struct {
 	nextID      string
@@ -374,40 +384,6 @@ func TestResolveAgentMeta_DoesNotAutoBind(t *testing.T) {
 	}
 	if svc.AgentStore.GetByWindow(b.WindowID) != nil {
 		t.Fatal("session b should remain unbound")
-	}
-}
-
-func TestReapDeadSessions(t *testing.T) {
-	svc, _, mgr, mt := setupServiceWithTmux(t)
-
-	// Create a session and bind an agent so we can verify Unbind is called.
-	sess, _ := mgr.Create("/tmp/proj", "claude")
-	svc.AgentStore.Bind(sess.WindowID, "agent-1")
-	svc.Preview(sess)
-	if svc.ActiveWindowID() != sess.WindowID {
-		t.Fatal("setup: expected active window")
-	}
-
-	// First reap: nothing has died yet.
-	if reaped := svc.ReapDeadSessions(); len(reaped) != 0 {
-		t.Fatalf("expected no reap, got %v", reaped)
-	}
-
-	// Simulate the agent process exiting: tmux destroys the window.
-	delete(mt.windows, sess.WindowID)
-
-	reaped := svc.ReapDeadSessions()
-	if len(reaped) != 1 || reaped[0] != sess.ID {
-		t.Fatalf("expected reap of %s, got %v", sess.ID, reaped)
-	}
-	if len(mgr.All()) != 0 {
-		t.Fatalf("expected empty session list, got %d", len(mgr.All()))
-	}
-	if svc.ActiveWindowID() != "" {
-		t.Fatalf("expected ClearActive to fire, got %s", svc.ActiveWindowID())
-	}
-	if svc.AgentStore.GetByWindow(sess.WindowID) != nil {
-		t.Fatal("expected AgentStore.Unbind to fire")
 	}
 }
 

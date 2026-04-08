@@ -163,11 +163,25 @@ func (s *Service) LaunchTool(toolName string, args map[string]string) {
 	exec.Command("tmux", "display-popup", "-E", "-w", "60%", "-h", "50%", popupCmd).Start()
 }
 
-// ReapDeadSessions removes sessions whose tmux window has disappeared
-// (typically because the agent process exited and tmux auto-killed the
-// single-pane window). Returns the IDs of reaped sessions so the caller can
-// decide whether to broadcast a sessions-changed event.
+// ReapDeadSessions removes sessions whose tmux pane has died. Two paths
+// converge into the ReconcileWindows cleanup loop:
+//
+//  1. Active session: the agent pane lives in pane SESSION:0.0 (swap-pane'd
+//     in by Preview/Switch). Window 0 has remain-on-exit on so a dead pane
+//     lingers as `[exited]` instead of vanishing. We poll pane_dead on 0.0
+//     and, if dead with an active session, swap-pane back so the dead pane
+//     returns to its session window, then kill that window.
+//  2. Background sessions: the session window itself disappears (single-pane
+//     window with remain-on-exit off).
+//
+// In both cases, the session window ends up gone and ReconcileWindows
+// finalizes the in-memory cache cleanup. Returns the reaped session IDs so
+// the caller can decide whether to broadcast a sessions-changed event.
 func (s *Service) ReapDeadSessions() []string {
+	if s.activeWindowID != "" && s.isPane00Dead() {
+		s.handleActiveDeadPane()
+	}
+
 	removed, err := s.Manager.ReconcileWindows()
 	if err != nil {
 		slog.Warn("reconcile windows failed", "err", err)
@@ -183,6 +197,37 @@ func (s *Service) ReapDeadSessions() []string {
 		ids = append(ids, r.ID)
 	}
 	return ids
+}
+
+// isPane00Dead returns true if pane SESSION:0.0 has pane_dead=1.
+func (s *Service) isPane00Dead() bool {
+	out, err := s.Panes.DisplayMessage(s.SessionName+":0.0", "#{pane_dead}")
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(out) == "1"
+}
+
+// handleActiveDeadPane handles the case where the active session's agent
+// process died while swap-pane'd into pane 0.0. It restores the main TUI to
+// 0.0 by swapping back (Deactivate), then kills the session window which now
+// contains the dead pane. The cache cleanup is left to ReconcileWindows
+// running immediately after.
+func (s *Service) handleActiveDeadPane() {
+	activeWID := s.activeWindowID
+	sess := s.Manager.FindByWindowID(activeWID)
+	if sess == nil {
+		s.setActiveWindowID("")
+		return
+	}
+	slog.Info("handle active dead pane", "session", sess.ID, "window", activeWID)
+	if err := s.Deactivate(); err != nil {
+		slog.Warn("handle active dead: deactivate failed", "err", err)
+		return
+	}
+	if err := s.Manager.KillWindow(activeWID); err != nil {
+		slog.Warn("handle active dead: kill window failed", "window", activeWID, "err", err)
+	}
 }
 
 func (s *Service) RefreshSessions() (changed bool, latest *session.Session) {
