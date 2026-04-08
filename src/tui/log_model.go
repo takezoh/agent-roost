@@ -178,9 +178,11 @@ func (m *LogModel) rebuildTabs(eventLogPath, transcriptPath string) {
 		m.activeTab = 0
 	}
 
-	// Default to TRANSCRIPT only when active session changes
+	// Reset viewport when active session changes
 	if sessionChanged && transcriptPath != "" {
-		m.switchToTab(0)
+		m.activeTab = 0
+		m.viewport.SetContent("")
+		m.following = true
 	}
 }
 
