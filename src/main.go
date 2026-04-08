@@ -116,6 +116,7 @@ func runCoordinator() {
 
 	sockPath := filepath.Join(dataDir, "roost.sock")
 	srv := core.NewServer(svc, client, sockPath)
+	srv.SetCommandAliases(cfg.Session.Aliases)
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: server: %v\n", err)
 		os.Exit(1)

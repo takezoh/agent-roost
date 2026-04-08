@@ -34,9 +34,22 @@ type MonitorConfig struct {
 }
 
 type SessionConfig struct {
-	AutoName       bool     `toml:"auto_name"`
-	DefaultCommand string   `toml:"default_command"`
-	Commands       []string `toml:"commands"`
+	AutoName       bool              `toml:"auto_name"`
+	DefaultCommand string            `toml:"default_command"`
+	Commands       []string          `toml:"commands"`
+	Aliases        map[string]string `toml:"aliases"`
+}
+
+// ResolveAlias expands a command string through the alias map. Unknown
+// commands are returned unchanged. Aliases are matched against the entire
+// trimmed input string, not parsed tokens, so "clw" maps but "clw foo" does
+// not (matching shell alias semantics where the alias name is the first word).
+func (s SessionConfig) ResolveAlias(command string) string {
+	command = strings.TrimSpace(command)
+	if expanded, ok := s.Aliases[command]; ok {
+		return expanded
+	}
+	return command
 }
 
 type ProjectsConfig struct {
