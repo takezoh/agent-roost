@@ -5,11 +5,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/take/agent-roost/lib/git"
+	"github.com/take/agent-roost/session/driver"
 )
 
 // TmuxClient is the subset of tmux operations Manager needs to manage roost
@@ -42,9 +44,9 @@ func NewManager(t TmuxClient, dataDir string) *Manager {
 	}
 }
 
-// Refresh rebuilds the in-memory cache from tmux user options. It is a pure
-// read operation — branch synchronization is the caller's responsibility
-// (see SyncBranches).
+// Refresh rebuilds the in-memory cache from tmux user options and writes the
+// result to the cold-boot snapshot. Branch synchronization is the caller's
+// responsibility (see SyncBranches).
 func (m *Manager) Refresh() error {
 	slog.Info("refreshing sessions")
 	windows, err := m.tmux.ListRoostWindows()
@@ -59,6 +61,65 @@ func (m *Manager) Refresh() error {
 	for _, w := range windows {
 		m.sessions = append(m.sessions, windowToSession(w))
 	}
+	m.saveSnapshotLocked()
+	return nil
+}
+
+// Recreate loads sessions.json and re-creates each entry as a new tmux window.
+// Used at Coordinator startup when client.SessionExists() returned false (PC
+// reboot scenario), after setupNewSession() has constructed a fresh tmux
+// session. Persisted WindowIDs are discarded — tmux assigns new ones — but
+// AgentSessionID values are restored on the new windows so old conversation
+// metadata stays accessible. The driver registry is consulted for the spawn
+// command so e.g. Claude is started with "claude --resume <id>" to pick up
+// the previous conversation transcript.
+func (m *Manager) Recreate(drivers *driver.Registry) error {
+	snapshot, err := m.loadSnapshot()
+	if err != nil {
+		return err
+	}
+	if len(snapshot) == 0 {
+		return nil
+	}
+	slog.Info("recreating sessions from snapshot", "count", len(snapshot))
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.sessions = m.sessions[:0]
+	for _, s := range snapshot {
+		spawn := drivers.Get(s.Command).SpawnCommand(s.Command, s.AgentSessionID)
+		name := filepath.Base(s.Project) + ":" + s.ID
+		windowID, err := m.tmux.NewWindow(name, "exec "+spawn, s.Project)
+		if err != nil {
+			slog.Error("recreate: NewWindow failed", "id", s.ID, "err", err)
+			continue
+		}
+		if err := m.tmux.SetOption(windowID, "remain-on-exit", "on"); err != nil {
+			slog.Warn("recreate: set remain-on-exit failed", "err", err)
+		}
+
+		opts := map[string]string{
+			"@roost_id":         s.ID,
+			"@roost_project":    s.Project,
+			"@roost_command":    s.Command,
+			"@roost_created_at": s.CreatedAt.UTC().Format(time.RFC3339),
+			"@roost_tags":       encodeTags(s.Tags),
+		}
+		if s.AgentSessionID != "" {
+			opts["@roost_agent_session"] = s.AgentSessionID
+		}
+		if err := m.tmux.SetWindowUserOptions(windowID, opts); err != nil {
+			slog.Error("recreate: SetWindowUserOptions failed", "id", s.ID, "err", err)
+			m.tmux.KillWindow(windowID)
+			continue
+		}
+
+		s.WindowID = windowID
+		s.State = StateRunning
+		m.sessions = append(m.sessions, s)
+	}
+	m.saveSnapshotLocked()
 	return nil
 }
 
@@ -117,6 +178,7 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 
 	m.mu.Lock()
 	m.sessions = append(m.sessions, s)
+	m.saveSnapshotLocked()
 	m.mu.Unlock()
 	slog.Info("session created", "id", id, "window", windowID)
 	return s, nil
@@ -133,6 +195,7 @@ func (m *Manager) Stop(sessionID string) error {
 				return err
 			}
 			m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
+			m.saveSnapshotLocked()
 			return nil
 		}
 	}
@@ -146,6 +209,7 @@ func (m *Manager) Clear() error {
 		m.tmux.KillWindow(s.WindowID)
 	}
 	m.sessions = nil
+	m.saveSnapshotLocked()
 	return nil
 }
 
@@ -219,6 +283,7 @@ func (m *Manager) SetAgentSessionID(windowID, agentSessionID string) bool {
 				return false
 			}
 			s.AgentSessionID = agentSessionID
+			m.saveSnapshotLocked()
 			return true
 		}
 	}
@@ -246,11 +311,62 @@ func (m *Manager) refreshSessionBranchLocked(s *Session) bool {
 		return false
 	}
 	s.Tags = tags
+	m.saveSnapshotLocked()
 	return true
 }
 
 func (m *Manager) DataDir() string {
 	return m.dataDir
+}
+
+// snapshotPath returns the cold-boot snapshot file path. The snapshot is a
+// backup that lets the Coordinator rebuild sessions after the tmux server
+// itself is gone (PC reboot, tmux kill-server). At runtime tmux user options
+// remain the source of truth.
+func (m *Manager) snapshotPath() string {
+	return filepath.Join(m.dataDir, "sessions.json")
+}
+
+// saveSnapshotLocked writes the in-memory session list to sessions.json.
+// Caller must hold m.mu. Errors are logged but not propagated — the snapshot
+// is only consulted on cold boot, never during normal runtime.
+func (m *Manager) saveSnapshotLocked() {
+	// Marshal an explicit empty slice rather than a nil slice so that an
+	// empty session list serializes as "[]" instead of "null".
+	sessions := m.sessions
+	if sessions == nil {
+		sessions = []*Session{}
+	}
+	data, err := json.MarshalIndent(sessions, "", "  ")
+	if err != nil {
+		slog.Error("snapshot marshal failed", "err", err)
+		return
+	}
+	tmp := m.snapshotPath() + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		slog.Error("snapshot write failed", "err", err)
+		return
+	}
+	if err := os.Rename(tmp, m.snapshotPath()); err != nil {
+		slog.Error("snapshot rename failed", "err", err)
+	}
+}
+
+// loadSnapshot reads sessions.json. Returns (nil, nil) if the file does not
+// exist (fresh install / no prior sessions).
+func (m *Manager) loadSnapshot() ([]*Session, error) {
+	data, err := os.ReadFile(m.snapshotPath())
+	if os.IsNotExist(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var sessions []*Session
+	if err := json.Unmarshal(data, &sessions); err != nil {
+		return nil, err
+	}
+	return sessions, nil
 }
 
 func buildTags(branch string) []Tag {

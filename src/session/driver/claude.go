@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/take/agent-roost/lib/claude/cli"
 	"github.com/take/agent-roost/lib/claude/transcript"
 )
 
@@ -18,6 +19,12 @@ const claudePromptPattern = `(?m)(^>|❯\s*$)`
 func (Claude) Name() string          { return "claude" }
 func (Claude) PromptPattern() string { return claudePromptPattern }
 func (Claude) DisplayName() string   { return "claude" }
+
+// SpawnCommand returns "claude --resume <id>" when an agent session ID is
+// provided so cold-boot recovery picks up the prior conversation.
+func (Claude) SpawnCommand(baseCommand, agentSessionID string) string {
+	return cli.ResumeCommand(baseCommand, agentSessionID)
+}
 
 // ResolveMeta resolves session metadata from Claude Code JSONL logs.
 // If sessionID is non-empty, it reads that specific file; otherwise it

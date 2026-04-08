@@ -62,25 +62,31 @@ func runCoordinator() {
 	slog.Info("starting coordinator", "session", sessionName)
 	client := tmux.NewClient(sessionName)
 
+	dataDir := cfg.ResolveDataDir()
+	os.MkdirAll(dataDir, 0o755)
+	mgr := session.NewManager(client, dataDir)
+	drivers := driver.DefaultRegistry()
+
 	if client.SessionExists() {
 		slog.Info("session exists, restoring")
 		restoreSession(client, cfg, sessionName)
+		mgr.Refresh()
 	} else {
 		slog.Info("creating new session")
 		setupNewSession(client, cfg, sessionName)
+		// Cold boot (PC reboot, tmux server gone): rebuild the session list
+		// from the on-disk snapshot since tmux user options were wiped.
+		// Drivers are passed in so Claude sessions can be respawned with
+		// `claude --resume <id>` to pick up prior conversations.
+		if err := mgr.Recreate(drivers); err != nil {
+			slog.Error("recreate failed", "err", err)
+		}
 	}
-
-	dataDir := cfg.ResolveDataDir()
-	os.MkdirAll(dataDir, 0o755)
-
-	mgr := session.NewManager(client, dataDir)
-	mgr.Refresh()
 	mgr.SyncBranches()
 	slog.Info("sessions loaded", "count", len(mgr.All()))
 
 	activeWID := restoreActiveWindowID(client, mgr)
 
-	drivers := driver.DefaultRegistry()
 	agentStore := driver.NewAgentStore()
 	bindings := make(map[string]string)
 	for _, s := range mgr.All() {
@@ -129,9 +135,11 @@ func runCoordinator() {
 	client.Attach()
 
 	if srv.ShutdownRequested() {
-		slog.Info("shutdown requested, cleaning up")
+		slog.Info("shutdown requested, killing tmux session")
 		client.KillSession()
-		mgr.Clear()
+		// Intentionally do not call mgr.Clear(): the on-disk snapshot must
+		// survive quit so the next `roost` invocation can recreate the same
+		// sessions via Manager.Recreate().
 	} else {
 		slog.Info("detached, session kept alive")
 	}

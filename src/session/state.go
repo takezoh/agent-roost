@@ -50,20 +50,21 @@ func (s State) Symbol() string {
 	}
 }
 
-// Session is the in-memory view of a roost-managed tmux window. It is built
-// from tmux window user options (@roost_*) and is not persisted to disk —
-// the tmux window itself owns the source of truth.
+// Session is the in-memory view of a roost-managed tmux window. The runtime
+// truth lives in tmux window user options (@roost_*); the JSON tags exist so
+// the same struct can be serialized into sessions.json as a cold-boot snapshot
+// (tmux user options are wiped when the tmux server dies, e.g. on PC reboot).
 type Session struct {
-	ID             string
-	Project        string
-	Command        string
-	WindowID       string
-	AgentSessionID string
-	CreatedAt      time.Time
-	Tags           []Tag
+	ID             string    `json:"id"`
+	Project        string    `json:"project"`
+	Command        string    `json:"command"`
+	WindowID       string    `json:"window_id"`
+	AgentSessionID string    `json:"agent_session_id,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	Tags           []Tag     `json:"tags,omitempty"`
 
-	State          State
-	StateChangedAt time.Time
+	State          State     `json:"-"`
+	StateChangedAt time.Time `json:"-"`
 }
 
 type Tag struct {

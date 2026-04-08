@@ -26,4 +26,9 @@ type Driver interface {
 	// ResolveMeta resolves session metadata from log files.
 	// sessionID identifies which log file to read (empty for auto-discovery).
 	ResolveMeta(fsys fs.FS, projectPath string, sessionID string) SessionMeta
+	// SpawnCommand returns the shell command for (re)starting an agent
+	// process. Drivers that support resuming a prior agent session augment
+	// the base command (e.g. "claude --resume <id>"). Empty agentSessionID
+	// returns baseCommand unchanged.
+	SpawnCommand(baseCommand, agentSessionID string) string
 }

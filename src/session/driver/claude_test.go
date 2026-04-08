@@ -5,6 +5,27 @@ import (
 	"testing/fstest"
 )
 
+func TestClaude_SpawnCommand(t *testing.T) {
+	d := Claude{}
+	if got := d.SpawnCommand("claude", ""); got != "claude" {
+		t.Errorf("empty session ID: got %q, want %q", got, "claude")
+	}
+	if got := d.SpawnCommand("claude", "abc-123"); got != "claude --resume abc-123" {
+		t.Errorf("with session ID: got %q, want %q", got, "claude --resume abc-123")
+	}
+}
+
+func TestGeneric_SpawnCommand(t *testing.T) {
+	d := NewGeneric("gemini")
+	if got := d.SpawnCommand("gemini", ""); got != "gemini" {
+		t.Errorf("empty session ID: got %q, want %q", got, "gemini")
+	}
+	// Generic ignores agentSessionID — no resume support.
+	if got := d.SpawnCommand("gemini", "abc-123"); got != "gemini" {
+		t.Errorf("with session ID: got %q, want %q", got, "gemini")
+	}
+}
+
 func TestClaudeProjectDir(t *testing.T) {
 	tests := []struct {
 		path string

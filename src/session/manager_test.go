@@ -1,15 +1,24 @@
 package session
 
 import (
+	"fmt"
+	"os"
 	"testing"
+
+	"github.com/take/agent-roost/session/driver"
 )
 
 type mockTmux struct {
+	// nextWindowID, when non-empty, overrides the auto-increment counter for
+	// the next NewWindow call. Tests can set it before Create to assert on
+	// specific window IDs.
 	nextWindowID   string
+	windowCounter  int
 	windows        map[string]bool
 	options        map[string]string // "windowID:key" → value
 	userOptions    map[string]map[string]string
 	lastNewCommand string
+	commands       map[string]string // windowID → spawn command
 }
 
 func newMockTmux() *mockTmux {
@@ -18,13 +27,22 @@ func newMockTmux() *mockTmux {
 		windows:      make(map[string]bool),
 		options:      make(map[string]string),
 		userOptions:  make(map[string]map[string]string),
+		commands:     make(map[string]string),
 	}
 }
 
 func (m *mockTmux) NewWindow(name, command, startDir string) (string, error) {
-	id := m.nextWindowID
+	var id string
+	if m.nextWindowID != "" {
+		id = m.nextWindowID
+		m.nextWindowID = ""
+	} else {
+		m.windowCounter++
+		id = fmt.Sprintf("@%d", m.windowCounter+100)
+	}
 	m.windows[id] = true
 	m.lastNewCommand = command
+	m.commands[id] = command
 	return id, nil
 }
 
@@ -333,6 +351,151 @@ func TestByProject(t *testing.T) {
 	}
 	if len(grouped["proj-b"]) != 1 {
 		t.Fatalf("expected 1 session for proj-b, got %d", len(grouped["proj-b"]))
+	}
+}
+
+func TestSnapshotWrittenOnCreate(t *testing.T) {
+	mgr, _ := setupManager(t)
+
+	mgr.Create("/tmp/proj", "claude")
+
+	if _, err := os.Stat(mgr.snapshotPath()); err != nil {
+		t.Fatalf("expected snapshot file: %v", err)
+	}
+	loaded, err := mgr.loadSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 {
+		t.Fatalf("expected 1 snapshot entry, got %d", len(loaded))
+	}
+	if loaded[0].Project != "/tmp/proj" || loaded[0].Command != "claude" {
+		t.Fatalf("snapshot mismatch: %+v", loaded[0])
+	}
+}
+
+func TestSnapshotUpdatedOnSetAgentSessionID(t *testing.T) {
+	mgr, _ := setupManager(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+
+	mgr.SetAgentSessionID(sess.WindowID, "agent-42")
+
+	loaded, err := mgr.loadSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 1 || loaded[0].AgentSessionID != "agent-42" {
+		t.Fatalf("expected snapshot AgentSessionID=agent-42, got %+v", loaded)
+	}
+}
+
+func TestSnapshotIsEmptyArrayAfterClear(t *testing.T) {
+	mgr, _ := setupManager(t)
+	mgr.Create("/tmp/proj", "claude")
+
+	mgr.Clear()
+
+	data, err := os.ReadFile(mgr.snapshotPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) == "null" {
+		t.Fatalf("snapshot must not be the literal 'null', got %q", string(data))
+	}
+	loaded, err := mgr.loadSnapshot()
+	if err != nil {
+		t.Fatalf("snapshot must be valid JSON after Clear: %v", err)
+	}
+	if len(loaded) != 0 {
+		t.Fatalf("expected empty session list, got %d entries", len(loaded))
+	}
+}
+
+func TestSnapshotRemovedOnStop(t *testing.T) {
+	mgr, _ := setupManager(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+
+	mgr.Stop(sess.ID)
+
+	loaded, err := mgr.loadSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded) != 0 {
+		t.Fatalf("expected empty snapshot after Stop, got %d entries", len(loaded))
+	}
+}
+
+func TestRecreate(t *testing.T) {
+	// First Manager creates two sessions, writing the snapshot.
+	mgr1, tmux1 := setupManager(t)
+	mgr1.Create("/tmp/proj-a", "claude")
+	tmux1.nextWindowID = "@2"
+	sessB, _ := mgr1.Create("/tmp/proj-b", "claude")
+	mgr1.SetAgentSessionID(sessB.WindowID, "agent-b")
+
+	dataDir := mgr1.DataDir()
+
+	// Simulate PC reboot: brand new tmux mock with empty state, fresh
+	// Manager pointing at the same dataDir.
+	tmux2 := newMockTmux()
+	mgr2 := NewManager(tmux2, dataDir)
+	if err := mgr2.Recreate(driver.DefaultRegistry()); err != nil {
+		t.Fatal(err)
+	}
+
+	all := mgr2.All()
+	if len(all) != 2 {
+		t.Fatalf("expected 2 recreated sessions, got %d", len(all))
+	}
+
+	// Both windows should have been created in the new tmux instance with
+	// the original IDs/projects/commands and AgentSessionID preserved.
+	var foundA, foundB *Session
+	for _, s := range all {
+		if s.Project == "/tmp/proj-a" {
+			foundA = s
+		}
+		if s.Project == "/tmp/proj-b" {
+			foundB = s
+		}
+		if s.Command != "claude" {
+			t.Errorf("unexpected command: %q", s.Command)
+		}
+	}
+	if foundA == nil || foundB == nil {
+		t.Fatalf("expected both sessions recreated, got A=%v B=%v", foundA, foundB)
+	}
+	if foundB.AgentSessionID != "agent-b" {
+		t.Errorf("expected AgentSessionID agent-b, got %q", foundB.AgentSessionID)
+	}
+
+	// tmux user options must be set on the new windows
+	opts := tmux2.userOptions[foundB.WindowID]
+	if opts == nil || opts["@roost_id"] != foundB.ID {
+		t.Errorf("expected @roost_id on new window, got %v", opts)
+	}
+	if opts["@roost_agent_session"] != "agent-b" {
+		t.Errorf("expected @roost_agent_session preserved, got %q", opts["@roost_agent_session"])
+	}
+
+	// Claude session B has an agent ID → spawn command must include --resume
+	if got := tmux2.commands[foundB.WindowID]; got != "exec claude --resume agent-b" {
+		t.Errorf("session B spawn command = %q, want %q", got, "exec claude --resume agent-b")
+	}
+	// Claude session A has no agent ID → plain claude
+	if got := tmux2.commands[foundA.WindowID]; got != "exec claude" {
+		t.Errorf("session A spawn command = %q, want %q", got, "exec claude")
+	}
+}
+
+func TestRecreate_NoSnapshot(t *testing.T) {
+	mgr, _ := setupManager(t)
+	if err := mgr.Recreate(driver.DefaultRegistry()); err != nil {
+		t.Fatalf("expected nil error on missing snapshot, got %v", err)
+	}
+	if len(mgr.All()) != 0 {
+		t.Fatalf("expected no sessions, got %d", len(mgr.All()))
 	}
 }
 
