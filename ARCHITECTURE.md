@@ -484,7 +484,7 @@ hook イベント → AgentState マッピング:
 
 ### コスト抽出
 
-`Monitor.ExtractCost(windowID)` は pane の最後 2 行から `$[\d.]+` パターンでコスト文字列を抽出する。Claude セッションのコスト・コンテキスト使用率は `roost claude status` 経由で AgentSession.StatusLine に保持し、tmux ステータスバーに表示する。
+`Monitor.ExtractCost(windowID)` は pane の最後 2 行から `$[\d.]+` パターンでコスト文字列を抽出する。Claude セッションのモデル名・累計トークン量は transcript JSONL の assistant エントリから `UsageTracker` が抽出し、AgentSession.StatusLine に保持して tmux ステータスバーに表示する。state-change イベントをトリガーに transcript の新規行を差分読みする。
 
 ## インターフェース
 
@@ -525,7 +525,7 @@ type AgentStore struct {
 }
 ```
 
-`AgentStore` は純粋な in-memory ストアで tmux Session とは独立。`Bind` で windowID ↔ agentSessionID を紐付け、hook/statusline イベントは agentSessionID で直接ルックアップ。tmux の swap-pane に影響されない。I/O（イベントログ）は `Service` が担う。トランスクリプトパス構築は `driver.TranscriptPath` で Claude 固有ロジックとして driver に閉じる。
+`AgentStore` は純粋な in-memory ストアで tmux Session とは独立。`Bind` で windowID ↔ agentSessionID を紐付け、hook イベントは agentSessionID で直接ルックアップ。`WindowIDByAgent` で逆引きも可能。tmux の swap-pane に影響されない。I/O（イベントログ）は `Service` が担う。トランスクリプトパス構築は `driver.TranscriptPath` で Claude 固有ロジックとして driver に閉じる。
 
 ```go
 // session/manager.go
@@ -557,8 +557,8 @@ type TmuxClient interface {
 | SessionMeta の定義場所 | `driver.SessionMeta` のみ（`session.SessionMeta` は廃止） | driver パッケージの独立性を保つ。Server が `driver.SessionMeta` → `AgentStore.UpdateMeta` で格納 |
 | tmux/エージェントセッション分離 | `Session`（tmux）と `AgentSession`（driver）を別構造体 | tmux の swap-pane に影響されないセッション特定。AgentStore が windowID ↔ agentSessionID の紐付けを管理 |
 | エージェント状態検出 | Claude: hook イベント、非 Claude: capture-pane | Claude は hook で正確な状態を取得。`ResolveAgentState` でマージ。hook 未受信時は Idle |
-| エージェントイベント連携 | `roost claude event/status` + `agent-event` IPC | SessionStart で紐付け確立（pane → WindowID → AgentStore.Bind）。以降は agentSessionID で直接ルックアップ |
-| StatusLine の表示 | server が `tmux set-option status-left` を直接呼び出し | ファイル経由のポーリング不要。セッション切替時もキャッシュ済み StatusLine で即更新 |
+| エージェントイベント連携 | `roost claude event` + `agent-event` IPC | SessionStart で紐付け確立（pane → WindowID → AgentStore.Bind）。以降は agentSessionID で直接ルックアップ |
+| StatusLine の表示 | transcript JSONL → `UsageTracker` → `tmux set-option status-left` | statusLine hook 不要。state-change イベントをトリガーに差分読み。`status-format[0]` でウィンドウリストを排除 |
 
 ## 副作用の命名規約
 
@@ -610,7 +610,7 @@ src/
 │   └── claude/
 │       ├── command.go   Claude サブコマンドハンドラ (init で "claude" 登録)
 │       ├── hook.go      Claude hook イベントのパース + DeriveState
-│       ├── status.go    Claude status line JSON のパース + FormatStatusLine
+│       ├── transcript_usage.go  transcript JSONL から model/usage をパース + FormatUsageStatusLine
 │       ├── setup.go     Claude settings.json への hook 登録/解除
 │       └── transcript.go  Claude JSONL トランスクリプトのパース + FormatTranscript
 ├── core/
@@ -618,6 +618,7 @@ src/
 │   ├── client.go        ソケットクライアント（TUI・パレット用）
 │   ├── protocol.go      メッセージ型定義 (Message, SessionInfo, BuildSessionInfos)
 │   ├── service.go       ビジネスロジック（切替、プレビュー、popup 起動、エージェントイベント処理、ResolveAgentState、ResolveAgentMeta、イベントログ I/O）
+│   ├── usage_tracker.go セッションごとの transcript 差分読み + usage 累計管理
 │   └── tool.go          ツール定義 + Registry
 ├── config/
 │   └── config.go        TOML 設定読み込み
