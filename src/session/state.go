@@ -1,6 +1,7 @@
 package session
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"time"
 )
@@ -33,6 +34,41 @@ func (s State) String() string {
 	}
 }
 
+// ParseState turns the string returned by State.String() back into the enum.
+// Unknown values fall through to StateIdle so loading a snapshot written by
+// a future version with new states still produces something sensible.
+func ParseState(name string) State {
+	switch name {
+	case "running":
+		return StateRunning
+	case "waiting":
+		return StateWaiting
+	case "idle":
+		return StateIdle
+	case "stopped":
+		return StateStopped
+	case "pending":
+		return StatePending
+	default:
+		return StateIdle
+	}
+}
+
+// MarshalJSON serializes State as a stable string ("running", ...) so JSON
+// snapshots stay human-readable and decoupled from the enum's iota order.
+func (s State) MarshalJSON() ([]byte, error) {
+	return json.Marshal(s.String())
+}
+
+func (s *State) UnmarshalJSON(data []byte) error {
+	var name string
+	if err := json.Unmarshal(data, &name); err != nil {
+		return err
+	}
+	*s = ParseState(name)
+	return nil
+}
+
 func (s State) Symbol() string {
 	switch s {
 	case StateRunning:
@@ -54,20 +90,26 @@ func (s State) Symbol() string {
 // truth lives in tmux window user options (@roost_*); the JSON tags exist so
 // the same struct can be serialized into sessions.json as a cold-boot snapshot
 // (tmux user options are wiped when the tmux server dies, e.g. on PC reboot).
+//
+// Driver-specific persistent data lives entirely inside DriverState — a
+// map[string]string whose keys are defined by the driver assigned to Command.
+// core treats DriverState as opaque and only the driver knows how to interpret
+// the keys. Adding a Codex-specific field requires no change in this file.
 type Session struct {
-	ID                  string    `json:"id"`
-	Project             string    `json:"project"`
-	Command             string    `json:"command"`
-	WindowID            string    `json:"window_id"`
-	AgentPaneID         string    `json:"-"`
-	AgentSessionID      string    `json:"agent_session_id,omitempty"`
-	AgentWorkingDir     string    `json:"agent_working_dir,omitempty"`
-	AgentTranscriptPath string    `json:"agent_transcript_path,omitempty"`
-	CreatedAt           time.Time `json:"created_at"`
-	Tags                []Tag     `json:"tags,omitempty"`
-
-	State          State     `json:"-"`
-	StateChangedAt time.Time `json:"-"`
+	ID       string `json:"id"`
+	Project  string `json:"project"`
+	Command  string `json:"command"`
+	WindowID string `json:"window_id"`
+	// AgentPaneID is the tmux pane id of the agent process (e.g. "%5"),
+	// stable across swap-pane. Persisted to tmux user options so the
+	// reaper can identify dead panes by id, but not to JSON because
+	// tmux server restart reissues every pane id and Recreate re-queries.
+	AgentPaneID    string            `json:"-"`
+	CreatedAt      time.Time         `json:"created_at"`
+	Tags           []Tag             `json:"tags,omitempty"`
+	DriverState    map[string]string `json:"driver_state,omitempty"`
+	State          State             `json:"state"`
+	StateChangedAt time.Time         `json:"state_changed_at,omitempty"`
 }
 
 type Tag struct {
@@ -82,16 +124,16 @@ type Tag struct {
 // session.Manager can declare its TmuxClient interface without importing tmux,
 // avoiding an import cycle (tmux already imports session for State).
 type RoostWindow struct {
-	WindowID            string
-	ID                  string
-	Project             string
-	Command             string
-	CreatedAt           string
-	Tags                string
-	AgentPaneID         string
-	AgentSessionID      string
-	AgentWorkingDir     string
-	AgentTranscriptPath string
+	WindowID       string
+	ID             string
+	Project        string
+	Command        string
+	CreatedAt      string
+	Tags           string
+	AgentPaneID    string
+	DriverState    string // JSON-encoded map[string]string
+	State          string // State.String() form
+	StateChangedAt string // RFC3339
 }
 
 

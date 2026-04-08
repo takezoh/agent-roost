@@ -14,20 +14,26 @@ func (g Generic) Name() string          { return g.name }
 func (g Generic) PromptPattern() string { return genericPromptPattern }
 func (g Generic) DisplayName() string   { return g.name }
 
-func (g Generic) ResolveMeta(fsys fs.FS, transcriptPath string) SessionMeta {
-	return SessionMeta{}
-}
+// IdentityKey returns "" — generic drivers have no stable agent identifier.
+func (g Generic) IdentityKey() string { return "" }
 
-// TranscriptFilePath returns "" — generic agents don't have a JSONL transcript
-// roost knows how to locate.
-func (g Generic) TranscriptFilePath(home, workingDir, agentSessionID string) string {
-	return ""
-}
+// WorkingDir returns "" — generic drivers don't track an agent cwd separate
+// from the recorded project.
+func (g Generic) WorkingDir(sc SessionContext) string { return "" }
 
 // SpawnCommand returns baseCommand unchanged. Generic drivers do not support
 // resuming a prior agent session.
-func (g Generic) SpawnCommand(baseCommand, agentSessionID string) string {
+func (g Generic) SpawnCommand(baseCommand string, sc SessionContext) string {
 	return baseCommand
+}
+
+// TranscriptFilePath returns "" — generic agents don't have a JSONL
+// transcript roost knows how to locate.
+func (g Generic) TranscriptFilePath(home string, sc SessionContext) string { return "" }
+
+// ResolveMeta returns an empty SessionMeta.
+func (g Generic) ResolveMeta(fsys fs.FS, home string, sc SessionContext) SessionMeta {
+	return SessionMeta{}
 }
 
 // NewGeneric returns a generic Driver for the given command name.

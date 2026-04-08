@@ -15,38 +15,68 @@ type Claude struct{}
 
 const claudePromptPattern = `(?m)(^>|❯\s*$)`
 
+// DriverState keys produced/consumed by the Claude driver. core never
+// references these constants — they live entirely inside this file so adding
+// a Claude-specific field is a single-file change.
+const (
+	claudeKeySessionID      = "session_id"
+	claudeKeyWorkingDir     = "working_dir"
+	claudeKeyTranscriptPath = "transcript_path"
+)
+
 func (Claude) Name() string          { return "claude" }
 func (Claude) PromptPattern() string { return claudePromptPattern }
 func (Claude) DisplayName() string   { return "claude" }
 
-// SpawnCommand returns "claude --resume <id>" when an agent session ID is
-// provided so cold-boot recovery picks up the prior conversation.
-func (Claude) SpawnCommand(baseCommand, agentSessionID string) string {
-	return cli.ResumeCommand(baseCommand, agentSessionID)
+// IdentityKey returns the DriverState key that uniquely identifies a Claude
+// agent process — the Claude session ID, which is what AgentStore.Bind uses.
+func (Claude) IdentityKey() string { return claudeKeySessionID }
+
+// WorkingDir returns the agent's reported cwd, used for git branch detection
+// when the agent runs in a worktree.
+func (Claude) WorkingDir(sc SessionContext) string {
+	return sc.DriverState[claudeKeyWorkingDir]
 }
 
-// TranscriptFilePath returns the JSONL transcript file Claude writes for the
-// given runtime context. Claude derives its project directory name from the
-// process working directory (replacing / and . with -), so for worktree-style
-// invocations the file lives under the worktree path, not the session's
-// recorded project. Used as a fallback when the agent hasn't yet reported its
-// transcript path via a hook event.
-func (Claude) TranscriptFilePath(home, workingDir, agentSessionID string) string {
-	if home == "" || workingDir == "" || agentSessionID == "" {
+// SpawnCommand returns "claude --resume <id>" when an agent session ID is
+// known so cold-boot recovery picks up the prior conversation.
+func (Claude) SpawnCommand(baseCommand string, sc SessionContext) string {
+	return cli.ResumeCommand(baseCommand, sc.DriverState[claudeKeySessionID])
+}
+
+// TranscriptFilePath returns the absolute JSONL transcript path for the
+// current session. Priority:
+//  1. The path the agent itself reported (canonical, handles --worktree)
+//  2. A computed path based on the agent's working dir + session ID
+//  3. A computed path based on sc.Project + session ID (pre-hook fallback)
+func (Claude) TranscriptFilePath(home string, sc SessionContext) string {
+	if reported := sc.DriverState[claudeKeyTranscriptPath]; reported != "" {
+		return reported
+	}
+	sid := sc.DriverState[claudeKeySessionID]
+	if home == "" || sid == "" {
 		return ""
 	}
-	return filepath.Join(home, ".claude", "projects", projectDir(workingDir), agentSessionID+".jsonl")
+	workdir := sc.DriverState[claudeKeyWorkingDir]
+	if workdir == "" {
+		workdir = sc.Project
+	}
+	if workdir == "" {
+		return ""
+	}
+	return filepath.Join(home, ".claude", "projects", projectDir(workdir), sid+".jsonl")
 }
 
-// ResolveMeta reads session metadata from Claude's JSONL transcript at the
-// given absolute path. Missing files yield an empty SessionMeta silently.
-func (Claude) ResolveMeta(fsys fs.FS, transcriptPath string) SessionMeta {
-	if transcriptPath == "" {
+// ResolveMeta reads session metadata from Claude's JSONL transcript file.
+// Missing files yield an empty SessionMeta silently.
+func (Claude) ResolveMeta(fsys fs.FS, home string, sc SessionContext) SessionMeta {
+	path := Claude{}.TranscriptFilePath(home, sc)
+	if path == "" {
 		return SessionMeta{}
 	}
 	// fs.FS treats absolute paths as invalid; strip the leading "/" so the
 	// caller can pass an os.DirFS("/") and have absolute paths work directly.
-	return parseSessionMeta(fsys, strings.TrimPrefix(transcriptPath, "/"))
+	return parseSessionMeta(fsys, strings.TrimPrefix(path, "/"))
 }
 
 // projectDir mirrors Claude Code's encoding of working dir → ~/.claude/projects/

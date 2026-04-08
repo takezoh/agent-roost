@@ -199,116 +199,6 @@ func (s *Service) UpdateStates(states map[string]session.State) {
 	s.Manager.UpdateStates(states)
 }
 
-// HandleSessionStart binds an agent session to a tmux window and persists the
-// binding as a tmux window user option so it survives Coordinator restart.
-// Uses pane → WindowID for identification, falls back to active session.
-func (s *Service) HandleSessionStart(pane, agentSessionID string) bool {
-	windowID := s.resolveWindowID(pane)
-	if windowID == "" {
-		return false
-	}
-	changed := s.AgentStore.Bind(windowID, agentSessionID)
-	s.Manager.SetAgentSessionID(windowID, agentSessionID)
-	return changed
-}
-
-// HandleStateChange updates the agent state by agentSessionID.
-func (s *Service) HandleStateChange(agentSessionID string, state driver.AgentState) bool {
-	return s.AgentStore.UpdateState(agentSessionID, state)
-}
-
-// HandleStateChangeWithContext updates agent state, auto-binding if the session is unknown.
-func (s *Service) HandleStateChangeWithContext(agentSessionID string, state driver.AgentState, pane string) bool {
-	if s.AgentStore.Get(agentSessionID) == nil && pane != "" {
-		s.HandleSessionStart(pane, agentSessionID)
-	}
-	return s.AgentStore.UpdateState(agentSessionID, state)
-}
-
-// HandleStatusLine updates the agent status line by agentSessionID.
-// If the agent is bound to the active session, syncs to tmux.
-func (s *Service) HandleStatusLine(agentSessionID, line string) bool {
-	changed := s.AgentStore.UpdateStatusLine(agentSessionID, line)
-	if s.syncStatus != nil && s.activeWindowID != "" {
-		active := s.AgentStore.GetByWindow(s.activeWindowID)
-		if active != nil && active.ID == agentSessionID {
-			s.syncStatus(line)
-		}
-	}
-	return changed
-}
-
-// HandleAgentWorkingDir records the directory the agent process is actually
-// running in. The Session is the source of truth (driver-neutral fact, used
-// for git branch detection and as a fallback for transcript path computation).
-// Returns true when the value or its derived branch tag changed.
-func (s *Service) HandleAgentWorkingDir(agentSessionID, workingDir string) bool {
-	if agentSessionID == "" || workingDir == "" {
-		return false
-	}
-	wid := s.AgentStore.WindowIDByAgent(agentSessionID)
-	if wid == "" {
-		return false
-	}
-	return s.Manager.SetAgentWorkingDir(wid, workingDir)
-}
-
-// HandleAgentTranscriptPath records the absolute transcript file path the
-// agent itself reports via hook events. roost stores it verbatim and prefers
-// it over any path it could compute, since the agent is the canonical source.
-func (s *Service) HandleAgentTranscriptPath(agentSessionID, path string) bool {
-	if agentSessionID == "" || path == "" {
-		return false
-	}
-	wid := s.AgentStore.WindowIDByAgent(agentSessionID)
-	if wid == "" {
-		return false
-	}
-	return s.Manager.SetAgentTranscriptPath(wid, path)
-}
-
-// TranscriptPathByAgent returns the absolute transcript file path for the
-// given agent session, preferring the path the agent itself reported over
-// any roost-computed fallback.
-func (s *Service) TranscriptPathByAgent(agentSessionID string) string {
-	wid := s.AgentStore.WindowIDByAgent(agentSessionID)
-	if wid == "" {
-		return ""
-	}
-	sess := s.Manager.FindByWindowID(wid)
-	if sess == nil {
-		return ""
-	}
-	return s.transcriptPathFor(sess, agentSessionID)
-}
-
-// transcriptPathFor resolves the agent transcript path with this priority:
-//  1. AgentTranscriptPath the driver itself reported (canonical)
-//  2. Driver.TranscriptFilePath(home, AgentWorkingDir, agentSessionID)
-//  3. Driver.TranscriptFilePath(home, Project, agentSessionID) — pre-hook
-//     fallback so existing sessions render Title before the first hook arrives
-func (s *Service) transcriptPathFor(sess *session.Session, agentSessionID string) string {
-	if sess.AgentTranscriptPath != "" {
-		return sess.AgentTranscriptPath
-	}
-	workdir := sess.AgentWorkingDir
-	if workdir == "" {
-		workdir = sess.Project
-	}
-	home, _ := os.UserHomeDir()
-	return s.Drivers.Get(sess.Command).TranscriptFilePath(home, workdir, agentSessionID)
-}
-
-// UpdateStatusFromTranscript reads new transcript content and updates the status line.
-func (s *Service) UpdateStatusFromTranscript(agentSessionID string) bool {
-	path := s.TranscriptPathByAgent(agentSessionID)
-	line, changed := s.Tracker.Update(agentSessionID, path)
-	if changed {
-		s.HandleStatusLine(agentSessionID, line)
-	}
-	return changed
-}
-
 // SyncActiveStatusLine pushes the active session's cached status line to tmux.
 func (s *Service) SyncActiveStatusLine() {
 	if s.syncStatus == nil {
@@ -398,39 +288,10 @@ func (s *Service) ActiveTranscriptPath() string {
 	if sess == nil {
 		return ""
 	}
-	agent := s.AgentStore.GetByWindow(s.activeWindowID)
-	if agent == nil {
+	if s.AgentStore.GetByWindow(s.activeWindowID) == nil {
 		return ""
 	}
-	return s.transcriptPathFor(sess, agent.ID)
-}
-
-// ResolveAgentMeta resolves metadata from agent transcript files for windows
-// that already have a known agent session binding. Unbound windows are
-// skipped — binding only happens through hook events that carry pane context,
-// since guessing from "newest .jsonl in project dir" causes multiple sessions
-// in the same project to collapse onto a single agent session.
-func (s *Service) ResolveAgentMeta() bool {
-	fsys := os.DirFS("/")
-	changed := false
-	for _, sess := range s.Manager.All() {
-		agentID := s.AgentStore.IDByWindow(sess.WindowID)
-		if agentID == "" {
-			continue
-		}
-		path := s.transcriptPathFor(sess, agentID)
-		if path == "" {
-			continue
-		}
-		meta := s.Drivers.Get(sess.Command).ResolveMeta(fsys, path)
-		if meta.Title == "" && meta.LastPrompt == "" && len(meta.Subjects) == 0 {
-			continue
-		}
-		if s.AgentStore.UpdateMeta(agentID, meta) {
-			changed = true
-		}
-	}
-	return changed
+	return s.transcriptPathFor(sess)
 }
 
 func (s *Service) buildSwapChain(sess *session.Session) [][]string {
