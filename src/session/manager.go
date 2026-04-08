@@ -375,7 +375,7 @@ func buildTags(branch string) []Tag {
 	if branch == "" {
 		return nil
 	}
-	return []Tag{{Text: branch, Foreground: "#A9DC76"}}
+	return []Tag{{Text: branch, Background: "#A9DC76"}}
 }
 
 func tagsEqual(a, b []Tag) bool {

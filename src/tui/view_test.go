@@ -33,7 +33,7 @@ func TestRenderSession_TagsAndTitle(t *testing.T) {
 	s := &core.SessionInfo{
 		ID:         "abc123",
 		Command:    "claude",
-		Tags:       []session.Tag{{Text: "main", Foreground: "#A9DC76"}},
+		Tags:       []session.Tag{{Text: "main", Background: "#A9DC76"}},
 		Title:      "my-session-name",
 		LastPrompt: "the last prompt",
 		State:      session.StateWaiting,
