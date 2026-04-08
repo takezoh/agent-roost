@@ -6,6 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
+	"github.com/take/agent-roost/session"
 )
 
 func setupModelWithSessions() Model {
@@ -115,6 +116,39 @@ func TestClickSetsAnchor(t *testing.T) {
 
 	if model.anchored != "@2" {
 		t.Fatalf("expected anchored=@2, got %s", model.anchored)
+	}
+}
+
+func TestFilterChipClickTogglesFilter(t *testing.T) {
+	m := setupModelWithSessions()
+	// Mark sessions with distinct states so the chips have meaningful counts.
+	m.sessions[0].State = session.StateRunning
+	m.sessions[1].State = session.StateIdle
+	m.rebuildItems()
+	m.View() // populate row cache (also exercises filter bar layout)
+
+	// Click the middle of the idle chip (index 2).
+	_, boxes := filterBarLayout(m.filter)
+	idleBox := boxes[2]
+	x := (idleBox.x0 + idleBox.x1) / 2
+
+	result, _ := m.Update(tea.MouseClickMsg{X: x, Y: 1, Button: tea.MouseLeft})
+	model := result.(Model)
+	if model.filter.matches(session.StateIdle) {
+		t.Fatal("idle should be off after clicking idle chip")
+	}
+	if got := countSessions(model.items); got != 1 {
+		t.Fatalf("expected 1 visible session after click, got %d", got)
+	}
+
+	// Click the All chip to reset.
+	_, boxes = filterBarLayout(model.filter)
+	allBox := boxes[len(boxes)-1]
+	x = (allBox.x0 + allBox.x1) / 2
+	result, _ = model.Update(tea.MouseClickMsg{X: x, Y: 1, Button: tea.MouseLeft})
+	model = result.(Model)
+	if !model.filter.allOn() {
+		t.Fatal("filter should be all-on after clicking All")
 	}
 }
 

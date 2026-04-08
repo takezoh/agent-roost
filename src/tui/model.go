@@ -34,6 +34,7 @@ type Model struct {
 	items    []listItem // for rendering (project rows + session rows)
 	cursor   int        // index into items
 	folded   map[string]bool
+	filter   statusFilter
 	active   string
 	anchored string
 	mouseSeq int
@@ -65,6 +66,7 @@ func NewModel(client *core.Client, cfg *config.Config) Model {
 		drivers:  driver.DefaultRegistry(),
 		keys:     DefaultKeyMap(),
 		folded:   make(map[string]bool),
+		filter:   allOnFilter(),
 	}
 }
 
@@ -225,6 +227,9 @@ func (m *Model) rebuildItems() {
 
 	for i := range m.sessions {
 		s := &m.sessions[i]
+		if !m.filter.matches(s.State) {
+			continue
+		}
 		name := s.Name()
 		byProject[name] = append(byProject[name], *s)
 		allProjects[name] = s.Project
@@ -247,26 +252,43 @@ func (m *Model) rebuildItems() {
 		}
 	}
 
-	restored := false
+	m.restoreCursor(prev)
+}
+
+// restoreCursor places m.cursor near where it was before rebuildItems ran.
+// Preference order: same WindowID -> same project name -> clamped to range.
+// The same-project fallback is what keeps the cursor sensible when a status
+// filter hides the session it was previously parked on.
+func (m *Model) restoreCursor(prev listItem) {
 	if prev.session != nil {
 		for i, item := range m.items {
 			if item.session != nil && item.session.WindowID == prev.session.WindowID {
 				m.cursor = i
-				restored = true
-				break
+				return
+			}
+		}
+		for i, item := range m.items {
+			if item.project == prev.project {
+				m.cursor = i
+				return
 			}
 		}
 	} else if prev.isProject {
 		for i, item := range m.items {
 			if item.isProject && item.project == prev.project {
 				m.cursor = i
-				restored = true
-				break
+				return
 			}
 		}
 	}
-	if !restored && len(m.items) > 0 && m.cursor >= len(m.items) {
+	if len(m.items) == 0 {
+		m.cursor = 0
+		return
+	}
+	if m.cursor >= len(m.items) {
 		m.cursor = len(m.items) - 1
+	} else if m.cursor < 0 {
+		m.cursor = 0
 	}
 }
 

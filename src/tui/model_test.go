@@ -278,6 +278,65 @@ func TestFirstSessionIndex(t *testing.T) {
 	}
 }
 
+func TestRebuildItemsFilterHidesSessions(t *testing.T) {
+	m := NewModel(nil, &config.Config{})
+	m.sessions = []core.SessionInfo{
+		{ID: "aaa111", Project: "/tmp/proj", Command: "claude", WindowID: "@1", State: session.StateRunning},
+		{ID: "bbb222", Project: "/tmp/proj", Command: "claude", WindowID: "@2", State: session.StateIdle},
+	}
+	m.filter = statusFilter{true, false, false, false, false} // running only
+	m.rebuildItems()
+	if got := countSessions(m.items); got != 1 {
+		t.Fatalf("expected 1 visible session, got %d", got)
+	}
+	for _, it := range m.items {
+		if it.session != nil && it.session.WindowID == "@2" {
+			t.Fatal("idle session @2 should be hidden by filter")
+		}
+	}
+}
+
+func TestRebuildItemsEmptyProjectHiddenByFilter(t *testing.T) {
+	m := NewModel(nil, &config.Config{})
+	m.sessions = []core.SessionInfo{
+		{ID: "aaa111", Project: "/tmp/proj1", Command: "claude", WindowID: "@1", State: session.StateRunning},
+		{ID: "bbb222", Project: "/tmp/proj2", Command: "claude", WindowID: "@2", State: session.StateIdle},
+	}
+	m.filter = statusFilter{true, false, false, false, false}
+	m.rebuildItems()
+	for _, it := range m.items {
+		if it.isProject && it.project == "proj2" {
+			t.Fatal("proj2 header should be hidden when its only session is filtered out")
+		}
+	}
+	// items should be exactly [proj1, sess@1] = 2.
+	if len(m.items) != 2 {
+		t.Fatalf("expected 2 items (proj1 + sess@1), got %d", len(m.items))
+	}
+}
+
+func TestRebuildItemsCursorFallsBackWhenCurrentFilteredOut(t *testing.T) {
+	m := NewModel(nil, &config.Config{})
+	m.sessions = []core.SessionInfo{
+		{ID: "aaa111", Project: "/tmp/proj", Command: "claude", WindowID: "@1", State: session.StateRunning},
+		{ID: "bbb222", Project: "/tmp/proj", Command: "claude", WindowID: "@2", State: session.StateIdle},
+	}
+	m.rebuildItems()
+	// items: [proj(0), sess1(1), sess2(2)] — park cursor on the idle session.
+	m.cursor = 2
+
+	// Hide idle. sess2 disappears, cursor should land on the same project.
+	m.filter = statusFilter{true, false, false, false, false}
+	m.rebuildItems()
+
+	if m.cursor < 0 || m.cursor >= len(m.items) {
+		t.Fatalf("cursor out of range after filter: cursor=%d items=%d", m.cursor, len(m.items))
+	}
+	if m.items[m.cursor].project != "proj" {
+		t.Fatalf("cursor should fall back to same project, got %q", m.items[m.cursor].project)
+	}
+}
+
 func TestRebuildItemsPreservesCursor(t *testing.T) {
 	m := NewModel(nil, &config.Config{})
 	m.sessions = []core.SessionInfo{
