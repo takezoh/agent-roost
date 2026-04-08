@@ -79,12 +79,23 @@ func TestFilterResetKey(t *testing.T) {
 	m.filter = statusFilter{true, false, false, false, false}
 	m.rebuildItems()
 
+	// Partial state → 0 should reset to all-on.
 	result, _ := m.Update(tea.KeyPressMsg{Code: '0', Text: "0"})
 	model := result.(Model)
 	if !model.filter.allOn() {
-		t.Fatal("filter should be all-on after pressing 0")
+		t.Fatal("filter should be all-on after pressing 0 from partial state")
 	}
 	if got := countSessions(model.items); got != 2 {
 		t.Fatalf("expected 2 visible sessions after reset, got %d", got)
+	}
+
+	// All-on → 0 should clear every chip.
+	result, _ = model.Update(tea.KeyPressMsg{Code: '0', Text: "0"})
+	model = result.(Model)
+	if model.filter.anyOn() {
+		t.Fatal("filter should be all-off after pressing 0 from all-on state")
+	}
+	if got := countSessions(model.items); got != 0 {
+		t.Fatalf("expected 0 visible sessions after all-off, got %d", got)
 	}
 }

@@ -50,11 +50,26 @@ func TestStatusFilterToggleAllOffResetsToAllOn(t *testing.T) {
 	}
 }
 
-func TestStatusFilterReset(t *testing.T) {
-	f := statusFilter{true, false, false, false, false}
-	f.reset()
+func TestStatusFilterToggleAll(t *testing.T) {
+	// All-on → all-off: lets the user clear the filter and enable just the
+	// chips they want with a single click.
+	f := allOnFilter()
+	f.toggleAll()
+	if f.anyOn() {
+		t.Fatalf("expected all-off after toggleAll from all-on, got %#v", f)
+	}
+
+	// All-off → all-on.
+	f.toggleAll()
 	if !f.allOn() {
-		t.Fatal("reset should leave every chip on")
+		t.Fatalf("expected all-on after toggleAll from all-off, got %#v", f)
+	}
+
+	// Partial → all-on.
+	f = statusFilter{true, false, true, false, false}
+	f.toggleAll()
+	if !f.allOn() {
+		t.Fatalf("expected all-on after toggleAll from partial, got %#v", f)
 	}
 }
 

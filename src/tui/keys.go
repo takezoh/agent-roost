@@ -57,7 +57,7 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (Model, bool) {
 	case key.Matches(msg, m.keys.Filter5):
 		m.filter.toggle(session.StatePending)
 	case key.Matches(msg, m.keys.FilterReset):
-		m.filter.reset()
+		m.filter.toggleAll()
 	default:
 		return m, false
 	}
