@@ -10,6 +10,7 @@ import (
 
 type Config struct {
 	DataDir    string           `toml:"data_dir"`
+	Theme      string           `toml:"theme"`
 	Tmux       TmuxConfig       `toml:"tmux"`
 	Monitor    MonitorConfig    `toml:"monitor"`
 	Session    SessionConfig    `toml:"session"`
@@ -74,6 +75,7 @@ func Load() (*Config, error) {
 
 func DefaultConfig() *Config {
 	return &Config{
+		Theme: "default",
 		Tmux: TmuxConfig{
 			SessionName:         "roost",
 			Prefix:              "C-b",

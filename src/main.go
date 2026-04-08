@@ -260,6 +260,7 @@ func respawnSessionsPaneIfDead(client *tmux.Client, sn string) {
 
 func runMainTUI() {
 	cfg := loadConfig()
+	tui.ApplyTheme(cfg.Theme)
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
 	client, err := core.Dial(sockPath)
@@ -284,6 +285,7 @@ func runMainTUI() {
 
 func runLogViewer() {
 	cfg := loadConfig()
+	tui.ApplyTheme(cfg.Theme)
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
 	client, err := core.Dial(sockPath)
@@ -308,6 +310,7 @@ func runLogViewer() {
 
 func runSessionList() {
 	cfg := loadConfig()
+	tui.ApplyTheme(cfg.Theme)
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
 	client, err := core.Dial(sockPath)
@@ -329,6 +332,7 @@ func runSessionList() {
 func runPalette(args []string) {
 	slog.Info("palette start", "args", args)
 	cfg := loadConfig()
+	tui.ApplyTheme(cfg.Theme)
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	slog.Info("palette dial", "sock", sockPath)
 

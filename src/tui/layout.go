@@ -21,7 +21,7 @@ func Panel(title, badge, body string, outerWidth int) string {
 
 	style := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
-		BorderForeground(DefaultTheme.Dim).
+		BorderForeground(Active.Dim).
 		Padding(0, 1).
 		Width(outerWidth)
 
