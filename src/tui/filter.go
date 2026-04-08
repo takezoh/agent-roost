@@ -66,7 +66,15 @@ func (f *statusFilter) toggle(s session.State) {
 	}
 }
 
-func (f *statusFilter) reset() {
+// toggleAll flips between all-on and all-off. When every chip is already
+// on, it clears the filter so the user can start from a blank slate and
+// enable just the chips they want; otherwise it sets every chip on (the
+// default "show everything" view).
+func (f *statusFilter) toggleAll() {
+	if f.allOn() {
+		*f = statusFilter{}
+		return
+	}
 	*f = allOnFilter()
 }
 

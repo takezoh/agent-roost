@@ -141,14 +141,27 @@ func TestFilterChipClickTogglesFilter(t *testing.T) {
 		t.Fatalf("expected 1 visible session after click, got %d", got)
 	}
 
-	// Click the All chip to reset.
+	// Click the All chip — partial state, so it should reset to all-on.
 	_, boxes = filterBarLayout(model.filter)
 	allBox := boxes[len(boxes)-1]
 	x = (allBox.x0 + allBox.x1) / 2
 	result, _ = model.Update(tea.MouseClickMsg{X: x, Y: 1, Button: tea.MouseLeft})
 	model = result.(Model)
 	if !model.filter.allOn() {
-		t.Fatal("filter should be all-on after clicking All")
+		t.Fatal("filter should be all-on after clicking All from partial state")
+	}
+
+	// Click the All chip again — now all-on, so it should clear every chip.
+	_, boxes = filterBarLayout(model.filter)
+	allBox = boxes[len(boxes)-1]
+	x = (allBox.x0 + allBox.x1) / 2
+	result, _ = model.Update(tea.MouseClickMsg{X: x, Y: 1, Button: tea.MouseLeft})
+	model = result.(Model)
+	if model.filter.anyOn() {
+		t.Fatal("filter should be all-off after clicking All from all-on state")
+	}
+	if got := countSessions(model.items); got != 0 {
+		t.Fatalf("expected 0 visible sessions after all-off, got %d", got)
 	}
 }
 
