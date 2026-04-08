@@ -199,14 +199,17 @@ func (s *Service) UpdateStates(states map[string]session.State) {
 	s.Manager.UpdateStates(states)
 }
 
-// HandleSessionStart binds an agent session to a tmux window.
+// HandleSessionStart binds an agent session to a tmux window and persists the
+// binding as a tmux window user option so it survives Coordinator restart.
 // Uses pane → WindowID for identification, falls back to active session.
 func (s *Service) HandleSessionStart(pane, agentSessionID string) bool {
 	windowID := s.resolveWindowID(pane)
 	if windowID == "" {
 		return false
 	}
-	return s.AgentStore.Bind(windowID, agentSessionID)
+	changed := s.AgentStore.Bind(windowID, agentSessionID)
+	s.Manager.SetAgentSessionID(windowID, agentSessionID)
+	return changed
 }
 
 // HandleStateChange updates the agent state by agentSessionID.
@@ -356,23 +359,22 @@ func (s *Service) ActiveTranscriptPath() string {
 	return driver.TranscriptFilePath(home, sess.Project, agent.ID)
 }
 
-// ResolveAgentMeta resolves metadata from agent log files and updates the agent store.
+// ResolveAgentMeta resolves metadata from agent log files for windows that
+// already have a known agent session binding. Unbound windows are skipped —
+// binding only happens through hook events that carry pane context, since
+// guessing from "newest .jsonl in project dir" causes multiple sessions in the
+// same project to collapse onto a single agent session.
 func (s *Service) ResolveAgentMeta() bool {
 	home, _ := os.UserHomeDir()
 	fsys := os.DirFS(home)
 	changed := false
 	for _, sess := range s.Manager.All() {
 		agentID := s.AgentStore.IDByWindow(sess.WindowID)
-		meta := s.Drivers.Get(sess.Command).ResolveMeta(fsys, sess.Project, agentID)
-		if meta.Title == "" && meta.LastPrompt == "" && len(meta.Subjects) == 0 {
+		if agentID == "" {
 			continue
 		}
-		if agentID == "" && meta.SessionID != "" {
-			s.AgentStore.Bind(sess.WindowID, meta.SessionID)
-			agentID = meta.SessionID
-			changed = true
-		}
-		if agentID == "" {
+		meta := s.Drivers.Get(sess.Command).ResolveMeta(fsys, sess.Project, agentID)
+		if meta.Title == "" && meta.LastPrompt == "" && len(meta.Subjects) == 0 {
 			continue
 		}
 		if s.AgentStore.UpdateMeta(agentID, meta) {

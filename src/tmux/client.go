@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/take/agent-roost/session"
 )
 
 type Client struct {
@@ -135,6 +137,70 @@ func (c *Client) BindKeyRaw(rawCmd string) error {
 func (c *Client) SetOption(target, key, value string) error {
 	_, err := c.Run("set-option", "-t", target, key, value)
 	return err
+}
+
+// SetWindowUserOption sets a window-scoped user option (key must start with '@').
+func (c *Client) SetWindowUserOption(windowID, key, value string) error {
+	_, err := c.Run("set-option", "-w", "-t", windowID, key, value)
+	return err
+}
+
+// SetWindowUserOptions sets multiple window user options atomically.
+func (c *Client) SetWindowUserOptions(windowID string, kv map[string]string) error {
+	if len(kv) == 0 {
+		return nil
+	}
+	cmds := make([][]string, 0, len(kv))
+	for k, v := range kv {
+		cmds = append(cmds, []string{"set-option", "-w", "-t", windowID, k, v})
+	}
+	return c.RunChain(cmds...)
+}
+
+// ListRoostWindows returns all windows that carry the @roost_id user option.
+func (c *Client) ListRoostWindows() ([]session.RoostWindow, error) {
+	fmtStr := strings.Join([]string{
+		"#{window_id}",
+		"#{@roost_id}",
+		"#{@roost_project}",
+		"#{@roost_command}",
+		"#{@roost_created_at}",
+		"#{@roost_tags}",
+		"#{@roost_agent_session}",
+	}, "\t")
+	out, err := c.Run("list-windows", "-t", c.SessionName, "-F", fmtStr)
+	if err != nil {
+		return nil, err
+	}
+	return parseRoostWindows(out), nil
+}
+
+// parseRoostWindows parses the tab-separated output of list-windows into roost
+// window snapshots. Lines whose @roost_id field is empty are skipped.
+func parseRoostWindows(out string) []session.RoostWindow {
+	var windows []session.RoostWindow
+	for _, line := range strings.Split(out, "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) < 7 {
+			continue
+		}
+		if parts[1] == "" {
+			continue
+		}
+		windows = append(windows, session.RoostWindow{
+			WindowID:       parts[0],
+			ID:             parts[1],
+			Project:        parts[2],
+			Command:        parts[3],
+			CreatedAt:      parts[4],
+			Tags:           parts[5],
+			AgentSessionID: parts[6],
+		})
+	}
+	return windows
 }
 
 func (c *Client) CapturePane(paneTarget string) (string, error) {

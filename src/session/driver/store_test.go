@@ -208,6 +208,32 @@ func TestUpdateMeta(t *testing.T) {
 	}
 }
 
+func TestRestoreFromBindings(t *testing.T) {
+	s := NewAgentStore()
+	s.RestoreFromBindings(map[string]string{
+		"@1": "agent-1",
+		"@2": "agent-2",
+		"@3": "", // skipped
+		"":   "agent-x", // skipped
+	})
+
+	if s.IDByWindow("@1") != "agent-1" {
+		t.Errorf("@1 binding lost")
+	}
+	if s.IDByWindow("@2") != "agent-2" {
+		t.Errorf("@2 binding lost")
+	}
+	if s.IDByWindow("@3") != "" {
+		t.Errorf("empty agent ID should be skipped")
+	}
+	if s.Get("agent-1") == nil {
+		t.Errorf("expected agent-1 session to be created")
+	}
+	if s.Get("agent-2").State != AgentStateUnset {
+		t.Errorf("expected restored session in Unset state")
+	}
+}
+
 func TestAgentState_String(t *testing.T) {
 	tests := []struct {
 		state AgentState

@@ -50,22 +50,41 @@ func (s State) Symbol() string {
 	}
 }
 
+// Session is the in-memory view of a roost-managed tmux window. It is built
+// from tmux window user options (@roost_*) and is not persisted to disk —
+// the tmux window itself owns the source of truth.
 type Session struct {
-	ID        string    `json:"id"`
-	Project   string    `json:"project"`
-	Command   string    `json:"command"`
-	WindowID  string    `json:"window_id"`
-	CreatedAt time.Time `json:"created_at"`
-	Tags      []Tag     `json:"tags,omitempty"`
+	ID             string
+	Project        string
+	Command        string
+	WindowID       string
+	AgentSessionID string
+	CreatedAt      time.Time
+	Tags           []Tag
 
-	State          State     `json:"-"`
-	StateChangedAt time.Time `json:"-"`
+	State          State
+	StateChangedAt time.Time
 }
 
 type Tag struct {
 	Text       string `json:"text"`
 	Foreground string `json:"fg,omitempty"`
 	Background string `json:"bg,omitempty"`
+}
+
+// RoostWindow is a raw snapshot of a roost-managed tmux window's user options.
+// All fields are still in their tmux string form; Manager decodes them into
+// Session values. Defined in the session package (not tmux) so that
+// session.Manager can declare its TmuxClient interface without importing tmux,
+// avoiding an import cycle (tmux already imports session for State).
+type RoostWindow struct {
+	WindowID       string
+	ID             string
+	Project        string
+	Command        string
+	CreatedAt      string
+	Tags           string
+	AgentSessionID string
 }
 
 

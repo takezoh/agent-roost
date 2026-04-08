@@ -45,7 +45,7 @@ AI エージェントを複数プロジェクトで並行稼働させると、tm
 ```
 tui/       表示層 — UI 状態管理、レンダリング、キー入力ディスパッチ
 core/      サービス層 — セッション切替/プレビュー、popup 起動、状態ポーリング、ツール定義
-session/   データ層 — セッション CRUD、JSON 永続化、状態定義
+session/   データ層 — セッション CRUD、tmux window user options を単一の真実とするキャッシュ
 tmux/      インフラ層 — tmux コマンド実行、インターフェース定義
 session/driver/  コマンド抽象化 — エージェントドライバ定義、コマンド別プロンプト検出・表示名、エージェントセッション管理 (AgentStore)
 lib/       ユーティリティ — 外部ツール連携。サブパッケージで名前空間分離 (lib/git/, lib/claude/)
@@ -87,8 +87,10 @@ tmux セッション全体のライフサイクルを管理する親プロセス
 ```
 runCoordinator()
 ├── tmux セッション作成 or 復元
-├── sessions.json と tmux window の整合性チェック（orphan エントリ除去）
+├── Manager.Refresh（tmux window user options から既存セッションを読み込み）
+├── Manager.SyncBranches（git ブランチ情報を tmux user option に同期）
 ├── restoreActiveWindowID（tmux 環境変数 ROOST_ACTIVE_WINDOW から復元）
+├── AgentStore.RestoreFromBindings（@roost_agent_session から hook バインディングを復元）
 ├── Manager, Monitor, Service 初期化
 ├── Service.SetSyncActive（active window ID を tmux 環境変数に同期するコールバック設定）
 ├── Service.OnPreview（プレビュー時にブランチ情報を更新するコールバック設定）
@@ -161,9 +163,9 @@ runTUI("palette")
 ### 障害時の振る舞い
 
 - **TUI のソケット切断**: TUI プロセスは終了する。ヘルスモニタが検知し respawn
-- **セッション window の外部 kill**: 次回ポーリングで capture-pane がエラーを返し StateStopped に遷移。sessions.json からは除去しない（ユーザーが明示的に stop する）
+- **セッション window の外部 kill**: 次回ポーリングで capture-pane がエラーを返し StateStopped に遷移。Manager のキャッシュは次回 `Refresh()` で tmux と同期され消える
 - **ヘルスモニタの respawn 連続失敗**: respawn-pane は tmux がペインを再作成するため通常は失敗しない（ただしバイナリ削除・権限変更等の環境異常時は起動失敗する）。tmux セッション消失時は Coordinator の attach も終了するため、全体が終了する
-- **起動時の整合性**: sessions.json の各エントリに対応する tmux window の存在を確認し、不在エントリを除去してから Manager を初期化する
+- **起動時の整合性**: tmux window user options を単一の真実とするため、orphan チェックは不要。`@roost_id` を持つ tmux window がそのまま roost セッション一覧になる
 - **IPC エラー**: TUI 側で IPC コマンドがエラーを返した場合、slog にログ出力し UI 状態は変更しない。タイムアウトは設定していない（Unix socket のローカル通信のため）。サーバーがデッドロックした場合、クライアントは無期限にブロックするリスクがある。復帰手段は外部からの `tmux kill-session -t roost` または Coordinator プロセスの kill
 
 ## tmux レイアウト
@@ -433,7 +435,8 @@ sequenceDiagram
     end
 
     loop every 5 ticks (~5s)
-        S->>S: drivers.Get(command).ResolveMeta(fsys, project, source) ×N
+        S->>S: ResolveAgentMeta — バインド済み window のみ対象
+        S->>S: drivers.Get(command).ResolveMeta(fsys, project, agentID) ×N
         S->>S: AgentStore.UpdateMeta(agentID, meta)
         Note over S,M: metadata が変化した場合のみ
         S-->>M: broadcast("sessions-changed")
@@ -532,17 +535,25 @@ type AgentStore struct {
 type TmuxClient interface {
     NewWindow(name, command, startDir string) (string, error)
     KillWindow(windowID string) error
-    ListWindowIDs() ([]string, error)
     SetOption(target, key, value string) error
+    SetWindowUserOption(windowID, key, value string) error
+    SetWindowUserOptions(windowID string, kv map[string]string) error
+    ListRoostWindows() ([]RoostWindow, error)
 }
 ```
+
+`session.Manager` は `ListRoostWindows()` で tmux window の `@roost_*` ユーザー
+オプションを読み込み、メモリキャッシュを再構築する。`Refresh()` は純粋な読み取り
+で、ブランチ同期は別メソッド `SyncBranches()` に分離してある。`AgentStore` の
+バインディングも tmux window option (`@roost_agent_session`) に永続化される
+ため、Coordinator 再起動でもセッション状態が tmux 自身から自然復元される。
 
 - `core.Service` → `PaneOperator`, `driver.AgentStore` に依存
 - `tmux.Monitor` → `PaneCapturer` に依存
 - `session.Manager` → `TmuxClient` に依存
 - `session.Manager` → `git.DetectBranch`（`detectBranch` フィールドで DI。テスト時に差し替え可能）
 - ファイルパスは `Config.DataDir` で注入
-- `Session` は tmux 固有データのみ保持。エージェント固有データ（Title, LastPrompt, Subjects, StatusLine, State, Insight）は `AgentStore` が管理。`SessionInfo.Indicators` は driver の `AgentSession.Indicators()` が組み立てた driver-neutral な status chip 文字列リスト
+- `Session` は tmux 固有データに加え、`AgentSessionID`（hook 経由でバインドされた agent session の永続化用フィールド）を保持。エージェント固有データ（Title, LastPrompt, Subjects, StatusLine, State, Insight）は `AgentStore` が管理。`SessionInfo.Indicators` は driver の `AgentSession.Indicators()` が組み立てた driver-neutral な status chip 文字列リスト
 
 ## 設計判断
 
@@ -551,13 +562,14 @@ type TmuxClient interface {
 | パレットの実装方式 | tmux popup (独立プロセス) | crash 分離。Bubbletea サブモデルでは TUI 内で panic を共有する |
 | Ctrl+C の無効化 | KeyPressMsg を consume | 常駐プロセスの誤終了防止。ヘルスモニタの respawn まで操作不能になる |
 | 楽観的更新をしない | IPC エラー時に UI 状態を変更しない | 次回ポーリングで自動回復。状態不整合のリスクを回避 |
-| shutdown 時に sessions.json クリア | Manager.Clear() | tmux session ごと kill するため orphan エントリを防止 |
+| セッションメタデータの永続化 | tmux window user options (`@roost_*`) | tmux window と同じライフタイムで自動クリーンアップ。Coordinator 再起動後も tmux 自身から復元できる。`sessions.json` のような二重管理を避ける |
+| shutdown 時のセッション除去 | `Manager.Clear()` で全 window を kill | tmux window と user options が一緒に消えるため orphan エントリは構造的に発生しない |
 | swap-pane チェーンのロールバック | しない | tmux の `;` 連結はアトミックではなく途中ロールバック不可。内部状態を変更しないことで整合性を維持 |
 | IPC タイムアウト | 設定しない | Server のデッドロックは Coordinator 全体の障害を意味し、Client 側のタイムアウトでは回復できない。外部からの再起動が唯一の復帰手段であるため優先度は低い |
 | SessionMeta の定義場所 | `driver.SessionMeta` のみ（`session.SessionMeta` は廃止） | driver パッケージの独立性を保つ。Server が `driver.SessionMeta` → `AgentStore.UpdateMeta` で格納 |
 | tmux/エージェントセッション分離 | `Session`（tmux）と `AgentSession`（driver）を別構造体 | tmux の swap-pane に影響されないセッション特定。AgentStore が windowID ↔ agentSessionID の紐付けを管理 |
 | エージェント状態検出 | Claude: hook イベント、非 Claude: capture-pane | Claude は hook で正確な状態を取得。`ResolveAgentState` でマージ。hook 未受信時は Idle |
-| エージェントイベント連携 | `roost claude event` + `agent-event` IPC | SessionStart で紐付け確立（pane → WindowID → AgentStore.Bind）。以降は agentSessionID で直接ルックアップ |
+| エージェントイベント連携 | `roost claude event` + `agent-event` IPC | SessionStart で紐付け確立（pane → WindowID → AgentStore.Bind + tmux user option `@roost_agent_session` への永続化）。以降は agentSessionID で直接ルックアップ。Coordinator 再起動後は `RestoreFromBindings` で復元 |
 | StatusLine の表示 | transcript JSONL → `transcript.Tracker` (lib/claude/transcript) → `tmux set-option status-left` | statusLine hook 不要。state-change イベントをトリガーに差分読み。Insight (current tool / subagent count / error count) も同経路で抽出。`core.SessionTracker` interface 経由で Service に注入し core 中立を維持。`status-format[0]` でウィンドウリストを排除 |
 
 ## 副作用の命名規約
@@ -584,7 +596,6 @@ type TmuxClient interface {
 | パス | 形式 | 内容 | ライフサイクル |
 |------|------|------|--------------|
 | `~/.config/roost/config.toml` | TOML | ユーザー設定（下記参照） | ユーザーが作成。存在しなければデフォルト値で動作 |
-| `~/.config/roost/sessions.json` | JSON | セッション一覧 | Coordinator 起動時に読込・整合性チェック。セッション作成/停止で更新。shutdown で全エントリ削除 |
 | `~/.config/roost/events/{agentSessionID}.log` | テキスト | エージェント hook イベントログ | hook イベント受信時に追記。Service.AppendEventLog で書き込み |
 | `~/.config/roost/roost.log` | slog | アプリケーションログ | Coordinator 起動時に作成/追記 |
 | `~/.config/roost/roost.sock` | Unix socket | プロセス間通信 | Coordinator 起動時に作成。終了時に削除 |
@@ -617,14 +628,14 @@ src/
 │   ├── server.go        Unix socket サーバー、コマンドハンドラ、broadcast、メタデータ定期解決、エージェントイベント受信
 │   ├── client.go        ソケットクライアント（TUI・パレット用）
 │   ├── protocol.go      メッセージ型定義 (Message, SessionInfo, BuildSessionInfos)
-│   ├── service.go       ビジネスロジック（切替、プレビュー、popup 起動、エージェントイベント処理、ResolveAgentState、ResolveAgentMeta、イベントログ I/O）
+│   ├── service.go       ビジネスロジック（切替、プレビュー、popup 起動、エージェントイベント処理、ResolveAgentState、ResolveAgentMeta はバインド済み window のメタデータ解決のみ、イベントログ I/O）
 │   ├── usage_tracker.go セッションごとの transcript 差分読み + usage 累計管理
 │   └── tool.go          ツール定義 + Registry
 ├── config/
 │   └── config.go        TOML 設定読み込み
 ├── session/
-│   ├── manager.go       セッション CRUD + JSON 永続化
-│   ├── state.go         状態 enum + Session struct（tmux 固有データのみ）
+│   ├── manager.go       セッション CRUD（tmux window user options をキャッシュ）+ Refresh / SyncBranches / SetAgentSessionID
+│   ├── state.go         状態 enum + Session struct（tmux 固有データ + AgentSessionID）+ RoostWindow 型
 │   ├── log.go           ログパスヘルパー
 │   └── driver/
 │       ├── driver.go    Driver インターフェース (Name, PromptPattern, DisplayName, ResolveMeta)

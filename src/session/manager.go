@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -13,13 +12,20 @@ import (
 	"github.com/take/agent-roost/lib/git"
 )
 
+// TmuxClient is the subset of tmux operations Manager needs to manage roost
+// sessions backed by tmux window user options.
 type TmuxClient interface {
 	NewWindow(name, command, startDir string) (string, error)
 	KillWindow(windowID string) error
-	ListWindowIDs() ([]string, error)
 	SetOption(target, key, value string) error
+	SetWindowUserOption(windowID, key, value string) error
+	SetWindowUserOptions(windowID string, kv map[string]string) error
+	ListRoostWindows() ([]RoostWindow, error)
 }
 
+// Manager keeps an in-memory cache of roost sessions reconstructed from tmux
+// window user options. The cache is rebuilt by Refresh() and updated in-place
+// by Create/Stop/SetAgentSessionID/RefreshBranch.
 type Manager struct {
 	tmux         TmuxClient
 	dataDir      string
@@ -28,27 +34,42 @@ type Manager struct {
 	sessions     []*Session
 }
 
-func NewManager(tmux TmuxClient, dataDir string) *Manager {
+func NewManager(t TmuxClient, dataDir string) *Manager {
 	return &Manager{
-		tmux:         tmux,
+		tmux:         t,
 		dataDir:      dataDir,
 		detectBranch: git.DetectBranch,
 	}
 }
 
+// Refresh rebuilds the in-memory cache from tmux user options. It is a pure
+// read operation — branch synchronization is the caller's responsibility
+// (see SyncBranches).
 func (m *Manager) Refresh() error {
 	slog.Info("refreshing sessions")
+	windows, err := m.tmux.ListRoostWindows()
+	if err != nil {
+		return err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := m.load(); err != nil {
-		return err
+	m.sessions = m.sessions[:0]
+	for _, w := range windows {
+		m.sessions = append(m.sessions, windowToSession(w))
 	}
-	if err := m.reconcile(); err != nil {
-		return err
-	}
-	m.refreshBranches()
 	return nil
+}
+
+// SyncBranches re-detects the git branch for every session and writes
+// changes back to the @roost_tags user option.
+func (m *Manager) SyncBranches() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.sessions {
+		m.refreshSessionBranchLocked(s)
+	}
 }
 
 func (m *Manager) Create(project, command string) (*Session, error) {
@@ -58,33 +79,44 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 	}
 	slog.Info("creating session", "project", project, "command", command, "id", id)
 
+	tags := buildTags(m.detectBranch(project))
+	createdAt := time.Now()
+
 	name := filepath.Base(project) + ":" + id
 	windowID, err := m.tmux.NewWindow(name, "exec "+command, project)
 	if err != nil {
 		slog.Error("create: window failed", "err", err)
 		return nil, err
 	}
-	m.tmux.SetOption(windowID, "remain-on-exit", "on")
+	if err := m.tmux.SetOption(windowID, "remain-on-exit", "on"); err != nil {
+		slog.Warn("create: set remain-on-exit failed", "err", err)
+	}
+
+	options := map[string]string{
+		"@roost_id":         id,
+		"@roost_project":    project,
+		"@roost_command":    command,
+		"@roost_created_at": createdAt.UTC().Format(time.RFC3339),
+		"@roost_tags":       encodeTags(tags),
+	}
+	if err := m.tmux.SetWindowUserOptions(windowID, options); err != nil {
+		slog.Error("create: set window options failed", "err", err)
+		m.tmux.KillWindow(windowID)
+		return nil, err
+	}
 
 	s := &Session{
 		ID:        id,
 		Project:   project,
 		Command:   command,
 		WindowID:  windowID,
-		CreatedAt: time.Now(),
+		CreatedAt: createdAt,
 		State:     StateRunning,
-		Tags:      buildTags(m.detectBranch(project)),
+		Tags:      tags,
 	}
 
 	m.mu.Lock()
 	m.sessions = append(m.sessions, s)
-	if err := m.save(); err != nil {
-		slog.Error("create: save failed", "err", err)
-		m.sessions = m.sessions[:len(m.sessions)-1]
-		m.mu.Unlock()
-		m.tmux.KillWindow(windowID)
-		return nil, err
-	}
 	m.mu.Unlock()
 	slog.Info("session created", "id", id, "window", windowID)
 	return s, nil
@@ -101,7 +133,7 @@ func (m *Manager) Stop(sessionID string) error {
 				return err
 			}
 			m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
-			return m.save()
+			return nil
 		}
 	}
 	return nil
@@ -110,8 +142,11 @@ func (m *Manager) Stop(sessionID string) error {
 func (m *Manager) Clear() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	for _, s := range m.sessions {
+		m.tmux.KillWindow(s.WindowID)
+	}
 	m.sessions = nil
-	return m.save()
+	return nil
 }
 
 func (m *Manager) All() []*Session {
@@ -169,41 +204,53 @@ func (m *Manager) UpdateStates(states map[string]State) {
 	}
 }
 
+// SetAgentSessionID writes the @roost_agent_session user option for the given
+// window and updates the in-memory cache. Returns true if the value changed.
+func (m *Manager) SetAgentSessionID(windowID, agentSessionID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, s := range m.sessions {
+		if s.WindowID == windowID {
+			if s.AgentSessionID == agentSessionID {
+				return false
+			}
+			if err := m.tmux.SetWindowUserOption(windowID, "@roost_agent_session", agentSessionID); err != nil {
+				slog.Error("set agent session option failed", "window", windowID, "err", err)
+				return false
+			}
+			s.AgentSessionID = agentSessionID
+			return true
+		}
+	}
+	return false
+}
 
 func (m *Manager) RefreshBranch(sessionID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, s := range m.sessions {
 		if s.ID == sessionID {
-			if m.refreshSessionBranch(s) {
-				m.save()
-				return true
-			}
-			return false
+			return m.refreshSessionBranchLocked(s)
 		}
 	}
 	return false
 }
 
-func (m *Manager) refreshBranches() {
-	changed := false
-	for _, s := range m.sessions {
-		if m.refreshSessionBranch(s) {
-			changed = true
-		}
-	}
-	if changed {
-		m.save()
-	}
-}
-
-func (m *Manager) refreshSessionBranch(s *Session) bool {
+func (m *Manager) refreshSessionBranchLocked(s *Session) bool {
 	tags := buildTags(m.detectBranch(s.Project))
-	if !tagsEqual(s.Tags, tags) {
-		s.Tags = tags
-		return true
+	if tagsEqual(s.Tags, tags) {
+		return false
 	}
-	return false
+	if err := m.tmux.SetWindowUserOption(s.WindowID, "@roost_tags", encodeTags(tags)); err != nil {
+		slog.Warn("refresh branch: set tags failed", "window", s.WindowID, "err", err)
+		return false
+	}
+	s.Tags = tags
+	return true
+}
+
+func (m *Manager) DataDir() string {
+	return m.dataDir
 }
 
 func buildTags(branch string) []Tag {
@@ -225,73 +272,39 @@ func tagsEqual(a, b []Tag) bool {
 	return true
 }
 
-func (m *Manager) DataDir() string {
-	return m.dataDir
+func encodeTags(tags []Tag) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(tags)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
-func (m *Manager) load() error {
-	data, err := os.ReadFile(m.filePath())
-	if os.IsNotExist(err) {
-		m.sessions = []*Session{}
+func decodeTags(s string) []Tag {
+	if s == "" {
 		return nil
 	}
-	if err != nil {
-		slog.Error("load sessions failed", "err", err)
-		return err
+	var tags []Tag
+	if err := json.Unmarshal([]byte(s), &tags); err != nil {
+		return nil
 	}
-	return json.Unmarshal(data, &m.sessions)
+	return tags
 }
 
-func (m *Manager) save() error {
-	data, err := json.MarshalIndent(m.sessions, "", "  ")
-	if err != nil {
-		return err
+func windowToSession(w RoostWindow) *Session {
+	createdAt, _ := time.Parse(time.RFC3339, w.CreatedAt)
+	return &Session{
+		ID:             w.ID,
+		Project:        w.Project,
+		Command:        w.Command,
+		WindowID:       w.WindowID,
+		AgentSessionID: w.AgentSessionID,
+		CreatedAt:      createdAt,
+		Tags:           decodeTags(w.Tags),
 	}
-	tmpPath := m.filePath() + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0o644); err != nil {
-		slog.Error("save sessions failed", "err", err)
-		return err
-	}
-	if err := os.Rename(tmpPath, m.filePath()); err != nil {
-		slog.Error("save sessions failed", "err", err)
-		return err
-	}
-	return nil
-}
-
-func (m *Manager) reconcile() error {
-	ids, err := m.tmux.ListWindowIDs()
-	if err != nil {
-		return err
-	}
-	alive := make(map[string]bool, len(ids))
-	for _, id := range ids {
-		alive[id] = true
-	}
-
-	changed := false
-	filtered := m.sessions[:0]
-	for _, s := range m.sessions {
-		if alive[s.WindowID] {
-			filtered = append(filtered, s)
-		} else {
-			changed = true
-		}
-	}
-	if changed {
-		removed := len(m.sessions) - len(filtered)
-		slog.Info("reconciled sessions", "removed", removed)
-	}
-	m.sessions = filtered
-
-	if changed {
-		return m.save()
-	}
-	return nil
-}
-
-func (m *Manager) filePath() string {
-	return filepath.Join(m.dataDir, "sessions.json")
 }
 
 func generateID() (string, error) {
@@ -301,3 +314,4 @@ func generateID() (string, error) {
 	}
 	return hex.EncodeToString(b), nil
 }
+

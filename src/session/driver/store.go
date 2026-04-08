@@ -18,6 +18,10 @@ func NewAgentStore() *AgentStore {
 func (s *AgentStore) Bind(windowID, agentSessionID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.bindLocked(windowID, agentSessionID)
+}
+
+func (s *AgentStore) bindLocked(windowID, agentSessionID string) bool {
 	oldID := s.bindings[windowID]
 	s.bindings[windowID] = agentSessionID
 	if _, ok := s.sessions[agentSessionID]; !ok {
@@ -27,6 +31,20 @@ func (s *AgentStore) Bind(windowID, agentSessionID string) bool {
 		}
 	}
 	return oldID != agentSessionID
+}
+
+// RestoreFromBindings rehydrates the store from a windowID → agentSessionID
+// map. Used at Coordinator startup to restore bindings persisted in tmux
+// window options without going through the hook event path.
+func (s *AgentStore) RestoreFromBindings(bindings map[string]string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for windowID, agentID := range bindings {
+		if windowID == "" || agentID == "" {
+			continue
+		}
+		s.bindLocked(windowID, agentID)
+	}
 }
 
 func (s *AgentStore) Unbind(windowID string) {

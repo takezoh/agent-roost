@@ -75,12 +75,20 @@ func runCoordinator() {
 
 	mgr := session.NewManager(client, dataDir)
 	mgr.Refresh()
+	mgr.SyncBranches()
 	slog.Info("sessions loaded", "count", len(mgr.All()))
 
 	activeWID := restoreActiveWindowID(client, mgr)
 
 	drivers := driver.DefaultRegistry()
 	agentStore := driver.NewAgentStore()
+	bindings := make(map[string]string)
+	for _, s := range mgr.All() {
+		if s.AgentSessionID != "" {
+			bindings[s.WindowID] = s.AgentSessionID
+		}
+	}
+	agentStore.RestoreFromBindings(bindings)
 	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec, drivers)
 	eventLogDir := filepath.Join(dataDir, "events")
 	svc := core.NewService(mgr, agentStore, drivers, monitor, client, sessionName, eventLogDir, activeWID)

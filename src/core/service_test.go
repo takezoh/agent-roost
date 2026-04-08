@@ -20,8 +20,9 @@ func (m *mockPaneOp) RunChain(cmds ...[]string) error               { m.chainCal
 func (m *mockPaneOp) WindowIDFromPane(paneID string) (string, error) { return "@0", nil }
 
 type mockTmuxForService struct {
-	nextID  string
-	windows map[string]bool
+	nextID      string
+	windows     map[string]bool
+	userOptions map[string]map[string]string
 }
 
 func (m *mockTmuxForService) NewWindow(name, command, startDir string) (string, error) {
@@ -29,14 +30,47 @@ func (m *mockTmuxForService) NewWindow(name, command, startDir string) (string, 
 	m.windows[id] = true
 	return id, nil
 }
-func (m *mockTmuxForService) KillWindow(windowID string) error   { delete(m.windows, windowID); return nil }
-func (m *mockTmuxForService) ListWindowIDs() ([]string, error) {
-	var ids []string
-	for id := range m.windows { ids = append(ids, id) }
-	return ids, nil
+func (m *mockTmuxForService) KillWindow(windowID string) error {
+	delete(m.windows, windowID)
+	delete(m.userOptions, windowID)
+	return nil
 }
 func (m *mockTmuxForService) SetOption(target, key, value string) error { return nil }
-func (m *mockTmuxForService) PipePane(target, command string) error     { return nil }
+func (m *mockTmuxForService) SetWindowUserOption(windowID, key, value string) error {
+	if m.userOptions == nil {
+		m.userOptions = make(map[string]map[string]string)
+	}
+	if m.userOptions[windowID] == nil {
+		m.userOptions[windowID] = make(map[string]string)
+	}
+	m.userOptions[windowID][key] = value
+	return nil
+}
+func (m *mockTmuxForService) SetWindowUserOptions(windowID string, kv map[string]string) error {
+	for k, v := range kv {
+		m.SetWindowUserOption(windowID, k, v)
+	}
+	return nil
+}
+func (m *mockTmuxForService) ListRoostWindows() ([]session.RoostWindow, error) {
+	var out []session.RoostWindow
+	for id := range m.windows {
+		opts := m.userOptions[id]
+		if opts == nil || opts["@roost_id"] == "" {
+			continue
+		}
+		out = append(out, session.RoostWindow{
+			WindowID:       id,
+			ID:             opts["@roost_id"],
+			Project:        opts["@roost_project"],
+			Command:        opts["@roost_command"],
+			CreatedAt:      opts["@roost_created_at"],
+			Tags:           opts["@roost_tags"],
+			AgentSessionID: opts["@roost_agent_session"],
+		})
+	}
+	return out, nil
+}
 
 type mockCapturer struct{ content map[string]string }
 
@@ -46,13 +80,19 @@ func (m *mockCapturer) CapturePaneLines(target string, n int) (string, error) {
 
 func setupService(t *testing.T) (*Service, *mockPaneOp, *session.Manager) {
 	t.Helper()
+	svc, panes, mgr, _ := setupServiceWithTmux(t)
+	return svc, panes, mgr
+}
+
+func setupServiceWithTmux(t *testing.T) (*Service, *mockPaneOp, *session.Manager, *mockTmuxForService) {
+	t.Helper()
 	mt := &mockTmuxForService{nextID: "@1", windows: make(map[string]bool)}
 	mgr := session.NewManager(mt, t.TempDir())
 	store := driver.NewAgentStore()
 	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
 	svc := NewService(mgr, store, driver.DefaultRegistry(), mon, panes, "roost", "", "")
-	return svc, panes, mgr
+	return svc, panes, mgr, mt
 }
 
 func TestBuildSwapChain_NoActive(t *testing.T) {
@@ -293,6 +333,47 @@ func TestHandleStatusLine(t *testing.T) {
 	}
 	if agent.StatusLine != "thinking..." {
 		t.Errorf("got status %q, want %q", agent.StatusLine, "thinking...")
+	}
+}
+
+func TestHandleSessionStart_PersistsToTmux(t *testing.T) {
+	svc, _, mgr := setupService(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess)
+
+	if !svc.HandleSessionStart("%0", "agent-9") {
+		t.Fatal("expected true on first bind")
+	}
+	found := mgr.FindByWindowID(sess.WindowID)
+	if found == nil || found.AgentSessionID != "agent-9" {
+		t.Fatalf("expected manager cache to carry agent-9, got %+v", found)
+	}
+}
+
+// Regression: when multiple Claude sessions live in the same project and the
+// AgentStore has not been populated (e.g. after a Coordinator restart),
+// ResolveAgentMeta must NOT auto-bind by reading the newest .jsonl, because
+// the same file would get attached to every window.
+func TestResolveAgentMeta_DoesNotAutoBind(t *testing.T) {
+	svc, _, mgr, mt := setupServiceWithTmux(t)
+
+	a, _ := mgr.Create("/tmp/proj", "claude")
+	mt.nextID = "@2"
+	b, _ := mgr.Create("/tmp/proj", "claude")
+
+	if a.WindowID == b.WindowID {
+		t.Fatal("expected distinct window IDs")
+	}
+
+	// Neither session has a hook-fired binding. ResolveAgentMeta must leave
+	// them both unbound rather than guess from the newest jsonl in the project.
+	svc.ResolveAgentMeta()
+
+	if svc.AgentStore.GetByWindow(a.WindowID) != nil {
+		t.Fatal("session a should remain unbound")
+	}
+	if svc.AgentStore.GetByWindow(b.WindowID) != nil {
+		t.Fatal("session b should remain unbound")
 	}
 }
 

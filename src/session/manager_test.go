@@ -1,15 +1,14 @@
 package session
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 )
 
 type mockTmux struct {
 	nextWindowID   string
 	windows        map[string]bool
-	options        map[string]string
+	options        map[string]string // "windowID:key" → value
+	userOptions    map[string]map[string]string
 	lastNewCommand string
 }
 
@@ -18,6 +17,7 @@ func newMockTmux() *mockTmux {
 		nextWindowID: "@1",
 		windows:      make(map[string]bool),
 		options:      make(map[string]string),
+		userOptions:  make(map[string]map[string]string),
 	}
 }
 
@@ -30,15 +30,8 @@ func (m *mockTmux) NewWindow(name, command, startDir string) (string, error) {
 
 func (m *mockTmux) KillWindow(windowID string) error {
 	delete(m.windows, windowID)
+	delete(m.userOptions, windowID)
 	return nil
-}
-
-func (m *mockTmux) ListWindowIDs() ([]string, error) {
-	var ids []string
-	for id := range m.windows {
-		ids = append(ids, id)
-	}
-	return ids, nil
 }
 
 func (m *mockTmux) SetOption(target, key, value string) error {
@@ -46,13 +39,48 @@ func (m *mockTmux) SetOption(target, key, value string) error {
 	return nil
 }
 
+func (m *mockTmux) SetWindowUserOption(windowID, key, value string) error {
+	if _, ok := m.userOptions[windowID]; !ok {
+		m.userOptions[windowID] = make(map[string]string)
+	}
+	m.userOptions[windowID][key] = value
+	return nil
+}
+
+func (m *mockTmux) SetWindowUserOptions(windowID string, kv map[string]string) error {
+	if _, ok := m.userOptions[windowID]; !ok {
+		m.userOptions[windowID] = make(map[string]string)
+	}
+	for k, v := range kv {
+		m.userOptions[windowID][k] = v
+	}
+	return nil
+}
+
+func (m *mockTmux) ListRoostWindows() ([]RoostWindow, error) {
+	var out []RoostWindow
+	for id := range m.windows {
+		opts := m.userOptions[id]
+		if opts == nil || opts["@roost_id"] == "" {
+			continue
+		}
+		out = append(out, RoostWindow{
+			WindowID:       id,
+			ID:             opts["@roost_id"],
+			Project:        opts["@roost_project"],
+			Command:        opts["@roost_command"],
+			CreatedAt:      opts["@roost_created_at"],
+			Tags:           opts["@roost_tags"],
+			AgentSessionID: opts["@roost_agent_session"],
+		})
+	}
+	return out, nil
+}
 
 func setupManager(t *testing.T) (*Manager, *mockTmux) {
 	t.Helper()
-	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "logs"), 0o755)
 	tmux := newMockTmux()
-	mgr := NewManager(tmux, dir)
+	mgr := NewManager(tmux, t.TempDir())
 	return mgr, tmux
 }
 
@@ -82,17 +110,49 @@ func TestCreateAndAll(t *testing.T) {
 	}
 }
 
-func TestCreatePersistsToFile(t *testing.T) {
+func TestCreateWritesUserOptions(t *testing.T) {
 	mgr, tmux := setupManager(t)
 
-	mgr.Create("/tmp/proj", "claude")
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	opts := tmux.userOptions[sess.WindowID]
+	if opts == nil {
+		t.Fatal("expected user options to be set")
+	}
+	if opts["@roost_id"] != sess.ID {
+		t.Fatalf("@roost_id mismatch: %q vs %q", opts["@roost_id"], sess.ID)
+	}
+	if opts["@roost_project"] != "/tmp/proj" {
+		t.Fatalf("@roost_project mismatch: %q", opts["@roost_project"])
+	}
+	if opts["@roost_command"] != "claude" {
+		t.Fatalf("@roost_command mismatch: %q", opts["@roost_command"])
+	}
+	if opts["@roost_created_at"] == "" {
+		t.Fatal("@roost_created_at should be set")
+	}
+}
+
+func TestRefreshFromTmux(t *testing.T) {
+	mgr, tmux := setupManager(t)
+
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	originalID := sess.ID
+	originalWID := sess.WindowID
 
 	mgr2 := NewManager(tmux, mgr.DataDir())
-	mgr2.Refresh()
+	if err := mgr2.Refresh(); err != nil {
+		t.Fatal(err)
+	}
 
 	all := mgr2.All()
 	if len(all) != 1 {
-		t.Fatalf("expected 1 session after reload, got %d", len(all))
+		t.Fatalf("expected 1 session after refresh, got %d", len(all))
+	}
+	if all[0].ID != originalID || all[0].WindowID != originalWID {
+		t.Fatalf("session not restored: %+v", all[0])
+	}
+	if all[0].Project != "/tmp/proj" || all[0].Command != "claude" {
+		t.Fatalf("metadata not restored: %+v", all[0])
 	}
 }
 
@@ -110,22 +170,23 @@ func TestStop(t *testing.T) {
 	if tmux.windows["@1"] {
 		t.Fatal("expected window to be killed")
 	}
+	if _, ok := tmux.userOptions["@1"]; ok {
+		t.Fatal("expected user options to be cleared with the window")
+	}
 }
 
-func TestRefreshReconciles(t *testing.T) {
+func TestRefreshSkipsNonRoostWindows(t *testing.T) {
 	mgr, tmux := setupManager(t)
 
+	// Window without @roost_id should be ignored
+	tmux.windows["@99"] = true
 	mgr.Create("/tmp/proj", "claude")
-	if len(mgr.All()) != 1 {
-		t.Fatal("expected 1 session")
+
+	if err := mgr.Refresh(); err != nil {
+		t.Fatal(err)
 	}
-
-	// Simulate window killed externally
-	delete(tmux.windows, "@1")
-
-	mgr.Refresh()
-	if len(mgr.All()) != 0 {
-		t.Fatal("expected 0 sessions after reconcile")
+	if len(mgr.All()) != 1 {
+		t.Fatalf("expected 1 roost-managed session, got %d", len(mgr.All()))
 	}
 }
 
@@ -184,7 +245,7 @@ func TestCreateUsesExecPrefix(t *testing.T) {
 }
 
 func TestRefreshBranch(t *testing.T) {
-	mgr, _ := setupManager(t)
+	mgr, tmux := setupManager(t)
 	mgr.detectBranch = func(string) string { return "main" }
 
 	sess, _ := mgr.Create("/tmp/proj", "claude")
@@ -212,12 +273,48 @@ func TestRefreshBranch(t *testing.T) {
 		t.Fatal("expected false for nonexistent ID")
 	}
 
-	// Verify persistence
-	mgr2 := NewManager(newMockTmux(), mgr.DataDir())
-	mgr2.load()
+	// Verify tags were written to tmux user option
+	stored := tmux.userOptions[sess.WindowID]["@roost_tags"]
+	if stored == "" {
+		t.Fatal("expected @roost_tags to be set in tmux")
+	}
+	if decoded := decodeTags(stored); len(decoded) != 1 || decoded[0].Text != "feature" {
+		t.Fatalf("expected stored tag feature, got %v", decoded)
+	}
+}
+
+func TestSetAgentSessionID(t *testing.T) {
+	mgr, tmux := setupManager(t)
+
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+
+	if !mgr.SetAgentSessionID(sess.WindowID, "agent-1") {
+		t.Fatal("expected true on first set")
+	}
+	if mgr.SetAgentSessionID(sess.WindowID, "agent-1") {
+		t.Fatal("expected false on no-op set")
+	}
+	if mgr.SetAgentSessionID("@nonexistent", "agent-x") {
+		t.Fatal("expected false for unknown window")
+	}
+
+	if tmux.userOptions[sess.WindowID]["@roost_agent_session"] != "agent-1" {
+		t.Fatalf("expected tmux user option to be set, got %v", tmux.userOptions[sess.WindowID])
+	}
+
+	found := mgr.FindByID(sess.ID)
+	if found.AgentSessionID != "agent-1" {
+		t.Fatalf("expected cache update, got %q", found.AgentSessionID)
+	}
+
+	// Verify a fresh Manager picks up the binding from tmux
+	mgr2 := NewManager(tmux, mgr.DataDir())
+	if err := mgr2.Refresh(); err != nil {
+		t.Fatal(err)
+	}
 	found = mgr2.FindByID(sess.ID)
-	if found == nil || len(found.Tags) != 1 || found.Tags[0].Text != "feature" {
-		t.Fatalf("expected persisted tag feature, got %v", found.Tags)
+	if found == nil || found.AgentSessionID != "agent-1" {
+		t.Fatalf("expected restored AgentSessionID, got %+v", found)
 	}
 }
 
@@ -251,4 +348,3 @@ func TestFindByWindowID(t *testing.T) {
 		t.Fatal("expected nil for unknown WindowID")
 	}
 }
-
