@@ -17,6 +17,7 @@ type Theme struct {
 	Dim     color.Color // help, borders, background noise
 	SelBg   color.Color // selected row background
 	SelFg   color.Color // selected row foreground
+	TagFg   color.Color // text color on tag chips (must contrast with tag bg)
 
 	Running color.Color
 	Waiting color.Color
@@ -37,6 +38,7 @@ var DefaultTheme = Theme{
 	Dim:     lipgloss.Color("#626262"),
 	SelBg:   lipgloss.Color("#3C3836"),
 	SelFg:   lipgloss.Color("#EBDBB2"),
+	TagFg:   lipgloss.Color("#1D2021"),
 
 	Running: lipgloss.Color("#00ff00"),
 	Waiting: lipgloss.Color("#ffff00"),
@@ -57,7 +59,10 @@ var (
 	selectedStyle = lipgloss.NewStyle().Background(DefaultTheme.SelBg).Foreground(DefaultTheme.SelFg)
 	helpStyle     = lipgloss.NewStyle().Foreground(DefaultTheme.Dim)
 	helpKeyStyle  = lipgloss.NewStyle().Foreground(DefaultTheme.Fg).Bold(true)
-	tagStyle      = lipgloss.NewStyle().Foreground(DefaultTheme.Accent)
+	tagStyle      = lipgloss.NewStyle().
+			Foreground(DefaultTheme.TagFg).
+			Background(DefaultTheme.Accent).
+			Padding(0, 1)
 	mutedStyle    = lipgloss.NewStyle().Foreground(DefaultTheme.Muted)
 
 	runningStyle = lipgloss.NewStyle().Foreground(DefaultTheme.Running)

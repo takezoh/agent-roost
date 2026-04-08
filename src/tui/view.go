@@ -132,7 +132,7 @@ func sessionCardLines(s *core.SessionInfo, textWidth int, registry *driver.Regis
 func renderTags(s *core.SessionInfo, registry *driver.Registry) string {
 	displayName := registry.Get(s.Command).DisplayName()
 	var parts []string
-	parts = append(parts, tagStyle.Render("["+displayName+"]"))
+	parts = append(parts, tagStyle.Render(displayName))
 	for _, tag := range s.Tags {
 		parts = append(parts, renderTag(tag))
 	}
@@ -147,14 +147,14 @@ func renderIndicators(s *core.SessionInfo) string {
 }
 
 func renderTag(tag session.Tag) string {
-	style := lipgloss.NewStyle()
+	style := tagStyle
 	if tag.Foreground != "" {
 		style = style.Foreground(lipgloss.Color(tag.Foreground))
 	}
 	if tag.Background != "" {
 		style = style.Background(lipgloss.Color(tag.Background))
 	}
-	return style.Render("[" + tag.Text + "]")
+	return style.Render(tag.Text)
 }
 
 func truncate(s string, n int) string {

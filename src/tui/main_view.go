@@ -65,7 +65,7 @@ func renderProjectSessionsBody(sessions []core.SessionInfo, registry *driver.Reg
 			mutedStyle.Render(s.ID[:6]),
 			symbol,
 			mutedStyle.Render(fmt.Sprintf("%-5s", elapsed)),
-			tagStyle.Render("/"+displayName),
+			tagStyle.Render(displayName),
 		))
 	}
 	return b.String()
