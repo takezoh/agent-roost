@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -9,7 +8,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/viewport"
-	"charm.land/lipgloss/v2"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/lib/claude/transcript"
 )
@@ -105,9 +103,9 @@ func (m LogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m LogModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.width = msg.Width
 	m.height = msg.Height
-	headerHeight := 2
+	// Reserve 1 row for the tab header line.
 	m.viewport.SetWidth(m.width)
-	m.viewport.SetHeight(m.height - headerHeight)
+	m.viewport.SetHeight(m.height - 1)
 	return m, nil
 }
 
@@ -408,86 +406,3 @@ func tickCmd() tea.Cmd {
 	})
 }
 
-// --- view ---
-
-var (
-	activeTabStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7D56F4"))
-	inactiveTabStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	logWarnStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffff00"))
-	logErrorStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
-	logDebugStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	followStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#00ff00"))
-)
-
-func (m LogModel) View() tea.View {
-	var b strings.Builder
-	b.WriteString(m.renderTabHeader())
-
-	if m.following {
-		b.WriteString(" " + followStyle.Render("↓"))
-	} else {
-		b.WriteString(" " + logDebugStyle.Render(fmt.Sprintf("%.0f%%", m.viewport.ScrollPercent()*100)))
-	}
-	b.WriteString("\n")
-
-	if len(m.tabs) == 0 {
-		b.WriteString(inactiveTabStyle.Render("  No sessions"))
-	} else {
-		b.WriteString(m.viewport.View())
-	}
-
-	v := tea.NewView(b.String())
-	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
-	return v
-}
-
-func (m LogModel) renderTabHeader() string {
-	var b strings.Builder
-	for i, tab := range m.tabs {
-		if i > 0 {
-			b.WriteString(" ")
-		}
-		if logTab(i) == m.activeTab {
-			b.WriteString(activeTabStyle.Render("[" + tab.label + "]"))
-		} else {
-			b.WriteString(inactiveTabStyle.Render(tab.label))
-		}
-	}
-	return b.String()
-}
-
-func colorizeLines(text string) string {
-	lines := strings.Split(text, "\n")
-	for i, line := range lines {
-		lines[i] = colorizeLogLine(line)
-	}
-	return strings.Join(lines, "\n")
-}
-
-func colorizeLogLine(line string) string {
-	level := parseLogLevel(line)
-	switch level {
-	case "ERROR":
-		return logErrorStyle.Render(line)
-	case "WARN":
-		return logWarnStyle.Render(line)
-	case "DEBUG":
-		return logDebugStyle.Render(line)
-	default:
-		return line
-	}
-}
-
-func parseLogLevel(line string) string {
-	idx := strings.Index(line, "level=")
-	if idx < 0 {
-		return ""
-	}
-	rest := line[idx+6:]
-	end := strings.IndexByte(rest, ' ')
-	if end < 0 {
-		return rest
-	}
-	return rest[:end]
-}

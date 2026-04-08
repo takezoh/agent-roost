@@ -39,7 +39,7 @@ func TestRenderSession_TagsAndTitle(t *testing.T) {
 		State:      session.StateWaiting,
 		CreatedAt:  time.Now().Add(-3 * time.Minute).Format("2006-01-02T15:04:05Z07:00"),
 	}
-	out := renderSession(s, false, registry)
+	out := renderSession(s, false, 60, registry)
 	if !strings.Contains(out, "my-session-name") {
 		t.Errorf("expected title in output, got:\n%s", out)
 	}
@@ -65,7 +65,7 @@ func TestRenderSession_NoTitle_ShowsID(t *testing.T) {
 		State:     session.StateIdle,
 		CreatedAt: time.Now().Add(-5 * time.Minute).Format("2006-01-02T15:04:05Z07:00"),
 	}
-	out := renderSession(s, false, registry)
+	out := renderSession(s, false, 60, registry)
 	if !strings.Contains(out, "abc123") {
 		t.Errorf("expected ID in output when no title, got:\n%s", out)
 	}

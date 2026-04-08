@@ -7,7 +7,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
-	"charm.land/lipgloss/v2"
 	"github.com/take/agent-roost/core"
 )
 
@@ -224,60 +223,73 @@ func (m *PaletteModel) refilter() {
 	m.cursor = 0
 }
 
-var (
-	paletteBorder = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("#7D56F4")).
-			Padding(0, 1)
-	promptStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4")).Bold(true)
-	itemStyle    = lipgloss.NewStyle()
-	selItemStyle = lipgloss.NewStyle().Background(lipgloss.Color("#3C3836")).Foreground(lipgloss.Color("#EBDBB2"))
-	descStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	inputStyle   = lipgloss.NewStyle().Foreground(lipgloss.Color("#EBDBB2"))
-)
-
 func (m PaletteModel) View() tea.View {
-	var b strings.Builder
+	outerWidth := m.width
+	if outerWidth <= 0 || outerWidth > 80 {
+		outerWidth = 60
+	}
+
+	var body string
+	var title, badge string
 
 	switch m.phase {
 	case phaseToolSelect:
-		b.WriteString(promptStyle.Render("> "))
-		b.WriteString(inputStyle.Render(m.input))
-		b.WriteString("█\n\n")
-		for i, t := range m.filtered {
-			desc := descStyle.Render(" " + t.Description)
-			if i == m.cursor {
-				b.WriteString(selItemStyle.Render(fmt.Sprintf("▸ %s", t.Name)) + desc + "\n")
-			} else {
-				b.WriteString(itemStyle.Render(fmt.Sprintf("  %s", t.Name)) + desc + "\n")
-			}
-		}
-		if len(m.filtered) == 0 {
-			b.WriteString(descStyle.Render("  (no matching tools)\n"))
-		}
+		title = "PALETTE"
+		badge = fmt.Sprintf("%d tools", len(m.filtered))
+		body = renderPaletteTool(m)
 
 	case phaseParamSelect:
 		p := m.selectedTool.Params[m.paramIndex]
-		b.WriteString(promptStyle.Render(m.selectedTool.Name))
-		b.WriteString(descStyle.Render(" > " + p.Name))
-		b.WriteString("\n")
-		b.WriteString(promptStyle.Render("> "))
-		b.WriteString(inputStyle.Render(m.input))
-		b.WriteString("█\n\n")
-
-		filtered := m.filterParamOptions()
-		for i, o := range filtered {
-			display := core.ProjectDisplayName(o)
-			if i == m.paramCursor {
-				b.WriteString(selItemStyle.Render(fmt.Sprintf("▸ %s", display)) + "\n")
-			} else {
-				b.WriteString(itemStyle.Render(fmt.Sprintf("  %s", display)) + "\n")
-			}
-		}
-		if len(filtered) == 0 {
-			b.WriteString(descStyle.Render("  (no matching items)\n"))
-		}
+		title = m.selectedTool.Name
+		badge = p.Name
+		body = renderPaletteParam(m)
 	}
 
-	return tea.NewView(paletteBorder.Render(b.String()))
+	return tea.NewView(Panel(title, badge, body, outerWidth))
+}
+
+func renderPaletteTool(m PaletteModel) string {
+	var b strings.Builder
+	b.WriteString(promptStyle.Render("> "))
+	b.WriteString(inputStyle.Render(m.input))
+	b.WriteString("█\n\n")
+	for i, t := range m.filtered {
+		desc := descStyle.Render("  " + t.Description)
+		if i == m.cursor {
+			b.WriteString(selItemStyle.Render(fmt.Sprintf("▸ %s", t.Name)) + desc)
+		} else {
+			b.WriteString(itemStyle.Render(fmt.Sprintf("  %s", t.Name)) + desc)
+		}
+		if i < len(m.filtered)-1 {
+			b.WriteString("\n")
+		}
+	}
+	if len(m.filtered) == 0 {
+		b.WriteString(descStyle.Render("(no matching tools)"))
+	}
+	return b.String()
+}
+
+func renderPaletteParam(m PaletteModel) string {
+	var b strings.Builder
+	b.WriteString(promptStyle.Render("> "))
+	b.WriteString(inputStyle.Render(m.input))
+	b.WriteString("█\n\n")
+
+	filtered := m.filterParamOptions()
+	for i, o := range filtered {
+		display := core.ProjectDisplayName(o)
+		if i == m.paramCursor {
+			b.WriteString(selItemStyle.Render(fmt.Sprintf("▸ %s", display)))
+		} else {
+			b.WriteString(itemStyle.Render(fmt.Sprintf("  %s", display)))
+		}
+		if i < len(filtered)-1 {
+			b.WriteString("\n")
+		}
+	}
+	if len(filtered) == 0 {
+		b.WriteString(descStyle.Render("(no matching items)"))
+	}
+	return b.String()
 }

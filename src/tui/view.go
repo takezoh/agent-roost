@@ -6,58 +6,69 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
 )
 
-var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7D56F4"))
-	projectStyle  = lipgloss.NewStyle().Bold(true)
-	selectedStyle = lipgloss.NewStyle().Background(lipgloss.Color("#3C3836")).Foreground(lipgloss.Color("#EBDBB2"))
-	runningStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#00ff00"))
-	waitingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#ffff00"))
-	idleStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	stoppedStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff0000"))
-	pendingStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#ff8800"))
-	helpStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262"))
-	tagStyle      = lipgloss.NewStyle().Foreground(lipgloss.Color("#7D56F4"))
-)
+// sessionsHeaderRows is the number of rendered rows before the first list
+// item inside the Sessions view (header line + blank).
+// The mouse row→item mapping relies on this staying in sync with View().
+const sessionsHeaderRows = 2
 
 func (m Model) View() tea.View {
-	var b strings.Builder
-
-	b.WriteString(titleStyle.Render("SESSIONS"))
-	b.WriteString("\n\n")
-
-	for i := range m.items {
-		selected := i == m.cursor
-		rendered := renderItem(m.items[i], selected, m.width, m.folded[m.items[i].project], m.drivers)
-		m.items[i].SetRows(rendered)
-		b.WriteString(rendered)
-		b.WriteString("\n")
+	width := m.width
+	if width <= 0 {
+		width = 60
 	}
 
-	if len(m.items) == 0 {
-		b.WriteString(idleStyle.Render("  No sessions"))
-		b.WriteString("\n")
-	}
+	header := titleStyle.Render("SESSIONS") + "  " + badgeStyle.Render(fmt.Sprintf("%d sessions", countSessions(m.items)))
+	body := renderSessionsBody(m, width)
+	footer := Footer([]key.Binding{m.keys.New, m.keys.NewCmd, m.keys.Enter, m.keys.Stop, m.keys.Toggle})
 
-	b.WriteString("\n")
-	b.WriteString(renderHelp(m.keys))
+	screen := lipgloss.JoinVertical(lipgloss.Left, header, "", body, "", footer)
 
-	v := tea.NewView(b.String())
+	v := tea.NewView(screen)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeAllMotion
 	return v
+}
+
+func renderSessionsBody(m Model, innerWidth int) string {
+	if len(m.items) == 0 {
+		return mutedStyle.Render("  No sessions")
+	}
+
+	var b strings.Builder
+	for i := range m.items {
+		selected := i == m.cursor
+		rendered := renderItem(m.items[i], selected, innerWidth, m.folded[m.items[i].project], m.drivers)
+		m.items[i].SetRows(rendered)
+		b.WriteString(rendered)
+		if i < len(m.items)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+func countSessions(items []listItem) int {
+	n := 0
+	for _, it := range items {
+		if !it.isProject {
+			n++
+		}
+	}
+	return n
 }
 
 func renderItem(item listItem, selected bool, width int, folded bool, registry *driver.Registry) string {
 	if item.isProject {
 		return renderProject(item.project, folded, selected)
 	}
-	return renderSession(item.session, selected, registry)
+	return renderSession(item.session, selected, width, registry)
 }
 
 func renderProject(name string, folded, selected bool) string {
@@ -72,55 +83,63 @@ func renderProject(name string, folded, selected bool) string {
 	return projectStyle.Render(line)
 }
 
-func renderSession(s *core.SessionInfo, selected bool, registry *driver.Registry) string {
-	style := stateStyle(s.State)
-	stateStr := style.Render(s.State.Symbol() + " " + s.State.String())
-	elapsed := formatElapsed(time.Since(s.StateChangedAtTime()))
+func renderSession(s *core.SessionInfo, selected bool, width int, registry *driver.Registry) string {
+	cardOuter := width - 2     // leave room for the 2-space indent
+	textWidth := cardOuter - 4 // subtract Card border + padding
+	body := strings.Join(sessionCardLines(s, textWidth, registry), "\n")
+	return indent(Card(body, selected, cardOuter), "  ")
+}
 
-	name := s.ID[:6]
-	if s.Title != "" {
-		name = truncate(s.Title, 28)
+func sessionCardLines(s *core.SessionInfo, textWidth int, registry *driver.Registry) []string {
+	stateStr := stateStyle(s.State).Render(s.State.Symbol() + " " + s.State.String())
+	elapsed := mutedStyle.Render(formatElapsed(time.Since(s.StateChangedAtTime())))
+	displayName := mutedStyle.Render(registry.Get(s.Command).DisplayName())
+
+	lines := []string{stateStr + "  " + elapsed + "   " + displayName}
+
+	title := s.Title
+	if title == "" {
+		title = s.ID[:6]
 	}
-	line1 := fmt.Sprintf("  %s %s  %s", name, stateStr, elapsed)
+	lines = append(lines, lipgloss.NewStyle().Foreground(DefaultTheme.Fg).Render(truncate(title, textWidth)))
 
-	content := line1
 	if s.LastPrompt != "" {
-		content += "\n  " + idleStyle.Render(truncate(s.LastPrompt, 30))
+		lines = append(lines, mutedStyle.Render(truncate(s.LastPrompt, textWidth)))
 	}
 
-	const maxDisplaySubjects = 5
+	const maxDisplaySubjects = 3
 	subjects := s.Subjects
 	if len(subjects) > maxDisplaySubjects {
 		subjects = subjects[len(subjects)-maxDisplaySubjects:]
 	}
 	for _, subj := range subjects {
-		content += "\n    " + idleStyle.Render("• "+truncate(subj, 26))
+		lines = append(lines, mutedStyle.Render("• "+truncate(subj, textWidth-2)))
 	}
 
 	if chips := renderIndicators(s); chips != "" {
-		content += "\n  " + chips
+		lines = append(lines, chips)
 	}
-
-	displayName := registry.Get(s.Command).DisplayName()
-	var tagParts []string
-	tagParts = append(tagParts, tagStyle.Render("["+displayName+"]"))
-	for _, tag := range s.Tags {
-		tagParts = append(tagParts, renderTag(tag))
+	if tagsLine := renderTags(s, registry); tagsLine != "" {
+		lines = append(lines, tagsLine)
 	}
-	content += "\n  " + strings.Join(tagParts, " ")
-	if selected {
-		return selectedStyle.Render(content)
-	}
-	return content
+	return lines
 }
 
-// renderIndicators renders the driver-formatted status chips as a
-// single dim line, or "" when there's nothing to show.
+func renderTags(s *core.SessionInfo, registry *driver.Registry) string {
+	displayName := registry.Get(s.Command).DisplayName()
+	var parts []string
+	parts = append(parts, tagStyle.Render("["+displayName+"]"))
+	for _, tag := range s.Tags {
+		parts = append(parts, renderTag(tag))
+	}
+	return strings.Join(parts, " ")
+}
+
 func renderIndicators(s *core.SessionInfo) string {
 	if len(s.Indicators) == 0 {
 		return ""
 	}
-	return idleStyle.Render(strings.Join(s.Indicators, "  "))
+	return mutedStyle.Render(strings.Join(s.Indicators, "  "))
 }
 
 func renderTag(tag session.Tag) string {
@@ -136,27 +155,18 @@ func renderTag(tag session.Tag) string {
 
 func truncate(s string, n int) string {
 	runes := []rune(s)
-	if len(runes) <= n {
+	if n <= 0 || len(runes) <= n {
 		return s
 	}
 	return string(runes[:n-1]) + "…"
 }
 
-func stateStyle(s session.State) lipgloss.Style {
-	switch s {
-	case session.StateRunning:
-		return runningStyle
-	case session.StateWaiting:
-		return waitingStyle
-	case session.StateIdle:
-		return idleStyle
-	case session.StateStopped:
-		return stoppedStyle
-	case session.StatePending:
-		return pendingStyle
-	default:
-		return idleStyle
+func indent(s, prefix string) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = prefix + l
 	}
+	return strings.Join(lines, "\n")
 }
 
 func formatElapsed(d time.Duration) string {
@@ -168,14 +178,4 @@ func formatElapsed(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
-}
-
-func renderHelp(keys KeyMap) string {
-	items := []string{
-		keys.New.Help().Key + ":" + keys.New.Help().Desc,
-		keys.NewCmd.Help().Key + ":" + keys.NewCmd.Help().Desc,
-		keys.Enter.Help().Key + ":" + keys.Enter.Help().Desc,
-		keys.Stop.Help().Key + ":" + keys.Stop.Help().Desc,
-	}
-	return helpStyle.Render(strings.Join(items, "  "))
 }
