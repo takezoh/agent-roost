@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/session"
@@ -45,6 +45,12 @@ func renderSessionsBody(m Model, innerWidth int) string {
 	for i := range m.items {
 		selected := i == m.cursor
 		rendered := renderItem(m.items[i], selected, innerWidth, m.folded[m.items[i].project], m.drivers)
+		// In minimal mode, draw a horizontal separator between two adjacent
+		// sessions. The separator is prepended to the lower card so that
+		// SetRows accounts for it and mouse mapping clicks the lower card.
+		if Active.Minimal && i > 0 && !m.items[i].isProject && !m.items[i-1].isProject {
+			rendered = renderSessionSeparator(innerWidth) + "\n" + rendered
+		}
 		m.items[i].SetRows(rendered)
 		b.WriteString(rendered)
 		if i < len(m.items)-1 {
@@ -77,6 +83,12 @@ func renderProject(name string, folded, selected bool) string {
 		arrow = "▶"
 	}
 	line := fmt.Sprintf("%s %s", arrow, name)
+	if Active.Minimal {
+		if selected {
+			return minimalProjectSelStyle.Render("▌ " + line)
+		}
+		return "  " + projectStyle.Render(line)
+	}
 	if selected {
 		return selectedStyle.Render(line)
 	}
@@ -84,10 +96,48 @@ func renderProject(name string, folded, selected bool) string {
 }
 
 func renderSession(s *core.SessionInfo, selected bool, width int, registry *driver.Registry) string {
+	if Active.Minimal {
+		return renderSessionMinimal(s, selected, width, registry)
+	}
 	cardOuter := width - 2     // leave room for the 2-space indent
 	textWidth := cardOuter - 4 // subtract Card border + padding
 	body := strings.Join(sessionCardLines(s, textWidth, registry), "\n")
 	return indent(Card(body, selected, cardOuter), "  ")
+}
+
+// renderSessionMinimal draws a session as a borderless block with a
+// 1-cell left bar. The bar becomes a Primary-colored "▌" when the card
+// is selected and a blank cell otherwise (to keep alignment across all
+// cards). No background fill — adjacent sessions are separated by a
+// horizontal rule drawn in renderSessionsBody.
+func renderSessionMinimal(s *core.SessionInfo, selected bool, width int, registry *driver.Registry) string {
+	cardOuter := width - 2     // 2-cell outer indent
+	textWidth := cardOuter - 3 // 1 border + 1 left padding + 1 right padding
+	lines := sessionCardLines(s, textWidth, registry)
+	body := strings.Join(lines, "\n")
+
+	barChar := " "
+	if selected {
+		barChar = "▌"
+	}
+	style := lipgloss.NewStyle().
+		Border(lipgloss.Border{Left: barChar}, false, false, false, true).
+		BorderForeground(Active.Primary).
+		Width(cardOuter).
+		Padding(0, 1)
+
+	return indent(style.Render(body), "  ")
+}
+
+// renderSessionSeparator returns a single-line horizontal rule used to
+// visually divide two adjacent session cards in minimal mode. Indented
+// by 2 spaces to align with the cards above and below.
+func renderSessionSeparator(innerWidth int) string {
+	n := innerWidth - 2
+	if n < 1 {
+		n = 1
+	}
+	return "  " + minimalSeparatorStyle.Render(strings.Repeat("─", n))
 }
 
 func sessionCardLines(s *core.SessionInfo, textWidth int, registry *driver.Registry) []string {
@@ -103,7 +153,7 @@ func sessionCardLines(s *core.SessionInfo, textWidth int, registry *driver.Regis
 	if titleWidth < 1 {
 		titleWidth = 1
 	}
-	titleStr := lipgloss.NewStyle().Foreground(DefaultTheme.Fg).Render(truncate(title, titleWidth))
+	titleStr := cardTitleStyle.Render(truncate(title, titleWidth))
 
 	lines := []string{prefix + titleStr}
 
@@ -131,6 +181,16 @@ func sessionCardLines(s *core.SessionInfo, textWidth int, registry *driver.Regis
 
 func renderTags(s *core.SessionInfo, registry *driver.Registry) string {
 	displayName := registry.Get(s.Command).DisplayName()
+	if Active.Minimal {
+		driverPrefix := minimalTagDriverPrefixStyle.Render("▸")
+		branchPrefix := minimalTagBranchPrefixStyle.Render("⎇")
+		var parts []string
+		parts = append(parts, driverPrefix+" "+minimalTagTextStyle.Render(displayName))
+		for _, tag := range s.Tags {
+			parts = append(parts, branchPrefix+" "+minimalTagTextStyle.Render(tag.Text))
+		}
+		return strings.Join(parts, "  ")
+	}
 	var parts []string
 	parts = append(parts, tagStyle.Render(displayName))
 	for _, tag := range s.Tags {
