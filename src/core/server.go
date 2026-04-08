@@ -345,19 +345,13 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 	// downstream call uses struct fields so the rest of the coordinator never
 	// has to know which agent driver produced the event.
 	ev := driver.AgentEventFromArgs(args)
-	if ev.AgentSessionID == "" {
-		s.sendError(cc, string(ev.Type)+": session_id required")
-		return
-	}
 	switch ev.Type {
 	case driver.AgentEventSessionStart:
-		bindChanged := s.svc.HandleSessionStart(ev.Pane, ev.AgentSessionID)
-		wdChanged := s.svc.HandleAgentWorkingDir(ev.AgentSessionID, ev.WorkingDir)
-		tpChanged := s.svc.HandleAgentTranscriptPath(ev.AgentSessionID, ev.TranscriptPath)
-		if bindChanged || wdChanged || tpChanged {
+		res := s.svc.ApplyAgentEvent(ev)
+		if res.BindChanged || res.StateChanged {
 			s.broadcastSessions()
 		}
-		s.svc.AppendEventLog(ev.AgentSessionID, "SessionStart")
+		s.svc.AppendEventLog(res.Identity, "SessionStart")
 		s.sendResponse(cc, Message{})
 	case driver.AgentEventStateChange:
 		if ev.State == "" {
@@ -369,21 +363,23 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 			s.sendError(cc, "state-change: unknown state: "+ev.State)
 			return
 		}
-		stateChanged := s.svc.HandleStateChangeWithContext(ev.AgentSessionID, agentState, ev.Pane)
-		// Record working dir / transcript path before transcript reads:
-		// state-change can arrive before SessionStart, and the transcript
-		// reader needs both pieces of context.
-		wdChanged := s.svc.HandleAgentWorkingDir(ev.AgentSessionID, ev.WorkingDir)
-		tpChanged := s.svc.HandleAgentTranscriptPath(ev.AgentSessionID, ev.TranscriptPath)
-		usageChanged := s.svc.UpdateStatusFromTranscript(ev.AgentSessionID)
-		if stateChanged || wdChanged || tpChanged || usageChanged {
+		// Apply the driver state bag first so the binding exists before the
+		// transcript reader needs to look up workdir / transcript_path.
+		res := s.svc.ApplyAgentEvent(ev)
+		stateChanged := false
+		usageChanged := false
+		if res.Identity != "" {
+			stateChanged = s.svc.HandleStateChangeWithContext(res.Identity, agentState, ev.Pane)
+			usageChanged = s.svc.UpdateStatusFromTranscript(res.Identity)
+		}
+		if stateChanged || res.StateChanged || usageChanged {
 			s.broadcastSessions()
 		}
 		logLine := ev.Log
 		if logLine == "" {
 			logLine = ev.State
 		}
-		s.svc.AppendEventLog(ev.AgentSessionID, logLine)
+		s.svc.AppendEventLog(res.Identity, logLine)
 		s.sendResponse(cc, Message{})
 	default:
 		s.sendError(cc, "unknown agent event type: "+string(ev.Type))

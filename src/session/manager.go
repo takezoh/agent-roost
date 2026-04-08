@@ -27,20 +27,37 @@ type TmuxClient interface {
 
 // Manager keeps an in-memory cache of roost sessions reconstructed from tmux
 // window user options. The cache is rebuilt by Refresh() and updated in-place
-// by Create/Stop/SetAgentSessionID/RefreshBranch.
+// by Create/Stop/MergeDriverState/RefreshBranch.
+//
+// drivers is consulted whenever Manager needs a driver-aware operation
+// (working dir for branch detection, spawn command for cold-boot recreate).
+// core treats DriverState as opaque; the driver registry is the only place
+// inside Manager where driver-specific semantics are resolved.
 type Manager struct {
 	tmux         TmuxClient
 	dataDir      string
+	drivers      *driver.Registry
 	detectBranch func(string) string
 	mu           sync.RWMutex
 	sessions     []*Session
 }
 
-func NewManager(t TmuxClient, dataDir string) *Manager {
+func NewManager(t TmuxClient, dataDir string, drivers *driver.Registry) *Manager {
 	return &Manager{
 		tmux:         t,
 		dataDir:      dataDir,
+		drivers:      drivers,
 		detectBranch: git.DetectBranch,
+	}
+}
+
+// sessionContext builds the driver-visible projection of a session for
+// passing to Driver methods.
+func sessionContext(s *Session) driver.SessionContext {
+	return driver.SessionContext{
+		Command:     s.Command,
+		Project:     s.Project,
+		DriverState: s.DriverState,
 	}
 }
 
@@ -69,11 +86,9 @@ func (m *Manager) Refresh() error {
 // Used at Coordinator startup when client.SessionExists() returned false (PC
 // reboot scenario), after setupNewSession() has constructed a fresh tmux
 // session. Persisted WindowIDs are discarded — tmux assigns new ones — but
-// AgentSessionID values are restored on the new windows so old conversation
-// metadata stays accessible. The driver registry is consulted for the spawn
-// command so e.g. Claude is started with "claude --resume <id>" to pick up
-// the previous conversation transcript.
-func (m *Manager) Recreate(drivers *driver.Registry) error {
+// the entire DriverState bag is restored so the driver can resume the prior
+// conversation (Claude uses its `session_id` key to add `--resume <id>`).
+func (m *Manager) Recreate() error {
 	snapshot, err := m.loadSnapshot()
 	if err != nil {
 		return err
@@ -88,15 +103,17 @@ func (m *Manager) Recreate(drivers *driver.Registry) error {
 
 	m.sessions = m.sessions[:0]
 	for _, s := range snapshot {
-		spawn := drivers.Get(s.Command).SpawnCommand(s.Command, s.AgentSessionID)
+		d := m.drivers.Get(s.Command)
+		ctx := sessionContext(s)
+		spawn := d.SpawnCommand(s.Command, ctx)
 		name := filepath.Base(s.Project) + ":" + s.ID
 		// Worktree sessions need to be respawned inside the worktree dir,
-		// not the original launch dir. AgentWorkingDir is the agent's own
-		// reported cwd (set by hook), which equals the worktree path for
-		// `claude --worktree` invocations.
+		// not the original launch dir. The driver knows where the agent
+		// process actually lives (Claude returns the cwd it received via
+		// hook, which equals the worktree path for `claude --worktree`).
 		startDir := s.Project
-		if s.AgentWorkingDir != "" {
-			startDir = s.AgentWorkingDir
+		if wd := d.WorkingDir(ctx); wd != "" {
+			startDir = wd
 		}
 		windowID, err := m.tmux.NewWindow(name, "exec "+spawn, startDir)
 		if err != nil {
@@ -120,8 +137,9 @@ func (m *Manager) Recreate(drivers *driver.Registry) error {
 }
 
 // sessionUserOptions converts a Session into the @roost_* user options that
-// represent its runtime truth in tmux. Empty optional fields are omitted so
-// the parsing path on read can distinguish "unset" from explicit empty.
+// represent its runtime truth in tmux. DriverState is packed into a single
+// JSON-encoded option so this layer never has to know which keys a driver
+// uses; an empty driver state is omitted entirely.
 func sessionUserOptions(s *Session) map[string]string {
 	opts := map[string]string{
 		"@roost_id":         s.ID,
@@ -130,16 +148,40 @@ func sessionUserOptions(s *Session) map[string]string {
 		"@roost_created_at": s.CreatedAt.UTC().Format(time.RFC3339),
 		"@roost_tags":       encodeTags(s.Tags),
 	}
-	if s.AgentSessionID != "" {
-		opts["@roost_agent_session"] = s.AgentSessionID
-	}
-	if s.AgentWorkingDir != "" {
-		opts["@roost_agent_workdir"] = s.AgentWorkingDir
-	}
-	if s.AgentTranscriptPath != "" {
-		opts["@roost_agent_transcript"] = s.AgentTranscriptPath
+	if encoded := encodeDriverState(s.DriverState); encoded != "" {
+		opts["@roost_driver_state"] = encoded
 	}
 	return opts
+}
+
+// encodeDriverState serializes a DriverState map to JSON. Empty maps return
+// "" so callers can omit the option entirely.
+func encodeDriverState(state map[string]string) string {
+	if len(state) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(state)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+// decodeDriverState parses the JSON form written by encodeDriverState. Empty
+// strings and parse failures yield nil so callers can rely on the standard
+// nil-map semantics.
+func decodeDriverState(s string) map[string]string {
+	if s == "" {
+		return nil
+	}
+	var state map[string]string
+	if err := json.Unmarshal([]byte(s), &state); err != nil {
+		return nil
+	}
+	if len(state) == 0 {
+		return nil
+	}
+	return state
 }
 
 // SyncBranches re-detects the git branch for every session and writes
@@ -423,15 +465,13 @@ func decodeTags(s string) []Tag {
 func windowToSession(w RoostWindow) *Session {
 	createdAt, _ := time.Parse(time.RFC3339, w.CreatedAt)
 	return &Session{
-		ID:                  w.ID,
-		Project:             w.Project,
-		Command:             w.Command,
-		WindowID:            w.WindowID,
-		AgentSessionID:      w.AgentSessionID,
-		AgentWorkingDir:     w.AgentWorkingDir,
-		AgentTranscriptPath: w.AgentTranscriptPath,
-		CreatedAt:           createdAt,
-		Tags:                decodeTags(w.Tags),
+		ID:          w.ID,
+		Project:     w.Project,
+		Command:     w.Command,
+		WindowID:    w.WindowID,
+		CreatedAt:   createdAt,
+		Tags:        decodeTags(w.Tags),
+		DriverState: decodeDriverState(w.DriverState),
 	}
 }
 

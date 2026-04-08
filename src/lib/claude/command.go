@@ -67,32 +67,48 @@ func runEvent() {
 	defer client.Close()
 	client.StartListening()
 
-	// Translate Claude-specific hook payload (cwd, transcript_path, ...) into
-	// the driver-neutral AgentEvent the coordinator understands. This is the
-	// only place in roost that touches Claude hook field names.
+	// Translate the Claude-specific hook payload (cwd, transcript_path, ...)
+	// into the driver-neutral AgentEvent the coordinator understands. The
+	// keys below are part of the Claude driver's contract — this is the only
+	// place outside session/driver/claude.go that knows them, and the
+	// coordinator forwards the bag to the driver without inspection.
 	pane := os.Getenv("TMUX_PANE")
+	state := claudeDriverState(event)
 
 	if event.HookEventName == "SessionStart" {
 		client.SendAgentEvent(driver.AgentEvent{
-			Type:           driver.AgentEventSessionStart,
-			AgentSessionID: event.SessionID,
-			WorkingDir:     event.Cwd,
-			TranscriptPath: event.TranscriptPath,
-			Pane:           pane,
+			Type:        driver.AgentEventSessionStart,
+			Pane:        pane,
+			DriverState: state,
 		})
 	}
 
-	if state := event.DeriveState(); state != "" {
+	if hookState := event.DeriveState(); hookState != "" {
 		client.SendAgentEvent(driver.AgentEvent{
-			Type:           driver.AgentEventStateChange,
-			AgentSessionID: event.SessionID,
-			State:          state,
-			WorkingDir:     event.Cwd,
-			TranscriptPath: event.TranscriptPath,
-			Pane:           pane,
-			Log:            event.FormatLog(),
+			Type:        driver.AgentEventStateChange,
+			State:       hookState,
+			Pane:        pane,
+			Log:         event.FormatLog(),
+			DriverState: state,
 		})
 	}
+}
+
+// claudeDriverState packs the relevant Claude hook fields into the
+// driver-state bag the coordinator persists onto the session. Empty fields
+// are omitted so MergeDriverState's "empty value deletes the key" semantics
+// don't accidentally clear previously-set entries.
+func claudeDriverState(event HookEvent) map[string]string {
+	state := map[string]string{
+		"session_id": event.SessionID,
+	}
+	if event.Cwd != "" {
+		state["working_dir"] = event.Cwd
+	}
+	if event.TranscriptPath != "" {
+		state["transcript_path"] = event.TranscriptPath
+	}
+	return state
 }
 
 func runSetup() {

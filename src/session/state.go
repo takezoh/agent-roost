@@ -54,16 +54,19 @@ func (s State) Symbol() string {
 // truth lives in tmux window user options (@roost_*); the JSON tags exist so
 // the same struct can be serialized into sessions.json as a cold-boot snapshot
 // (tmux user options are wiped when the tmux server dies, e.g. on PC reboot).
+//
+// Driver-specific persistent data lives entirely inside DriverState — a
+// map[string]string whose keys are defined by the driver assigned to Command.
+// core treats DriverState as opaque and only the driver knows how to interpret
+// the keys. Adding a Codex-specific field requires no change in this file.
 type Session struct {
-	ID                  string    `json:"id"`
-	Project             string    `json:"project"`
-	Command             string    `json:"command"`
-	WindowID            string    `json:"window_id"`
-	AgentSessionID      string    `json:"agent_session_id,omitempty"`
-	AgentWorkingDir     string    `json:"agent_working_dir,omitempty"`
-	AgentTranscriptPath string    `json:"agent_transcript_path,omitempty"`
-	CreatedAt           time.Time `json:"created_at"`
-	Tags                []Tag     `json:"tags,omitempty"`
+	ID          string            `json:"id"`
+	Project     string            `json:"project"`
+	Command     string            `json:"command"`
+	WindowID    string            `json:"window_id"`
+	CreatedAt   time.Time         `json:"created_at"`
+	Tags        []Tag             `json:"tags,omitempty"`
+	DriverState map[string]string `json:"driver_state,omitempty"`
 
 	State          State     `json:"-"`
 	StateChangedAt time.Time `json:"-"`
@@ -81,15 +84,13 @@ type Tag struct {
 // session.Manager can declare its TmuxClient interface without importing tmux,
 // avoiding an import cycle (tmux already imports session for State).
 type RoostWindow struct {
-	WindowID            string
-	ID                  string
-	Project             string
-	Command             string
-	CreatedAt           string
-	Tags                string
-	AgentSessionID      string
-	AgentWorkingDir     string
-	AgentTranscriptPath string
+	WindowID    string
+	ID          string
+	Project     string
+	Command     string
+	CreatedAt   string
+	Tags        string
+	DriverState string // JSON-encoded map[string]string
 }
 
 

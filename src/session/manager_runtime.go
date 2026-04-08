@@ -3,84 +3,72 @@ package session
 import "log/slog"
 
 // This file groups the runtime-mutation methods that update agent-reported
-// fields on a Session and persist them to tmux user options. Pulled out of
-// manager.go to keep that file under the 500-line house limit.
+// driver state on a Session and persist it to tmux user options. Pulled out
+// of manager.go to keep that file under the 500-line house limit.
 
-// SetAgentSessionID writes the @roost_agent_session user option for the given
-// window and updates the in-memory cache. Returns true if the value changed.
-func (m *Manager) SetAgentSessionID(windowID, agentSessionID string) bool {
+// MergeDriverState merges the given updates into the session's DriverState
+// map and persists the new state to the @roost_driver_state tmux user option
+// (and the cold-boot snapshot). An empty value in updates deletes the key.
+//
+// Returns true when the merged state differs from the current state. The
+// caller is responsible for triggering a branch refresh after a successful
+// merge if the driver's working dir might have changed: Manager exposes
+// RefreshBranch for that purpose so this method stays driver-agnostic.
+func (m *Manager) MergeDriverState(windowID string, updates map[string]string) bool {
+	if windowID == "" || len(updates) == 0 {
+		return false
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, s := range m.sessions {
-		if s.WindowID == windowID {
-			if s.AgentSessionID == agentSessionID {
-				return false
-			}
-			if err := m.tmux.SetWindowUserOption(windowID, "@roost_agent_session", agentSessionID); err != nil {
-				slog.Error("set agent session option failed", "window", windowID, "err", err)
-				return false
-			}
-			s.AgentSessionID = agentSessionID
-			m.saveSnapshotLocked()
-			return true
+		if s.WindowID != windowID {
+			continue
 		}
+		merged, changed := mergeDriverStateMap(s.DriverState, updates)
+		if !changed {
+			return false
+		}
+		encoded := encodeDriverState(merged)
+		if err := m.tmux.SetWindowUserOption(windowID, "@roost_driver_state", encoded); err != nil {
+			slog.Error("set driver_state option failed", "window", windowID, "err", err)
+			return false
+		}
+		s.DriverState = merged
+		// Branch detection target may have shifted (e.g. Claude reported a
+		// new working dir), so re-derive tags now that DriverState changed.
+		m.refreshSessionBranchLocked(s)
+		m.saveSnapshotLocked()
+		return true
 	}
 	return false
 }
 
-// SetAgentWorkingDir writes the @roost_agent_workdir user option for the
-// given window and updates the in-memory cache. Returns true if the working
-// dir OR the derived branch tag changed. The working dir is the actual
-// directory the agent process is running in (driver-neutral concept — Claude
-// reports it via the hook `cwd` field, but other drivers may source it
-// differently). For worktree-style invocations this differs from sess.Project,
-// and roost uses it as the source of truth for git branch detection.
-func (m *Manager) SetAgentWorkingDir(windowID, workingDir string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, s := range m.sessions {
-		if s.WindowID == windowID {
-			if s.AgentWorkingDir == workingDir {
-				return false
+// mergeDriverStateMap returns the result of applying updates onto current
+// (without mutating either) and a flag indicating whether anything changed.
+// Empty values in updates delete the key.
+func mergeDriverStateMap(current, updates map[string]string) (map[string]string, bool) {
+	merged := make(map[string]string, len(current)+len(updates))
+	for k, v := range current {
+		merged[k] = v
+	}
+	changed := false
+	for k, v := range updates {
+		if v == "" {
+			if _, ok := merged[k]; ok {
+				delete(merged, k)
+				changed = true
 			}
-			if err := m.tmux.SetWindowUserOption(windowID, "@roost_agent_workdir", workingDir); err != nil {
-				slog.Error("set agent workdir option failed", "window", windowID, "err", err)
-				return false
-			}
-			s.AgentWorkingDir = workingDir
-			// Branch detection target shifts from Project to AgentWorkingDir,
-			// so re-derive tags now that we know where the agent really lives.
-			m.refreshSessionBranchLocked(s)
-			m.saveSnapshotLocked()
-			return true
+			continue
+		}
+		if existing, ok := merged[k]; !ok || existing != v {
+			merged[k] = v
+			changed = true
 		}
 	}
-	return false
-}
-
-// SetAgentTranscriptPath writes the @roost_agent_transcript user option for
-// the given window and updates the in-memory cache. Returns true when the
-// value changed. The transcript path is the absolute path the agent itself
-// reports via hook events; roost stores it verbatim and prefers it over any
-// path it could compute, since the agent is the canonical source.
-func (m *Manager) SetAgentTranscriptPath(windowID, transcriptPath string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, s := range m.sessions {
-		if s.WindowID == windowID {
-			if s.AgentTranscriptPath == transcriptPath {
-				return false
-			}
-			if err := m.tmux.SetWindowUserOption(windowID, "@roost_agent_transcript", transcriptPath); err != nil {
-				slog.Error("set agent transcript option failed", "window", windowID, "err", err)
-				return false
-			}
-			s.AgentTranscriptPath = transcriptPath
-			m.saveSnapshotLocked()
-			return true
-		}
+	if len(merged) == 0 {
+		return nil, changed
 	}
-	return false
+	return merged, changed
 }
 
 // RefreshBranch re-detects the git branch for the given session and updates
@@ -97,7 +85,10 @@ func (m *Manager) RefreshBranch(sessionID string) bool {
 }
 
 func (m *Manager) refreshSessionBranchLocked(s *Session) bool {
-	target := s.AgentWorkingDir
+	target := ""
+	if m.drivers != nil {
+		target = m.drivers.Get(s.Command).WorkingDir(sessionContext(s))
+	}
 	if target == "" {
 		target = s.Project
 	}

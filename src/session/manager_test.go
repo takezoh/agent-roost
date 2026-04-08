@@ -86,15 +86,13 @@ func (m *mockTmux) ListRoostWindows() ([]RoostWindow, error) {
 			continue
 		}
 		out = append(out, RoostWindow{
-			WindowID:            id,
-			ID:                  opts["@roost_id"],
-			Project:             opts["@roost_project"],
-			Command:             opts["@roost_command"],
-			CreatedAt:           opts["@roost_created_at"],
-			Tags:                opts["@roost_tags"],
-			AgentSessionID:      opts["@roost_agent_session"],
-			AgentWorkingDir:     opts["@roost_agent_workdir"],
-			AgentTranscriptPath: opts["@roost_agent_transcript"],
+			WindowID:    id,
+			ID:          opts["@roost_id"],
+			Project:     opts["@roost_project"],
+			Command:     opts["@roost_command"],
+			CreatedAt:   opts["@roost_created_at"],
+			Tags:        opts["@roost_tags"],
+			DriverState: opts["@roost_driver_state"],
 		})
 	}
 	return out, nil
@@ -103,7 +101,7 @@ func (m *mockTmux) ListRoostWindows() ([]RoostWindow, error) {
 func setupManager(t *testing.T) (*Manager, *mockTmux) {
 	t.Helper()
 	tmux := newMockTmux()
-	mgr := NewManager(tmux, t.TempDir())
+	mgr := NewManager(tmux, t.TempDir(), driver.DefaultRegistry())
 	return mgr, tmux
 }
 
@@ -162,7 +160,7 @@ func TestRefreshFromTmux(t *testing.T) {
 	originalID := sess.ID
 	originalWID := sess.WindowID
 
-	mgr2 := NewManager(tmux, mgr.DataDir())
+	mgr2 := NewManager(tmux, mgr.DataDir(), driver.DefaultRegistry())
 	if err := mgr2.Refresh(); err != nil {
 		t.Fatal(err)
 	}
@@ -306,120 +304,96 @@ func TestRefreshBranch(t *testing.T) {
 	}
 }
 
-func TestSetAgentSessionID(t *testing.T) {
-	mgr, tmux := setupManager(t)
-
-	sess, _ := mgr.Create("/tmp/proj", "claude")
-
-	if !mgr.SetAgentSessionID(sess.WindowID, "agent-1") {
-		t.Fatal("expected true on first set")
-	}
-	if mgr.SetAgentSessionID(sess.WindowID, "agent-1") {
-		t.Fatal("expected false on no-op set")
-	}
-	if mgr.SetAgentSessionID("@nonexistent", "agent-x") {
-		t.Fatal("expected false for unknown window")
-	}
-
-	if tmux.userOptions[sess.WindowID]["@roost_agent_session"] != "agent-1" {
-		t.Fatalf("expected tmux user option to be set, got %v", tmux.userOptions[sess.WindowID])
-	}
-
-	found := mgr.FindByID(sess.ID)
-	if found.AgentSessionID != "agent-1" {
-		t.Fatalf("expected cache update, got %q", found.AgentSessionID)
-	}
-
-	// Verify a fresh Manager picks up the binding from tmux
-	mgr2 := NewManager(tmux, mgr.DataDir())
-	if err := mgr2.Refresh(); err != nil {
-		t.Fatal(err)
-	}
-	found = mgr2.FindByID(sess.ID)
-	if found == nil || found.AgentSessionID != "agent-1" {
-		t.Fatalf("expected restored AgentSessionID, got %+v", found)
-	}
-}
-
-func TestSetAgentTranscriptPath(t *testing.T) {
+func TestMergeDriverState_BasicSet(t *testing.T) {
 	mgr, tmux := setupManager(t)
 	sess, _ := mgr.Create("/tmp/proj", "claude")
 
-	path := "/home/u/.claude/projects/-tmp-proj--claude-worktrees-foo/agent-1.jsonl"
-	if !mgr.SetAgentTranscriptPath(sess.WindowID, path) {
+	if !mgr.MergeDriverState(sess.WindowID, map[string]string{"session_id": "agent-1"}) {
 		t.Fatal("expected true on first set")
 	}
-	if mgr.SetAgentTranscriptPath(sess.WindowID, path) {
+	if mgr.MergeDriverState(sess.WindowID, map[string]string{"session_id": "agent-1"}) {
 		t.Fatal("expected false on no-op set")
 	}
-	if mgr.SetAgentTranscriptPath("@nonexistent", "x") {
+	if mgr.MergeDriverState("@nonexistent", map[string]string{"session_id": "x"}) {
 		t.Fatal("expected false for unknown window")
 	}
 
-	if got := tmux.userOptions[sess.WindowID]["@roost_agent_transcript"]; got != path {
-		t.Fatalf("tmux user option = %q, want %q", got, path)
+	if got := tmux.userOptions[sess.WindowID]["@roost_driver_state"]; got != `{"session_id":"agent-1"}` {
+		t.Fatalf("@roost_driver_state = %q, want JSON for {session_id:agent-1}", got)
 	}
 
 	found := mgr.FindByID(sess.ID)
-	if found.AgentTranscriptPath != path {
-		t.Fatalf("cache AgentTranscriptPath = %q, want %q", found.AgentTranscriptPath, path)
+	if found.DriverState["session_id"] != "agent-1" {
+		t.Fatalf("expected cache update, got %v", found.DriverState)
 	}
 
-	// A fresh Manager should pick up the persisted path from tmux.
-	mgr2 := NewManager(tmux, mgr.DataDir())
+	// A fresh Manager picks up the bag from tmux.
+	mgr2 := NewManager(tmux, mgr.DataDir(), driver.DefaultRegistry())
 	if err := mgr2.Refresh(); err != nil {
 		t.Fatal(err)
 	}
 	restored := mgr2.FindByID(sess.ID)
-	if restored == nil || restored.AgentTranscriptPath != path {
-		t.Fatalf("expected restored AgentTranscriptPath, got %+v", restored)
+	if restored == nil || restored.DriverState["session_id"] != "agent-1" {
+		t.Fatalf("expected restored DriverState[session_id], got %+v", restored)
+	}
+}
+
+func TestMergeDriverState_MultipleKeys(t *testing.T) {
+	mgr, tmux := setupManager(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+
+	updates := map[string]string{
+		"session_id":      "agent-1",
+		"working_dir":     "/tmp/proj/.claude/worktrees/foo",
+		"transcript_path": "/home/u/.claude/projects/-tmp-proj--claude-worktrees-foo/agent-1.jsonl",
+	}
+	if !mgr.MergeDriverState(sess.WindowID, updates) {
+		t.Fatal("expected true on first set")
 	}
 
-	// Snapshot should also carry the value for cold-boot Recreate.
+	found := mgr.FindByID(sess.ID)
+	for k, v := range updates {
+		if found.DriverState[k] != v {
+			t.Errorf("DriverState[%q] = %q, want %q", k, found.DriverState[k], v)
+		}
+	}
+
+	encoded := tmux.userOptions[sess.WindowID]["@roost_driver_state"]
+	if encoded == "" {
+		t.Fatal("expected @roost_driver_state to be set")
+	}
+	if decoded := decodeDriverState(encoded); len(decoded) != 3 || decoded["session_id"] != "agent-1" {
+		t.Fatalf("decoded driver state = %v", decoded)
+	}
+
+	// Snapshot carries the bag for cold-boot Recreate.
 	loaded, err := mgr.loadSnapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded) != 1 || loaded[0].AgentTranscriptPath != path {
-		t.Fatalf("snapshot AgentTranscriptPath = %+v, want %q", loaded, path)
+	if len(loaded) != 1 || loaded[0].DriverState["transcript_path"] != updates["transcript_path"] {
+		t.Fatalf("snapshot DriverState = %+v, want transcript_path %q", loaded, updates["transcript_path"])
 	}
 }
 
-func TestSetAgentWorkingDir(t *testing.T) {
-	mgr, tmux := setupManager(t)
+func TestMergeDriverState_DeleteOnEmpty(t *testing.T) {
+	mgr, _ := setupManager(t)
 	sess, _ := mgr.Create("/tmp/proj", "claude")
 
-	workdir := "/tmp/proj/.claude/worktrees/foo"
-	if !mgr.SetAgentWorkingDir(sess.WindowID, workdir) {
-		t.Fatal("expected true on first set")
+	mgr.MergeDriverState(sess.WindowID, map[string]string{"session_id": "agent-1", "tmp": "x"})
+	if !mgr.MergeDriverState(sess.WindowID, map[string]string{"tmp": ""}) {
+		t.Fatal("expected true when deleting an existing key")
 	}
-	if mgr.SetAgentWorkingDir(sess.WindowID, workdir) {
-		t.Fatal("expected false on no-op set")
-	}
-	if mgr.SetAgentWorkingDir("@nonexistent", "x") {
-		t.Fatal("expected false for unknown window")
-	}
-
-	if got := tmux.userOptions[sess.WindowID]["@roost_agent_workdir"]; got != workdir {
-		t.Fatalf("tmux user option = %q, want %q", got, workdir)
-	}
-
 	found := mgr.FindByID(sess.ID)
-	if found.AgentWorkingDir != workdir {
-		t.Fatalf("cache AgentWorkingDir = %q, want %q", found.AgentWorkingDir, workdir)
+	if _, ok := found.DriverState["tmp"]; ok {
+		t.Errorf("expected tmp to be deleted, got %v", found.DriverState)
 	}
-
-	// Refresh from a fresh Manager to confirm persistence.
-	mgr2 := NewManager(tmux, mgr.DataDir())
-	if err := mgr2.Refresh(); err != nil {
-		t.Fatal(err)
-	}
-	if restored := mgr2.FindByID(sess.ID); restored == nil || restored.AgentWorkingDir != workdir {
-		t.Fatalf("expected restored AgentWorkingDir, got %+v", restored)
+	if found.DriverState["session_id"] != "agent-1" {
+		t.Errorf("expected session_id to survive delete, got %v", found.DriverState)
 	}
 }
 
-func TestSetAgentWorkingDir_RefreshesBranch(t *testing.T) {
+func TestMergeDriverState_RefreshesBranch(t *testing.T) {
 	mgr, tmux := setupManager(t)
 	mgr.detectBranch = func(p string) string {
 		switch p {
@@ -436,8 +410,8 @@ func TestSetAgentWorkingDir_RefreshesBranch(t *testing.T) {
 		t.Fatalf("expected initial main tag, got %v", sess.Tags)
 	}
 
-	if !mgr.SetAgentWorkingDir(sess.WindowID, "/tmp/proj/.claude/worktrees/foo") {
-		t.Fatal("expected SetAgentWorkingDir to report change")
+	if !mgr.MergeDriverState(sess.WindowID, map[string]string{"working_dir": "/tmp/proj/.claude/worktrees/foo"}) {
+		t.Fatal("expected MergeDriverState to report change")
 	}
 	updated := mgr.FindByID(sess.ID)
 	if len(updated.Tags) != 1 || updated.Tags[0].Text != "worktree-foo" {
@@ -452,16 +426,18 @@ func TestSetAgentWorkingDir_RefreshesBranch(t *testing.T) {
 func TestRecreate_PreservesAgentRuntime(t *testing.T) {
 	mgr1, _ := setupManager(t)
 	sess, _ := mgr1.Create("/tmp/proj", "claude")
-	mgr1.SetAgentSessionID(sess.WindowID, "agent-x")
 	workdir := "/tmp/proj/.claude/worktrees/foo"
-	mgr1.SetAgentWorkingDir(sess.WindowID, workdir)
 	tpath := "/home/u/.claude/projects/-tmp-proj--claude-worktrees-foo/agent-x.jsonl"
-	mgr1.SetAgentTranscriptPath(sess.WindowID, tpath)
+	mgr1.MergeDriverState(sess.WindowID, map[string]string{
+		"session_id":      "agent-x",
+		"working_dir":     workdir,
+		"transcript_path": tpath,
+	})
 
 	dataDir := mgr1.DataDir()
 	tmux2 := newMockTmux()
-	mgr2 := NewManager(tmux2, dataDir)
-	if err := mgr2.Recreate(driver.DefaultRegistry()); err != nil {
+	mgr2 := NewManager(tmux2, dataDir, driver.DefaultRegistry())
+	if err := mgr2.Recreate(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -469,18 +445,19 @@ func TestRecreate_PreservesAgentRuntime(t *testing.T) {
 	if len(all) != 1 {
 		t.Fatalf("expected 1 recreated session, got %d", len(all))
 	}
-	if all[0].AgentWorkingDir != workdir {
-		t.Errorf("AgentWorkingDir not preserved: got %q, want %q", all[0].AgentWorkingDir, workdir)
+	if all[0].DriverState["working_dir"] != workdir {
+		t.Errorf("working_dir not preserved: got %q, want %q", all[0].DriverState["working_dir"], workdir)
 	}
-	if all[0].AgentTranscriptPath != tpath {
-		t.Errorf("AgentTranscriptPath not preserved: got %q, want %q", all[0].AgentTranscriptPath, tpath)
+	if all[0].DriverState["transcript_path"] != tpath {
+		t.Errorf("transcript_path not preserved: got %q, want %q", all[0].DriverState["transcript_path"], tpath)
 	}
 	opts := tmux2.userOptions[all[0].WindowID]
-	if opts["@roost_agent_workdir"] != workdir {
-		t.Errorf("@roost_agent_workdir not written on Recreate, got %q", opts["@roost_agent_workdir"])
+	decoded := decodeDriverState(opts["@roost_driver_state"])
+	if decoded["working_dir"] != workdir {
+		t.Errorf("@roost_driver_state.working_dir not written on Recreate, got %q", decoded["working_dir"])
 	}
-	if opts["@roost_agent_transcript"] != tpath {
-		t.Errorf("@roost_agent_transcript not written on Recreate, got %q", opts["@roost_agent_transcript"])
+	if decoded["transcript_path"] != tpath {
+		t.Errorf("@roost_driver_state.transcript_path not written on Recreate, got %q", decoded["transcript_path"])
 	}
 }
 
@@ -488,16 +465,18 @@ func TestRecreate_PreservesAgentRuntime(t *testing.T) {
 // spawn inside the recorded worktree dir (not the original launch dir) and
 // the spawn command must drop the --worktree flag, since Claude treats it
 // as "create a new worktree" and is incompatible with --resume.
-func TestRecreate_WorktreeUsesAgentWorkingDir(t *testing.T) {
+func TestRecreate_WorktreeUsesDriverWorkingDir(t *testing.T) {
 	mgr1, _ := setupManager(t)
 	sess, _ := mgr1.Create("/tmp/proj", "claude --worktree")
-	mgr1.SetAgentSessionID(sess.WindowID, "agent-x")
 	worktree := "/tmp/proj/.claude/worktrees/foo"
-	mgr1.SetAgentWorkingDir(sess.WindowID, worktree)
+	mgr1.MergeDriverState(sess.WindowID, map[string]string{
+		"session_id":  "agent-x",
+		"working_dir": worktree,
+	})
 
 	tmux2 := newMockTmux()
-	mgr2 := NewManager(tmux2, mgr1.DataDir())
-	if err := mgr2.Recreate(driver.DefaultRegistry()); err != nil {
+	mgr2 := NewManager(tmux2, mgr1.DataDir(), driver.DefaultRegistry())
+	if err := mgr2.Recreate(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -512,7 +491,7 @@ func TestRecreate_WorktreeUsesAgentWorkingDir(t *testing.T) {
 		t.Errorf("spawn command = %q, want %q (--worktree must be stripped on resume)", got, wantCmd)
 	}
 	if got := tmux2.startDirs[wid]; got != worktree {
-		t.Errorf("startDir = %q, want %q (must use AgentWorkingDir for worktree sessions)", got, worktree)
+		t.Errorf("startDir = %q, want %q (must use Driver.WorkingDir for worktree sessions)", got, worktree)
 	}
 }
 
@@ -554,18 +533,18 @@ func TestSnapshotWrittenOnCreate(t *testing.T) {
 	}
 }
 
-func TestSnapshotUpdatedOnSetAgentSessionID(t *testing.T) {
+func TestSnapshotUpdatedOnMergeDriverState(t *testing.T) {
 	mgr, _ := setupManager(t)
 	sess, _ := mgr.Create("/tmp/proj", "claude")
 
-	mgr.SetAgentSessionID(sess.WindowID, "agent-42")
+	mgr.MergeDriverState(sess.WindowID, map[string]string{"session_id": "agent-42"})
 
 	loaded, err := mgr.loadSnapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(loaded) != 1 || loaded[0].AgentSessionID != "agent-42" {
-		t.Fatalf("expected snapshot AgentSessionID=agent-42, got %+v", loaded)
+	if len(loaded) != 1 || loaded[0].DriverState["session_id"] != "agent-42" {
+		t.Fatalf("expected snapshot DriverState[session_id]=agent-42, got %+v", loaded)
 	}
 }
 
@@ -612,15 +591,15 @@ func TestRecreate(t *testing.T) {
 	mgr1.Create("/tmp/proj-a", "claude")
 	tmux1.nextWindowID = "@2"
 	sessB, _ := mgr1.Create("/tmp/proj-b", "claude")
-	mgr1.SetAgentSessionID(sessB.WindowID, "agent-b")
+	mgr1.MergeDriverState(sessB.WindowID, map[string]string{"session_id": "agent-b"})
 
 	dataDir := mgr1.DataDir()
 
 	// Simulate PC reboot: brand new tmux mock with empty state, fresh
 	// Manager pointing at the same dataDir.
 	tmux2 := newMockTmux()
-	mgr2 := NewManager(tmux2, dataDir)
-	if err := mgr2.Recreate(driver.DefaultRegistry()); err != nil {
+	mgr2 := NewManager(tmux2, dataDir, driver.DefaultRegistry())
+	if err := mgr2.Recreate(); err != nil {
 		t.Fatal(err)
 	}
 
@@ -630,7 +609,7 @@ func TestRecreate(t *testing.T) {
 	}
 
 	// Both windows should have been created in the new tmux instance with
-	// the original IDs/projects/commands and AgentSessionID preserved.
+	// the original IDs/projects/commands and DriverState preserved.
 	var foundA, foundB *Session
 	for _, s := range all {
 		if s.Project == "/tmp/proj-a" {
@@ -646,8 +625,8 @@ func TestRecreate(t *testing.T) {
 	if foundA == nil || foundB == nil {
 		t.Fatalf("expected both sessions recreated, got A=%v B=%v", foundA, foundB)
 	}
-	if foundB.AgentSessionID != "agent-b" {
-		t.Errorf("expected AgentSessionID agent-b, got %q", foundB.AgentSessionID)
+	if foundB.DriverState["session_id"] != "agent-b" {
+		t.Errorf("expected DriverState[session_id]=agent-b, got %v", foundB.DriverState)
 	}
 
 	// tmux user options must be set on the new windows
@@ -655,8 +634,8 @@ func TestRecreate(t *testing.T) {
 	if opts == nil || opts["@roost_id"] != foundB.ID {
 		t.Errorf("expected @roost_id on new window, got %v", opts)
 	}
-	if opts["@roost_agent_session"] != "agent-b" {
-		t.Errorf("expected @roost_agent_session preserved, got %q", opts["@roost_agent_session"])
+	if decoded := decodeDriverState(opts["@roost_driver_state"]); decoded["session_id"] != "agent-b" {
+		t.Errorf("expected @roost_driver_state.session_id preserved, got %v", decoded)
 	}
 
 	// Claude session B has an agent ID → spawn command must include --resume
@@ -671,7 +650,7 @@ func TestRecreate(t *testing.T) {
 
 func TestRecreate_NoSnapshot(t *testing.T) {
 	mgr, _ := setupManager(t)
-	if err := mgr.Recreate(driver.DefaultRegistry()); err != nil {
+	if err := mgr.Recreate(); err != nil {
 		t.Fatalf("expected nil error on missing snapshot, got %v", err)
 	}
 	if len(mgr.All()) != 0 {

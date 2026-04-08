@@ -72,15 +72,13 @@ func (m *mockTmuxForService) ListRoostWindows() ([]session.RoostWindow, error) {
 			continue
 		}
 		out = append(out, session.RoostWindow{
-			WindowID:            id,
-			ID:                  opts["@roost_id"],
-			Project:             opts["@roost_project"],
-			Command:             opts["@roost_command"],
-			CreatedAt:           opts["@roost_created_at"],
-			Tags:                opts["@roost_tags"],
-			AgentSessionID:      opts["@roost_agent_session"],
-			AgentWorkingDir:     opts["@roost_agent_workdir"],
-			AgentTranscriptPath: opts["@roost_agent_transcript"],
+			WindowID:    id,
+			ID:          opts["@roost_id"],
+			Project:     opts["@roost_project"],
+			Command:     opts["@roost_command"],
+			CreatedAt:   opts["@roost_created_at"],
+			Tags:        opts["@roost_tags"],
+			DriverState: opts["@roost_driver_state"],
 		})
 	}
 	return out, nil
@@ -101,11 +99,12 @@ func setupService(t *testing.T) (*Service, *mockPaneOp, *session.Manager) {
 func setupServiceWithTmux(t *testing.T) (*Service, *mockPaneOp, *session.Manager, *mockTmuxForService) {
 	t.Helper()
 	mt := &mockTmuxForService{nextID: "@1", windows: make(map[string]bool)}
-	mgr := session.NewManager(mt, t.TempDir())
+	drivers := driver.DefaultRegistry()
+	mgr := session.NewManager(mt, t.TempDir(), drivers)
 	store := driver.NewAgentStore()
 	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, store, driver.DefaultRegistry(), mon, panes, "roost", "", "")
+	svc := NewService(mgr, store, drivers, mon, panes, "roost", "", "")
 	return svc, panes, mgr, mt
 }
 
@@ -143,14 +142,15 @@ func TestSwitch(t *testing.T) {
 func TestRefreshSessions_Changed(t *testing.T) {
 	mt := &mockTmuxForService{nextID: "@1", windows: make(map[string]bool)}
 	dataDir := t.TempDir()
-	mgr := session.NewManager(mt, dataDir)
+	drivers := driver.DefaultRegistry()
+	mgr := session.NewManager(mt, dataDir, drivers)
 	store := driver.NewAgentStore()
 	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, store, driver.DefaultRegistry(), mon, panes, "roost", "", "")
+	svc := NewService(mgr, store, drivers, mon, panes, "roost", "", "")
 
 	// Create via a separate manager so svc.Manager has empty in-memory state.
-	mgr2 := session.NewManager(mt, dataDir)
+	mgr2 := session.NewManager(mt, dataDir, drivers)
 	mgr2.Create("/tmp/proj", "echo hi")
 
 	changed, latest := svc.RefreshSessions()
@@ -226,11 +226,12 @@ func TestClearActive_NonMatchingWindow(t *testing.T) {
 
 func TestNewService_RestoresActiveWindowID(t *testing.T) {
 	mt := &mockTmuxForService{nextID: "@1", windows: make(map[string]bool)}
-	mgr := session.NewManager(mt, t.TempDir())
+	drivers := driver.DefaultRegistry()
+	mgr := session.NewManager(mt, t.TempDir(), drivers)
 	store := driver.NewAgentStore()
 	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, store, driver.DefaultRegistry(), mon, panes, "roost", "", "@5")
+	svc := NewService(mgr, store, drivers, mon, panes, "roost", "", "@5")
 	if svc.ActiveWindowID() != "@5" {
 		t.Fatalf("expected @5, got %s", svc.ActiveWindowID())
 	}
@@ -278,6 +279,17 @@ func TestPreviewEmitsOnPreview(t *testing.T) {
 	}
 }
 
+// sessionStartEvent builds a SessionStart AgentEvent containing the Claude
+// driver state keys most tests need. Centralized so tests stay readable
+// even though the bag is opaque to core.
+func sessionStartEvent(pane, sessionID string) driver.AgentEvent {
+	return driver.AgentEvent{
+		Type:        driver.AgentEventSessionStart,
+		Pane:        pane,
+		DriverState: map[string]string{"session_id": sessionID},
+	}
+}
+
 func TestHandleStateChangeWithContext_AutoBind(t *testing.T) {
 	svc, _, mgr := setupService(t)
 	sess, _ := mgr.Create("/tmp/proj", "claude")
@@ -319,7 +331,7 @@ func TestHandleStateChangeWithContext_KnownSession(t *testing.T) {
 	svc.Preview(sess)
 
 	// Bind normally first
-	svc.HandleSessionStart("%0", "agent-1")
+	svc.ApplyAgentEvent(sessionStartEvent("%0", "agent-1"))
 
 	// state-change on known session works without re-binding
 	changed := svc.HandleStateChangeWithContext("agent-1", driver.AgentStateRunning, "%0")
@@ -335,7 +347,7 @@ func TestHandleStatusLine(t *testing.T) {
 	svc, _, mgr := setupService(t)
 	sess, _ := mgr.Create("/tmp/proj", "claude")
 	svc.Preview(sess)
-	svc.HandleSessionStart("%0", "agent-1")
+	svc.ApplyAgentEvent(sessionStartEvent("%0", "agent-1"))
 
 	changed := svc.HandleStatusLine("agent-1", "thinking...")
 	if !changed {
@@ -350,17 +362,27 @@ func TestHandleStatusLine(t *testing.T) {
 	}
 }
 
-func TestHandleSessionStart_PersistsToTmux(t *testing.T) {
+func TestApplyAgentEvent_PersistsBindAndDriverState(t *testing.T) {
 	svc, _, mgr := setupService(t)
 	sess, _ := mgr.Create("/tmp/proj", "claude")
 	svc.Preview(sess)
 
-	if !svc.HandleSessionStart("%0", "agent-9") {
-		t.Fatal("expected true on first bind")
+	res := svc.ApplyAgentEvent(sessionStartEvent("%0", "agent-9"))
+	if !res.BindChanged {
+		t.Fatal("expected bind change on first event")
+	}
+	if !res.StateChanged {
+		t.Fatal("expected driver state change on first event")
+	}
+	if res.Identity != "agent-9" {
+		t.Fatalf("expected identity agent-9, got %q", res.Identity)
 	}
 	found := mgr.FindByWindowID(sess.WindowID)
-	if found == nil || found.AgentSessionID != "agent-9" {
+	if found == nil || found.DriverState["session_id"] != "agent-9" {
 		t.Fatalf("expected manager cache to carry agent-9, got %+v", found)
+	}
+	if svc.AgentStore.IDByWindow(sess.WindowID) != "agent-9" {
+		t.Fatalf("expected AgentStore binding to agent-9")
 	}
 }
 
@@ -391,62 +413,57 @@ func TestResolveAgentMeta_DoesNotAutoBind(t *testing.T) {
 	}
 }
 
-func TestHandleAgentTranscriptPath_PersistsToManagerAndTmux(t *testing.T) {
-	svc, _, mgr, mt := setupServiceWithTmux(t)
-	sess, _ := mgr.Create("/tmp/proj", "claude")
-	svc.Preview(sess) // sets activeWindowID so HandleSessionStart can fall back
-	svc.HandleSessionStart("%0", "agent-1")
-
-	path := "/home/u/.claude/projects/-tmp-proj--claude-worktrees-foo/agent-1.jsonl"
-	if !svc.HandleAgentTranscriptPath("agent-1", path) {
-		t.Fatal("expected true on first transcript path set")
-	}
-	updated := mgr.FindByWindowID(sess.WindowID)
-	if updated == nil || updated.AgentTranscriptPath != path {
-		t.Fatalf("Session.AgentTranscriptPath not updated, got %+v", updated)
-	}
-	if got := mt.userOptions[sess.WindowID]["@roost_agent_transcript"]; got != path {
-		t.Fatalf("@roost_agent_transcript = %q, want %q", got, path)
-	}
-
-	// Idempotent: same path is a no-op.
-	if svc.HandleAgentTranscriptPath("agent-1", path) {
-		t.Fatal("expected false on idempotent set")
-	}
-	// Empty inputs are no-ops too.
-	if svc.HandleAgentTranscriptPath("", path) {
-		t.Fatal("expected false on empty agent ID")
-	}
-	if svc.HandleAgentTranscriptPath("agent-1", "") {
-		t.Fatal("expected false on empty path")
-	}
-}
-
-func TestHandleAgentTranscriptPath_BeforeBindIsNoop(t *testing.T) {
-	svc, _, _ := setupService(t)
-	// Without a binding there is no window to attach the path to. The next
-	// hook event will carry the path again so dropping it here is safe.
-	if svc.HandleAgentTranscriptPath("agent-orphan", "/x/y/agent-orphan.jsonl") {
-		t.Fatal("expected false without binding")
-	}
-}
-
-func TestHandleAgentWorkingDir_PersistsAndRefreshesBranch(t *testing.T) {
+func TestApplyAgentEvent_TranscriptPathPersists(t *testing.T) {
 	svc, _, mgr, mt := setupServiceWithTmux(t)
 	sess, _ := mgr.Create("/tmp/proj", "claude")
 	svc.Preview(sess)
-	svc.HandleSessionStart("%0", "agent-1")
 
-	workdir := "/tmp/proj/.claude/worktrees/foo"
-	if !svc.HandleAgentWorkingDir("agent-1", workdir) {
-		t.Fatal("expected true on first set")
+	path := "/home/u/.claude/projects/-tmp-proj--claude-worktrees-foo/agent-1.jsonl"
+	ev := driver.AgentEvent{
+		Type: driver.AgentEventSessionStart,
+		Pane: "%0",
+		DriverState: map[string]string{
+			"session_id":      "agent-1",
+			"transcript_path": path,
+		},
+	}
+	if res := svc.ApplyAgentEvent(ev); !res.StateChanged {
+		t.Fatal("expected driver state change on first event")
 	}
 	updated := mgr.FindByWindowID(sess.WindowID)
-	if updated == nil || updated.AgentWorkingDir != workdir {
-		t.Fatalf("Session.AgentWorkingDir not updated, got %+v", updated)
+	if updated == nil || updated.DriverState["transcript_path"] != path {
+		t.Fatalf("transcript_path not updated, got %+v", updated)
 	}
-	if got := mt.userOptions[sess.WindowID]["@roost_agent_workdir"]; got != workdir {
-		t.Fatalf("@roost_agent_workdir = %q, want %q", got, workdir)
+	if mt.userOptions[sess.WindowID]["@roost_driver_state"] == "" {
+		t.Fatal("expected @roost_driver_state to be set")
+	}
+
+	// Idempotent: applying the same event again is a no-op for state.
+	if res := svc.ApplyAgentEvent(ev); res.StateChanged {
+		t.Fatal("expected false on idempotent set")
+	}
+}
+
+func TestApplyAgentEvent_WorkingDirRefreshesBranch(t *testing.T) {
+	svc, _, mgr, _ := setupServiceWithTmux(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	svc.Preview(sess)
+
+	workdir := "/tmp/proj/.claude/worktrees/foo"
+	ev := driver.AgentEvent{
+		Type: driver.AgentEventSessionStart,
+		Pane: "%0",
+		DriverState: map[string]string{
+			"session_id":  "agent-1",
+			"working_dir": workdir,
+		},
+	}
+	if res := svc.ApplyAgentEvent(ev); !res.StateChanged {
+		t.Fatal("expected driver state change on first event")
+	}
+	updated := mgr.FindByWindowID(sess.WindowID)
+	if updated == nil || updated.DriverState["working_dir"] != workdir {
+		t.Fatalf("working_dir not updated, got %+v", updated)
 	}
 }
 
@@ -454,7 +471,7 @@ func TestActiveTranscriptPath_PrefersReportedPath(t *testing.T) {
 	svc, _, mgr := setupService(t)
 	sess, _ := mgr.Create("/tmp/proj", "claude")
 	svc.Preview(sess)
-	svc.HandleSessionStart("%0", "agent-1")
+	svc.ApplyAgentEvent(sessionStartEvent("%0", "agent-1"))
 
 	// Before any hook reports a path, ActiveTranscriptPath falls back to a
 	// driver-computed path from sess.Project.
@@ -467,7 +484,14 @@ func TestActiveTranscriptPath_PrefersReportedPath(t *testing.T) {
 	// Once the agent reports its real transcript path, that wins over the
 	// fallback (worktree case: claude wrote to a different ProjectDir).
 	reported := "/home/u/.claude/projects/-tmp-proj--claude-worktrees-foo/agent-1.jsonl"
-	svc.HandleAgentTranscriptPath("agent-1", reported)
+	svc.ApplyAgentEvent(driver.AgentEvent{
+		Type: driver.AgentEventStateChange,
+		Pane: "%0",
+		DriverState: map[string]string{
+			"session_id":      "agent-1",
+			"transcript_path": reported,
+		},
+	})
 
 	if got := svc.ActiveTranscriptPath(); got != reported {
 		t.Fatalf("ActiveTranscriptPath = %q, want %q", got, reported)
@@ -478,12 +502,12 @@ func TestResolveAgentMeta_FallbackToProject(t *testing.T) {
 	svc, _, mgr := setupService(t)
 	sess, _ := mgr.Create("/tmp/proj", "claude")
 	svc.Preview(sess)
-	svc.HandleSessionStart("%0", "agent-1")
+	svc.ApplyAgentEvent(sessionStartEvent("%0", "agent-1"))
 
-	// AgentTranscriptPath is empty, AgentWorkingDir is empty, but we should
-	// fall through to driver.TranscriptFilePath(home, sess.Project, agentID).
-	// The file does not exist on disk so meta stays empty — but the path
-	// resolves cleanly without panicking, which is what matters.
+	// transcript_path and working_dir are empty, but we should fall through
+	// to driver.TranscriptFilePath using sess.Project. The file does not
+	// exist on disk so meta stays empty — but the path resolves cleanly
+	// without panicking, which is what matters.
 	_ = svc.ResolveAgentMeta()
 	agent := svc.AgentStore.GetByWindow(sess.WindowID)
 	if agent == nil {

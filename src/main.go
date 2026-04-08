@@ -64,8 +64,8 @@ func runCoordinator() {
 
 	dataDir := cfg.ResolveDataDir()
 	os.MkdirAll(dataDir, 0o755)
-	mgr := session.NewManager(client, dataDir)
 	drivers := driver.DefaultRegistry()
+	mgr := session.NewManager(client, dataDir, drivers)
 
 	if client.SessionExists() {
 		slog.Info("session exists, restoring")
@@ -76,9 +76,7 @@ func runCoordinator() {
 		setupNewSession(client, cfg, sessionName)
 		// Cold boot (PC reboot, tmux server gone): rebuild the session list
 		// from the on-disk snapshot since tmux user options were wiped.
-		// Drivers are passed in so Claude sessions can be respawned with
-		// `claude --resume <id>` to pick up prior conversations.
-		if err := mgr.Recreate(drivers); err != nil {
+		if err := mgr.Recreate(); err != nil {
 			slog.Error("recreate failed", "err", err)
 		}
 	}
@@ -90,8 +88,12 @@ func runCoordinator() {
 	agentStore := driver.NewAgentStore()
 	bindings := make(map[string]string)
 	for _, s := range mgr.All() {
-		if s.AgentSessionID != "" {
-			bindings[s.WindowID] = s.AgentSessionID
+		key := drivers.Get(s.Command).IdentityKey()
+		if key == "" {
+			continue
+		}
+		if id := s.DriverState[key]; id != "" {
+			bindings[s.WindowID] = id
 		}
 	}
 	agentStore.RestoreFromBindings(bindings)
