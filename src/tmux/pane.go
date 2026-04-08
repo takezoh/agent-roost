@@ -61,3 +61,9 @@ func (c *Client) PipePane(target, command string) error {
 func (c *Client) WindowIDFromPane(paneID string) (string, error) {
 	return c.Run("display-message", "-t", paneID, "-p", "#{window_id}")
 }
+
+// DisplayMessage runs `tmux display-message -t <target> -p <format>` and
+// returns the formatted output (typically a single field like "#{pane_dead}").
+func (c *Client) DisplayMessage(target, format string) (string, error) {
+	return c.Run("display-message", "-t", target, "-p", format)
+}

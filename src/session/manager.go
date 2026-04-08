@@ -226,6 +226,13 @@ func (m *Manager) ReconcileWindows() ([]RemovedSession, error) {
 	return removed, nil
 }
 
+// KillWindow forcibly destroys a tmux window. Used by Service.handleActiveDeadPane
+// to clean up the session window after swap-pane has moved a dead agent pane
+// back into it.
+func (m *Manager) KillWindow(windowID string) error {
+	return m.tmux.KillWindow(windowID)
+}
+
 func (m *Manager) Stop(sessionID string) error {
 	slog.Info("stopping session", "id", sessionID)
 	m.mu.Lock()
