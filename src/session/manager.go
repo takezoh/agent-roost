@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +24,7 @@ type TmuxClient interface {
 	SetWindowUserOption(windowID, key, value string) error
 	SetWindowUserOptions(windowID string, kv map[string]string) error
 	ListRoostWindows() ([]RoostWindow, error)
+	DisplayMessage(target, format string) (string, error)
 }
 
 // Manager keeps an in-memory cache of roost sessions reconstructed from tmux
@@ -107,6 +109,10 @@ func (m *Manager) Recreate(drivers *driver.Registry) error {
 			slog.Warn("recreate: set remain-on-exit failed", "err", err)
 		}
 		s.WindowID = windowID
+		// AgentPaneID from the old tmux server is meaningless after a cold
+		// boot — query the freshly spawned pane for its new id before
+		// writing user options.
+		s.AgentPaneID = m.queryAgentPaneID(windowID)
 		if err := m.tmux.SetWindowUserOptions(windowID, sessionUserOptions(s)); err != nil {
 			slog.Error("recreate: SetWindowUserOptions failed", "id", s.ID, "err", err)
 			m.tmux.KillWindow(windowID)
@@ -129,6 +135,9 @@ func sessionUserOptions(s *Session) map[string]string {
 		"@roost_command":    s.Command,
 		"@roost_created_at": s.CreatedAt.UTC().Format(time.RFC3339),
 		"@roost_tags":       encodeTags(s.Tags),
+	}
+	if s.AgentPaneID != "" {
+		opts["@roost_agent_pane"] = s.AgentPaneID
 	}
 	if s.AgentSessionID != "" {
 		opts["@roost_agent_session"] = s.AgentSessionID
@@ -178,6 +187,7 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 		slog.Warn("create: set remain-on-exit failed", "err", err)
 	}
 	s.WindowID = windowID
+	s.AgentPaneID = m.queryAgentPaneID(windowID)
 	if err := m.tmux.SetWindowUserOptions(windowID, sessionUserOptions(s)); err != nil {
 		slog.Error("create: set window options failed", "err", err)
 		m.tmux.KillWindow(windowID)
@@ -188,8 +198,23 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 	m.sessions = append(m.sessions, s)
 	m.saveSnapshotLocked()
 	m.mu.Unlock()
-	slog.Info("session created", "id", id, "window", windowID)
+	slog.Info("session created", "id", id, "window", windowID, "pane", s.AgentPaneID)
 	return s, nil
+}
+
+// queryAgentPaneID returns the tmux pane id (e.g. "%5") for pane 0 of the
+// given window. Pane ids are stable across swap-pane, so storing this gives
+// the reaper a way to identify a session by its agent pane regardless of
+// where it currently lives in the tmux layout. Failures are non-fatal: an
+// empty pane id just means the reaper falls back to ReconcileWindows-only
+// cleanup for this session.
+func (m *Manager) queryAgentPaneID(windowID string) string {
+	out, err := m.tmux.DisplayMessage(windowID+":0.0", "#{pane_id}")
+	if err != nil {
+		slog.Warn("query agent pane id failed", "window", windowID, "err", err)
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // RemovedSession describes a session whose tmux window has disappeared and
@@ -234,7 +259,7 @@ func (m *Manager) ReconcileWindows() ([]RemovedSession, error) {
 	return removed, nil
 }
 
-// KillWindow forcibly destroys a tmux window. Used by Service.handleActiveDeadPane
+// KillWindow forcibly destroys a tmux window. Used by Service.reapDeadPane00
 // to clean up the session window after swap-pane has moved a dead agent pane
 // back into it.
 func (m *Manager) KillWindow(windowID string) error {
@@ -294,6 +319,25 @@ func (m *Manager) FindByWindowID(windowID string) *Session {
 	defer m.mu.RUnlock()
 	for _, s := range m.sessions {
 		if s.WindowID == windowID {
+			return s
+		}
+	}
+	return nil
+}
+
+// FindByAgentPaneID looks up a session by its agent pane id (e.g. "%5").
+// Pane ids are stable across swap-pane, so this lets the reaper identify
+// which session a dead pane belongs to regardless of which window currently
+// hosts it. Sessions whose AgentPaneID is empty (e.g. legacy entries from
+// before pane id tracking landed, or Create-time tmux failures) never match.
+func (m *Manager) FindByAgentPaneID(paneID string) *Session {
+	if paneID == "" {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, s := range m.sessions {
+		if s.AgentPaneID == paneID {
 			return s
 		}
 	}
@@ -427,6 +471,7 @@ func windowToSession(w RoostWindow) *Session {
 		Project:             w.Project,
 		Command:             w.Command,
 		WindowID:            w.WindowID,
+		AgentPaneID:         w.AgentPaneID,
 		AgentSessionID:      w.AgentSessionID,
 		AgentWorkingDir:     w.AgentWorkingDir,
 		AgentTranscriptPath: w.AgentTranscriptPath,

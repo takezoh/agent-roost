@@ -59,6 +59,7 @@ type Session struct {
 	Project             string    `json:"project"`
 	Command             string    `json:"command"`
 	WindowID            string    `json:"window_id"`
+	AgentPaneID         string    `json:"-"`
 	AgentSessionID      string    `json:"agent_session_id,omitempty"`
 	AgentWorkingDir     string    `json:"agent_working_dir,omitempty"`
 	AgentTranscriptPath string    `json:"agent_transcript_path,omitempty"`
@@ -87,6 +88,7 @@ type RoostWindow struct {
 	Command             string
 	CreatedAt           string
 	Tags                string
+	AgentPaneID         string
 	AgentSessionID      string
 	AgentWorkingDir     string
 	AgentTranscriptPath string

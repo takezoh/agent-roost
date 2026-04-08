@@ -3,6 +3,7 @@ package session
 import (
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/take/agent-roost/session/driver"
@@ -14,7 +15,9 @@ type mockTmux struct {
 	// specific window IDs.
 	nextWindowID   string
 	windowCounter  int
+	paneCounter    int
 	windows        map[string]bool
+	windowPanes    map[string]string // windowID → pane_id at pane index 0
 	options        map[string]string // "windowID:key" → value
 	userOptions    map[string]map[string]string
 	lastNewCommand string
@@ -26,6 +29,7 @@ func newMockTmux() *mockTmux {
 	return &mockTmux{
 		nextWindowID: "@1",
 		windows:      make(map[string]bool),
+		windowPanes:  make(map[string]string),
 		options:      make(map[string]string),
 		userOptions:  make(map[string]map[string]string),
 		commands:     make(map[string]string),
@@ -43,6 +47,8 @@ func (m *mockTmux) NewWindow(name, command, startDir string) (string, error) {
 		id = fmt.Sprintf("@%d", m.windowCounter+100)
 	}
 	m.windows[id] = true
+	m.paneCounter++
+	m.windowPanes[id] = fmt.Sprintf("%%%d", m.paneCounter)
 	m.lastNewCommand = command
 	m.commands[id] = command
 	m.startDirs[id] = startDir
@@ -52,7 +58,24 @@ func (m *mockTmux) NewWindow(name, command, startDir string) (string, error) {
 func (m *mockTmux) KillWindow(windowID string) error {
 	delete(m.windows, windowID)
 	delete(m.userOptions, windowID)
+	delete(m.windowPanes, windowID)
 	return nil
+}
+
+func (m *mockTmux) DisplayMessage(target, format string) (string, error) {
+	// Tests target wid+":0.0" to fetch the pane id of pane 0 in a freshly
+	// created window. Strip the trailing :0.0 to recover the window id.
+	wid := target
+	if i := strings.Index(wid, ":"); i >= 0 {
+		wid = wid[:i]
+	}
+	if format == "#{pane_id}" {
+		if pid, ok := m.windowPanes[wid]; ok {
+			return pid, nil
+		}
+		return "", nil
+	}
+	return "", nil
 }
 
 func (m *mockTmux) SetOption(target, key, value string) error {
@@ -92,6 +115,7 @@ func (m *mockTmux) ListRoostWindows() ([]RoostWindow, error) {
 			Command:             opts["@roost_command"],
 			CreatedAt:           opts["@roost_created_at"],
 			Tags:                opts["@roost_tags"],
+			AgentPaneID:         opts["@roost_agent_pane"],
 			AgentSessionID:      opts["@roost_agent_session"],
 			AgentWorkingDir:     opts["@roost_agent_workdir"],
 			AgentTranscriptPath: opts["@roost_agent_transcript"],
