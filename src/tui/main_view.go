@@ -11,59 +11,62 @@ import (
 	"github.com/take/agent-roost/session/driver"
 )
 
-var (
-	mainTitleStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#7D56F4"))
-	mainKeyStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("#EBDBB2"))
-	mainDescStyle    = lipgloss.NewStyle().Foreground(lipgloss.Color("#888888"))
-	mainSectionStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#626262"))
-)
-
 func (m MainModel) View() tea.View {
-	var b strings.Builder
-
-	b.WriteString(mainTitleStyle.Render("ROOST"))
-	b.WriteString("\n\n")
-
-	renderKeybindings(&b)
-
-	if name := m.selectedProjectName(); name != "" {
-		b.WriteString("\n")
-		b.WriteString(mainSectionStyle.Render("─── " + name + " ───"))
-		b.WriteString("\n\n")
-		renderProjectSessions(&b, m.projectSessions(), m.drivers)
+	parts := []string{
+		titleStyle.Render("ROOST"),
+		"",
+		renderKeybindingsBody(),
 	}
 
-	v := tea.NewView(b.String())
+	if name := m.selectedProjectName(); name != "" {
+		sessions := m.projectSessions()
+		header := projectStyle.Render(name) + "  " + badgeStyle.Render(fmt.Sprintf("%d sessions", len(sessions)))
+		parts = append(parts, "", header, "", renderProjectSessionsBody(sessions, m.drivers))
+	}
+
+	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
 	v.AltScreen = true
 	return v
 }
 
-func renderKeybindings(b *strings.Builder) {
+func renderKeybindingsBody() string {
 	bindings := []struct{ key, desc string }{
 		{"prefix+Space", "Toggle TUI"},
 		{"prefix+p", "Palette"},
 		{"prefix+d", "Detach"},
 		{"prefix+q", "Shutdown"},
 	}
-	for _, bind := range bindings {
-		b.WriteString(fmt.Sprintf("  %s  %s\n",
-			mainKeyStyle.Render(fmt.Sprintf("%-14s", bind.key)),
-			mainDescStyle.Render(bind.desc),
+	var b strings.Builder
+	for i, bind := range bindings {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(fmt.Sprintf("%s  %s",
+			helpKeyStyle.Render(fmt.Sprintf("%-14s", bind.key)),
+			mutedStyle.Render(bind.desc),
 		))
 	}
+	return b.String()
 }
 
-func renderProjectSessions(b *strings.Builder, sessions []core.SessionInfo, registry *driver.Registry) {
+func renderProjectSessionsBody(sessions []core.SessionInfo, registry *driver.Registry) string {
 	if len(sessions) == 0 {
-		b.WriteString(mainDescStyle.Render("  No sessions"))
-		b.WriteString("\n")
-		return
+		return mutedStyle.Render("No sessions")
 	}
-	for _, s := range sessions {
+	var b strings.Builder
+	for i, s := range sessions {
+		if i > 0 {
+			b.WriteString("\n")
+		}
 		symbol := stateSymbol(s.State)
 		elapsed := formatElapsed(time.Since(s.CreatedAtTime()))
 		displayName := registry.Get(s.Command).DisplayName()
-		b.WriteString(fmt.Sprintf("  %s  %s %-5s /%s\n",
-			s.ID[:6], symbol, elapsed, displayName))
+		b.WriteString(fmt.Sprintf("%s  %s %s  %s",
+			mutedStyle.Render(s.ID[:6]),
+			symbol,
+			mutedStyle.Render(fmt.Sprintf("%-5s", elapsed)),
+			tagStyle.Render("/"+displayName),
+		))
 	}
+	return b.String()
 }

@@ -274,8 +274,7 @@ func (m *Model) rebuildItems() {
 // Row counts are cached per item by SetRows during View rendering.
 // Returns -1 if outside items.
 func (m Model) rowToItemIndex(y int) int {
-	const headerRows = 2
-	row := headerRows
+	row := sessionsHeaderRows
 	for i, item := range m.items {
 		if item.rows <= 0 {
 			continue
