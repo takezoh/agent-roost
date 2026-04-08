@@ -1,93 +1,98 @@
-package claude
+package transcript
 
 import (
 	"strings"
 	"testing"
 )
 
-func TestFormatTranscript_UserText(t *testing.T) {
+func renderLine(line string) string {
+	p := NewParser(ParserOptions{})
+	return RenderEntries(p.ParseLines([]byte(line)))
+}
+
+func TestParser_UserText(t *testing.T) {
 	line := `{"type":"user","message":{"content":"hello world"}}`
-	got := FormatTranscript(line)
+	got := renderLine(line)
 	if !strings.Contains(got, "YOU>") || !strings.Contains(got, "hello world") {
 		t.Errorf("got %q, want user prompt with YOU>", got)
 	}
 }
 
-func TestFormatTranscript_UserTextBlocks(t *testing.T) {
+func TestParser_UserTextBlocks(t *testing.T) {
 	line := `{"type":"user","message":{"content":[{"type":"text","text":"prompt text"}]}}`
-	got := FormatTranscript(line)
+	got := renderLine(line)
 	if !strings.Contains(got, "prompt text") {
 		t.Errorf("got %q, want prompt text", got)
 	}
 }
 
-func TestFormatTranscript_UserToolResult(t *testing.T) {
+func TestParser_UserToolResult(t *testing.T) {
 	line := `{"type":"user","message":{"content":[{"type":"tool_result","content":"some output data"}]}}`
-	got := FormatTranscript(line)
+	got := renderLine(line)
 	if !strings.Contains(got, "16 chars") {
 		t.Errorf("got %q, want chars count", got)
 	}
 }
 
-func TestFormatTranscript_UserToolResultError(t *testing.T) {
+func TestParser_UserToolResultError(t *testing.T) {
 	line := `{"type":"user","message":{"content":[{"type":"tool_result","content":"fail","is_error":true}]}}`
-	got := FormatTranscript(line)
+	got := renderLine(line)
 	if !strings.Contains(got, "error") {
 		t.Errorf("got %q, want error marker", got)
 	}
 }
 
-func TestFormatTranscript_UserToolResultEmpty(t *testing.T) {
+func TestParser_UserToolResultEmpty(t *testing.T) {
 	line := `{"type":"user","message":{"content":[{"type":"tool_result","content":""}]}}`
-	got := FormatTranscript(line)
+	got := renderLine(line)
 	if !strings.Contains(got, "← ok") {
 		t.Errorf("got %q, want ok", got)
 	}
 }
 
-func TestFormatTranscript_AssistantText(t *testing.T) {
+func TestParser_AssistantText(t *testing.T) {
 	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"response text"}]}}`
-	got := FormatTranscript(line)
+	got := renderLine(line)
 	if !strings.Contains(got, "response text") {
 		t.Errorf("got %q, want response text", got)
 	}
 }
 
-func TestFormatTranscript_AssistantToolUse(t *testing.T) {
+func TestParser_AssistantToolUse(t *testing.T) {
 	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"src/main.go"}}]}}`
-	got := FormatTranscript(line)
+	got := renderLine(line)
 	if !strings.Contains(got, "Read") || !strings.Contains(got, "src/main.go") {
 		t.Errorf("got %q", got)
 	}
 }
 
-func TestFormatTranscript_AssistantToolUseBash(t *testing.T) {
+func TestParser_AssistantToolUseBash(t *testing.T) {
 	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"make build"}}]}}`
-	got := FormatTranscript(line)
+	got := renderLine(line)
 	if !strings.Contains(got, "Bash") || !strings.Contains(got, "make build") {
 		t.Errorf("got %q", got)
 	}
 }
 
-func TestFormatTranscript_AssistantToolUseAgent(t *testing.T) {
+func TestParser_AssistantToolUseAgent(t *testing.T) {
 	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Agent","input":{"description":"explore codebase"}}]}}`
-	got := FormatTranscript(line)
+	got := renderLine(line)
 	if !strings.Contains(got, "Agent") || !strings.Contains(got, "explore codebase") {
 		t.Errorf("got %q", got)
 	}
 }
 
-func TestFormatTranscript_AssistantToolUseUnknown(t *testing.T) {
+func TestParser_AssistantToolUseUnknown(t *testing.T) {
 	line := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"CustomTool","input":{"x":"y"}}]}}`
-	got := FormatTranscript(line)
+	got := renderLine(line)
 	if !strings.Contains(got, "CustomTool") {
 		t.Errorf("got %q, want CustomTool", got)
 	}
 }
 
-func TestFormatTranscript_AssistantMultipleBlocks(t *testing.T) {
+func TestParser_AssistantMultipleBlocks(t *testing.T) {
 	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"doing work"},{"type":"tool_use","name":"Read","input":{"file_path":"a.go"}},{"type":"tool_use","name":"Edit","input":{"file_path":"b.go"}}]}}`
-	got := FormatTranscript(line)
+	got := renderLine(line)
 	if !strings.Contains(got, "doing work") {
 		t.Error("missing text block")
 	}
@@ -96,50 +101,45 @@ func TestFormatTranscript_AssistantMultipleBlocks(t *testing.T) {
 	}
 }
 
-func TestFormatTranscript_AssistantThinking(t *testing.T) {
+func TestParser_AssistantThinking(t *testing.T) {
 	line := `{"type":"assistant","message":{"content":[{"type":"thinking","text":"internal thought"}]}}`
-	got := FormatTranscript(line)
+	got := renderLine(line)
 	if got != "" {
 		t.Errorf("thinking should produce empty output, got %q", got)
 	}
 }
 
-func TestFormatTranscript_SkipsMetadata(t *testing.T) {
+func TestParser_SkipsSilentMetadata(t *testing.T) {
+	// Types that should not produce any visible render line.
 	types := []string{
 		`{"type":"file-history-snapshot","messageId":"abc"}`,
-		`{"type":"system","subtype":"local_command","content":""}`,
 		`{"type":"queue-operation","operation":"enqueue"}`,
-		`{"type":"custom-title","customTitle":"my-title"}`,
-		`{"type":"agent-name","agentName":"test"}`,
 		`{"type":"attachment","attachment":{}}`,
 	}
 	for _, line := range types {
-		got := FormatTranscript(line)
+		got := renderLine(line)
 		if got != "" {
-			t.Errorf("FormatTranscript(%s) = %q, want empty", line, got)
+			t.Errorf("renderLine(%s) = %q, want empty", line, got)
 		}
 	}
 }
 
-func TestFormatTranscript_InvalidJSON(t *testing.T) {
-	got := FormatTranscript("not json")
-	if got != "" {
+func TestParser_InvalidJSON(t *testing.T) {
+	if got := renderLine("not json"); got != "" {
 		t.Errorf("got %q, want empty", got)
 	}
 }
 
-func TestFormatTranscript_EmptyUserContent(t *testing.T) {
+func TestParser_EmptyUserContent(t *testing.T) {
 	line := `{"type":"user","message":{"content":"  "}}`
-	got := FormatTranscript(line)
-	if got != "" {
+	if got := renderLine(line); got != "" {
 		t.Errorf("got %q, want empty for whitespace-only", got)
 	}
 }
 
-func TestFormatTranscript_UserSystemTag(t *testing.T) {
+func TestParser_UserSystemTag(t *testing.T) {
 	line := `{"type":"user","message":{"content":"<local-command-caveat>some caveat</local-command-caveat>"}}`
-	got := FormatTranscript(line)
-	if got != "" {
+	if got := renderLine(line); got != "" {
 		t.Errorf("system tag should be skipped, got %q", got)
 	}
 }
@@ -159,16 +159,30 @@ func TestTranscriptTruncate(t *testing.T) {
 	}
 }
 
-func TestFormatTranscript_MultiLine(t *testing.T) {
+func TestParser_MultiLine(t *testing.T) {
 	raw := `{"type":"user","message":{"content":"first"}}
 {"type":"assistant","message":{"content":[{"type":"text","text":"second"}]}}
 {"type":"file-history-snapshot","messageId":"x"}`
-	got := FormatTranscript(raw)
+	got := renderLine(raw)
 	if !strings.Contains(got, "first") || !strings.Contains(got, "second") {
 		t.Errorf("got %q, want both entries", got)
 	}
 	lines := strings.Split(got, "\n")
 	if len(lines) != 2 {
 		t.Errorf("got %d lines, want 2 (metadata skipped)", len(lines))
+	}
+}
+
+func TestParser_ParserReusable(t *testing.T) {
+	p := NewParser(ParserOptions{})
+	_ = p.ParseLines([]byte(`{"type":"user","message":{"content":"first"}}`))
+	second := p.ParseLines([]byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"second"}]}}`))
+	if len(second) != 1 || second[0].Text != "second" {
+		t.Errorf("reusable parser failed, got %+v", second)
+	}
+	p.Reset()
+	third := p.ParseLines([]byte(`{"type":"user","message":{"content":"third"}}`))
+	if len(third) != 1 || third[0].Text != "third" {
+		t.Errorf("after Reset, got %+v", third)
 	}
 }

@@ -30,7 +30,7 @@ func TestReadNewLines(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.log")
 	os.WriteFile(path, []byte("line1\nline2\n"), 0o644)
 
-	m := NewLogModel(path, nil)
+	m := NewLogModel(path, nil, false)
 	got, err := readNewLines(m.tabs[0])
 	if err != nil {
 		t.Fatal(err)
@@ -69,7 +69,7 @@ func TestReadNewLines_Truncated(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.log")
 	os.WriteFile(path, []byte("long content here\n"), 0o644)
 
-	m := NewLogModel(path, nil)
+	m := NewLogModel(path, nil, false)
 	readNewLines(m.tabs[0])
 
 	// Truncate file
@@ -89,7 +89,7 @@ func TestReadNewLines_PartialLine(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.log")
 	os.WriteFile(path, []byte("complete\npartial"), 0o644)
 
-	m := NewLogModel(path, nil)
+	m := NewLogModel(path, nil, false)
 	got, err := readNewLines(m.tabs[0])
 	if err != nil {
 		t.Fatal(err)
@@ -132,7 +132,7 @@ func TestTrimLines_UnderLimit(t *testing.T) {
 }
 
 func TestSwitchToTab_ResetsReader(t *testing.T) {
-	m := NewLogModel("/app.log", nil)
+	m := NewLogModel("/app.log", nil, false)
 	m.tabs = append(m.tabs, &tabState{label: "EVENTS", logPath: "/events.log"})
 
 	m.tabs[0].offset = 100
@@ -148,7 +148,7 @@ func TestSwitchToTab_ResetsReader(t *testing.T) {
 }
 
 func TestSwitchToTab_App(t *testing.T) {
-	m := NewLogModel("/app.log", nil)
+	m := NewLogModel("/app.log", nil, false)
 	m.tabs = append(m.tabs, &tabState{label: "EVENTS", logPath: "/events.log"})
 	m.switchToTab(1)
 	if m.activeTab != 1 {
@@ -161,7 +161,7 @@ func TestSwitchToTab_App(t *testing.T) {
 }
 
 func TestSwitchToTab_DynamicTab(t *testing.T) {
-	m := NewLogModel("/app.log", nil)
+	m := NewLogModel("/app.log", nil, false)
 	m.tabs = append(m.tabs,
 		&tabState{label: "EVENTS", logPath: "/events.log"},
 		&tabState{label: "TRANSCRIPT", logPath: "/transcript.jsonl"},
@@ -174,7 +174,7 @@ func TestSwitchToTab_DynamicTab(t *testing.T) {
 }
 
 func TestRebuildTabs(t *testing.T) {
-	m := NewLogModel("/app.log", nil)
+	m := NewLogModel("/app.log", nil, false)
 	m.rebuildTabs("/events.log", "/transcript.jsonl")
 
 	// TRANSCRIPT + EVENTS + LOG = 3
@@ -193,7 +193,7 @@ func TestRebuildTabs(t *testing.T) {
 }
 
 func TestRebuildTabs_NoClaudeActive(t *testing.T) {
-	m := NewLogModel("/app.log", nil)
+	m := NewLogModel("/app.log", nil, false)
 	m.rebuildTabs("", "")
 	if len(m.tabs) != 1 { // LOG only
 		t.Fatalf("got %d tabs, want 1", len(m.tabs))
@@ -201,7 +201,7 @@ func TestRebuildTabs_NoClaudeActive(t *testing.T) {
 }
 
 func TestRebuildTabs_ActiveTabFallback(t *testing.T) {
-	m := NewLogModel("/app.log", nil)
+	m := NewLogModel("/app.log", nil, false)
 	m.tabs = append(m.tabs, &tabState{label: "EVENTS", logPath: "/x.log"})
 	m.activeTab = 1
 
@@ -212,7 +212,7 @@ func TestRebuildTabs_ActiveTabFallback(t *testing.T) {
 }
 
 func TestTabIndexAtX(t *testing.T) {
-	m := NewLogModel("/app.log", nil)
+	m := NewLogModel("/app.log", nil, false)
 	m.tabs = append(m.tabs,
 		&tabState{label: "EVENTS"},
 		&tabState{label: "abc123"},

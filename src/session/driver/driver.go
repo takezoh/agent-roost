@@ -8,6 +8,14 @@ type SessionMeta struct {
 	LastPrompt string   // most recent prompt text
 	Subjects   []string // TaskCreate subjects
 	SessionID  string   // agent session ID resolved from log files
+
+	// PR5 additions: derived from transcript.SessionInsight.
+	AgentName      string         // type=agent-name event (Claude-assigned slug)
+	CurrentTool    string         // most recent tool_use awaiting a result
+	RecentCommands []string       // recent Bash commands
+	SubagentCounts map[string]int // agentType -> launches
+	ErrorCount     int            // tool_result is_error count
+	TouchedFiles   []string       // unique Read/Write/Edit file paths
 }
 
 // Driver defines the interface for agent command-specific behavior.

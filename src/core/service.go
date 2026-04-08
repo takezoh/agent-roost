@@ -20,7 +20,7 @@ type Service struct {
 	Drivers        *driver.Registry
 	Monitor        *tmux.Monitor
 	Panes          tmux.PaneOperator
-	UsageTracker   *UsageTracker
+	Tracker        SessionTracker
 	SessionName    string
 	eventLogDir    string
 	activeWindowID string
@@ -40,11 +40,20 @@ func NewService(mgr *session.Manager, store *driver.AgentStore, drivers *driver.
 		Drivers:        drivers,
 		Monitor:        mon,
 		Panes:          panes,
-		UsageTracker:   NewUsageTracker(),
+		Tracker:        noopTracker{},
 		SessionName:    sessionName,
 		eventLogDir:    eventLogDir,
 		activeWindowID: activeWindowID,
 	}
+}
+
+// SetTracker installs a SessionTracker implementation. main wires this
+// during startup with a Claude-aware tracker.
+func (s *Service) SetTracker(t SessionTracker) {
+	if t == nil {
+		t = noopTracker{}
+	}
+	s.Tracker = t
 }
 
 func (s *Service) SetSyncStatus(fn func(string)) {
@@ -243,7 +252,7 @@ func (s *Service) TranscriptPathByAgent(agentSessionID string) string {
 // UpdateStatusFromTranscript reads new transcript content and updates the status line.
 func (s *Service) UpdateStatusFromTranscript(agentSessionID string) bool {
 	path := s.TranscriptPathByAgent(agentSessionID)
-	line, changed := s.UsageTracker.Update(agentSessionID, path)
+	line, changed := s.Tracker.Update(agentSessionID, path)
 	if changed {
 		s.HandleStatusLine(agentSessionID, line)
 	}

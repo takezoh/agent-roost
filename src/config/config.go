@@ -9,11 +9,16 @@ import (
 )
 
 type Config struct {
-	DataDir  string         `toml:"data_dir"`
-	Tmux     TmuxConfig     `toml:"tmux"`
-	Monitor  MonitorConfig  `toml:"monitor"`
-	Session  SessionConfig  `toml:"session"`
-	Projects ProjectsConfig `toml:"projects"`
+	DataDir    string           `toml:"data_dir"`
+	Tmux       TmuxConfig       `toml:"tmux"`
+	Monitor    MonitorConfig    `toml:"monitor"`
+	Session    SessionConfig    `toml:"session"`
+	Projects   ProjectsConfig   `toml:"projects"`
+	Transcript TranscriptConfig `toml:"transcript"`
+}
+
+type TranscriptConfig struct {
+	ShowThinking bool `toml:"show_thinking"`
 }
 
 type TmuxConfig struct {

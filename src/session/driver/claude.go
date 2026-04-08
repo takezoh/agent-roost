@@ -1,12 +1,12 @@
 package driver
 
 import (
-	"bufio"
-	"encoding/json"
 	"io/fs"
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/take/agent-roost/lib/claude/transcript"
 )
 
 // Claude implements the Claude Code CLI behavior.
@@ -20,7 +20,8 @@ func (Claude) PromptPattern() string { return claudePromptPattern }
 func (Claude) DisplayName() string   { return "claude" }
 
 // ResolveMeta resolves session metadata from Claude Code JSONL logs.
-// If sessionID is non-empty, it reads that specific file; otherwise it picks the most recent .jsonl.
+// If sessionID is non-empty, it reads that specific file; otherwise it
+// picks the most recent .jsonl in the project directory.
 func (Claude) ResolveMeta(fsys fs.FS, projectPath string, sessionID string) SessionMeta {
 	dir := filepath.Join(".claude", "projects", ProjectDir(projectPath))
 
@@ -84,8 +85,10 @@ func TranscriptFilePath(homeDir, projectPath, sessionID string) string {
 	return filepath.Join(homeDir, ".claude", "projects", ProjectDir(projectPath), sessionID+".jsonl")
 }
 
-const maxSubjects = 10
-
+// parseSessionMeta delegates to transcript.AggregateMeta for the heavy
+// lifting and then projects the snapshot onto the driver SessionMeta
+// shape so the rest of the codebase doesn't need to know about the
+// transcript package's types.
 func parseSessionMeta(fsys fs.FS, path string) SessionMeta {
 	f, err := fsys.Open(path)
 	if err != nil {
@@ -93,60 +96,18 @@ func parseSessionMeta(fsys fs.FS, path string) SessionMeta {
 	}
 	defer f.Close()
 
-	var meta SessionMeta
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 64*1024), 64*1024)
-	for scanner.Scan() {
-		var entry struct {
-			Type        string `json:"type"`
-			CustomTitle string `json:"customTitle"`
-			LastPrompt  string `json:"lastPrompt"`
-			Message     *struct {
-				Content json.RawMessage `json:"content"`
-			} `json:"message"`
-		}
-		if err := json.Unmarshal(scanner.Bytes(), &entry); err != nil {
-			continue
-		}
-		switch entry.Type {
-		case "custom-title":
-			if entry.CustomTitle != "" {
-				meta.Title = entry.CustomTitle
-			}
-		case "last-prompt":
-			if entry.LastPrompt != "" {
-				meta.LastPrompt = entry.LastPrompt
-			}
-		case "user":
-			if entry.Message != nil {
-				var s string
-				if json.Unmarshal(entry.Message.Content, &s) == nil && s != "" {
-					meta.LastPrompt = s
-				}
-			}
-		case "assistant":
-			if entry.Message != nil {
-				extractSubjects(&meta, entry.Message.Content)
-			}
-		}
-	}
-	return meta
-}
-
-func extractSubjects(meta *SessionMeta, raw json.RawMessage) {
-	var blocks []struct {
-		Type  string `json:"type"`
-		Name  string `json:"name"`
-		Input struct {
-			Subject string `json:"subject"`
-		} `json:"input"`
-	}
-	if json.Unmarshal(raw, &blocks) != nil {
-		return
-	}
-	for _, b := range blocks {
-		if b.Type == "tool_use" && b.Name == "TaskCreate" && b.Input.Subject != "" && len(meta.Subjects) < maxSubjects {
-			meta.Subjects = append(meta.Subjects, b.Input.Subject)
-		}
+	parser := transcript.NewParser(transcript.ParserOptions{})
+	entries := parser.ParseAll(f)
+	snap := transcript.AggregateMeta(entries)
+	return SessionMeta{
+		Title:          snap.Title,
+		LastPrompt:     snap.LastPrompt,
+		Subjects:       snap.Subjects,
+		AgentName:      snap.Insight.AgentName,
+		CurrentTool:    snap.Insight.CurrentTool,
+		RecentCommands: snap.Insight.RecentCommands,
+		SubagentCounts: snap.Insight.SubagentCounts,
+		ErrorCount:     snap.Insight.ErrorCount,
+		TouchedFiles:   snap.Insight.TouchedFiles,
 	}
 }

@@ -1,4 +1,4 @@
-package claude
+package transcript
 
 import (
 	"encoding/json"
@@ -49,18 +49,6 @@ func ParseTurnUsage(line []byte) *TurnUsage {
 		CacheReadInputTokens:     u.CacheReadInputTokens,
 		OutputTokens:             u.OutputTokens,
 	}
-}
-
-// FormatUsageStatusLine formats model and token counts for tmux status bar display.
-func FormatUsageStatusLine(model string, inputTokens, outputTokens int) string {
-	var parts []string
-	if model != "" {
-		parts = append(parts, model)
-	}
-	if inputTokens > 0 || outputTokens > 0 {
-		parts = append(parts, fmt.Sprintf("%s↓ %s↑", formatTokens(inputTokens), formatTokens(outputTokens)))
-	}
-	return strings.Join(parts, " | ")
 }
 
 func shortenModel(v any) string {

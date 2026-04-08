@@ -1,4 +1,4 @@
-package claude
+package transcript
 
 import "testing"
 
@@ -59,24 +59,43 @@ func TestParseTurnUsage_ModelString(t *testing.T) {
 	}
 }
 
-func TestFormatUsageStatusLine(t *testing.T) {
+func TestFormatStatusLine(t *testing.T) {
 	tests := []struct {
-		model string
-		in    int
-		out   int
-		want  string
+		name string
+		snap StatusSnapshot
+		want string
 	}{
-		{"opus-4-6", 15234, 4521, "opus-4-6 | 15k↓ 4k↑"},
-		{"sonnet-4-6", 500, 200, "sonnet-4-6 | 500↓ 200↑"},
-		{"opus-4-6", 0, 0, "opus-4-6"},
-		{"", 1000, 500, "1k↓ 500↑"},
-		{"", 0, 0, ""},
+		{
+			"model + tokens",
+			StatusSnapshot{Model: "opus-4-6", InputTokens: 15234, OutputTokens: 4521},
+			"opus-4-6 | 15k↓ 4k↑",
+		},
+		{
+			"current tool",
+			StatusSnapshot{Model: "opus-4-6", Insight: SessionInsight{CurrentTool: "Bash"}},
+			"opus-4-6 | ▸ Bash",
+		},
+		{
+			"errors and subs",
+			StatusSnapshot{
+				Model: "opus-4-6",
+				Insight: SessionInsight{
+					ErrorCount:     2,
+					SubagentCounts: map[string]int{"Explore": 3},
+				},
+			},
+			"opus-4-6 | 2 err | 3 subs",
+		},
+		{
+			"empty",
+			StatusSnapshot{},
+			"",
+		},
 	}
 	for _, tt := range tests {
-		got := FormatUsageStatusLine(tt.model, tt.in, tt.out)
+		got := FormatStatusLine(tt.snap)
 		if got != tt.want {
-			t.Errorf("FormatUsageStatusLine(%q, %d, %d) = %q, want %q",
-				tt.model, tt.in, tt.out, got, tt.want)
+			t.Errorf("%s: got %q, want %q", tt.name, got, tt.want)
 		}
 	}
 }

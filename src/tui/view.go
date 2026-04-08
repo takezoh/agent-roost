@@ -97,6 +97,10 @@ func renderSession(s *core.SessionInfo, selected bool, registry *driver.Registry
 		content += "\n    " + idleStyle.Render("• "+truncate(subj, 26))
 	}
 
+	if chips := renderIndicators(s); chips != "" {
+		content += "\n  " + chips
+	}
+
 	displayName := registry.Get(s.Command).DisplayName()
 	var tagParts []string
 	tagParts = append(tagParts, tagStyle.Render("["+displayName+"]"))
@@ -108,6 +112,15 @@ func renderSession(s *core.SessionInfo, selected bool, registry *driver.Registry
 		return selectedStyle.Render(content)
 	}
 	return content
+}
+
+// renderIndicators renders the driver-formatted status chips as a
+// single dim line, or "" when there's nothing to show.
+func renderIndicators(s *core.SessionInfo) string {
+	if len(s.Indicators) == 0 {
+		return ""
+	}
+	return idleStyle.Render(strings.Join(s.Indicators, "  "))
 }
 
 func renderTag(tag session.Tag) string {

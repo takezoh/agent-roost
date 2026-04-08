@@ -11,7 +11,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
 	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/lib/claude"
+	"github.com/take/agent-roost/lib/claude/transcript"
 )
 
 const (
@@ -41,21 +41,25 @@ type LogModel struct {
 	appLogPath string
 	tabs       []*tabState
 
-	following bool
-	width     int
-	height    int
-	client    *core.Client
+	following    bool
+	width        int
+	height       int
+	client       *core.Client
+	parser       *transcript.Parser
+	showThinking bool
 }
 
-func NewLogModel(appLogPath string, client *core.Client) LogModel {
+func NewLogModel(appLogPath string, client *core.Client, showThinking bool) LogModel {
 	return LogModel{
 		appLogPath: appLogPath,
 		tabs: []*tabState{
 			{label: "LOG", logPath: appLogPath},
 		},
-		client:    client,
-		activeTab: 0,
-		following: true,
+		client:       client,
+		activeTab:    0,
+		following:    true,
+		showThinking: showThinking,
+		parser:       transcript.NewParser(transcript.ParserOptions{ShowThinking: showThinking}),
 	}
 }
 
@@ -82,65 +86,83 @@ func (m LogModel) listenEvents() tea.Cmd {
 func (m LogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width = msg.Width
-		m.height = msg.Height
-		headerHeight := 2
-		m.viewport.SetWidth(m.width)
-		m.viewport.SetHeight(m.height - headerHeight)
-		return m, nil
-
+		return m.handleResize(msg)
 	case tickMsg:
-		tab := m.activeTabState()
-		if tab != nil {
-			newContent, err := readNewLines(tab)
-			if err == nil && newContent != "" {
-				m.appendContent(newContent)
-			}
-		}
-		if m.following {
-			m.viewport.GotoBottom()
-		}
-		return m, tickCmd()
-
+		return m.handleTick()
 	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "ctrl+c":
-			return m, nil
-		case "G":
-			m.following = true
-			m.viewport.GotoBottom()
-			return m, nil
-		case "g":
-			m.following = false
-			m.viewport.GotoTop()
-			return m, nil
-		}
-		var cmd tea.Cmd
-		m.viewport, cmd = m.viewport.Update(msg)
-		m.following = m.viewport.AtBottom()
-		return m, cmd
-
+		return m.handleKey(msg)
 	case logEventMsg:
-		coreMsg := core.Message(msg)
-		switch coreMsg.Event {
-		case "sessions-changed":
-			m.rebuildTabs(coreMsg.EventLogPath, coreMsg.TranscriptPath)
-		}
-		if m.client != nil {
-			return m, m.listenEvents()
-		}
-		return m, nil
-
+		return m.handleLogEvent(core.Message(msg))
 	case logDisconnectMsg:
 		m.client = nil
 		return m, nil
-
 	case tea.MouseClickMsg:
-		mouse := msg.Mouse()
-		if mouse.Y == 0 && mouse.Button == tea.MouseLeft {
-			m.switchToTab(m.tabIndexAtX(mouse.X))
+		return m.handleMouseClick(msg)
+	}
+	return m, nil
+}
+
+func (m LogModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	m.width = msg.Width
+	m.height = msg.Height
+	headerHeight := 2
+	m.viewport.SetWidth(m.width)
+	m.viewport.SetHeight(m.height - headerHeight)
+	return m, nil
+}
+
+func (m LogModel) handleTick() (tea.Model, tea.Cmd) {
+	tab := m.activeTabState()
+	if tab != nil {
+		newContent, err := readNewLines(tab)
+		if err == nil && newContent != "" {
+			m.appendContent(newContent)
+		}
+	}
+	if m.following {
+		m.viewport.GotoBottom()
+	}
+	return m, tickCmd()
+}
+
+func (m LogModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c":
+		return m, nil
+	case "G":
+		m.following = true
+		m.viewport.GotoBottom()
+		return m, nil
+	case "g":
+		m.following = false
+		m.viewport.GotoTop()
+		return m, nil
+	case "t":
+		if m.isTranscriptTab() {
+			m.toggleThinking()
 		}
 		return m, nil
+	}
+	var cmd tea.Cmd
+	m.viewport, cmd = m.viewport.Update(msg)
+	m.following = m.viewport.AtBottom()
+	return m, cmd
+}
+
+func (m LogModel) handleLogEvent(msg core.Message) (tea.Model, tea.Cmd) {
+	if msg.Event == "sessions-changed" {
+		m.rebuildTabs(msg.EventLogPath, msg.TranscriptPath)
+	}
+	if m.client != nil {
+		return m, m.listenEvents()
+	}
+	return m, nil
+}
+
+func (m LogModel) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
+	mouse := msg.Mouse()
+	if mouse.Y == 0 && mouse.Button == tea.MouseLeft {
+		m.switchToTab(m.tabIndexAtX(mouse.X))
 	}
 	return m, nil
 }
@@ -183,7 +205,37 @@ func (m *LogModel) rebuildTabs(eventLogPath, transcriptPath string) {
 		m.activeTab = 0
 		m.viewport.SetContent("")
 		m.following = true
+		m.rebuildParser(transcriptPath)
 	}
+}
+
+// rebuildParser constructs a new transcript Parser pointed at the
+// subagent directory that lives next to transcriptPath
+// (i.e. {sessionID}/subagents/). Called whenever the active session
+// changes or thinking visibility is toggled.
+func (m *LogModel) rebuildParser(transcriptPath string) {
+	opts := transcript.ParserOptions{ShowThinking: m.showThinking}
+	if dir := subagentDir(transcriptPath); dir != "" {
+		if _, err := os.Stat(dir); err == nil {
+			opts.SubagentFS = os.DirFS(dir)
+			opts.SubagentDir = "."
+		}
+	}
+	m.parser = transcript.NewParser(opts)
+}
+
+// subagentDir returns the directory that contains the per-session
+// subagent files for a given main transcript jsonl path. The expected
+// layout is "{sess}.jsonl" -> "{sess}/subagents".
+func subagentDir(transcriptPath string) string {
+	if transcriptPath == "" {
+		return ""
+	}
+	if !strings.HasSuffix(transcriptPath, ".jsonl") {
+		return ""
+	}
+	base := strings.TrimSuffix(transcriptPath, ".jsonl")
+	return base + string(os.PathSeparator) + "subagents"
 }
 
 func (m *LogModel) isLogTab() bool {
@@ -204,6 +256,29 @@ func (m *LogModel) activeTabState() *tabState {
 	return nil
 }
 
+// toggleThinking flips the show-thinking flag and resets the active
+// transcript tab so the tail is reparsed under the new setting.
+func (m *LogModel) toggleThinking() {
+	m.showThinking = !m.showThinking
+	t := m.activeTabState()
+	transcriptPath := ""
+	if t != nil {
+		transcriptPath = t.logPath
+	}
+	m.rebuildParser(transcriptPath)
+	if t == nil {
+		return
+	}
+	if t.file != nil {
+		t.file.Close()
+		t.file = nil
+	}
+	t.offset = 0
+	t.buf = ""
+	m.viewport.SetContent("")
+	m.following = true
+}
+
 func (m *LogModel) switchToTab(tab logTab) {
 	if tab == m.activeTab {
 		return
@@ -220,6 +295,7 @@ func (m *LogModel) switchToTab(tab logTab) {
 		t.buf = ""
 		m.viewport.SetContent("")
 		m.following = true
+		m.parser.Reset()
 	}
 }
 
@@ -240,7 +316,8 @@ func (m *LogModel) appendContent(newContent string) {
 	if m.isLogTab() {
 		styled = colorizeLines(newContent)
 	} else if m.isTranscriptTab() {
-		styled = claude.FormatTranscript(newContent)
+		entries := m.parser.ParseLines([]byte(newContent))
+		styled = transcript.RenderEntries(entries)
 	} else {
 		styled = newContent
 	}
@@ -256,22 +333,9 @@ func (m *LogModel) appendContent(newContent string) {
 }
 
 func readNewLines(tab *tabState) (string, error) {
-	if tab.file == nil {
-		f, err := os.Open(tab.logPath)
-		if err != nil {
-			return "", err
-		}
-		tab.file = f
-		info, err := f.Stat()
-		if err != nil {
-			return "", err
-		}
-		size := info.Size()
-		if size > tailInitialBytes {
-			tab.offset = size - tailInitialBytes
-		}
+	if err := openTabFile(tab); err != nil {
+		return "", err
 	}
-
 	info, err := tab.file.Stat()
 	if err != nil {
 		tab.file.Close()
@@ -288,28 +352,46 @@ func readNewLines(tab *tabState) (string, error) {
 	if info.Size() == tab.offset {
 		return "", nil
 	}
-
 	tab.file.Seek(tab.offset, io.SeekStart)
 	data, err := io.ReadAll(io.LimitReader(tab.file, info.Size()-tab.offset))
 	if err != nil {
 		return "", err
 	}
 	tab.offset += int64(len(data))
+	return splitTrailingPartial(tab, tab.buf+string(data)), nil
+}
 
-	text := tab.buf + string(data)
-	if !strings.HasSuffix(text, "\n") {
-		lastNL := strings.LastIndex(text, "\n")
-		if lastNL < 0 {
-			tab.buf = text
-			return "", nil
-		}
-		tab.buf = text[lastNL+1:]
-		text = text[:lastNL]
-	} else {
-		tab.buf = ""
-		text = strings.TrimRight(text, "\n")
+func openTabFile(tab *tabState) error {
+	if tab.file != nil {
+		return nil
 	}
-	return text, nil
+	f, err := os.Open(tab.logPath)
+	if err != nil {
+		return err
+	}
+	tab.file = f
+	info, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if size := info.Size(); size > tailInitialBytes {
+		tab.offset = size - tailInitialBytes
+	}
+	return nil
+}
+
+func splitTrailingPartial(tab *tabState, text string) string {
+	if strings.HasSuffix(text, "\n") {
+		tab.buf = ""
+		return strings.TrimRight(text, "\n")
+	}
+	lastNL := strings.LastIndex(text, "\n")
+	if lastNL < 0 {
+		tab.buf = text
+		return ""
+	}
+	tab.buf = text[lastNL+1:]
+	return text[:lastNL]
 }
 
 func trimLines(content string, max int) string {

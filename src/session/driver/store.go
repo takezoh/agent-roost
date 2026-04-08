@@ -116,6 +116,30 @@ func (s *AgentStore) UpdateMeta(agentSessionID string, meta SessionMeta) bool {
 		sess.Subjects = meta.Subjects
 		changed = true
 	}
+	if meta.AgentName != "" && sess.AgentName != meta.AgentName {
+		sess.AgentName = meta.AgentName
+		changed = true
+	}
+	if sess.CurrentTool != meta.CurrentTool {
+		sess.CurrentTool = meta.CurrentTool
+		changed = true
+	}
+	if !slicesEqual(sess.RecentCommands, meta.RecentCommands) {
+		sess.RecentCommands = meta.RecentCommands
+		changed = true
+	}
+	if sess.ErrorCount != meta.ErrorCount {
+		sess.ErrorCount = meta.ErrorCount
+		changed = true
+	}
+	if !slicesEqual(sess.TouchedFiles, meta.TouchedFiles) {
+		sess.TouchedFiles = meta.TouchedFiles
+		changed = true
+	}
+	if !mapsEqual(sess.SubagentCounts, meta.SubagentCounts) {
+		sess.SubagentCounts = meta.SubagentCounts
+		changed = true
+	}
 	return changed
 }
 
@@ -125,6 +149,18 @@ func slicesEqual(a, b []string) bool {
 	}
 	for i := range a {
 		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func mapsEqual(a, b map[string]int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
 			return false
 		}
 	}

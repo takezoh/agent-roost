@@ -15,7 +15,8 @@ import (
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/lib"
-	"github.com/take/agent-roost/lib/claude"
+	_ "github.com/take/agent-roost/lib/claude" // registers the "claude" subcommand
+	"github.com/take/agent-roost/lib/claude/transcript"
 	"github.com/take/agent-roost/logger"
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
@@ -83,17 +84,7 @@ func runCoordinator() {
 	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec, drivers)
 	eventLogDir := filepath.Join(dataDir, "events")
 	svc := core.NewService(mgr, agentStore, drivers, monitor, client, sessionName, eventLogDir, activeWID)
-	svc.UsageTracker.SetFuncs(func(line []byte) *core.TurnUsage {
-		u := claude.ParseTurnUsage(line)
-		if u == nil {
-			return nil
-		}
-		return &core.TurnUsage{
-			Model:        u.Model,
-			InputTokens:  u.TotalInputTokens(),
-			OutputTokens: u.OutputTokens,
-		}
-	}, claude.FormatUsageStatusLine)
+	svc.SetTracker(transcript.NewTracker())
 	svc.SetSyncActive(func(wid string) {
 		if wid != "" {
 			client.SetEnv("ROOST_ACTIVE_WINDOW", wid)
@@ -280,7 +271,7 @@ func runLogViewer() {
 
 	client, err := core.Dial(sockPath)
 	if err != nil {
-		model := tui.NewLogModel(logger.LogFilePath(), nil)
+		model := tui.NewLogModel(logger.LogFilePath(), nil, cfg.Transcript.ShowThinking)
 		if _, err := tea.NewProgram(model).Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
 			os.Exit(1)
@@ -291,7 +282,7 @@ func runLogViewer() {
 	client.StartListening()
 	client.Subscribe()
 
-	model := tui.NewLogModel(logger.LogFilePath(), client)
+	model := tui.NewLogModel(logger.LogFilePath(), client, cfg.Transcript.ShowThinking)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
 		os.Exit(1)

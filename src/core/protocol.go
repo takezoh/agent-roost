@@ -40,6 +40,12 @@ type SessionInfo struct {
 	LastPrompt string        `json:"last_prompt,omitempty"`
 	Subjects   []string      `json:"subjects,omitempty"`
 	StatusLine string        `json:"status_line,omitempty"`
+
+	// Indicators are driver-built status chips (e.g. current tool,
+	// subagent counts, error counts) shown next to the session card.
+	// Each entry is a pre-formatted, driver-neutral string so the core
+	// layer never has to know about Claude-specific concepts.
+	Indicators []string `json:"indicators,omitempty"`
 }
 
 func (si SessionInfo) DisplayCommand() string {
@@ -96,6 +102,7 @@ func BuildSessionInfos(sessions []*session.Session, store *driver.AgentStore) []
 			info.LastPrompt = agent.LastPrompt
 			info.Subjects = agent.Subjects
 			info.StatusLine = agent.StatusLine
+			info.Indicators = agent.Indicators()
 		}
 		infos[i] = info
 	}
