@@ -22,11 +22,15 @@ type Driver interface {
 	Name() string
 	PromptPattern() string
 	DisplayName() string
-	// ResolveMeta resolves session metadata from a transcript file. The
-	// transcriptPath is the absolute path Claude itself reports via hook
-	// events; drivers that don't have a transcript concept should return an
-	// empty SessionMeta.
+	// ResolveMeta reads session metadata from the agent's transcript file at
+	// the given absolute path. Empty path or unreadable file yields empty.
+	// Drivers without a transcript concept return empty.
 	ResolveMeta(fsys fs.FS, transcriptPath string) SessionMeta
+	// TranscriptFilePath returns where the agent should be writing its
+	// transcript given a working directory and agent session ID. Used as a
+	// fallback when the driver hasn't yet reported the path via hook events
+	// (cold-boot before first hook). Drivers without transcripts return "".
+	TranscriptFilePath(home, workingDir, agentSessionID string) string
 	// SpawnCommand returns the shell command for (re)starting an agent
 	// process. Drivers that support resuming a prior agent session augment
 	// the base command (e.g. "claude --resume <id>"). Empty agentSessionID

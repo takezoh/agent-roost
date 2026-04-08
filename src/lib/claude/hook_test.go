@@ -3,7 +3,7 @@ package claude
 import "testing"
 
 func TestParseHookEvent(t *testing.T) {
-	input := `{"session_id":"abc-123","transcript_path":"/home/user/.claude/projects/-workspace-myproject/abc-123.jsonl","hook_event_name":"SessionStart","source":"startup"}`
+	input := `{"session_id":"abc-123","transcript_path":"/home/user/.claude/projects/-workspace-myproject/abc-123.jsonl","cwd":"/workspace/myproject/.claude/worktrees/foo","hook_event_name":"SessionStart","source":"startup"}`
 	event, err := ParseHookEvent([]byte(input))
 	if err != nil {
 		t.Fatalf("ParseHookEvent: %v", err)
@@ -13,6 +13,9 @@ func TestParseHookEvent(t *testing.T) {
 	}
 	if event.TranscriptPath != "/home/user/.claude/projects/-workspace-myproject/abc-123.jsonl" {
 		t.Errorf("TranscriptPath = %q", event.TranscriptPath)
+	}
+	if event.Cwd != "/workspace/myproject/.claude/worktrees/foo" {
+		t.Errorf("Cwd = %q", event.Cwd)
 	}
 	if event.HookEventName != "SessionStart" {
 		t.Errorf("HookEventName = %q, want %q", event.HookEventName, "SessionStart")

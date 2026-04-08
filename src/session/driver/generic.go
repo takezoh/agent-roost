@@ -18,6 +18,12 @@ func (g Generic) ResolveMeta(fsys fs.FS, transcriptPath string) SessionMeta {
 	return SessionMeta{}
 }
 
+// TranscriptFilePath returns "" — generic agents don't have a JSONL transcript
+// roost knows how to locate.
+func (g Generic) TranscriptFilePath(home, workingDir, agentSessionID string) string {
+	return ""
+}
+
 // SpawnCommand returns baseCommand unchanged. Generic drivers do not support
 // resuming a prior agent session.
 func (g Generic) SpawnCommand(baseCommand, agentSessionID string) string {

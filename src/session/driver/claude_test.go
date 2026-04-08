@@ -26,6 +26,47 @@ func TestGeneric_SpawnCommand(t *testing.T) {
 	}
 }
 
+func TestClaude_TranscriptFilePath(t *testing.T) {
+	d := Claude{}
+	tests := []struct {
+		name           string
+		home, wd, sid  string
+		want           string
+	}{
+		{
+			name: "plain project",
+			home: "/home/u",
+			wd:   "/workspace/myproject",
+			sid:  "abc",
+			want: "/home/u/.claude/projects/-workspace-myproject/abc.jsonl",
+		},
+		{
+			name: "worktree project",
+			home: "/home/u",
+			wd:   "/workspace/agent-roost/.claude/worktrees/foo",
+			sid:  "xyz",
+			want: "/home/u/.claude/projects/-workspace-agent-roost--claude-worktrees-foo/xyz.jsonl",
+		},
+		{name: "empty home", wd: "/x", sid: "abc"},
+		{name: "empty wd", home: "/home/u", sid: "abc"},
+		{name: "empty session id", home: "/home/u", wd: "/x"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := d.TranscriptFilePath(tt.home, tt.wd, tt.sid); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestGeneric_TranscriptFilePath_Empty(t *testing.T) {
+	d := NewGeneric("gemini")
+	if got := d.TranscriptFilePath("/home/u", "/workspace/x", "abc"); got != "" {
+		t.Errorf("expected empty path, got %q", got)
+	}
+}
+
 // fstest.MapFS keys are unrooted; ResolveMeta strips the leading "/" before
 // calling fs.Open, so absolute hook-event paths map directly onto these keys.
 func mapFSWithTranscript(path, jsonl string) fstest.MapFS {

@@ -95,14 +95,6 @@ func runCoordinator() {
 		}
 	}
 	agentStore.RestoreFromBindings(bindings)
-	// Restore the transcript path Claude reported on the last hook event so
-	// the log/status pipeline can read JSONL immediately after cold boot
-	// (before the new --resume process emits its first hook).
-	for _, s := range mgr.All() {
-		if s.AgentSessionID != "" && s.AgentTranscriptPath != "" {
-			agentStore.UpdateTranscriptPath(s.AgentSessionID, s.AgentTranscriptPath)
-		}
-	}
 	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec, drivers)
 	eventLogDir := filepath.Join(dataDir, "events")
 	svc := core.NewService(mgr, agentStore, drivers, monitor, client, sessionName, eventLogDir, activeWID)

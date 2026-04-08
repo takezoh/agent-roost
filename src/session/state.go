@@ -60,6 +60,7 @@ type Session struct {
 	Command             string    `json:"command"`
 	WindowID            string    `json:"window_id"`
 	AgentSessionID      string    `json:"agent_session_id,omitempty"`
+	AgentWorkingDir     string    `json:"agent_working_dir,omitempty"`
 	AgentTranscriptPath string    `json:"agent_transcript_path,omitempty"`
 	CreatedAt           time.Time `json:"created_at"`
 	Tags                []Tag     `json:"tags,omitempty"`
@@ -87,6 +88,7 @@ type RoostWindow struct {
 	CreatedAt           string
 	Tags                string
 	AgentSessionID      string
+	AgentWorkingDir     string
 	AgentTranscriptPath string
 }
 

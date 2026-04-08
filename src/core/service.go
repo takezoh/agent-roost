@@ -260,31 +260,65 @@ func (s *Service) HandleStatusLine(agentSessionID, line string) bool {
 	return changed
 }
 
-// HandleTranscriptPath records the JSONL transcript path Claude reports for an
-// agent session. The path is cached in the AgentStore for runtime lookups and
-// persisted as a tmux window user option so cold-boot restore can recover it
-// before the first hook event of the new process arrives.
-func (s *Service) HandleTranscriptPath(agentSessionID, transcriptPath string) bool {
-	if agentSessionID == "" || transcriptPath == "" {
+// HandleAgentWorkingDir records the directory the agent process is actually
+// running in. The Session is the source of truth (driver-neutral fact, used
+// for git branch detection and as a fallback for transcript path computation).
+// Returns true when the value or its derived branch tag changed.
+func (s *Service) HandleAgentWorkingDir(agentSessionID, workingDir string) bool {
+	if agentSessionID == "" || workingDir == "" {
 		return false
 	}
-	changed := s.AgentStore.UpdateTranscriptPath(agentSessionID, transcriptPath)
-	if !changed {
+	wid := s.AgentStore.WindowIDByAgent(agentSessionID)
+	if wid == "" {
 		return false
 	}
-	if wid := s.AgentStore.WindowIDByAgent(agentSessionID); wid != "" {
-		s.Manager.SetAgentTranscriptPath(wid, transcriptPath)
-	}
-	return true
+	return s.Manager.SetAgentWorkingDir(wid, workingDir)
 }
 
-// TranscriptPathByAgent returns the transcript path for a given agent session ID.
+// HandleAgentTranscriptPath records the absolute transcript file path the
+// agent itself reports via hook events. roost stores it verbatim and prefers
+// it over any path it could compute, since the agent is the canonical source.
+func (s *Service) HandleAgentTranscriptPath(agentSessionID, path string) bool {
+	if agentSessionID == "" || path == "" {
+		return false
+	}
+	wid := s.AgentStore.WindowIDByAgent(agentSessionID)
+	if wid == "" {
+		return false
+	}
+	return s.Manager.SetAgentTranscriptPath(wid, path)
+}
+
+// TranscriptPathByAgent returns the absolute transcript file path for the
+// given agent session, preferring the path the agent itself reported over
+// any roost-computed fallback.
 func (s *Service) TranscriptPathByAgent(agentSessionID string) string {
-	agent := s.AgentStore.Get(agentSessionID)
-	if agent == nil {
+	wid := s.AgentStore.WindowIDByAgent(agentSessionID)
+	if wid == "" {
 		return ""
 	}
-	return agent.TranscriptPath
+	sess := s.Manager.FindByWindowID(wid)
+	if sess == nil {
+		return ""
+	}
+	return s.transcriptPathFor(sess, agentSessionID)
+}
+
+// transcriptPathFor resolves the agent transcript path with this priority:
+//  1. AgentTranscriptPath the driver itself reported (canonical)
+//  2. Driver.TranscriptFilePath(home, AgentWorkingDir, agentSessionID)
+//  3. Driver.TranscriptFilePath(home, Project, agentSessionID) — pre-hook
+//     fallback so existing sessions render Title before the first hook arrives
+func (s *Service) transcriptPathFor(sess *session.Session, agentSessionID string) string {
+	if sess.AgentTranscriptPath != "" {
+		return sess.AgentTranscriptPath
+	}
+	workdir := sess.AgentWorkingDir
+	if workdir == "" {
+		workdir = sess.Project
+	}
+	home, _ := os.UserHomeDir()
+	return s.Drivers.Get(sess.Command).TranscriptFilePath(home, workdir, agentSessionID)
 }
 
 // UpdateStatusFromTranscript reads new transcript content and updates the status line.
@@ -377,27 +411,27 @@ func (s *Service) EventLogPathByWindow(windowID string) string {
 	return filepath.Join(s.eventLogDir, id+".log")
 }
 
-// ActiveTranscriptPath returns the transcript JSONL path for the active Claude session.
+// ActiveTranscriptPath returns the transcript file path for the active session.
 func (s *Service) ActiveTranscriptPath() string {
 	if s.activeWindowID == "" {
 		return ""
 	}
 	sess := s.Manager.FindByWindowID(s.activeWindowID)
-	if sess == nil || driver.Kind(sess.Command) != "claude" {
+	if sess == nil {
 		return ""
 	}
 	agent := s.AgentStore.GetByWindow(s.activeWindowID)
 	if agent == nil {
 		return ""
 	}
-	return agent.TranscriptPath
+	return s.transcriptPathFor(sess, agent.ID)
 }
 
 // ResolveAgentMeta resolves metadata from agent transcript files for windows
-// that have already received a transcript path via hook events. Unbound
-// windows and windows whose agent session has no transcript path yet are
-// skipped — both bindings and transcript paths only become known through
-// hook events.
+// that already have a known agent session binding. Unbound windows are
+// skipped — binding only happens through hook events that carry pane context,
+// since guessing from "newest .jsonl in project dir" causes multiple sessions
+// in the same project to collapse onto a single agent session.
 func (s *Service) ResolveAgentMeta() bool {
 	fsys := os.DirFS("/")
 	changed := false
@@ -406,11 +440,11 @@ func (s *Service) ResolveAgentMeta() bool {
 		if agentID == "" {
 			continue
 		}
-		agent := s.AgentStore.Get(agentID)
-		if agent == nil || agent.TranscriptPath == "" {
+		path := s.transcriptPathFor(sess, agentID)
+		if path == "" {
 			continue
 		}
-		meta := s.Drivers.Get(sess.Command).ResolveMeta(fsys, agent.TranscriptPath)
+		meta := s.Drivers.Get(sess.Command).ResolveMeta(fsys, path)
 		if meta.Title == "" && meta.LastPrompt == "" && len(meta.Subjects) == 0 {
 			continue
 		}

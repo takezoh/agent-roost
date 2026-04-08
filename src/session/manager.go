@@ -125,8 +125,11 @@ func sessionUserOptions(s *Session) map[string]string {
 	if s.AgentSessionID != "" {
 		opts["@roost_agent_session"] = s.AgentSessionID
 	}
+	if s.AgentWorkingDir != "" {
+		opts["@roost_agent_workdir"] = s.AgentWorkingDir
+	}
 	if s.AgentTranscriptPath != "" {
-		opts["@roost_agent_transcript_path"] = s.AgentTranscriptPath
+		opts["@roost_agent_transcript"] = s.AgentTranscriptPath
 	}
 	return opts
 }
@@ -307,79 +310,6 @@ func (m *Manager) UpdateStates(states map[string]State) {
 	}
 }
 
-// SetAgentSessionID writes the @roost_agent_session user option for the given
-// window and updates the in-memory cache. Returns true if the value changed.
-func (m *Manager) SetAgentSessionID(windowID, agentSessionID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, s := range m.sessions {
-		if s.WindowID == windowID {
-			if s.AgentSessionID == agentSessionID {
-				return false
-			}
-			if err := m.tmux.SetWindowUserOption(windowID, "@roost_agent_session", agentSessionID); err != nil {
-				slog.Error("set agent session option failed", "window", windowID, "err", err)
-				return false
-			}
-			s.AgentSessionID = agentSessionID
-			m.saveSnapshotLocked()
-			return true
-		}
-	}
-	return false
-}
-
-// SetAgentTranscriptPath writes the @roost_agent_transcript_path user option
-// for the given window and updates the in-memory cache. Returns true if the
-// value changed. The transcript path is the JSONL file Claude itself reports
-// via the hook event payload — roost no longer derives it from the project
-// path, since worktree-relative invocations like `claude --worktree` write to
-// a different ~/.claude/projects directory than the session's recorded project.
-func (m *Manager) SetAgentTranscriptPath(windowID, transcriptPath string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, s := range m.sessions {
-		if s.WindowID == windowID {
-			if s.AgentTranscriptPath == transcriptPath {
-				return false
-			}
-			if err := m.tmux.SetWindowUserOption(windowID, "@roost_agent_transcript_path", transcriptPath); err != nil {
-				slog.Error("set agent transcript path option failed", "window", windowID, "err", err)
-				return false
-			}
-			s.AgentTranscriptPath = transcriptPath
-			m.saveSnapshotLocked()
-			return true
-		}
-	}
-	return false
-}
-
-func (m *Manager) RefreshBranch(sessionID string) bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for _, s := range m.sessions {
-		if s.ID == sessionID {
-			return m.refreshSessionBranchLocked(s)
-		}
-	}
-	return false
-}
-
-func (m *Manager) refreshSessionBranchLocked(s *Session) bool {
-	tags := buildTags(m.detectBranch(s.Project))
-	if tagsEqual(s.Tags, tags) {
-		return false
-	}
-	if err := m.tmux.SetWindowUserOption(s.WindowID, "@roost_tags", encodeTags(tags)); err != nil {
-		slog.Warn("refresh branch: set tags failed", "window", s.WindowID, "err", err)
-		return false
-	}
-	s.Tags = tags
-	m.saveSnapshotLocked()
-	return true
-}
-
 func (m *Manager) DataDir() string {
 	return m.dataDir
 }
@@ -483,6 +413,7 @@ func windowToSession(w RoostWindow) *Session {
 		Command:             w.Command,
 		WindowID:            w.WindowID,
 		AgentSessionID:      w.AgentSessionID,
+		AgentWorkingDir:     w.AgentWorkingDir,
 		AgentTranscriptPath: w.AgentTranscriptPath,
 		CreatedAt:           createdAt,
 		Tags:                decodeTags(w.Tags),

@@ -2,6 +2,7 @@ package driver
 
 import (
 	"io/fs"
+	"path/filepath"
 	"strings"
 
 	"github.com/take/agent-roost/lib/claude/cli"
@@ -24,20 +25,34 @@ func (Claude) SpawnCommand(baseCommand, agentSessionID string) string {
 	return cli.ResumeCommand(baseCommand, agentSessionID)
 }
 
-// ResolveMeta resolves session metadata from a Claude Code JSONL transcript.
-// transcriptPath is the absolute path Claude reports via hook events. An empty
-// path returns an empty SessionMeta — roost no longer guesses the JSONL
-// location from the project path because worktree-relative invocations like
-// `claude --worktree` write to a different ~/.claude/projects directory than
-// the session's recorded project.
+// TranscriptFilePath returns the JSONL transcript file Claude writes for the
+// given runtime context. Claude derives its project directory name from the
+// process working directory (replacing / and . with -), so for worktree-style
+// invocations the file lives under the worktree path, not the session's
+// recorded project. Used as a fallback when the agent hasn't yet reported its
+// transcript path via a hook event.
+func (Claude) TranscriptFilePath(home, workingDir, agentSessionID string) string {
+	if home == "" || workingDir == "" || agentSessionID == "" {
+		return ""
+	}
+	return filepath.Join(home, ".claude", "projects", projectDir(workingDir), agentSessionID+".jsonl")
+}
+
+// ResolveMeta reads session metadata from Claude's JSONL transcript at the
+// given absolute path. Missing files yield an empty SessionMeta silently.
 func (Claude) ResolveMeta(fsys fs.FS, transcriptPath string) SessionMeta {
 	if transcriptPath == "" {
 		return SessionMeta{}
 	}
 	// fs.FS treats absolute paths as invalid; strip the leading "/" so the
-	// caller can pass either an os.DirFS("/") or an os.DirFS(home) without
-	// having to know which.
+	// caller can pass an os.DirFS("/") and have absolute paths work directly.
 	return parseSessionMeta(fsys, strings.TrimPrefix(transcriptPath, "/"))
+}
+
+// projectDir mirrors Claude Code's encoding of working dir → ~/.claude/projects/
+// dir name: replace / and . with -.
+func projectDir(p string) string {
+	return strings.NewReplacer("/", "-", ".", "-").Replace(p)
 }
 
 // parseSessionMeta delegates to transcript.AggregateMeta for the heavy
