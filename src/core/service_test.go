@@ -1,8 +1,10 @@
 package core
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/take/agent-roost/session"
@@ -13,7 +15,8 @@ import (
 type mockPaneOp struct {
 	chainCalls  [][]string
 	selectCalls []string
-	paneDead    map[string]bool // target → dead?
+	paneDead    map[string]bool   // target → dead? (drives the dead-flag column of compound queries)
+	paneIDAt    map[string]string // target → which pane id occupies that location (drives the pane_id column)
 }
 
 func (m *mockPaneOp) SwapPane(src, dst string) error                { return nil }
@@ -22,30 +25,64 @@ func (m *mockPaneOp) RespawnPane(target, cmd string) error          { return nil
 func (m *mockPaneOp) RunChain(cmds ...[]string) error               { m.chainCalls = cmds; return nil }
 func (m *mockPaneOp) WindowIDFromPane(paneID string) (string, error) { return "@0", nil }
 func (m *mockPaneOp) DisplayMessage(target, format string) (string, error) {
-	if format == "#{pane_dead}" {
+	switch format {
+	case "#{pane_dead}":
 		if m.paneDead[target] {
 			return "1", nil
 		}
 		return "0", nil
+	case "#{pane_dead} #{pane_id}":
+		dead := "0"
+		if m.paneDead[target] {
+			dead = "1"
+		}
+		return dead + " " + m.paneIDAt[target], nil
 	}
 	return "", nil
 }
 
 type mockTmuxForService struct {
 	nextID      string
+	nextPaneID  string
+	paneCounter int
 	windows     map[string]bool
+	windowPanes map[string]string // windowID → pane id assigned at NewWindow
 	userOptions map[string]map[string]string
 }
 
 func (m *mockTmuxForService) NewWindow(name, command, startDir string) (string, error) {
 	id := m.nextID
 	m.windows[id] = true
+	if m.windowPanes == nil {
+		m.windowPanes = make(map[string]string)
+	}
+	if m.nextPaneID != "" {
+		m.windowPanes[id] = m.nextPaneID
+		m.nextPaneID = ""
+	} else {
+		m.paneCounter++
+		m.windowPanes[id] = fmt.Sprintf("%%%d", m.paneCounter)
+	}
 	return id, nil
 }
 func (m *mockTmuxForService) KillWindow(windowID string) error {
 	delete(m.windows, windowID)
 	delete(m.userOptions, windowID)
+	delete(m.windowPanes, windowID)
 	return nil
+}
+func (m *mockTmuxForService) DisplayMessage(target, format string) (string, error) {
+	wid := target
+	if i := strings.Index(wid, ":"); i >= 0 {
+		wid = wid[:i]
+	}
+	if format == "#{pane_id}" {
+		if pid, ok := m.windowPanes[wid]; ok {
+			return pid, nil
+		}
+		return "", nil
+	}
+	return "", nil
 }
 func (m *mockTmuxForService) SetOption(target, key, value string) error { return nil }
 func (m *mockTmuxForService) SetWindowUserOption(windowID, key, value string) error {
@@ -78,6 +115,7 @@ func (m *mockTmuxForService) ListRoostWindows() ([]session.RoostWindow, error) {
 			Command:             opts["@roost_command"],
 			CreatedAt:           opts["@roost_created_at"],
 			Tags:                opts["@roost_tags"],
+			AgentPaneID:         opts["@roost_agent_pane"],
 			AgentSessionID:      opts["@roost_agent_session"],
 			AgentWorkingDir:     opts["@roost_agent_workdir"],
 			AgentTranscriptPath: opts["@roost_agent_transcript"],
