@@ -451,6 +451,9 @@ func (s *Server) StartMonitor(intervalMs int) {
 		case <-s.done:
 			return
 		case <-ticker.C:
+			if reaped := s.svc.ReapDeadSessions(); len(reaped) > 0 {
+				s.broadcastSessions()
+			}
 			sessions := s.svc.Sessions()
 			if len(sessions) == 0 {
 				continue

@@ -95,7 +95,7 @@ func (m *Manager) Recreate(drivers *driver.Registry) error {
 			slog.Error("recreate: NewWindow failed", "id", s.ID, "err", err)
 			continue
 		}
-		if err := m.tmux.SetOption(windowID, "remain-on-exit", "on"); err != nil {
+		if err := m.tmux.SetOption(windowID, "remain-on-exit", "off"); err != nil {
 			slog.Warn("recreate: set remain-on-exit failed", "err", err)
 		}
 
@@ -149,7 +149,7 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 		slog.Error("create: window failed", "err", err)
 		return nil, err
 	}
-	if err := m.tmux.SetOption(windowID, "remain-on-exit", "on"); err != nil {
+	if err := m.tmux.SetOption(windowID, "remain-on-exit", "off"); err != nil {
 		slog.Warn("create: set remain-on-exit failed", "err", err)
 	}
 
@@ -182,6 +182,48 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 	m.mu.Unlock()
 	slog.Info("session created", "id", id, "window", windowID)
 	return s, nil
+}
+
+// RemovedSession describes a session whose tmux window has disappeared and
+// has been evicted from the in-memory cache by ReconcileWindows.
+type RemovedSession struct {
+	ID       string
+	WindowID string
+}
+
+// ReconcileWindows compares the in-memory cache against the live tmux window
+// list and removes sessions whose windows no longer exist (typically because
+// the agent process exited and tmux auto-killed the pane). Runtime fields on
+// surviving sessions are preserved. Returns the removed entries so callers
+// can clean up their own state (active window, agent bindings, etc.).
+func (m *Manager) ReconcileWindows() ([]RemovedSession, error) {
+	windows, err := m.tmux.ListRoostWindows()
+	if err != nil {
+		return nil, err
+	}
+	live := make(map[string]struct{}, len(windows))
+	for _, w := range windows {
+		live[w.WindowID] = struct{}{}
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var removed []RemovedSession
+	kept := m.sessions[:0]
+	for _, s := range m.sessions {
+		if _, ok := live[s.WindowID]; ok {
+			kept = append(kept, s)
+			continue
+		}
+		slog.Info("reconcile: session window gone", "id", s.ID, "window", s.WindowID)
+		removed = append(removed, RemovedSession{ID: s.ID, WindowID: s.WindowID})
+	}
+	m.sessions = kept
+	if len(removed) > 0 {
+		m.saveSnapshotLocked()
+	}
+	return removed, nil
 }
 
 func (m *Manager) Stop(sessionID string) error {

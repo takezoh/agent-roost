@@ -167,7 +167,7 @@ runTUI("palette")
 ### 障害時の振る舞い
 
 - **TUI のソケット切断**: TUI プロセスは終了する。ヘルスモニタが検知し respawn
-- **セッション window の外部 kill**: 次回ポーリングで capture-pane がエラーを返し StateStopped に遷移。Manager のキャッシュは次回 `Refresh()` で tmux と同期され消える
+- **セッション window の外部 kill / agent プロセス終了**: session window は `remain-on-exit off` のため tmux が自動でペイン破棄、ペイン 1 個のみの window も自動消滅。`Server.StartMonitor` 各ティック先頭の `Service.ReapDeadSessions` が `Manager.ReconcileWindows` を呼び、消えた window を in-memory cache から外し snapshot を更新、`ClearActive` と `AgentStore.Unbind` を実行し `sessions-changed` を broadcast する
 - **ヘルスモニタの respawn 連続失敗**: respawn-pane は tmux がペインを再作成するため通常は失敗しない（ただしバイナリ削除・権限変更等の環境異常時は起動失敗する）。tmux セッション消失時は Coordinator の attach も終了するため、全体が終了する
 - **起動時の整合性**: tmux window user options を単一の真実とするため、orphan チェックは不要。`@roost_id` を持つ tmux window がそのまま roost セッション一覧になる
 - **IPC エラー**: TUI 側で IPC コマンドがエラーを返した場合、slog にログ出力し UI 状態は変更しない。タイムアウトは設定していない（Unix socket のローカル通信のため）。サーバーがデッドロックした場合、クライアントは無期限にブロックするリスクがある。復帰手段は外部からの `tmux kill-session -t roost` または Coordinator プロセスの kill
@@ -188,7 +188,8 @@ Window 0: 制御画面（3ペイン固定）
 Window 1+: セッション（バックグラウンド、swap-pane で Pane 0.0 に表示）
 ```
 
-- `remain-on-exit on` でペイン終了時もレイアウト維持
+- Window 0 のみ `remain-on-exit on`: log / sessions ペインがクラッシュしてもレイアウトを維持し、ヘルスモニタが `respawn-pane` で復活させるため
+- Session window (Window 1+) は `remain-on-exit off`: agent プロセス終了でペインごと自動消滅させ、`Service.ReapDeadSessions` が in-memory state を片付ける
 - `mouse on` でマウスホイールスクロールとペイン境界認識を有効化。roost が明示的に設定し、ユーザーの tmux.conf に依存しない
 - ターミナルサイズを `term.GetSize()` で取得し `new-session -x -y` に渡す
 - prefix テーブルの全デフォルトキーを無効化し、Space/d/q/p のみ登録

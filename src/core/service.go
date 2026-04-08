@@ -163,6 +163,28 @@ func (s *Service) LaunchTool(toolName string, args map[string]string) {
 	exec.Command("tmux", "display-popup", "-E", "-w", "60%", "-h", "50%", popupCmd).Start()
 }
 
+// ReapDeadSessions removes sessions whose tmux window has disappeared
+// (typically because the agent process exited and tmux auto-killed the
+// single-pane window). Returns the IDs of reaped sessions so the caller can
+// decide whether to broadcast a sessions-changed event.
+func (s *Service) ReapDeadSessions() []string {
+	removed, err := s.Manager.ReconcileWindows()
+	if err != nil {
+		slog.Warn("reconcile windows failed", "err", err)
+		return nil
+	}
+	if len(removed) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(removed))
+	for _, r := range removed {
+		s.ClearActive(r.WindowID)
+		s.AgentStore.Unbind(r.WindowID)
+		ids = append(ids, r.ID)
+	}
+	return ids
+}
+
 func (s *Service) RefreshSessions() (changed bool, latest *session.Session) {
 	oldCount := len(s.Manager.All())
 	s.Manager.Refresh()
