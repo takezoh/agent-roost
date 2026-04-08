@@ -190,18 +190,12 @@ func (s *Service) UpdateStates(states map[string]session.State) {
 
 // HandleSessionStart binds an agent session to a tmux window.
 // Uses pane → WindowID for identification, falls back to active session.
-func (s *Service) HandleSessionStart(pane, agentSessionID, source string) bool {
+func (s *Service) HandleSessionStart(pane, agentSessionID string) bool {
 	windowID := s.resolveWindowID(pane)
 	if windowID == "" {
 		return false
 	}
-	changed := s.AgentStore.Bind(windowID, agentSessionID)
-	if source != "" {
-		if s.AgentStore.UpdateSource(agentSessionID, source) {
-			changed = true
-		}
-	}
-	return changed
+	return s.AgentStore.Bind(windowID, agentSessionID)
 }
 
 // HandleStateChange updates the agent state by agentSessionID.
@@ -210,9 +204,9 @@ func (s *Service) HandleStateChange(agentSessionID string, state driver.AgentSta
 }
 
 // HandleStateChangeWithContext updates agent state, auto-binding if the session is unknown.
-func (s *Service) HandleStateChangeWithContext(agentSessionID string, state driver.AgentState, pane, source string) bool {
+func (s *Service) HandleStateChangeWithContext(agentSessionID string, state driver.AgentState, pane string) bool {
 	if s.AgentStore.Get(agentSessionID) == nil && pane != "" {
-		s.HandleSessionStart(pane, agentSessionID, source)
+		s.HandleSessionStart(pane, agentSessionID)
 	}
 	return s.AgentStore.UpdateState(agentSessionID, state)
 }
@@ -233,7 +227,7 @@ func (s *Service) HandleStatusLine(agentSessionID, line string) bool {
 // HandleStatusLineWithContext updates agent status line, auto-binding if the session is unknown.
 func (s *Service) HandleStatusLineWithContext(agentSessionID, line, pane string) bool {
 	if s.AgentStore.Get(agentSessionID) == nil && pane != "" {
-		s.HandleSessionStart(pane, agentSessionID, "")
+		s.HandleSessionStart(pane, agentSessionID)
 	}
 	return s.HandleStatusLine(agentSessionID, line)
 }
@@ -328,11 +322,11 @@ func (s *Service) ActiveTranscriptPath() string {
 		return ""
 	}
 	agent := s.AgentStore.GetByWindow(s.activeWindowID)
-	if agent == nil || agent.Source == "" {
+	if agent == nil {
 		return ""
 	}
 	home, _ := os.UserHomeDir()
-	return driver.TranscriptPath(home, sess.Project, agent.Source)
+	return driver.TranscriptFilePath(home, sess.Project, agent.ID)
 }
 
 // ResolveAgentMeta resolves metadata from agent log files and updates the agent store.
@@ -341,15 +335,14 @@ func (s *Service) ResolveAgentMeta() bool {
 	fsys := os.DirFS(home)
 	changed := false
 	for _, sess := range s.Manager.All() {
-		source := s.AgentStore.SourceByWindow(sess.WindowID)
-		meta := s.Drivers.Get(sess.Command).ResolveMeta(fsys, sess.Project, source)
+		agentID := s.AgentStore.IDByWindow(sess.WindowID)
+		meta := s.Drivers.Get(sess.Command).ResolveMeta(fsys, sess.Project, agentID)
 		if meta.Title == "" && meta.LastPrompt == "" && len(meta.Subjects) == 0 {
 			continue
 		}
-		agentID := s.AgentStore.IDByWindow(sess.WindowID)
-		if agentID == "" && meta.Source != "" {
-			s.AgentStore.Bind(sess.WindowID, meta.Source)
-			agentID = meta.Source
+		if agentID == "" && meta.SessionID != "" {
+			s.AgentStore.Bind(sess.WindowID, meta.SessionID)
+			agentID = meta.SessionID
 			changed = true
 		}
 		if agentID == "" {

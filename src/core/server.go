@@ -330,19 +330,14 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 	case "session-start":
 		pane := args["pane"]
 		agentSessionID := args["session_id"]
-		source := args["source"]
 		if agentSessionID == "" {
 			s.sendError(cc, "session-start: session_id required")
 			return
 		}
-		if s.svc.HandleSessionStart(pane, agentSessionID, source) {
+		if s.svc.HandleSessionStart(pane, agentSessionID) {
 			s.broadcastSessions()
 		}
-		logLine := "SessionStart"
-		if source != "" {
-			logLine += " source=" + source
-		}
-		s.svc.AppendEventLog(agentSessionID, logLine)
+		s.svc.AppendEventLog(agentSessionID, "SessionStart")
 		s.sendResponse(cc, Message{})
 	case "status-update":
 		sid := args["session_id"]
@@ -360,7 +355,6 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 		sid := args["session_id"]
 		stateStr := args["state"]
 		pane := args["pane"]
-		source := args["source"]
 		if stateStr == "" {
 			s.sendError(cc, "state-change: state required")
 			return
@@ -370,7 +364,7 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 			s.sendError(cc, "state-change: unknown state: "+stateStr)
 			return
 		}
-		if s.svc.HandleStateChangeWithContext(sid, agentState, pane, source) {
+		if s.svc.HandleStateChangeWithContext(sid, agentState, pane) {
 			s.broadcastSessions()
 		}
 		logLine := args["log"]

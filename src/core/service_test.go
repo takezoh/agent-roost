@@ -230,7 +230,7 @@ func TestHandleStateChangeWithContext_AutoBind(t *testing.T) {
 	svc.Preview(sess)
 
 	// No prior session-start: state-change with pane should auto-bind
-	changed := svc.HandleStateChangeWithContext("new-agent", driver.AgentStateRunning, "%0", "transcript.jsonl")
+	changed := svc.HandleStateChangeWithContext("new-agent", driver.AgentStateRunning, "%0")
 	if !changed {
 		t.Fatal("expected true on auto-bind state change")
 	}
@@ -244,16 +244,13 @@ func TestHandleStateChangeWithContext_AutoBind(t *testing.T) {
 	if agent.State != driver.AgentStateRunning {
 		t.Errorf("got state %v, want running", agent.State)
 	}
-	if agent.Source != "transcript.jsonl" {
-		t.Errorf("got source %q, want %q", agent.Source, "transcript.jsonl")
-	}
 }
 
 func TestHandleStateChangeWithContext_NoPane(t *testing.T) {
 	svc, _, _ := setupService(t)
 
 	// No pane: should not auto-bind, returns false
-	changed := svc.HandleStateChangeWithContext("unknown", driver.AgentStateRunning, "", "")
+	changed := svc.HandleStateChangeWithContext("unknown", driver.AgentStateRunning, "")
 	if changed {
 		t.Fatal("expected false without pane")
 	}
@@ -268,10 +265,10 @@ func TestHandleStateChangeWithContext_KnownSession(t *testing.T) {
 	svc.Preview(sess)
 
 	// Bind normally first
-	svc.HandleSessionStart("%0", "agent-1", "old.jsonl")
+	svc.HandleSessionStart("%0", "agent-1")
 
 	// state-change on known session works without re-binding
-	changed := svc.HandleStateChangeWithContext("agent-1", driver.AgentStateRunning, "%0", "old.jsonl")
+	changed := svc.HandleStateChangeWithContext("agent-1", driver.AgentStateRunning, "%0")
 	if !changed {
 		t.Fatal("expected true on state change")
 	}

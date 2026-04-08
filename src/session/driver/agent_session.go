@@ -29,7 +29,6 @@ func (s AgentState) String() string {
 
 type AgentSession struct {
 	ID         string
-	Source     string
 	State      AgentState
 	StatusLine string
 	Title      string

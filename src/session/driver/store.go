@@ -85,30 +85,6 @@ func (s *AgentStore) IDByWindow(windowID string) string {
 	return s.bindings[windowID]
 }
 
-func (s *AgentStore) SourceByWindow(windowID string) string {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	id, ok := s.bindings[windowID]
-	if !ok {
-		return ""
-	}
-	if sess, ok := s.sessions[id]; ok {
-		return sess.Source
-	}
-	return ""
-}
-
-func (s *AgentStore) UpdateSource(agentSessionID, source string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sess, ok := s.sessions[agentSessionID]
-	if !ok || sess.Source == source {
-		return false
-	}
-	sess.Source = source
-	return true
-}
-
 func (s *AgentStore) UpdateMeta(agentSessionID string, meta SessionMeta) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -123,10 +99,6 @@ func (s *AgentStore) UpdateMeta(agentSessionID string, meta SessionMeta) bool {
 	}
 	if meta.LastPrompt != "" && sess.LastPrompt != meta.LastPrompt {
 		sess.LastPrompt = meta.LastPrompt
-		changed = true
-	}
-	if meta.Source != "" && sess.Source != meta.Source {
-		sess.Source = meta.Source
 		changed = true
 	}
 	if len(meta.Subjects) > 0 && !slicesEqual(sess.Subjects, meta.Subjects) {

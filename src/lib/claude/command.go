@@ -111,9 +111,6 @@ func runEvent() {
 		if pane := os.Getenv("TMUX_PANE"); pane != "" {
 			args["pane"] = pane
 		}
-		if event.TranscriptPath != "" {
-			args["source"] = event.TranscriptFile()
-		}
 		client.SendAgentEvent("session-start", args)
 	}
 
@@ -125,9 +122,6 @@ func runEvent() {
 		}
 		if pane := os.Getenv("TMUX_PANE"); pane != "" {
 			args["pane"] = pane
-		}
-		if event.TranscriptPath != "" {
-			args["source"] = event.TranscriptFile()
 		}
 		client.SendAgentEvent("state-change", args)
 	}

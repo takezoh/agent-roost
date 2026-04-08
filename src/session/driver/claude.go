@@ -20,14 +20,14 @@ func (Claude) PromptPattern() string { return claudePromptPattern }
 func (Claude) DisplayName() string   { return "claude" }
 
 // ResolveMeta resolves session metadata from Claude Code JSONL logs.
-// If source is non-empty, it reads that specific file; otherwise it picks the most recent .jsonl.
-func (Claude) ResolveMeta(fsys fs.FS, projectPath string, source string) SessionMeta {
+// If sessionID is non-empty, it reads that specific file; otherwise it picks the most recent .jsonl.
+func (Claude) ResolveMeta(fsys fs.FS, projectPath string, sessionID string) SessionMeta {
 	dir := filepath.Join(".claude", "projects", ProjectDir(projectPath))
 
-	if source != "" {
-		path := filepath.Join(dir, source+".jsonl")
+	if sessionID != "" {
+		path := filepath.Join(dir, sessionID+".jsonl")
 		meta := parseSessionMeta(fsys, path)
-		meta.Source = source
+		meta.SessionID = sessionID
 		return meta
 	}
 
@@ -36,7 +36,7 @@ func (Claude) ResolveMeta(fsys fs.FS, projectPath string, source string) Session
 		return SessionMeta{}
 	}
 	meta := parseSessionMeta(fsys, filepath.Join(dir, target))
-	meta.Source = strings.TrimSuffix(target, ".jsonl")
+	meta.SessionID = strings.TrimSuffix(target, ".jsonl")
 	return meta
 }
 
@@ -76,12 +76,12 @@ func ProjectDir(projectPath string) string {
 	return strings.NewReplacer("/", "-", ".", "-").Replace(projectPath)
 }
 
-// TranscriptPath returns the JSONL transcript path for a Claude session.
-func TranscriptPath(homeDir, projectPath, agentSessionID string) string {
-	if homeDir == "" || projectPath == "" || agentSessionID == "" {
+// TranscriptFilePath returns the JSONL transcript file path for a Claude session ID.
+func TranscriptFilePath(homeDir, projectPath, sessionID string) string {
+	if homeDir == "" || projectPath == "" || sessionID == "" {
 		return ""
 	}
-	return filepath.Join(homeDir, ".claude", "projects", ProjectDir(projectPath), agentSessionID+".jsonl")
+	return filepath.Join(homeDir, ".claude", "projects", ProjectDir(projectPath), sessionID+".jsonl")
 }
 
 const maxSubjects = 10

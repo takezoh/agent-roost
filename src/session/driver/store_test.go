@@ -165,7 +165,6 @@ func TestUpdateMeta(t *testing.T) {
 	changed := s.UpdateMeta("agent-abc", SessionMeta{
 		Title:      "My Task",
 		LastPrompt: "do something",
-		Source:     "abc.jsonl",
 		Subjects:   []string{"feat", "bug"},
 	})
 	if !changed {
@@ -178,9 +177,6 @@ func TestUpdateMeta(t *testing.T) {
 	if sess.LastPrompt != "do something" {
 		t.Errorf("lastPrompt = %q, want %q", sess.LastPrompt, "do something")
 	}
-	if sess.Source != "abc.jsonl" {
-		t.Errorf("source = %q, want %q", sess.Source, "abc.jsonl")
-	}
 	if len(sess.Subjects) != 2 || sess.Subjects[0] != "feat" {
 		t.Errorf("subjects = %v, want [feat bug]", sess.Subjects)
 	}
@@ -189,7 +185,6 @@ func TestUpdateMeta(t *testing.T) {
 	if s.UpdateMeta("agent-abc", SessionMeta{
 		Title:      "My Task",
 		LastPrompt: "do something",
-		Source:     "abc.jsonl",
 		Subjects:   []string{"feat", "bug"},
 	}) {
 		t.Error("expected false when meta unchanged")
