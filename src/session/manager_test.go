@@ -1,6 +1,7 @@
 package session
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -20,6 +21,10 @@ type mockTmux struct {
 	lastNewCommand string
 	commands       map[string]string // windowID → spawn command
 	startDirs      map[string]string // windowID → startDir passed to NewWindow
+
+	// failOptions, when non-nil, makes SetWindowUserOptions return this
+	// error so tests can exercise the I/O failure path.
+	failOptions error
 }
 
 func newMockTmux() *mockTmux {
@@ -69,6 +74,9 @@ func (m *mockTmux) SetWindowUserOption(windowID, key, value string) error {
 }
 
 func (m *mockTmux) SetWindowUserOptions(windowID string, kv map[string]string) error {
+	if m.failOptions != nil {
+		return m.failOptions
+	}
 	if _, ok := m.userOptions[windowID]; !ok {
 		m.userOptions[windowID] = make(map[string]string)
 	}
@@ -272,6 +280,36 @@ func TestUpdateStates_NoOpDoesNotWriteTmux(t *testing.T) {
 	after := tmux.userOptions[sess.WindowID]["@roost_state_changed_at"]
 	if before != after {
 		t.Fatalf("state_changed_at moved on no-op update: %q -> %q", before, after)
+	}
+}
+
+// Regression: UpdateStates must follow the "I/O 先行・状態変更後行" rule.
+// If tmux write fails, the in-memory cache must remain unchanged so a later
+// Refresh() doesn't see a state Manager believes is set but tmux never
+// recorded.
+func TestUpdateStates_TmuxFailureLeavesCacheUntouched(t *testing.T) {
+	mgr, tmux := setupManager(t)
+	sess, _ := mgr.Create("/tmp/proj", "claude")
+	// Baseline: in-memory + tmux both hold StateRunning from Create.
+	if got := mgr.FindByID(sess.ID).State; got != StateRunning {
+		t.Fatalf("initial State = %s, want running", got)
+	}
+
+	tmux.failOptions = errors.New("tmux: simulated failure")
+	mgr.UpdateStates(map[string]State{sess.WindowID: StateWaiting})
+
+	if got := mgr.FindByID(sess.ID).State; got != StateRunning {
+		t.Fatalf("State leaked through failed write: got %s, want running", got)
+	}
+	if got := tmux.userOptions[sess.WindowID]["@roost_state"]; got != "running" {
+		t.Fatalf("@roost_state was clobbered by failed write: got %q", got)
+	}
+
+	// Recovery: clear the failure and try again. State should land cleanly.
+	tmux.failOptions = nil
+	mgr.UpdateStates(map[string]State{sess.WindowID: StateWaiting})
+	if got := mgr.FindByID(sess.ID).State; got != StateWaiting {
+		t.Fatalf("State after recovery = %s, want waiting", got)
 	}
 }
 

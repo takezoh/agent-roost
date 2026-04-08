@@ -653,6 +653,7 @@ type TmuxClient interface {
 | エージェントイベント連携 | `roost claude event` + `agent-event` IPC | SessionStart で `Service.ApplyAgentEvent` が `pane → WindowID` を解決し、`Driver.IdentityKey()` で agent identity を取り出して `AgentStore.Bind` + `Manager.MergeDriverState` を一括実行する。以降は agentSessionID で直接ルックアップ。Coordinator 再起動後は各セッションの DriverState から identity を取り出して `RestoreFromBindings` |
 | driver hook payload の抽象化 | `AgentEvent.DriverState` を不透明 `map[string]string` バッグとして運ぶ | 各 driver subcommand が tool 固有の hook field (Claude の `cwd` / `transcript_path` 等) を **driver が定義した key** (例: `working_dir` / `transcript_path`) で DriverState に packing する。core/server.go は `AgentEventFromArgs` で構造体を取り出した後、DriverState を中身を見ずに `Manager.MergeDriverState` へ転送するだけ。固有 field を増やしても core / manager / tmux / json には一切手が入らない |
 | Session ランタイム情報の保持 | `Session.DriverState map[string]string` を tmux user option `@roost_driver_state` (1 列 packed JSON) と sessions.json の `driver_state` フィールドで永続化 | driver 固有のキーを増やしても tmux 層は触らない (per-key option を増やすと tmux/client の format string と parser が schema を持ってしまう)。git branch 検出は `Driver.WorkingDir(sc)` 経由で取得 (なければ `Project` フォールバック)。transcript path 解決は `Driver.TranscriptFilePath` 内部で完結し、driver が agent-reported / computed の優先順位を決める |
+| Session 表示状態の永続化 | `@roost_state` / `@roost_state_changed_at` ペアを `Manager.UpdateStates` から `SetWindowUserOptions` でアトミック書き込み + sessions.json への記録 | warm restart 直後の最初の描画で正しい状態が出るため UI のチラつきが消える。cold boot 時は新プロセスを spawn するので `Recreate` が `{StateRunning, time.Now()}` にリセットしてから tmux options を書く。書き込み失敗時は in-memory cache を更新せず、次回ポーリングで再試行 |
 | StatusLine の表示 | transcript JSONL → `transcript.Tracker` (lib/claude/transcript) → `tmux set-option status-left` | statusLine hook 不要。state-change イベントをトリガーに差分読み。Insight (current tool / subagent count / error count) も同経路で抽出。`core.SessionTracker` interface 経由で Service に注入し core 中立を維持。`status-format[0]` でウィンドウリストを排除 |
 
 ## 副作用の命名規約
@@ -679,7 +680,7 @@ type TmuxClient interface {
 | パス | 形式 | 内容 | ライフサイクル |
 |------|------|------|--------------|
 | `~/.config/roost/config.toml` | TOML | ユーザー設定（下記参照） | ユーザーが作成。存在しなければデフォルト値で動作 |
-| `~/.config/roost/sessions.json` | JSON | セッション一覧の cold-boot スナップショット | Manager の各ミューテーション (Create/Stop/MergeDriverState/RefreshBranch/Refresh) で書き出し。読まれるのは PC 再起動 (`!client.SessionExists()`) 時の `Manager.Recreate` のみ。runtime の真実は tmux user options |
+| `~/.config/roost/sessions.json` | JSON | セッション一覧の cold-boot スナップショット | Manager の各ミューテーション (Create/Stop/MergeDriverState/UpdateStates/RefreshBranch/Refresh) で書き出し。読まれるのは PC 再起動 (`!client.SessionExists()`) 時の `Manager.Recreate` のみ。runtime の真実は tmux user options |
 | `~/.config/roost/events/{agentSessionID}.log` | テキスト | エージェント hook イベントログ | hook イベント受信時に追記。Service.AppendEventLog で書き込み |
 | `~/.config/roost/roost.log` | slog | アプリケーションログ | Coordinator 起動時に作成/追記 |
 | `~/.config/roost/roost.sock` | Unix socket | プロセス間通信 | Coordinator 起動時に作成。終了時に削除 |
