@@ -95,6 +95,22 @@ var (
 	descStyle    = lipgloss.NewStyle().Foreground(DefaultTheme.Muted)
 	selItemStyle = lipgloss.NewStyle().Background(DefaultTheme.SelBg).Foreground(DefaultTheme.SelFg)
 	itemStyle    = lipgloss.NewStyle()
+
+	// Sessions filter bar chips
+	filterChipOnStyle = lipgloss.NewStyle().
+				Background(DefaultTheme.SelBg).
+				Padding(0, 1)
+	filterChipOffStyle = lipgloss.NewStyle().
+				Foreground(DefaultTheme.Dim).
+				Padding(0, 1)
+	filterAllOnStyle = lipgloss.NewStyle().
+				Bold(true).
+				Background(DefaultTheme.SelBg).
+				Foreground(DefaultTheme.Primary).
+				Padding(0, 1)
+	filterAllOffStyle = lipgloss.NewStyle().
+				Foreground(DefaultTheme.Dim).
+				Padding(0, 1)
 )
 
 func stateStyle(s session.State) lipgloss.Style {
@@ -111,5 +127,25 @@ func stateStyle(s session.State) lipgloss.Style {
 		return pendingStyle
 	default:
 		return idleStyle
+	}
+}
+
+// stateColor returns the foreground color associated with a session State.
+// Used by the filter bar so chips can wear their state color while keeping
+// the shared chip background.
+func stateColor(s session.State) color.Color {
+	switch s {
+	case session.StateRunning:
+		return DefaultTheme.Running
+	case session.StateWaiting:
+		return DefaultTheme.Waiting
+	case session.StateIdle:
+		return DefaultTheme.Idle
+	case session.StateStopped:
+		return DefaultTheme.Stopped
+	case session.StatePending:
+		return DefaultTheme.Pending
+	default:
+		return DefaultTheme.Fg
 	}
 }

@@ -1,0 +1,134 @@
+package tui
+
+import (
+	"strings"
+
+	"charm.land/lipgloss/v2"
+	"github.com/take/agent-roost/session"
+)
+
+// statusFilter tracks which session States are currently visible in the
+// sessions list. The array index matches session.State's iota
+// (Running=0..Pending=4). All-true means "show everything" (the default).
+type statusFilter [5]bool
+
+// filterStates lists the State values in chip order, used to translate the
+// filter array index back into a session.State.
+var filterStates = [5]session.State{
+	session.StateRunning,
+	session.StateWaiting,
+	session.StateIdle,
+	session.StateStopped,
+	session.StatePending,
+}
+
+func allOnFilter() statusFilter {
+	return statusFilter{true, true, true, true, true}
+}
+
+func (f statusFilter) matches(s session.State) bool {
+	idx := int(s)
+	if idx < 0 || idx >= len(f) {
+		return true
+	}
+	return f[idx]
+}
+
+func (f statusFilter) anyOn() bool {
+	for _, v := range f {
+		if v {
+			return true
+		}
+	}
+	return false
+}
+
+func (f statusFilter) allOn() bool {
+	for _, v := range f {
+		if !v {
+			return false
+		}
+	}
+	return true
+}
+
+// toggle flips the bit for the given state. If the toggle would leave every
+// chip off, the filter snaps back to all-on so the list is never empty just
+// because of the filter.
+func (f *statusFilter) toggle(s session.State) {
+	idx := int(s)
+	if idx < 0 || idx >= len(f) {
+		return
+	}
+	f[idx] = !f[idx]
+	if !f.anyOn() {
+		*f = allOnFilter()
+	}
+}
+
+func (f *statusFilter) reset() {
+	*f = allOnFilter()
+}
+
+// chipHitbox records the half-open x range a filter chip occupies on the
+// filter bar row, used for mouse hit-testing. isAll marks the trailing All
+// reset chip; otherwise state names which status the chip toggles.
+type chipHitbox struct {
+	state session.State
+	isAll bool
+	x0    int
+	x1    int
+}
+
+// filterBarLayout renders the filter bar and the hitboxes for each chip.
+// Pure function: View() and mouse hit-testing call it independently and the
+// same filter always yields the same rendered string + hitboxes.
+// Each chip is rendered as just the state symbol to keep the bar compact.
+func filterBarLayout(f statusFilter) (string, []chipHitbox) {
+	var parts []string
+	boxes := make([]chipHitbox, 0, len(filterStates)+1)
+	x := 0
+	for i, st := range filterStates {
+		var rendered string
+		if f[i] {
+			rendered = filterChipOnStyle.Foreground(stateColor(st)).Render(st.Symbol())
+		} else {
+			rendered = filterChipOffStyle.Render(st.Symbol())
+		}
+		w := lipgloss.Width(rendered)
+		boxes = append(boxes, chipHitbox{state: st, x0: x, x1: x + w})
+		parts = append(parts, rendered)
+		x += w + 1 // chips are joined by a single space
+	}
+
+	var allRendered string
+	if f.allOn() {
+		allRendered = filterAllOnStyle.Render("All")
+	} else {
+		allRendered = filterAllOffStyle.Render("All")
+	}
+	allW := lipgloss.Width(allRendered)
+	boxes = append(boxes, chipHitbox{isAll: true, x0: x, x1: x + allW})
+	parts = append(parts, allRendered)
+
+	return strings.Join(parts, " "), boxes
+}
+
+// hitTestFilterChip maps a mouse coordinate to a filter chip. The filter bar
+// is rendered as the second row of the sessions screen (header=0, filter=1,
+// blank=2, items start at sessionsHeaderRows). Returns hit=false when the
+// click is not on a chip.
+func (m Model) hitTestFilterChip(x, y int) (state session.State, isAll bool, hit bool) {
+	const filterRow = 1
+	if y != filterRow {
+		return 0, false, false
+	}
+	_, boxes := filterBarLayout(m.filter)
+	for _, b := range boxes {
+		if x >= b.x0 && x < b.x1 {
+			return b.state, b.isAll, true
+		}
+	}
+	return 0, false, false
+}
+
