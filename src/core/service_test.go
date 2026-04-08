@@ -277,18 +277,19 @@ func TestHandleStateChangeWithContext_KnownSession(t *testing.T) {
 	}
 }
 
-func TestHandleStatusLineWithContext_AutoBind(t *testing.T) {
+func TestHandleStatusLine(t *testing.T) {
 	svc, _, mgr := setupService(t)
 	sess, _ := mgr.Create("/tmp/proj", "claude")
 	svc.Preview(sess)
+	svc.HandleSessionStart("%0", "agent-1")
 
-	changed := svc.HandleStatusLineWithContext("new-agent", "thinking...", "%0")
+	changed := svc.HandleStatusLine("agent-1", "thinking...")
 	if !changed {
-		t.Fatal("expected true on auto-bind status line")
+		t.Fatal("expected true on status line update")
 	}
 	agent := svc.AgentStore.GetByWindow(sess.WindowID)
-	if agent == nil || agent.ID != "new-agent" {
-		t.Fatal("expected agent after auto-bind")
+	if agent == nil || agent.ID != "agent-1" {
+		t.Fatal("expected agent after bind")
 	}
 	if agent.StatusLine != "thinking..." {
 		t.Errorf("got status %q, want %q", agent.StatusLine, "thinking...")

@@ -24,8 +24,6 @@ func Run(args []string) {
 	switch args[0] {
 	case "event":
 		runEvent()
-	case "status":
-		runStatus()
 	case "setup":
 		runSetup()
 	case "help", "-h", "--help":
@@ -37,49 +35,13 @@ func Run(args []string) {
 	}
 }
 
-func runStatus() {
-	input, _ := io.ReadAll(os.Stdin)
-	status, err := ParseStatusLine(input)
-	if err != nil {
-		return
-	}
-	line := status.FormatStatusLine()
-	if line == "" {
-		return
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		return
-	}
-	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
-	client, err := core.Dial(sockPath)
-	if err != nil {
-		return
-	}
-	defer client.Close()
-	client.StartListening()
-	args := map[string]string{
-		"session_id": status.SessionID,
-		"line":       line,
-	}
-	if pane := os.Getenv("TMUX_PANE"); pane != "" {
-		args["pane"] = pane
-	}
-	client.SendAgentEvent("status-update", args)
-}
-
 func printHelp() {
 	fmt.Print(`Usage: roost claude <command>
 
 Commands:
   setup    Register roost hooks in ~/.claude/settings.json
   event    Receive a hook event from Claude Code (called by hooks)
-  status   Receive status line data from Claude Code (called by statusline script)
   help     Show this help message
-
-Status line integration:
-  Add to your statusline script:
-    echo "$json" | roost claude status &
 `)
 }
 

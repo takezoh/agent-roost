@@ -85,6 +85,17 @@ func (s *AgentStore) IDByWindow(windowID string) string {
 	return s.bindings[windowID]
 }
 
+func (s *AgentStore) WindowIDByAgent(agentSessionID string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for wid, aid := range s.bindings {
+		if aid == agentSessionID {
+			return wid
+		}
+	}
+	return ""
+}
+
 func (s *AgentStore) UpdateMeta(agentSessionID string, meta SessionMeta) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

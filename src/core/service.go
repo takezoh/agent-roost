@@ -20,6 +20,7 @@ type Service struct {
 	Drivers        *driver.Registry
 	Monitor        *tmux.Monitor
 	Panes          tmux.PaneOperator
+	UsageTracker   *UsageTracker
 	SessionName    string
 	eventLogDir    string
 	activeWindowID string
@@ -39,6 +40,7 @@ func NewService(mgr *session.Manager, store *driver.AgentStore, drivers *driver.
 		Drivers:        drivers,
 		Monitor:        mon,
 		Panes:          panes,
+		UsageTracker:   NewUsageTracker(),
 		SessionName:    sessionName,
 		eventLogDir:    eventLogDir,
 		activeWindowID: activeWindowID,
@@ -224,12 +226,28 @@ func (s *Service) HandleStatusLine(agentSessionID, line string) bool {
 	return changed
 }
 
-// HandleStatusLineWithContext updates agent status line, auto-binding if the session is unknown.
-func (s *Service) HandleStatusLineWithContext(agentSessionID, line, pane string) bool {
-	if s.AgentStore.Get(agentSessionID) == nil && pane != "" {
-		s.HandleSessionStart(pane, agentSessionID)
+// TranscriptPathByAgent returns the transcript path for a given agent session ID.
+func (s *Service) TranscriptPathByAgent(agentSessionID string) string {
+	wid := s.AgentStore.WindowIDByAgent(agentSessionID)
+	if wid == "" {
+		return ""
 	}
-	return s.HandleStatusLine(agentSessionID, line)
+	sess := s.Manager.FindByWindowID(wid)
+	if sess == nil || sess.Command != "claude" {
+		return ""
+	}
+	home, _ := os.UserHomeDir()
+	return driver.TranscriptFilePath(home, sess.Project, agentSessionID)
+}
+
+// UpdateStatusFromTranscript reads new transcript content and updates the status line.
+func (s *Service) UpdateStatusFromTranscript(agentSessionID string) bool {
+	path := s.TranscriptPathByAgent(agentSessionID)
+	line, changed := s.UsageTracker.Update(agentSessionID, path)
+	if changed {
+		s.HandleStatusLine(agentSessionID, line)
+	}
+	return changed
 }
 
 // SyncActiveStatusLine pushes the active session's cached status line to tmux.

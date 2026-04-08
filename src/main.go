@@ -15,7 +15,7 @@ import (
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/lib"
-	_ "github.com/take/agent-roost/lib/claude"
+	"github.com/take/agent-roost/lib/claude"
 	"github.com/take/agent-roost/logger"
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
@@ -83,6 +83,17 @@ func runCoordinator() {
 	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec, drivers)
 	eventLogDir := filepath.Join(dataDir, "events")
 	svc := core.NewService(mgr, agentStore, drivers, monitor, client, sessionName, eventLogDir, activeWID)
+	svc.UsageTracker.SetFuncs(func(line []byte) *core.TurnUsage {
+		u := claude.ParseTurnUsage(line)
+		if u == nil {
+			return nil
+		}
+		return &core.TurnUsage{
+			Model:        u.Model,
+			InputTokens:  u.TotalInputTokens(),
+			OutputTokens: u.OutputTokens,
+		}
+	}, claude.FormatUsageStatusLine)
 	svc.SetSyncActive(func(wid string) {
 		if wid != "" {
 			client.SetEnv("ROOST_ACTIVE_WINDOW", wid)
@@ -91,11 +102,10 @@ func runCoordinator() {
 		}
 	})
 	svc.SetSyncStatus(func(line string) {
-		left := " " + paneLabel
+		left := " "
 		if line != "" {
-			left += " " + line
+			left += line + " "
 		}
-		left += " "
 		client.SetOption(sessionName, "status-left", left)
 	})
 
@@ -183,12 +193,11 @@ const paneLabel = `#{?#{==:#{window_index},0},` +
 	`[#{window_name}]}`
 
 func setupStatusBar(client *tmux.Client, sn string) {
-	client.SetOption(sn, "status-left", " "+paneLabel+" ")
+	client.SetOption(sn, "status-left", " ")
 	client.SetOption(sn, "status-left-length", "120")
 	client.SetOption(sn, "status-right", "")
 	client.SetOption(sn, "status-style", "bg=#1d2021,fg=#ebdbb2")
-	client.SetOption(sn, "window-status-format", "")
-	client.SetOption(sn, "window-status-current-format", "")
+	client.Run("set-option", "-t", sn, "status-format[0]", " "+paneLabel+"#{status-left}")
 }
 
 func setupKeyBindings(client *tmux.Client, sn string) {
