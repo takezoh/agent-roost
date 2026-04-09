@@ -10,8 +10,8 @@ import (
 // renderInfoContent builds the INFO tab body. The TUI prepends a generic
 // header from SessionInfo (ID / Project / WindowID / Command / State /
 // Created / StateChanged) and then appends the driver-specific
-// View.InfoExtras lines, followed by the driver's Subjects / Indicators /
-// Tags chips for at-a-glance debugging. Driver-side rendering is
+// View.InfoExtras lines, followed by the driver's Indicators / Tags
+// chips for at-a-glance debugging. Driver-side rendering is
 // intentionally minimal: the TUI controls layout and ordering of the
 // generic block so every session shows the same header in the same order.
 func renderInfoContent(s *core.SessionInfo) string {
@@ -42,12 +42,6 @@ func renderInfoContent(s *core.SessionInfo) string {
 		writeField(line.Label, line.Value)
 	}
 
-	if len(s.View.Card.Subjects) > 0 {
-		b.WriteString("\nSubjects:\n")
-		for _, subj := range s.View.Card.Subjects {
-			fmt.Fprintf(&b, "  • %s\n", subj)
-		}
-	}
 	if len(s.View.Card.Indicators) > 0 {
 		b.WriteString("\nIndicators:\n")
 		for _, ind := range s.View.Card.Indicators {

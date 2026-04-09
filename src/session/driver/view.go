@@ -18,13 +18,12 @@ type SessionView struct {
 // CardView is the driver-specific portion of the session list card.
 // Generic fields (state, project, created_at) are rendered by the TUI
 // from SessionInfo. The driver fills its own Title / Subtitle / Tags /
-// Indicators / Subjects.
+// Indicators.
 type CardView struct {
 	Title      string   // primary line (e.g. transcript title)
 	Subtitle   string   // secondary line (e.g. last user prompt)
 	Tags       []Tag    // identity-style chips (command tag, branch tag, ...)
-	Indicators []string // state-style chips (▸ tool, N subs, N err, ...)
-	Subjects   []string // bullet list (small subjects)
+	Indicators []string // state-style chips (▸ tool, N subs, ...)
 }
 
 // Tag is a colored chip rendered in the session card. The driver decides

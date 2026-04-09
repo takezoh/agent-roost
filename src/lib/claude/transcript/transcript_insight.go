@@ -7,7 +7,6 @@ type SessionInsight struct {
 	CurrentTool    string         // most recent tool_use name awaiting a result
 	RecentCommands []string       // up to 5 most recent Bash commands (newest last)
 	SubagentCounts map[string]int // agentType -> launches
-	ErrorCount     int            // tool_result with is_error=true so far
 	TouchedFiles   []string       // up to 10 unique file paths from Read/Write/Edit
 	AgentName      string         // agent-name event (Claude-assigned slug)
 }
@@ -17,14 +16,12 @@ type SessionInsight struct {
 type MetaSnapshot struct {
 	Title      string
 	LastPrompt string
-	Subjects   []string
 	Insight    SessionInsight
 }
 
 const (
 	maxRecentCommands = 5
 	maxTouchedFiles   = 10
-	maxSubjectsAgg    = 10
 )
 
 // AggregateMeta collapses an entry slice into a MetaSnapshot.
@@ -56,10 +53,6 @@ func applyEntryToMeta(snap *MetaSnapshot, e Entry) {
 		if e.Text != "" && !e.Synthetic {
 			snap.LastPrompt = e.Text
 		}
-	case KindToolUse:
-		if e.ToolName == "TaskCreate" && e.ToolInput.Primary != "" && len(snap.Subjects) < maxSubjectsAgg {
-			snap.Subjects = append(snap.Subjects, e.ToolInput.Primary)
-		}
 	}
 	applyEntryToInsight(&snap.Insight, e)
 }
@@ -82,9 +75,6 @@ func applyEntryToInsight(insight *SessionInsight, e Entry) {
 		}
 	case KindToolResult:
 		insight.CurrentTool = ""
-		if e.IsError {
-			insight.ErrorCount++
-		}
 		if e.ToolName == "Task" || e.ToolName == "Agent" {
 			if ar, ok := e.ToolResult.(AgentResult); ok && ar.AgentType != "" {
 				if insight.SubagentCounts == nil {
