@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// Shared helpers for polling-driven observers (genericObserver, etc.).
-// Centralized so we don't duplicate the hash + prompt-detection algorithm
-// across every driver that uses capture-pane heuristics.
+// Helpers shared by polling-driven drivers (genericDriver, etc.) so we don't
+// duplicate the hash + prompt-detection algorithm across drivers that use
+// capture-pane heuristics.
 
 func hashContent(s string) string {
 	h := sha256.Sum256([]byte(s))

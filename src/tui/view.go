@@ -183,7 +183,7 @@ func sessionCardLines(s *core.SessionInfo, textWidth int, registry *driver.Regis
 }
 
 func renderTags(s *core.SessionInfo, registry *driver.Registry) string {
-	displayName := registry.Get(s.Command).DisplayName()
+	displayName := registry.DisplayName(s.Command)
 	if Active.Minimal {
 		driverPrefix := minimalTagDriverPrefixStyle.Render("▸")
 		branchPrefix := minimalTagBranchPrefixStyle.Render("⎇")

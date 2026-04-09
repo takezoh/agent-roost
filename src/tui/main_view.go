@@ -60,7 +60,7 @@ func renderProjectSessionsBody(sessions []core.SessionInfo, registry *driver.Reg
 		}
 		symbol := stateSymbol(s.State)
 		elapsed := formatElapsed(time.Since(s.CreatedAtTime()))
-		displayName := registry.Get(s.Command).DisplayName()
+		displayName := registry.DisplayName(s.Command)
 		b.WriteString(fmt.Sprintf("%s  %s %s  %s",
 			mutedStyle.Render(s.ID[:6]),
 			symbol,

@@ -6,7 +6,6 @@ import (
 
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
-	"github.com/take/agent-roost/state"
 )
 
 type Message struct {
@@ -37,7 +36,7 @@ type SessionInfo struct {
 	Command        string        `json:"command"`
 	WindowID       string        `json:"window_id"`
 	CreatedAt      string        `json:"created_at"`
-	State          state.Status  `json:"state"`
+	State          driver.Status `json:"state"`
 	StateChangedAt string        `json:"state_changed_at,omitempty"`
 	Tags           []session.Tag `json:"tags,omitempty"`
 	Title          string        `json:"title,omitempty"`
@@ -84,10 +83,10 @@ func NewEvent(event string) Message {
 	return Message{Type: "event", Event: event}
 }
 
-// BuildSessionInfos merges tmux session metadata, the agent metadata cache,
-// and the per-session dynamic status from state.Store. Status is read directly
-// from the store — there is no resolution / fallback layer here.
-func BuildSessionInfos(sessions []*session.Session, agents *driver.AgentStore, states state.Store) []SessionInfo {
+// BuildSessionInfos pulls static metadata from SessionService and dynamic
+// state from each session's Driver. There is no resolution / fallback layer
+// — fields the Driver doesn't expose are simply absent in the output.
+func BuildSessionInfos(sessions []*session.Session, drivers *driver.DriverService) []SessionInfo {
 	infos := make([]SessionInfo, len(sessions))
 	for i, s := range sessions {
 		info := SessionInfo{
@@ -95,21 +94,21 @@ func BuildSessionInfos(sessions []*session.Session, agents *driver.AgentStore, s
 			Project:   s.Project,
 			Command:   s.Command,
 			WindowID:  s.WindowID,
-			CreatedAt: s.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			CreatedAt: s.CreatedAt.Format(time.RFC3339),
 			Tags:      s.Tags,
 		}
-		if st, ok := states.Get(s.WindowID); ok {
-			info.State = st.Status
-			if !st.ChangedAt.IsZero() {
-				info.StateChangedAt = st.ChangedAt.Format("2006-01-02T15:04:05Z07:00")
+		if drv, ok := drivers.Get(s.ID); ok {
+			if st, has := drv.Status(); has {
+				info.State = st.Status
+				if !st.ChangedAt.IsZero() {
+					info.StateChangedAt = st.ChangedAt.Format(time.RFC3339)
+				}
 			}
-		}
-		if agent := agents.GetByWindow(s.WindowID); agent != nil {
-			info.Title = agent.Title
-			info.LastPrompt = agent.LastPrompt
-			info.Subjects = agent.Subjects
-			info.StatusLine = agent.StatusLine
-			info.Indicators = agent.Indicators()
+			info.Title = drv.Title()
+			info.LastPrompt = drv.LastPrompt()
+			info.Subjects = drv.Subjects()
+			info.StatusLine = drv.StatusLine()
+			info.Indicators = drv.Indicators()
 		}
 		infos[i] = info
 	}

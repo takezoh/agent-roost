@@ -6,7 +6,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/session/driver"
-	"github.com/take/agent-roost/state"
 )
 
 type MainModel struct {
@@ -112,6 +111,6 @@ func (m MainModel) selectedProjectName() string {
 	return ""
 }
 
-func stateSymbol(s state.Status) string {
+func stateSymbol(s driver.Status) string {
 	return stateStyle(s).Render(s.Symbol())
 }

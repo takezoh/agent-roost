@@ -15,7 +15,7 @@ import (
 )
 
 type Server struct {
-	svc               *Service
+	coord             *Coordinator
 	tmux              *tmux.Client
 	listener          net.Listener
 	clients           []*clientConn
@@ -27,29 +27,33 @@ type Server struct {
 }
 
 type clientConn struct {
-	conn       net.Conn
-	encoder    *json.Encoder
+	conn             net.Conn
+	encoder          *json.Encoder
 	broadcastEnabled bool
 }
 
-func NewServer(svc *Service, tmuxClient *tmux.Client, sockPath string) *Server {
+func NewServer(coord *Coordinator, tmuxClient *tmux.Client, sockPath string) *Server {
 	s := &Server{
-		svc:      svc,
+		coord:    coord,
 		tmux:     tmuxClient,
 		sockPath: sockPath,
 		done:     make(chan struct{}),
 	}
-	svc.OnPreview(func(sessionID string) {
-		if svc.Manager.RefreshBranch(sessionID) {
-			s.broadcastPreview()
+	coord.OnPreview(func(sessionID string) {
+		// Preview triggers a branch refresh: if the driver has reported a
+		// new working dir since the previous preview, the user wants to
+		// see the new branch tag immediately.
+		if sess := coord.Sessions.FindByID(sessionID); sess != nil {
+			if drv, ok := coord.Drivers.Get(sess.ID); ok {
+				coord.Sessions.UpdatePersistedState(sess.ID, drv.PersistedState())
+			}
 		}
+		s.broadcastPreview()
 	})
 	return s
 }
 
-func (s *Server) Done() <-chan struct{} {
-	return s.done
-}
+func (s *Server) Done() <-chan struct{} { return s.done }
 
 func (s *Server) ShutdownRequested() bool {
 	s.mu.Lock()
@@ -59,14 +63,12 @@ func (s *Server) ShutdownRequested() bool {
 
 func (s *Server) Start() error {
 	os.Remove(s.sockPath)
-
 	ln, err := net.Listen("unix", s.sockPath)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", s.sockPath, err)
 	}
 	s.listener = ln
 	slog.Info("server listening", "sock", s.sockPath)
-
 	go s.acceptLoop()
 	return nil
 }
@@ -118,7 +120,6 @@ func (s *Server) handleConn(conn net.Conn) {
 		}
 		s.removeClient(cc)
 	}()
-
 	dec := json.NewDecoder(conn)
 	for {
 		var msg Message
@@ -143,14 +144,7 @@ func (s *Server) dispatch(cc *clientConn, msg Message) {
 		cc.broadcastEnabled = true
 		slog.Info("subscriber connected")
 		s.sendResponse(cc, Message{})
-		// Push current state immediately
-		msg := NewEvent("sessions-changed")
-		msg.Sessions = BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore, s.svc.States)
-		msg.ActiveWindowID = s.svc.ActiveWindowID()
-		msg.SessionLogPath = s.svc.ActiveSessionLogPath()
-		msg.EventLogPath = s.svc.EventLogPathByWindow(s.svc.ActiveWindowID())
-		msg.TranscriptPath = s.svc.ActiveTranscriptPath()
-		cc.encoder.Encode(msg)
+		cc.encoder.Encode(s.buildSessionsEvent(false))
 	case "create-session":
 		s.handleCreateSession(cc, msg.Args)
 	case "stop-session":
@@ -193,17 +187,17 @@ func (s *Server) handleCreateSession(cc *clientConn, args map[string]string) {
 		command = expanded
 	}
 	slog.Info("create session", "project", project, "command", command)
-	sess, err := s.svc.CreateSession(project, command)
+	sess, err := s.coord.Create(project, command)
 	if err != nil {
 		slog.Error("create session failed", "err", err)
 		s.sendError(cc, err.Error())
 		return
 	}
-	s.svc.Switch(sess)
+	s.coord.Switch(sess)
 	s.sendResponse(cc, Message{
-		Sessions:       BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore, s.svc.States),
-		ActiveWindowID: s.svc.ActiveWindowID(),
-		SessionLogPath: s.svc.ActiveSessionLogPath(),
+		Sessions:       BuildSessionInfos(s.coord.Sessions.All(), s.coord.Drivers),
+		ActiveWindowID: s.coord.ActiveWindowID(),
+		SessionLogPath: s.coord.ActiveSessionLogPath(),
 	})
 	s.broadcastSessions()
 }
@@ -215,7 +209,7 @@ func (s *Server) handleStopSession(cc *clientConn, args map[string]string) {
 		s.sendError(cc, "missing id arg")
 		return
 	}
-	if err := s.svc.StopSession(id); err != nil {
+	if err := s.coord.Stop(id); err != nil {
 		s.sendError(cc, err.Error())
 		return
 	}
@@ -225,11 +219,11 @@ func (s *Server) handleStopSession(cc *clientConn, args map[string]string) {
 
 func (s *Server) handleListSessions(cc *clientConn) {
 	s.sendResponse(cc, Message{
-		Sessions:       BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore, s.svc.States),
-		ActiveWindowID: s.svc.ActiveWindowID(),
-		SessionLogPath: s.svc.ActiveSessionLogPath(),
-		EventLogPath:   s.svc.EventLogPathByWindow(s.svc.ActiveWindowID()),
-		TranscriptPath: s.svc.ActiveTranscriptPath(),
+		Sessions:       BuildSessionInfos(s.coord.Sessions.All(), s.coord.Drivers),
+		ActiveWindowID: s.coord.ActiveWindowID(),
+		SessionLogPath: s.coord.ActiveSessionLogPath(),
+		EventLogPath:   s.coord.EventLogPathByWindow(s.coord.ActiveWindowID()),
+		TranscriptPath: s.coord.ActiveTranscriptPath(),
 	})
 }
 
@@ -238,9 +232,7 @@ func (s *Server) handleShutdown(cc *clientConn) {
 	s.mu.Lock()
 	s.shutdownRequested = true
 	s.mu.Unlock()
-
 	s.sendResponse(cc, Message{})
-
 	go func() {
 		time.Sleep(50 * time.Millisecond)
 		s.tmux.DetachClient()
@@ -254,15 +246,15 @@ func (s *Server) handlePreviewSession(cc *clientConn, args map[string]string) {
 		s.sendError(cc, "session not found: "+args["session_id"])
 		return
 	}
-	if err := s.svc.Preview(sess); err != nil {
+	if err := s.coord.Preview(sess); err != nil {
 		s.sendResponse(cc, Message{})
 		return
 	}
-	s.svc.SyncActiveStatusLine()
+	s.coord.SyncActiveStatusLine()
 	s.broadcastPreview()
 	s.sendResponse(cc, Message{
-		ActiveWindowID: s.svc.ActiveWindowID(),
-		SessionLogPath: s.svc.ActiveSessionLogPath(),
+		ActiveWindowID: s.coord.ActiveWindowID(),
+		SessionLogPath: s.coord.ActiveSessionLogPath(),
 	})
 }
 
@@ -273,21 +265,21 @@ func (s *Server) handleSwitchSession(cc *clientConn, args map[string]string) {
 		s.sendError(cc, "session not found: "+args["session_id"])
 		return
 	}
-	if err := s.svc.Switch(sess); err != nil {
+	if err := s.coord.Switch(sess); err != nil {
 		s.sendResponse(cc, Message{})
 		return
 	}
-	s.svc.SyncActiveStatusLine()
+	s.coord.SyncActiveStatusLine()
 	s.broadcastSessions()
 	s.sendResponse(cc, Message{
-		ActiveWindowID: s.svc.ActiveWindowID(),
-		SessionLogPath: s.svc.ActiveSessionLogPath(),
+		ActiveWindowID: s.coord.ActiveWindowID(),
+		SessionLogPath: s.coord.ActiveSessionLogPath(),
 	})
 }
 
 func (s *Server) handlePreviewProject(cc *clientConn, args map[string]string) {
 	slog.Info("preview project", "project", args["project"])
-	if err := s.svc.Deactivate(); err != nil {
+	if err := s.coord.Deactivate(); err != nil {
 		s.sendResponse(cc, Message{})
 		return
 	}
@@ -298,7 +290,7 @@ func (s *Server) handlePreviewProject(cc *clientConn, args map[string]string) {
 }
 
 func (s *Server) handleFocusPane(cc *clientConn, args map[string]string) {
-	s.svc.FocusPane(args["pane"])
+	s.coord.FocusPane(args["pane"])
 	s.sendResponse(cc, Message{})
 }
 
@@ -310,12 +302,12 @@ func (s *Server) handleLaunchTool(cc *clientConn, args map[string]string) {
 			toolArgs[k] = v
 		}
 	}
-	s.svc.LaunchTool(toolName, toolArgs)
+	s.coord.LaunchTool(toolName, toolArgs)
 	s.sendResponse(cc, Message{})
 }
 
 func (s *Server) findSession(id string) *session.Session {
-	for _, sess := range s.svc.Sessions() {
+	for _, sess := range s.coord.Sessions.All() {
 		if sess.ID == id {
 			return sess
 		}
@@ -334,55 +326,38 @@ func (s *Server) handleDetach(cc *clientConn) {
 
 func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 	// AgentEventFromArgs is the single string-key boundary in core: every
-	// downstream call uses struct fields so the rest of the coordinator never
-	// has to know which agent driver produced the event.
+	// downstream call uses struct fields so the rest of the coordinator
+	// never has to know which agent driver produced the event.
 	ev := driver.AgentEventFromArgs(args)
 	switch ev.Type {
 	case driver.AgentEventSessionStart:
-		res := s.svc.ApplyAgentEvent(ev)
-		if res.BindChanged || res.StateChanged {
+		sessionID, consumed := s.coord.HandleHookEvent(ev)
+		if consumed {
 			s.broadcastSessions()
 		}
-		s.svc.AppendEventLog(res.Identity, "SessionStart")
+		s.coord.AppendEventLog(sessionID, "SessionStart")
 		s.sendResponse(cc, Message{})
 	case driver.AgentEventStateChange:
 		if ev.State == "" {
 			s.sendError(cc, "state-change: state required")
 			return
 		}
-		// Apply the driver state bag first so the binding exists before the
-		// transcript reader needs to look up workdir / transcript_path.
-		res := s.svc.ApplyAgentEvent(ev)
-		// Route the state-change to the per-window driver Observer. The
-		// Observer is the only writer to state.Store for its session — core
-		// has no special knowledge of which states a driver supports.
-		windowID := s.svc.ResolveWindowID(ev.Pane)
-		consumed := false
-		if windowID != "" {
-			consumed = s.svc.Observers.Dispatch(windowID, ev)
-		}
+		sessionID, consumed := s.coord.HandleHookEvent(ev)
 		if !consumed {
-			s.sendError(cc, "state-change: rejected by driver observer (state="+ev.State+")")
+			s.sendError(cc, "state-change: rejected by driver (state="+ev.State+")")
 			return
 		}
-		usageChanged := false
-		if res.Identity != "" {
-			usageChanged = s.svc.UpdateStatusFromTranscript(res.Identity)
-		}
-		if consumed || res.BindChanged || res.StateChanged || usageChanged {
-			s.broadcastSessions()
-		}
+		s.broadcastSessions()
 		logLine := ev.Log
 		if logLine == "" {
 			logLine = ev.State
 		}
-		s.svc.AppendEventLog(res.Identity, logLine)
+		s.coord.AppendEventLog(sessionID, logLine)
 		s.sendResponse(cc, Message{})
 	default:
 		s.sendError(cc, "unknown agent event type: "+string(ev.Type))
 	}
 }
-
 
 func (s *Server) sendResponse(cc *clientConn, msg Message) {
 	msg.Type = "response"
@@ -403,57 +378,42 @@ func (s *Server) broadcast(msg Message) {
 	}
 }
 
-func (s *Server) broadcastSessions() {
-	s.broadcast(s.buildSessionsEvent(false))
-}
-
-func (s *Server) broadcastPreview() {
-	s.broadcast(s.buildSessionsEvent(true))
-}
+func (s *Server) broadcastSessions() { s.broadcast(s.buildSessionsEvent(false)) }
+func (s *Server) broadcastPreview()  { s.broadcast(s.buildSessionsEvent(true)) }
 
 func (s *Server) buildSessionsEvent(preview bool) Message {
 	msg := NewEvent("sessions-changed")
-	msg.Sessions = BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore, s.svc.States)
-	msg.ActiveWindowID = s.svc.ActiveWindowID()
-	msg.SessionLogPath = s.svc.ActiveSessionLogPath()
-	msg.EventLogPath = s.svc.EventLogPathByWindow(s.svc.ActiveWindowID())
-	msg.TranscriptPath = s.svc.ActiveTranscriptPath()
+	msg.Sessions = BuildSessionInfos(s.coord.Sessions.All(), s.coord.Drivers)
+	msg.ActiveWindowID = s.coord.ActiveWindowID()
+	msg.SessionLogPath = s.coord.ActiveSessionLogPath()
+	msg.EventLogPath = s.coord.EventLogPathByWindow(s.coord.ActiveWindowID())
+	msg.TranscriptPath = s.coord.ActiveTranscriptPath()
 	msg.IsPreview = preview
 	return msg
 }
 
-
+// StartMonitor runs the periodic tick that drives Driver polling and
+// dead-pane reaping. Each tick does:
+//  1. ReapDeadSessions  → drop sessions whose tmux window is gone
+//  2. Coordinator.Tick   → fan-out poll to every Driver instance
+//  3. broadcast sessions-changed so subscribers see updates
 func (s *Server) StartMonitor(intervalMs int) {
 	slog.Info("monitor started", "interval_ms", intervalMs)
 	ticker := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
 	defer ticker.Stop()
-	const metaResolveCycle = 5
-	titleTick := metaResolveCycle - 1 // resolve on first tick
 	for {
 		select {
 		case <-s.done:
 			return
 		case t := <-ticker.C:
-			if reaped := s.svc.ReapDeadSessions(); len(reaped) > 0 {
+			if reaped := s.coord.ReapDeadSessions(); len(reaped) > 0 {
 				s.broadcastSessions()
 			}
-			if len(s.svc.Sessions()) == 0 {
+			if len(s.coord.Sessions.All()) == 0 {
 				continue
 			}
-			// Per-session driver Observers own the polling logic. Each
-			// observer decides whether to capture-pane, compute hash, or
-			// no-op (event-driven drivers like Claude). All writes go
-			// through state.Store, so this loop has nothing to merge.
-			s.svc.Observers.Tick(t)
+			s.coord.Tick(t)
 			s.broadcastSessions()
-
-			titleTick++
-			if titleTick >= metaResolveCycle {
-				titleTick = 0
-				if s.svc.ResolveAgentMeta() {
-					s.broadcastSessions()
-				}
-			}
 		}
 	}
 }

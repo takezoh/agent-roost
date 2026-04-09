@@ -16,11 +16,9 @@ import (
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/lib"
 	_ "github.com/take/agent-roost/lib/claude" // registers the "claude" subcommand
-	"github.com/take/agent-roost/lib/claude/transcript"
 	"github.com/take/agent-roost/logger"
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
-	"github.com/take/agent-roost/state"
 	"github.com/take/agent-roost/tmux"
 	"github.com/take/agent-roost/tui"
 )
@@ -65,81 +63,48 @@ func runCoordinator() {
 
 	dataDir := cfg.ResolveDataDir()
 	os.MkdirAll(dataDir, 0o755)
-	drivers := driver.DefaultRegistry()
-	mgr := session.NewManager(client, dataDir, drivers)
 
-	// state.Store is the single source of truth for per-session dynamic
-	// status. Per-session driver Observers (created below) are the only
-	// writers; the store persists their writes to tmux user options so
-	// warm restart of the Coordinator doesn't lose them.
-	statesStore := state.NewStore(client)
-	observers := driver.NewObserverRegistry(drivers, driver.ObserverDeps{
-		Store:         statesStore,
-		Capturer:      client,
+	home, _ := os.UserHomeDir()
+	driverRegistry := driver.DefaultRegistry()
+	driverDeps := driver.Deps{
 		IdleThreshold: time.Duration(cfg.Monitor.IdleThresholdSec) * time.Second,
-	})
+		FS:            os.DirFS("/"),
+		Home:          home,
+	}
+	drivers := driver.NewDriverService(driverRegistry, driverDeps)
+	sessions := session.NewSessionService(client, dataDir)
+
+	eventLogDir := filepath.Join(dataDir, "events")
+	coord := core.NewCoordinator(sessions, drivers, client, client, sessionName, eventLogDir, "")
 
 	warmRestart := client.SessionExists()
 	if warmRestart {
 		slog.Info("session exists, restoring")
 		restoreSession(client, cfg, sessionName)
-		mgr.Refresh()
-		// Warm restart: the prior Coordinator's status writes are still
-		// in tmux user options. Load them before any Observer is created
-		// so Adopt finds the persisted ChangedAt for its idle countdown.
-		if err := statesStore.LoadFromTmux(client); err != nil {
-			slog.Warn("state.Store LoadFromTmux failed", "err", err)
+		if err := coord.Refresh(); err != nil {
+			slog.Error("coordinator refresh failed", "err", err)
 		}
 	} else {
 		slog.Info("creating new session")
 		setupNewSession(client, cfg, sessionName)
-		// Cold boot (PC reboot, tmux server gone): rebuild the session list
-		// from the on-disk snapshot since tmux user options were wiped.
-		// state.Store stays empty here — Spawn below writes a fresh Running
-		// status for each respawned session.
-		if err := mgr.Recreate(); err != nil {
-			slog.Error("recreate failed", "err", err)
+		if err := coord.Recreate(); err != nil {
+			slog.Error("coordinator recreate failed", "err", err)
 		}
 	}
-	mgr.SyncBranches()
-	slog.Info("sessions loaded", "count", len(mgr.All()))
+	sessions.SyncBranches()
+	slog.Info("sessions loaded", "count", len(sessions.All()))
 
-	for _, s := range mgr.All() {
-		if warmRestart {
-			// Adopt does NOT call MarkSpawned: the persisted status from
-			// LoadFromTmux must survive observer creation.
-			observers.Adopt(s.WindowID, s.Command)
-		} else {
-			// Spawn calls MarkSpawned which writes a fresh Running status.
-			observers.Spawn(s.WindowID, s.Command)
-		}
+	if wid := restoreActiveWindowID(client, sessions); wid != "" {
+		coord = core.NewCoordinator(sessions, drivers, client, client, sessionName, eventLogDir, wid)
 	}
-
-	activeWID := restoreActiveWindowID(client, mgr)
-
-	agentStore := driver.NewAgentStore()
-	bindings := make(map[string]string)
-	for _, s := range mgr.All() {
-		key := drivers.Get(s.Command).IdentityKey()
-		if key == "" {
-			continue
-		}
-		if id := s.DriverState[key]; id != "" {
-			bindings[s.WindowID] = id
-		}
-	}
-	agentStore.RestoreFromBindings(bindings)
-	eventLogDir := filepath.Join(dataDir, "events")
-	svc := core.NewService(mgr, agentStore, drivers, statesStore, observers, client, sessionName, eventLogDir, activeWID)
-	svc.SetTracker(transcript.NewTracker())
-	svc.SetSyncActive(func(wid string) {
+	coord.SetSyncActive(func(wid string) {
 		if wid != "" {
 			client.SetEnv("ROOST_ACTIVE_WINDOW", wid)
 		} else {
 			client.Run("set-environment", "-t", sessionName, "-u", "ROOST_ACTIVE_WINDOW")
 		}
 	})
-	svc.SetSyncStatus(func(line string) {
+	coord.SetSyncStatus(func(line string) {
 		left := " "
 		if line != "" {
 			left += line + " "
@@ -148,7 +113,7 @@ func runCoordinator() {
 	})
 
 	sockPath := filepath.Join(dataDir, "roost.sock")
-	srv := core.NewServer(svc, client, sockPath)
+	srv := core.NewServer(coord, client, sockPath)
 	srv.SetCommandAliases(cfg.Session.Aliases)
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: server: %v\n", err)
@@ -171,9 +136,8 @@ func runCoordinator() {
 	if srv.ShutdownRequested() {
 		slog.Info("shutdown requested, killing tmux session")
 		client.KillSession()
-		// Intentionally do not call mgr.Clear(): the on-disk snapshot must
-		// survive quit so the next `roost` invocation can recreate the same
-		// sessions via Manager.Recreate().
+		// Intentionally keep the on-disk snapshot so the next `roost`
+		// invocation can recreate the same sessions via Coordinator.Recreate().
 	} else {
 		slog.Info("detached, session kept alive")
 	}
@@ -410,12 +374,12 @@ func runPalette(args []string) {
 	}
 }
 
-func restoreActiveWindowID(client *tmux.Client, mgr *session.Manager) string {
+func restoreActiveWindowID(client *tmux.Client, sessions *session.SessionService) string {
 	wid, _ := client.GetEnv("ROOST_ACTIVE_WINDOW")
 	if wid == "" {
 		return ""
 	}
-	for _, s := range mgr.All() {
+	for _, s := range sessions.All() {
 		if s.WindowID == wid {
 			slog.Info("restored active window", "window", wid)
 			return wid
