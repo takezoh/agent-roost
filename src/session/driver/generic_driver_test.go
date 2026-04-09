@@ -12,6 +12,7 @@ type stubWindow struct {
 	wid     string
 	pane    string
 	project string
+	active  bool
 	frames  []string
 	idx     int
 	err     error
@@ -20,6 +21,7 @@ type stubWindow struct {
 func (s *stubWindow) WindowID() string    { return s.wid }
 func (s *stubWindow) AgentPaneID() string { return s.pane }
 func (s *stubWindow) Project() string     { return s.project }
+func (s *stubWindow) Active() bool        { return s.active }
 func (s *stubWindow) RecentLines(_ int) (string, error) {
 	if s.err != nil {
 		return "", s.err

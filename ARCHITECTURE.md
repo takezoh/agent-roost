@@ -444,13 +444,72 @@ flowchart LR
     check -->|event| evt[events ch] --> listen["listenEvents() が tea.Msg に変換"]
 ```
 
-### 並行性モデル
+### 並行性モデル — 階層型アクター
 
-- **Server**: `sync.Mutex` で clients と shutdownRequested を保護。各接続は独立 goroutine。dispatch は同一 goroutine 内で逐次実行
-- **Client**: `sync.Mutex` で encoder を保護。`listen` goroutine が `responses` ch / `events` ch に振り分け
-- **SessionService**: `sync.RWMutex` で sessions スライスを保護
-- **DriverService**: `sync.RWMutex` で sessionID → Driver instance の map を保護
-- **常駐 goroutine**: acceptLoop, StartMonitor (ticker), healthMonitor の 3 本
+agent-roost のサーバ側は **3 階層のアクター** で構成される。各アクターは自身の goroutine + inbox channel を持ち、内部状態はその goroutine しか触らない。`sync.Mutex` / `sync.RWMutex` はサーバ側コードからは消えており、状態の所有権が型 (= goroutine) で表現されている。
+
+```
+Server actor (1)
+├── 状態: clients []*clientConn, shutdownRequested (atomic.Bool)
+├── inbox: addClient / removeClient / broadcast / subscribe
+├── 各 clientConn は writer goroutine + buffered outbox channel (size 64)
+└── slow client は他の client や actor を一切ブロックしない
+
+         ↑ AsyncBroadcast(msg) — 非ブロッキング、Coordinator → Server の片方向のみ
+
+Coordinator actor (1)
+├── 状態: SessionService (sessions[]) + DriverService (drivers map[id]Driver)
+│         + activeWindowID + sync callbacks
+├── inbox: Create / Stop / Switch / Preview / HandleHookEvent / Tick / ...
+├── 周期 tick は Run の select loop に統合 (time.Ticker)
+└── handleTick は reap → Driver fan-out → fireSessionsChanged の順
+
+         ↑ drv.Tick(now, win) — Driver actor への同期 RPC
+
+Driver actor (N, 1 per session)
+├── 状態: claudeDriver / genericDriver の全フィールド (status, title, branch,
+│         tracker, eventLog, ...)
+├── inbox: Tick / HandleEvent / View / PersistedState / Close / ...
+├── 重い I/O (transcript.Update, git, capture-pane) は actor goroutine 内で
+│   同期実行 → 自分のセッションだけ詰まる
+└── WindowInfo.Active() は Coordinator が tick 時に snapshot して push する
+    → Driver actor は Coordinator にコールバックしない (デッドロック回避)
+```
+
+#### アクター間通信の方向
+
+- Server actor → Coordinator: なし。Server の dispatch handler (= handleConn goroutine) が Coordinator メソッドを直接呼ぶ (Coordinator actor の inbox 経由)。Server actor 自身は Coordinator を呼ばない
+- Coordinator actor → Server actor: `AsyncBroadcast(msg)` のみ (非ブロッキング)
+- Coordinator actor → Driver actor: 同期 RPC (Tick / HandleEvent / View / PersistedState)
+- Driver actor → Coordinator actor: なし。WindowInfo.Active() は Tick command に snapshot として埋め込まれる
+
+このサイクル無し構造によりデッドロックは型レベルで排除されている。
+
+#### 残存する同期プリミティブ
+
+- **Driver actor 内部**: `sync.Once` (Close 冪等性) のみ。状態フィールドは無防備 (actor goroutine 単独所有)
+- **Server actor 内部**: `sync.Once` (Stop 冪等性), `atomic.Bool` (shutdownRequested) のみ
+- **Coordinator actor 内部**: `sync.Once` (Shutdown 冪等性) のみ
+- **Client (TUI 側)**: `sync.Mutex` で encoder を保護。TUI プロセスは 1 接続なので局所的影響のみ。サーバ側のアクターモデルとは別レイヤー
+
+#### 常駐 goroutine
+
+- `acceptLoop` (Server): unix socket からの新規接続を受け付ける
+- Server actor `run`: clients の追加削除と broadcast を直列化
+- Coordinator actor `run`: state mutation + 周期 tick を直列化
+- Driver actor `run` × N: 各セッションごとに 1 本
+- 各 clientConn の writer goroutine: outbox を drain して socket に書き出す
+- `healthMonitor` (main goroutine から spawn): tmux pane 0.1/0.2 の死活監視。Coordinator や Server には触れず tmux client のみを使う
+
+10 セッション運用時の合計 goroutine 数は概ね 25-30 で、Go ランタイム上の負荷は無視できる。
+
+#### 設計上の利点
+
+- **データ競合不在**: race detector で `go test -race ./...` がすべてパスする (goroutine 越しのフィールドアクセスが無いため)
+- **デッドロック不在**: cross-actor 呼び出しが片方向のみ
+- **slow client 隔離**: 各 client の writer が独立しており、1 client が遅くても broadcast pipeline 全体が止まらない
+- **Driver の真の並列化**: 異なる Driver 同士は互いをブロックしない。重い transcript parse や git 検出が他のセッションに影響しない
+- **状態所有が型で表現される**: 「この状態は誰が触るか」は「この actor の goroutine だけ」と一文で言える
 
 ## ツールシステム
 
@@ -906,7 +965,8 @@ type Session interface {
 ```go
 // session/service.go
 type SessionService struct {
-    // sync.RWMutex で保護された sessions スライス + tmux client
+    // sessions スライス + tmux client。Coordinator actor の goroutine が
+    // 単独所有するため mutex 不要 (NOT thread-safe by contract)
 }
 
 func (s *SessionService) Create(project, command string) (Session, error)
@@ -949,19 +1009,20 @@ type WindowInfo interface {
 ```go
 // session/driver/service.go
 type DriverService struct {
-    // sync.RWMutex で保護された sessionID → Driver instance map
-    // + driver.Registry (Factory pattern)
+    // sessionID → Driver instance map + driver.Registry (Factory pattern)
+    // Coordinator actor の goroutine が単独所有 — mutex 不要
+    // 各 Driver value 自身は driverActor (内部に専用 goroutine + inbox)
 }
 
-// Create: 新規セッション用。factory 初期値 (Idle) で Driver instance を生成
-func (s *DriverService) Create(sessionID, command string) (Driver, error)
+// Create: 新規セッション用。factory で impl を生成 → driverActor で wrap
+func (s *DriverService) Create(sessionID, command string) Driver
 // Restore: warm/cold restart 用。factory 生成後 RestorePersistedState を呼ぶ
-func (s *DriverService) Restore(sessionID, command string, persisted map[string]string) (Driver, error)
-// Get / ForEach はすべて read lock
+func (s *DriverService) Restore(sessionID, command string, persisted map[string]string) Driver
+// Get / ForEach は actor goroutine 単独アクセスのため lock 不要
 func (s *DriverService) Get(sessionID string) (Driver, bool)
 func (s *DriverService) ForEach(fn func(sessionID string, drv Driver))
-// Close: Driver.Close + map から削除
-func (s *DriverService) Close(sessionID string) error
+// Close: Driver.Close (actor 終了 + impl.Close) + map から削除
+func (s *DriverService) Close(sessionID string)
 ```
 
 ```go

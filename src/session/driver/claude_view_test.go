@@ -17,14 +17,11 @@ func TestClaudeView_GenericFieldsAlwaysIncluded(t *testing.T) {
 }
 
 func TestClaudeView_BranchTagAppearsAfterDetection(t *testing.T) {
-	ctx := &fakeSessionContext{active: true, id: "sess-1"}
-	d := newClaudeFactory()(Deps{Session: ctx}).(*claudeDriver)
+	d := newClaudeImpl(Deps{SessionID: "sess-1"})
 	d.detectBranch = func(string) string { return "main" }
 
 	// Manually inject a working dir + run the branch refresh once.
-	d.mu.Lock()
 	d.workingDir = "/proj"
-	d.mu.Unlock()
 	d.refreshBranch(timeZero(), "")
 
 	view := d.View()
@@ -37,9 +34,8 @@ func TestClaudeView_BranchTagAppearsAfterDetection(t *testing.T) {
 }
 
 func TestClaudeView_LogTabsIncludesEvents(t *testing.T) {
-	ctx := &fakeSessionContext{id: "sess-42"}
 	dir := t.TempDir()
-	d := newClaudeFactory()(Deps{Session: ctx, EventLogDir: dir}).(*claudeDriver)
+	d := newClaudeImpl(Deps{SessionID: "sess-42", EventLogDir: dir})
 
 	view := d.View()
 	var found bool
@@ -62,9 +58,7 @@ func TestClaudeView_LogTabsIncludesEvents(t *testing.T) {
 
 func TestClaudeView_LogTabsIncludesTranscriptWhenKnown(t *testing.T) {
 	d := newClaude(t)
-	d.mu.Lock()
 	d.transcriptPath = "/path/to/x.jsonl"
-	d.mu.Unlock()
 
 	view := d.View()
 	var found bool
@@ -83,7 +77,6 @@ func TestClaudeView_LogTabsIncludesTranscriptWhenKnown(t *testing.T) {
 
 func TestClaudeView_InfoExtrasPopulatedFromCachedFields(t *testing.T) {
 	d := newClaude(t)
-	d.mu.Lock()
 	d.title = "Refactor Driver"
 	d.lastPrompt = "make it pure"
 	d.workingDir = "/proj"
@@ -91,7 +84,6 @@ func TestClaudeView_InfoExtrasPopulatedFromCachedFields(t *testing.T) {
 	d.branchTag = "feat/refactor"
 	d.errorCount = 2
 	d.currentTool = "Edit"
-	d.mu.Unlock()
 
 	view := d.View()
 	got := map[string]string{}

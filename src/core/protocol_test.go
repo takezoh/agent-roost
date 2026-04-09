@@ -21,7 +21,7 @@ func TestBuildSessionInfos_PullsViewFromDriver(t *testing.T) {
 		WindowID:  "@1",
 		CreatedAt: time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
 	}
-	drivers.Create(sess.ID, sess.Command, fakeSessionContextWithID("s1"))
+	drivers.Create(sess.ID, sess.Command)
 
 	infos := BuildSessionInfos([]*session.Session{sess}, drivers)
 	if len(infos) != 1 {
@@ -64,16 +64,6 @@ func (d *fakeDriver) View() driver.SessionView {
 		Card: driver.CardView{Title: d.title},
 	}
 }
-func (d *fakeDriver) PersistedState() map[string]string         { return nil }
-func (d *fakeDriver) RestorePersistedState(map[string]string)   {}
-func (d *fakeDriver) SpawnCommand(base string) string           { return base }
-
-// fakeSessionContextWithID is a minimal SessionContext for tests.
-type fakeSessionContextStub struct{ id string }
-
-func (f fakeSessionContextStub) Active() bool { return false }
-func (f fakeSessionContextStub) ID() string   { return f.id }
-
-func fakeSessionContextWithID(id string) driver.SessionContext {
-	return fakeSessionContextStub{id: id}
-}
+func (d *fakeDriver) PersistedState() map[string]string       { return nil }
+func (d *fakeDriver) RestorePersistedState(map[string]string) {}
+func (d *fakeDriver) SpawnCommand(base string) string         { return base }

@@ -11,9 +11,9 @@ func timeZero() time.Time { return time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC) 
 // newClaudeWithStubBranch builds a claudeDriver and replaces the default
 // git.DetectBranch with a counting stub. Tests use this to assert how often
 // branch detection runs without actually forking git.
-func newClaudeWithStubBranch(t *testing.T, ctx SessionContext, fn func(string) string) (*claudeDriver, *int32) {
+func newClaudeWithStubBranch(t *testing.T, fn func(string) string) (*claudeDriver, *int32) {
 	t.Helper()
-	d := newClaudeFactory()(Deps{Session: ctx}).(*claudeDriver)
+	d := newClaudeImpl(Deps{})
 	var calls int32
 	d.detectBranch = func(dir string) string {
 		atomic.AddInt32(&calls, 1)
@@ -23,8 +23,7 @@ func newClaudeWithStubBranch(t *testing.T, ctx SessionContext, fn func(string) s
 }
 
 func TestRefreshBranch_RunsOnFirstCall(t *testing.T) {
-	ctx := &fakeSessionContext{active: true, id: "s"}
-	d, calls := newClaudeWithStubBranch(t, ctx, func(string) string { return "main" })
+	d, calls := newClaudeWithStubBranch(t, func(string) string { return "main" })
 
 	d.refreshBranch(timeZero(), "/proj")
 
@@ -37,8 +36,7 @@ func TestRefreshBranch_RunsOnFirstCall(t *testing.T) {
 }
 
 func TestRefreshBranch_SkipsBeforeIntervalElapses(t *testing.T) {
-	ctx := &fakeSessionContext{active: true, id: "s"}
-	d, calls := newClaudeWithStubBranch(t, ctx, func(string) string { return "main" })
+	d, calls := newClaudeWithStubBranch(t, func(string) string { return "main" })
 
 	t0 := timeZero()
 	d.refreshBranch(t0, "/proj")
@@ -51,8 +49,7 @@ func TestRefreshBranch_SkipsBeforeIntervalElapses(t *testing.T) {
 }
 
 func TestRefreshBranch_ReRunsAfterInterval(t *testing.T) {
-	ctx := &fakeSessionContext{active: true, id: "s"}
-	d, calls := newClaudeWithStubBranch(t, ctx, func(string) string { return "main" })
+	d, calls := newClaudeWithStubBranch(t, func(string) string { return "main" })
 
 	t0 := timeZero()
 	d.refreshBranch(t0, "/proj")
@@ -64,8 +61,7 @@ func TestRefreshBranch_ReRunsAfterInterval(t *testing.T) {
 }
 
 func TestRefreshBranch_TargetChangeForcesImmediateReDetect(t *testing.T) {
-	ctx := &fakeSessionContext{active: true, id: "s"}
-	d, calls := newClaudeWithStubBranch(t, ctx, func(string) string { return "main" })
+	d, calls := newClaudeWithStubBranch(t, func(string) string { return "main" })
 
 	t0 := timeZero()
 	d.refreshBranch(t0, "/proj")
@@ -79,16 +75,13 @@ func TestRefreshBranch_TargetChangeForcesImmediateReDetect(t *testing.T) {
 
 func TestRefreshBranch_PrefersWorkingDirOverFallback(t *testing.T) {
 	var seen string
-	ctx := &fakeSessionContext{active: true, id: "s"}
-	d := newClaudeFactory()(Deps{Session: ctx}).(*claudeDriver)
+	d := newClaudeImpl(Deps{})
 	d.detectBranch = func(dir string) string {
 		seen = dir
 		return ""
 	}
 
-	d.mu.Lock()
 	d.workingDir = "/agent/cwd"
-	d.mu.Unlock()
 	d.refreshBranch(timeZero(), "/project/root")
 
 	if seen != "/agent/cwd" {
@@ -97,8 +90,7 @@ func TestRefreshBranch_PrefersWorkingDirOverFallback(t *testing.T) {
 }
 
 func TestRefreshBranch_NilDetectorIsNoop(t *testing.T) {
-	ctx := &fakeSessionContext{active: true, id: "s"}
-	d := newClaudeFactory()(Deps{Session: ctx}).(*claudeDriver)
+	d := newClaudeImpl(Deps{})
 	d.detectBranch = nil
 	// Must not panic.
 	d.refreshBranch(timeZero(), "/proj")
@@ -108,23 +100,22 @@ func TestRefreshBranch_NilDetectorIsNoop(t *testing.T) {
 }
 
 func TestClaudeDriver_TickGatesBranchOnActive(t *testing.T) {
-	ctx := &fakeSessionContext{active: false, id: "s"}
-	d, calls := newClaudeWithStubBranch(t, ctx, func(string) string { return "main" })
+	d, calls := newClaudeWithStubBranch(t, func(string) string { return "main" })
+
+	inactive := &activeWindow{active: false}
+	active := &activeWindow{active: true}
 
 	// Inactive: Tick must not call DetectBranch.
 	for i := 0; i < 5; i++ {
-		d.Tick(timeZero(), nil)
+		d.Tick(timeZero(), inactive)
 	}
 	if got := atomic.LoadInt32(calls); got != 0 {
 		t.Errorf("inactive Tick: DetectBranch calls = %d, want 0", got)
 	}
 
 	// Activate and tick once: branch should be detected.
-	ctx.active = true
-	d.mu.Lock()
 	d.workingDir = "/proj"
-	d.mu.Unlock()
-	d.Tick(timeZero(), nil)
+	d.Tick(timeZero(), active)
 	if got := atomic.LoadInt32(calls); got != 1 {
 		t.Errorf("active Tick: DetectBranch calls = %d, want 1", got)
 	}

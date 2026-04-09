@@ -95,7 +95,7 @@ func runCoordinator() {
 	slog.Info("sessions loaded", "count", len(sessions.All()))
 
 	if wid := restoreActiveWindowID(client, sessions); wid != "" {
-		coord = core.NewCoordinator(sessions, drivers, client, client, sessionName, wid)
+		coord.SetActiveWindowID(wid)
 	}
 	coord.SetSyncActive(func(wid string) {
 		if wid != "" {
@@ -115,19 +115,25 @@ func runCoordinator() {
 	sockPath := filepath.Join(dataDir, "roost.sock")
 	srv := core.NewServer(coord, client, sockPath)
 	srv.SetCommandAliases(cfg.Session.Aliases)
+	coord.SetSessionsChangedNotifier(srv.AsyncBroadcast)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	pollInterval := time.Duration(cfg.Monitor.PollIntervalMs) * time.Millisecond
+	coord.Start(ctx, pollInterval)
+	defer coord.Shutdown()
+
 	if err := srv.Start(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: server: %v\n", err)
 		os.Exit(1)
 	}
 	slog.Info("server started", "sock", sockPath)
-	go srv.StartMonitor(cfg.Monitor.PollIntervalMs)
 	defer srv.Stop()
 
 	respawnSessionsPane(client, sessionName)
 	respawnLogPane(client, sessionName)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	go healthMonitor(ctx, client, cfg, sessionName)
 
 	slog.Info("attaching to tmux session")

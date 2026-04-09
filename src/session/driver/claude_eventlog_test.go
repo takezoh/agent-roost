@@ -9,8 +9,7 @@ import (
 
 func TestClaudeEventLog_AppendCreatesFileLazily(t *testing.T) {
 	dir := t.TempDir()
-	ctx := &fakeSessionContext{id: "sess-x"}
-	d := newClaudeFactory()(Deps{Session: ctx, EventLogDir: dir}).(*claudeDriver)
+	d := newClaudeImpl(Deps{SessionID: "sess-x", EventLogDir: dir})
 
 	path := filepath.Join(dir, "sess-x.log")
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -36,7 +35,7 @@ func TestClaudeEventLog_AppendCreatesFileLazily(t *testing.T) {
 
 func TestClaudeEventLog_NoOpWithoutSessionID(t *testing.T) {
 	dir := t.TempDir()
-	d := newClaudeFactory()(Deps{Session: inactiveSessionContext{}, EventLogDir: dir}).(*claudeDriver)
+	d := newClaudeImpl(Deps{EventLogDir: dir})
 	// Must not panic and must not create any files.
 	d.appendEventLog("ignored")
 	d.Close()
@@ -52,8 +51,7 @@ func TestClaudeEventLog_NoOpWithoutSessionID(t *testing.T) {
 
 func TestClaudeEventLog_HandleEventWritesLine(t *testing.T) {
 	dir := t.TempDir()
-	ctx := &fakeSessionContext{id: "sess-y"}
-	d := newClaudeFactory()(Deps{Session: ctx, EventLogDir: dir}).(*claudeDriver)
+	d := newClaudeImpl(Deps{SessionID: "sess-y", EventLogDir: dir})
 
 	d.HandleEvent(AgentEvent{
 		Type:  AgentEventStateChange,

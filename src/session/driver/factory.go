@@ -13,13 +13,13 @@ import (
 //
 // Drivers are free to import packages from lib/ directly (e.g. lib/git,
 // lib/claude/transcript). Deps only carries values that vary per process
-// (IdleThreshold, EventLogDir) or per session (Session) — utilities with
-// a sensible default are NOT funneled through Deps.
+// (IdleThreshold, EventLogDir) or per session (SessionID) — utilities
+// with a sensible default are NOT funneled through Deps.
 type Deps struct {
 	IdleThreshold time.Duration
-	Home          string         // user home dir for ~/.claude/projects/... resolution
-	Session       SessionContext // per-session active-state query (set by DriverService.Create/Restore)
-	EventLogDir   string         // base directory for driver-managed event log files (e.g. claudeDriver writes <EventLogDir>/<sessionID>.log)
+	Home          string // user home dir for ~/.claude/projects/... resolution
+	SessionID     string // per-session id; cached by drivers that own session-scoped resources (event log file, etc.)
+	EventLogDir   string // base directory for driver-managed event log files (e.g. claudeDriver writes <EventLogDir>/<sessionID>.log)
 }
 
 // Factory constructs a fresh Driver instance for one session. The instance

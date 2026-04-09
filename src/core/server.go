@@ -7,29 +7,78 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
 	"github.com/take/agent-roost/tmux"
 )
 
+// Server is the IPC entry point for roost. It owns the unix socket, the
+// per-connection clients list, and the broadcast pipeline.
+//
+// Server is implemented as an actor: a single goroutine (started by
+// run()) owns `clients` and processes mutations through `inbox`.
+// handleConn goroutines submit closures via exec() — they never touch
+// `clients` directly. Each clientConn has its own writer goroutine that
+// drains a buffered outbox channel, so a slow client cannot block the
+// server actor or any other client.
 type Server struct {
-	coord             *Coordinator
-	tmux              *tmux.Client
-	listener          net.Listener
-	clients           []*clientConn
-	mu                sync.Mutex
-	sockPath          string
-	done              chan struct{}
-	shutdownRequested bool
-	aliases           map[string]string
+	coord    *Coordinator
+	tmux     *tmux.Client
+	listener net.Listener
+	sockPath string
+	aliases  map[string]string
+
+	// actor primitives
+	inbox     chan func()
+	stop      chan struct{}
+	stopped   chan struct{}
+	closeOnce sync.Once
+
+	// owned by the server actor goroutine — never touched from outside
+	clients []*clientConn
+
+	// shutdownRequested is set inside the actor (handleShutdown) and read
+	// from main() after Attach() returns; an atomic.Bool keeps it lock-free.
+	shutdownRequested atomic.Bool
 }
 
+// clientConn represents one accepted IPC connection. The writer goroutine
+// drains `outbox` and writes JSON-encoded messages to the socket. The
+// actor signals shutdown by closing `done`; the writer notices this on
+// the next select cycle and exits.
+//
+// `broadcastEnabled` is mutated only from the server actor goroutine
+// inside the subscribe handler, so no synchronization is needed there.
+// `outbox` is a buffered channel (size 64) — sends from any goroutine
+// are safe; if it fills up, the message is dropped and a warning is
+// logged. Realistic outbox depth is 1-2 messages, so dropping only
+// happens for misbehaving clients.
 type clientConn struct {
 	conn             net.Conn
-	encoder          *json.Encoder
+	outbox           chan Message
+	done             chan struct{}
+	closeOnce        sync.Once
 	broadcastEnabled bool
+}
+
+const clientOutboxSize = 64
+
+func newClientConn(conn net.Conn) *clientConn {
+	return &clientConn{
+		conn:   conn,
+		outbox: make(chan Message, clientOutboxSize),
+		done:   make(chan struct{}),
+	}
+}
+
+// shut releases the connection and signals the writer to exit. Idempotent.
+func (cc *clientConn) shut() {
+	cc.closeOnce.Do(func() {
+		close(cc.done)
+		cc.conn.Close()
+	})
 }
 
 func NewServer(coord *Coordinator, tmuxClient *tmux.Client, sockPath string) *Server {
@@ -37,17 +86,15 @@ func NewServer(coord *Coordinator, tmuxClient *tmux.Client, sockPath string) *Se
 		coord:    coord,
 		tmux:     tmuxClient,
 		sockPath: sockPath,
-		done:     make(chan struct{}),
+		inbox:    make(chan func(), 32),
+		stop:     make(chan struct{}),
+		stopped:  make(chan struct{}),
 	}
 }
 
-func (s *Server) Done() <-chan struct{} { return s.done }
+func (s *Server) Done() <-chan struct{} { return s.stopped }
 
-func (s *Server) ShutdownRequested() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.shutdownRequested
-}
+func (s *Server) ShutdownRequested() bool { return s.shutdownRequested.Load() }
 
 func (s *Server) Start() error {
 	os.Remove(s.sockPath)
@@ -57,27 +104,54 @@ func (s *Server) Start() error {
 	}
 	s.listener = ln
 	slog.Info("server listening", "sock", s.sockPath)
+	go s.run()
 	go s.acceptLoop()
 	return nil
 }
 
-func (s *Server) Stop() {
-	slog.Info("server stopping", "clients", len(s.clients))
+// run is the server actor goroutine. It processes inbox closures one at
+// a time and tears down all clients on shutdown.
+func (s *Server) run() {
+	defer close(s.stopped)
+	for {
+		select {
+		case <-s.stop:
+			for _, cc := range s.clients {
+				cc.shut()
+			}
+			s.clients = nil
+			return
+		case fn := <-s.inbox:
+			fn()
+		}
+	}
+}
+
+// exec submits fn to the server actor and waits for it to complete.
+// If the actor has already shut down, fn is dropped silently.
+func (s *Server) exec(fn func()) {
+	done := make(chan struct{})
 	select {
-	case <-s.done:
-	default:
-		close(s.done)
+	case <-s.stop:
+		return
+	case s.inbox <- func() { fn(); close(done) }:
 	}
-	if s.listener != nil {
-		s.listener.Close()
+	select {
+	case <-done:
+	case <-s.stopped:
 	}
-	s.mu.Lock()
-	for _, c := range s.clients {
-		c.conn.Close()
-	}
-	s.clients = nil
-	s.mu.Unlock()
-	os.Remove(s.sockPath)
+}
+
+func (s *Server) Stop() {
+	s.closeOnce.Do(func() {
+		slog.Info("server stopping")
+		close(s.stop)
+		if s.listener != nil {
+			s.listener.Close()
+		}
+		<-s.stopped
+		os.Remove(s.sockPath)
+	})
 }
 
 func (s *Server) acceptLoop() {
@@ -85,7 +159,7 @@ func (s *Server) acceptLoop() {
 		conn, err := s.listener.Accept()
 		if err != nil {
 			select {
-			case <-s.done:
+			case <-s.stop:
 				return
 			default:
 				slog.Error("accept failed", "err", err)
@@ -98,15 +172,24 @@ func (s *Server) acceptLoop() {
 
 func (s *Server) handleConn(conn net.Conn) {
 	slog.Debug("client connected")
-	cc := &clientConn{conn: conn, encoder: json.NewEncoder(conn)}
-	s.addClient(cc)
+	cc := newClientConn(conn)
+	s.exec(func() { s.clients = append(s.clients, cc) })
+	go s.writeLoop(cc)
 	defer func() {
 		if cc.broadcastEnabled {
 			slog.Info("subscriber disconnected")
 		} else {
 			slog.Debug("client disconnected")
 		}
-		s.removeClient(cc)
+		s.exec(func() {
+			for i, c := range s.clients {
+				if c == cc {
+					s.clients = append(s.clients[:i], s.clients[i+1:]...)
+					break
+				}
+			}
+		})
+		cc.shut()
 	}()
 	dec := json.NewDecoder(conn)
 	for {
@@ -121,6 +204,35 @@ func (s *Server) handleConn(conn net.Conn) {
 	}
 }
 
+// writeLoop drains the client's outbox and writes JSON-encoded messages
+// to the underlying socket. Exits when `done` is closed (server shutdown
+// or client removal) or when the encoder reports an I/O error.
+func (s *Server) writeLoop(cc *clientConn) {
+	encoder := json.NewEncoder(cc.conn)
+	for {
+		select {
+		case <-cc.done:
+			return
+		case msg := <-cc.outbox:
+			if err := encoder.Encode(msg); err != nil {
+				return
+			}
+		}
+	}
+}
+
+// sendTo enqueues a message on the client's outbox. Non-blocking — if
+// the outbox is full or the client is shutting down, the message is
+// dropped with a warning. Safe to call from any goroutine.
+func (s *Server) sendTo(cc *clientConn, msg Message) {
+	select {
+	case <-cc.done:
+	case cc.outbox <- msg:
+	default:
+		slog.Warn("client outbox full, dropping message", "type", msg.Type, "event", msg.Event)
+	}
+}
+
 func (s *Server) dispatch(cc *clientConn, msg Message) {
 	if msg.Command == "agent-event" {
 		slog.Debug("dispatch", "command", msg.Command)
@@ -129,10 +241,10 @@ func (s *Server) dispatch(cc *clientConn, msg Message) {
 	}
 	switch msg.Command {
 	case "subscribe":
-		cc.broadcastEnabled = true
+		s.exec(func() { cc.broadcastEnabled = true })
 		slog.Info("subscriber connected")
 		s.sendResponse(cc, Message{})
-		cc.encoder.Encode(s.buildSessionsEvent(false))
+		s.sendTo(cc, s.buildSessionsEvent(false))
 	case "create-session":
 		s.handleCreateSession(cc, msg.Args)
 	case "stop-session":
@@ -175,16 +287,17 @@ func (s *Server) handleCreateSession(cc *clientConn, args map[string]string) {
 		command = expanded
 	}
 	slog.Info("create session", "project", project, "command", command)
-	sess, err := s.coord.Create(project, command)
+	id, err := s.coord.Create(project, command)
 	if err != nil {
 		slog.Error("create session failed", "err", err)
 		s.sendError(cc, err.Error())
 		return
 	}
-	s.coord.Switch(sess)
+	s.coord.Switch(id)
+	infos, active := s.coord.SnapshotSessionsAndActive()
 	s.sendResponse(cc, Message{
-		Sessions:       BuildSessionInfos(s.coord.Sessions.All(), s.coord.Drivers),
-		ActiveWindowID: s.coord.ActiveWindowID(),
+		Sessions:       infos,
+		ActiveWindowID: active,
 	})
 	s.broadcastSessions()
 }
@@ -205,17 +318,16 @@ func (s *Server) handleStopSession(cc *clientConn, args map[string]string) {
 }
 
 func (s *Server) handleListSessions(cc *clientConn) {
+	infos, active := s.coord.SnapshotSessionsAndActive()
 	s.sendResponse(cc, Message{
-		Sessions:       BuildSessionInfos(s.coord.Sessions.All(), s.coord.Drivers),
-		ActiveWindowID: s.coord.ActiveWindowID(),
+		Sessions:       infos,
+		ActiveWindowID: active,
 	})
 }
 
 func (s *Server) handleShutdown(cc *clientConn) {
 	slog.Info("shutdown requested")
-	s.mu.Lock()
-	s.shutdownRequested = true
-	s.mu.Unlock()
+	s.shutdownRequested.Store(true)
 	s.sendResponse(cc, Message{})
 	go func() {
 		time.Sleep(50 * time.Millisecond)
@@ -224,14 +336,10 @@ func (s *Server) handleShutdown(cc *clientConn) {
 }
 
 func (s *Server) handlePreviewSession(cc *clientConn, args map[string]string) {
-	slog.Info("preview session", "id", args["session_id"])
-	sess := s.findSession(args["session_id"])
-	if sess == nil {
-		s.sendError(cc, "session not found: "+args["session_id"])
-		return
-	}
-	if err := s.coord.Preview(sess); err != nil {
-		s.sendResponse(cc, Message{})
+	id := args["session_id"]
+	slog.Info("preview session", "id", id)
+	if err := s.coord.Preview(id); err != nil {
+		s.sendError(cc, err.Error())
 		return
 	}
 	s.coord.SyncActiveStatusLine()
@@ -242,14 +350,10 @@ func (s *Server) handlePreviewSession(cc *clientConn, args map[string]string) {
 }
 
 func (s *Server) handleSwitchSession(cc *clientConn, args map[string]string) {
-	slog.Info("switch session", "id", args["session_id"])
-	sess := s.findSession(args["session_id"])
-	if sess == nil {
-		s.sendError(cc, "session not found: "+args["session_id"])
-		return
-	}
-	if err := s.coord.Switch(sess); err != nil {
-		s.sendResponse(cc, Message{})
+	id := args["session_id"]
+	slog.Info("switch session", "id", id)
+	if err := s.coord.Switch(id); err != nil {
+		s.sendError(cc, err.Error())
 		return
 	}
 	s.coord.SyncActiveStatusLine()
@@ -286,15 +390,6 @@ func (s *Server) handleLaunchTool(cc *clientConn, args map[string]string) {
 	}
 	s.coord.LaunchTool(toolName, toolArgs)
 	s.sendResponse(cc, Message{})
-}
-
-func (s *Server) findSession(id string) *session.Session {
-	for _, sess := range s.coord.Sessions.All() {
-		if sess.ID == id {
-			return sess
-		}
-	}
-	return nil
 }
 
 func (s *Server) handleDetach(cc *clientConn) {
@@ -339,74 +434,59 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 
 func (s *Server) sendResponse(cc *clientConn, msg Message) {
 	msg.Type = "response"
-	cc.encoder.Encode(msg)
+	s.sendTo(cc, msg)
 }
 
 func (s *Server) sendError(cc *clientConn, errMsg string) {
 	s.sendResponse(cc, Message{Error: errMsg})
 }
 
+// broadcast snapshots the current clients list inside the actor and then
+// queues the message on each subscriber's outbox. The actor goroutine
+// touches `clients` only — it never blocks on I/O because each clientConn
+// has its own writer goroutine.
 func (s *Server) broadcast(msg Message) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, cc := range s.clients {
-		if cc.broadcastEnabled {
-			cc.encoder.Encode(msg)
+	s.exec(func() {
+		for _, cc := range s.clients {
+			if cc.broadcastEnabled {
+				s.sendTo(cc, msg)
+			}
 		}
-	}
+	})
 }
 
 func (s *Server) broadcastSessions() { s.broadcast(s.buildSessionsEvent(false)) }
 func (s *Server) broadcastPreview()  { s.broadcast(s.buildSessionsEvent(true)) }
 
 func (s *Server) buildSessionsEvent(preview bool) Message {
+	infos, active := s.coord.SnapshotSessionsAndActive()
 	msg := NewEvent("sessions-changed")
-	msg.Sessions = BuildSessionInfos(s.coord.Sessions.All(), s.coord.Drivers)
-	msg.ActiveWindowID = s.coord.ActiveWindowID()
+	msg.Sessions = infos
+	msg.ActiveWindowID = active
 	msg.IsPreview = preview
 	return msg
 }
 
-// StartMonitor runs the periodic tick that drives Driver polling and
-// dead-pane reaping. Each tick does:
-//  1. ReapDeadSessions  → drop sessions whose tmux window is gone
-//  2. Coordinator.Tick   → fan-out poll to every Driver instance
-//  3. broadcast sessions-changed so subscribers see updates
-func (s *Server) StartMonitor(intervalMs int) {
-	slog.Info("monitor started", "interval_ms", intervalMs)
-	ticker := time.NewTicker(time.Duration(intervalMs) * time.Millisecond)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-s.done:
-			return
-		case t := <-ticker.C:
-			if reaped := s.coord.ReapDeadSessions(); len(reaped) > 0 {
-				s.broadcastSessions()
+// AsyncBroadcast queues `msg` for broadcast without waiting for the
+// server actor to process it. Used by Coordinator's notification
+// callback to fire sessions-changed events from inside its own actor
+// goroutine without forming a deadlock cycle (Server actor never calls
+// back into Coordinator, so this one-way edge is safe).
+//
+// If the inbox is full the message is dropped with a warning — the next
+// tick will produce a fresh sessions-changed payload anyway.
+func (s *Server) AsyncBroadcast(msg Message) {
+	closure := func() {
+		for _, cc := range s.clients {
+			if cc.broadcastEnabled {
+				s.sendTo(cc, msg)
 			}
-			if len(s.coord.Sessions.All()) == 0 {
-				continue
-			}
-			s.coord.Tick(t)
-			s.broadcastSessions()
 		}
 	}
-}
-
-func (s *Server) addClient(cc *clientConn) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.clients = append(s.clients, cc)
-}
-
-func (s *Server) removeClient(cc *clientConn) {
-	cc.conn.Close()
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, c := range s.clients {
-		if c == cc {
-			s.clients = append(s.clients[:i], s.clients[i+1:]...)
-			return
-		}
+	select {
+	case <-s.stop:
+	case s.inbox <- closure:
+	default:
+		slog.Warn("server inbox full, dropping coordinator broadcast", "event", msg.Event)
 	}
 }

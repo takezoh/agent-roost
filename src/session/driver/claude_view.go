@@ -24,10 +24,11 @@ import (
 // Subagents / Errors). The TUI prepends a generic header on its own.
 //
 // StatusLine: cached from refreshMeta (transcript.Tracker.StatusLine).
+//
+// Single-threaded: the driverActor wrapper guarantees View runs on the
+// same goroutine as Tick / HandleEvent, so the cached fields are stable
+// for the duration of the call.
 func (d *claudeDriver) View() SessionView {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-
 	tags := []Tag{CommandTag(d.Name())}
 	if t := BranchTag(d.branchTag); t.Text != "" {
 		tags = append(tags, t)
@@ -60,18 +61,17 @@ func (d *claudeDriver) View() SessionView {
 			Title:      d.title,
 			Subtitle:   d.lastPrompt,
 			Tags:       tags,
-			Indicators: d.indicatorsLocked(),
+			Indicators: d.indicators(),
 			Subjects:   subjects,
 		},
 		LogTabs:    logTabs,
-		InfoExtras: d.infoExtrasLocked(),
+		InfoExtras: d.infoExtras(),
 		StatusLine: d.statusLine,
 	}
 }
 
-// indicatorsLocked formats the chip strings for the card. Caller must
-// hold d.mu.
-func (d *claudeDriver) indicatorsLocked() []string {
+// indicators formats the chip strings for the card.
+func (d *claudeDriver) indicators() []string {
 	var out []string
 	if d.currentTool != "" {
 		out = append(out, "▸ "+d.currentTool)
@@ -89,12 +89,12 @@ func (d *claudeDriver) indicatorsLocked() []string {
 	return out
 }
 
-// infoExtrasLocked builds the driver-specific INFO lines. Caller must
-// hold d.mu. Only fields that are NOT already visible via Card.Tags or
-// Card.Indicators are included here — the TUI re-renders Tags and
-// Indicators as bullet sections in the INFO tab, so listing them as
-// InfoExtras would duplicate the same value.
-func (d *claudeDriver) infoExtrasLocked() []InfoLine {
+// infoExtras builds the driver-specific INFO lines. Only fields that are
+// NOT already visible via Card.Tags or Card.Indicators are included
+// here — the TUI re-renders Tags and Indicators as bullet sections in
+// the INFO tab, so listing them as InfoExtras would duplicate the same
+// value.
+func (d *claudeDriver) infoExtras() []InfoLine {
 	var lines []InfoLine
 	add := func(label, value string) {
 		if value != "" {

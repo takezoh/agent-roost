@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -34,11 +33,15 @@ type TmuxClient interface {
 // Coordinator uses to bind them together. Likewise SessionService no
 // longer concerns itself with branch detection or any per-session UI
 // state — those live in the Driver instance and surface via View().
+//
+// SessionService is NOT thread-safe. All methods are called from the
+// Coordinator actor goroutine (see core/coordinator.go), which
+// serializes access to the sessions slice. Init-time callers (Refresh,
+// Recreate) run before the actor starts and are also single-threaded.
 type SessionService struct {
 	tmux    TmuxClient
 	dataDir string
 
-	mu       sync.RWMutex
 	sessions []*Session
 }
 
@@ -61,13 +64,11 @@ func (s *SessionService) Refresh() error {
 	if err != nil {
 		return err
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.sessions = s.sessions[:0]
 	for _, w := range windows {
 		s.sessions = append(s.sessions, windowToSession(w))
 	}
-	s.saveSnapshotLocked()
+	s.saveSnapshot()
 	return nil
 }
 
@@ -92,13 +93,11 @@ func (s *SessionService) Create(project, command string) (*Session, error) {
 		Command:   command,
 		CreatedAt: now,
 	}
-	if err := s.spawnWindowLocked(sess, "exec "+command, project); err != nil {
+	if err := s.spawnWindow(sess, "exec "+command, project); err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
 	s.sessions = append(s.sessions, sess)
-	s.saveSnapshotLocked()
-	s.mu.Unlock()
+	s.saveSnapshot()
 	slog.Info("session created", "id", id, "window", sess.WindowID, "pane", sess.AgentPaneID)
 	return sess, nil
 }
@@ -107,19 +106,17 @@ func (s *SessionService) Create(project, command string) (*Session, error) {
 // cold-boot Recreate path where the driver supplies a custom resume
 // command and start dir).
 func (s *SessionService) Spawn(sess *Session, spawnCmd, startDir string) error {
-	if err := s.spawnWindowLocked(sess, "exec "+spawnCmd, startDir); err != nil {
+	if err := s.spawnWindow(sess, "exec "+spawnCmd, startDir); err != nil {
 		return err
 	}
-	s.mu.Lock()
 	s.sessions = append(s.sessions, sess)
-	s.saveSnapshotLocked()
-	s.mu.Unlock()
+	s.saveSnapshot()
 	return nil
 }
 
-// spawnWindowLocked is shared by Create and Spawn. It does NOT hold s.mu —
-// callers acquire the write lock around the slice append themselves.
-func (s *SessionService) spawnWindowLocked(sess *Session, command, startDir string) error {
+// spawnWindow is shared by Create and Spawn. Single-threaded by contract
+// — runs on the Coordinator actor goroutine (or the init goroutine).
+func (s *SessionService) spawnWindow(sess *Session, command, startDir string) error {
 	name := filepath.Base(sess.Project) + ":" + sess.ID
 	// ROOST_SESSION_ID is set atomically with the new window so the agent's
 	// hook bridge (e.g. roost claude event) can identify itself without
@@ -158,15 +155,13 @@ func (s *SessionService) queryAgentPaneID(windowID string) string {
 // matching Driver instance.
 func (s *SessionService) Stop(sessionID string) (*Session, error) {
 	slog.Info("stopping session", "id", sessionID)
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	for i, sess := range s.sessions {
 		if sess.ID == sessionID {
 			if err := s.tmux.KillWindow(sess.WindowID); err != nil {
 				return nil, err
 			}
 			s.sessions = append(s.sessions[:i], s.sessions[i+1:]...)
-			s.saveSnapshotLocked()
+			s.saveSnapshot()
 			return sess, nil
 		}
 	}
@@ -199,8 +194,6 @@ func (s *SessionService) ReconcileWindows() ([]RemovedSession, error) {
 	for _, w := range windows {
 		live[w.WindowID] = struct{}{}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var removed []RemovedSession
 	kept := s.sessions[:0]
 	for _, sess := range s.sessions {
@@ -213,7 +206,7 @@ func (s *SessionService) ReconcileWindows() ([]RemovedSession, error) {
 	}
 	s.sessions = kept
 	if len(removed) > 0 {
-		s.saveSnapshotLocked()
+		s.saveSnapshot()
 	}
 	return removed, nil
 }
@@ -222,8 +215,6 @@ func (s *SessionService) ReconcileWindows() ([]RemovedSession, error) {
 // tmux user options + sessions.json. SessionService never inspects the
 // keys — only the driver knows what they mean.
 func (s *SessionService) UpdatePersistedState(sessionID string, persisted map[string]string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, sess := range s.sessions {
 		if sess.ID != sessionID {
 			continue
@@ -237,23 +228,19 @@ func (s *SessionService) UpdatePersistedState(sessionID string, persisted map[st
 			return false
 		}
 		sess.PersistedState = clonePersisted(persisted)
-		s.saveSnapshotLocked()
+		s.saveSnapshot()
 		return true
 	}
 	return false
 }
 
 func (s *SessionService) All() []*Session {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	out := make([]*Session, len(s.sessions))
 	copy(out, s.sessions)
 	return out
 }
 
 func (s *SessionService) ByProject() map[string][]*Session {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	grouped := make(map[string][]*Session)
 	for _, sess := range s.sessions {
 		key := sess.Name()
@@ -263,8 +250,6 @@ func (s *SessionService) ByProject() map[string][]*Session {
 }
 
 func (s *SessionService) FindByWindowID(windowID string) *Session {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	for _, sess := range s.sessions {
 		if sess.WindowID == windowID {
 			return sess
@@ -281,8 +266,6 @@ func (s *SessionService) FindByAgentPaneID(paneID string) *Session {
 	if paneID == "" {
 		return nil
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	for _, sess := range s.sessions {
 		if sess.AgentPaneID == paneID {
 			return sess
@@ -292,8 +275,6 @@ func (s *SessionService) FindByAgentPaneID(paneID string) *Session {
 }
 
 func (s *SessionService) FindByID(id string) *Session {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	for _, sess := range s.sessions {
 		if sess.ID == id {
 			return sess
@@ -310,7 +291,7 @@ func (s *SessionService) snapshotPath() string {
 	return filepath.Join(s.dataDir, "sessions.json")
 }
 
-func (s *SessionService) saveSnapshotLocked() {
+func (s *SessionService) saveSnapshot() {
 	sessions := s.sessions
 	if sessions == nil {
 		sessions = []*Session{}

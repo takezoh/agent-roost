@@ -3,7 +3,6 @@ package driver
 import (
 	"log/slog"
 	"regexp"
-	"sync"
 	"time"
 )
 
@@ -18,6 +17,9 @@ import (
 //  2. The first Tick after construction only establishes a baseline hash.
 //     status is left untouched. Only the second tick onward writes — and
 //     only when a transition is actually observed.
+//
+// genericDriver itself is NOT thread-safe. In production it is wrapped by
+// a driverActor which serializes calls through a single goroutine.
 
 const (
 	genericNamePromptPattern = `(?m)(^>|[>$❯]\s*$)`
@@ -27,8 +29,6 @@ const (
 )
 
 type genericDriver struct {
-	mu sync.Mutex
-
 	// Static deps
 	name      string
 	pattern   *regexp.Regexp
@@ -41,15 +41,22 @@ type genericDriver struct {
 	lastActivity time.Time
 }
 
+// newGenericImpl constructs a bare genericDriver impl with no actor wrapper.
+// Used both by the public factory (which then wraps in an actor) and by
+// in-package tests that need direct field access.
+func newGenericImpl(name string, deps Deps) *genericDriver {
+	now := time.Now()
+	return &genericDriver{
+		name:      name,
+		pattern:   regexp.MustCompile(genericNamePromptPattern),
+		threshold: deps.IdleThreshold,
+		status:    StatusInfo{Status: StatusIdle, ChangedAt: now},
+	}
+}
+
 func newGenericFactory(name string) Factory {
 	return func(deps Deps) Driver {
-		now := time.Now()
-		return &genericDriver{
-			name:      name,
-			pattern:   regexp.MustCompile(genericNamePromptPattern),
-			threshold: deps.IdleThreshold,
-			status:    StatusInfo{Status: StatusIdle, ChangedAt: now},
-		}
+		return newGenericImpl(name, deps)
 	}
 }
 
@@ -64,8 +71,6 @@ func (d *genericDriver) DisplayName() string {
 // MarkSpawned: a fresh agent process has just started. Reset to Idle and
 // drop any cached hash so the first Tick re-establishes baseline.
 func (d *genericDriver) MarkSpawned() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	now := time.Now()
 	d.status = StatusInfo{Status: StatusIdle, ChangedAt: now}
 	d.primed = false
@@ -92,9 +97,6 @@ func (d *genericDriver) Tick(now time.Time, win WindowInfo) {
 		return
 	}
 	hash := hashContent(content)
-
-	d.mu.Lock()
-	defer d.mu.Unlock()
 
 	if !d.primed {
 		// First observation: establish baseline only. Do not touch status —
@@ -133,8 +135,6 @@ func (d *genericDriver) HandleEvent(ev AgentEvent) bool { return false }
 func (d *genericDriver) Close() {}
 
 func (d *genericDriver) Status() (StatusInfo, bool) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	return d.status, true
 }
 
@@ -157,8 +157,6 @@ func (d *genericDriver) View() SessionView {
 // PersistedState returns the opaque bag for SessionService to round-trip.
 // Generic drivers only persist status — they have no agent identity.
 func (d *genericDriver) PersistedState() map[string]string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	out := make(map[string]string, 2)
 	out[genericKeyStatus] = d.status.Status.String()
 	if !d.status.ChangedAt.IsZero() {
@@ -171,8 +169,6 @@ func (d *genericDriver) RestorePersistedState(state map[string]string) {
 	if len(state) == 0 {
 		return
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	if s, ok := state[genericKeyStatus]; ok && s != "" {
 		if status, ok := ParseStatus(s); ok {
 			changedAt, _ := time.Parse(time.RFC3339, state[genericKeyStatusChangedAt])
