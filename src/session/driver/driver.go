@@ -45,3 +45,25 @@ type Driver interface {
 // AgentEvent is defined in event.go. HandleEvent receives this driver-neutral
 // payload and is responsible for picking out the keys (in DriverState) that
 // matter to it.
+
+// SessionContext lets a Driver query lightweight, time-varying facts about
+// its owning session without taking a back-reference to core/. Implemented
+// by Coordinator (via a per-session adapter) and injected into Drivers at
+// construction time through Deps.Session.
+//
+// The "active" state lives exclusively in Coordinator.activeWindowID — the
+// Driver pulls instead of caching, so there is no notification ordering
+// problem to coordinate between push and poll paths.
+type SessionContext interface {
+	// Active reports whether the session's tmux window is currently
+	// swapped into the main pane (0.0). Drivers use this to gate
+	// expensive polling work (e.g. Tick refreshing transcript meta).
+	Active() bool
+}
+
+// inactiveSessionContext is the zero value used when no SessionContext was
+// injected. Always reports inactive — drivers that gate on Active() then
+// behave as if they are not the focused session, which is the safe default.
+type inactiveSessionContext struct{}
+
+func (inactiveSessionContext) Active() bool { return false }

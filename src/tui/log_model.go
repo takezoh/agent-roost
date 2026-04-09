@@ -14,8 +14,14 @@ import (
 
 const (
 	tailPollInterval = 200 * time.Millisecond
-	tailInitialBytes = 128 * 1024
-	maxLogLines      = 5000
+	// initialBackfillLines bounds how much past content is shown when a
+	// session becomes active (or a tab is first opened). The unit matches
+	// maxLogLines below so the cap and the backfill speak the same units.
+	initialBackfillLines = 2000
+	// tailReadChunk is the chunk size used when scanning backwards from
+	// EOF looking for the Nth-from-last newline.
+	tailReadChunk = 64 * 1024
+	maxLogLines   = 5000
 )
 
 type tickMsg time.Time
@@ -425,14 +431,67 @@ func openTabFile(tab *tabState) error {
 		return err
 	}
 	tab.file = f
-	info, err := f.Stat()
+	off, err := seekToLastNLines(f, initialBackfillLines)
 	if err != nil {
 		return err
 	}
-	if size := info.Size(); size > tailInitialBytes {
-		tab.offset = size - tailInitialBytes
-	}
+	tab.offset = off
 	return nil
+}
+
+// seekToLastNLines returns the byte offset that starts the last n lines of
+// f (counting both terminated lines and a final unterminated line). If the
+// file has fewer than n lines, or n <= 0, it returns 0. The file's seek
+// position is left unchanged.
+func seekToLastNLines(f *os.File, n int) (int64, error) {
+	if n <= 0 {
+		return 0, nil
+	}
+	info, err := f.Stat()
+	if err != nil {
+		return 0, err
+	}
+	size := info.Size()
+	if size == 0 {
+		return 0, nil
+	}
+
+	// Detect a trailing newline: when present, the final \n doesn't open
+	// a new line, so the (n+1)-th newline from the end marks the start of
+	// the desired suffix. When absent, the trailing partial line counts
+	// as line #1 from the end, so we only need n newlines back.
+	lastByte := make([]byte, 1)
+	if _, err := f.ReadAt(lastByte, size-1); err != nil {
+		return 0, err
+	}
+	target := n
+	if lastByte[0] == '\n' {
+		target = n + 1
+	}
+
+	buf := make([]byte, tailReadChunk)
+	pos := size
+	newlines := 0
+	for pos > 0 {
+		readSize := int64(len(buf))
+		if pos < readSize {
+			readSize = pos
+		}
+		pos -= readSize
+		if _, err := f.ReadAt(buf[:readSize], pos); err != nil {
+			return 0, err
+		}
+		for i := readSize - 1; i >= 0; i-- {
+			if buf[i] != '\n' {
+				continue
+			}
+			newlines++
+			if newlines >= target {
+				return pos + i + 1, nil
+			}
+		}
+	}
+	return 0, nil
 }
 
 func splitTrailingPartial(tab *tabState, text string) string {

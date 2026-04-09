@@ -29,7 +29,7 @@ AI エージェントを複数プロジェクトで並行稼働させると、tm
 - **副作用の分離**: パス計算・状態遷移ロジック・データ構築は純粋関数。I/O (ファイル作成, tmux 操作) は呼び出し側が明示的に実行する。関数名で副作用の有無を区別する (`XxxPath` = 純粋, `EnsureXxx` = 副作用あり)
 - **I/O 先行・状態変更後行**: 外部操作 (tmux, ファイル) を全て完了してから内部状態を変更する。I/O 失敗時は内部状態を変更せず汚染を防ぐ。ただし tmux の `RunChain` のようにアトミックにできない外部操作チェーンでは、途中失敗時の tmux 側ロールバックは行わない（設計判断参照）
 - **動的状態は Driver instance が所有する**: セッションごとの動的状態 (status / title / lastPrompt / insight) は **Driver instance** が単独で所有する。Driver が status を生み、保持し、読まれる。`Session` は静的メタデータと Tags のみを持ち Driver の状態には触らない。`Coordinator` は Driver の getter 経由で状態を読むだけで、独自の cache を持たない。状態の合成や複数 source からの merge ロジックは存在しない
-- **Driver-owned state production**: ステータスを生む責務は driver が持つ。各 driver は **stateful instance** として hook 受信 (`HandleEvent`) や capture-pane polling (`Tick`) を内部メソッドに閉じ込め、自分の private state を更新する。`Observer` 抽象は廃止 — Driver instance が直接 producer の役割を兼ねる。`SessionService` / `Coordinator` は Driver の中身を知らず、interface 経由でしかアクセスしない
+- **Driver-owned state production**: ステータスを生む責務は driver が持つ。各 driver は **stateful instance** として hook 受信 (`HandleEvent`) や capture-pane polling (`Tick`) を内部メソッドに閉じ込め、自分の private state を更新する。Claude driver の Tick は `SessionContext.Active()` でガードされ、active session のみ transcript を Tracker 経由で増分パースする。`Observer` 抽象は廃止 — Driver instance が直接 producer の役割を兼ねる。`SessionService` / `Coordinator` は Driver の中身を知らず、interface 経由でしかアクセスしない
 - **Strict service separation**: Session と Driver はそれぞれ独立した service (`session.SessionService`, `driver.DriverService`) で管理される。Session は Driver の存在を知らず、Driver は Session の存在を知らない。`core.Coordinator` が sessionID で 2 service を correlate する唯一の場所。Bridge は型ではなく Coordinator の orchestration logic として表現される
 - **WindowInfo via Coordinator adapter**: Driver は `Tick(now, win WindowInfo)` で window 情報を pull する。`WindowInfo` interface は Coordinator が adapter として構築する (Session interface には I/O メソッドを露出しない)。Driver は WindowInfo の実装が Session であることを知らない
 - **フォールバック禁止**: 「情報源 A が無ければ B」という合成は行わない。Driver instance が `HandleEvent` / `Tick` で自分の status を更新しない限り、status は変わらない — それだけ。新規 / 復元セッションでは Driver factory が初期化した値、または `RestorePersistedState` で復元した値が次の遷移まで持続する
@@ -471,7 +471,7 @@ sequenceDiagram
             Coord->>Coord: windowInfoAdapter(session, tmux) を構築
             Coord->>DrvSvc: Get(sessionID)
             Coord->>D: Tick(now, win)
-            Note over D: Claude → no-op<br/>Generic → win.RecentLines() + hash 比較
+            Note over D: Claude → SessionContext.Active() で gate<br/>active 時のみ 5 tick ごとに Tracker.Update<br/>inactive は即 return<br/>Generic → win.RecentLines() + hash 比較
         end
         alt status が変化した Driver
             Coord->>SessSvc: UpdatePersistedState(sessionID, drv.PersistedState())
@@ -480,13 +480,6 @@ sequenceDiagram
         S-->>M: broadcast("sessions-changed")
         Note over S,M: BuildSessionInfos が SessionService.All() と DriverService.Get() を引いて SessionInfo を組み立てる
         M->>M: View() 再描画
-    end
-
-    loop every 5 ticks (~5s)
-        S->>Coord: RefreshDriverMeta()
-        Coord->>DrvSvc: ForEach(drv → drv.RefreshMeta(fsys, home))
-        Note over D: claudeDriver が transcript を読み<br/>title / lastPrompt / insight を更新
-        S-->>M: broadcast("sessions-changed")
     end
 ```
 
@@ -511,7 +504,7 @@ type Driver interface {
 
     // 動的状態 producer
     MarkSpawned()                          // 新プロセス起動直後だけ呼ぶ
-    Tick(now time.Time, win WindowInfo)    // 定期 polling tick (event 駆動 driver では no-op)
+    Tick(now time.Time, win WindowInfo)    // 定期 polling tick (Claude は active 時のみ Tracker を更新、inactive は no-op)
     HandleEvent(ev AgentEvent) bool        // hook event を受け取る
     Close()                                // セッション破棄時のクリーンアップ
 
@@ -543,13 +536,48 @@ type WindowInfo interface {
 | `Factory(...)` | `DriverService.Create` / `Restore` | 新しい Driver instance を生成。factory 初期値は Idle / time.Now()。**この時点で外部 I/O は行わない** |
 | `RestorePersistedState` | `DriverService.Restore` | warm/cold restart で前回保存した opaque map を渡す。空 map なら factory 初期値のまま |
 | `MarkSpawned` | `Coordinator.Create` / `Recreate` | 新プロセス起動直後に呼ばれる。Driver は内部 status を Idle にセット (新プロセスは入力待ち状態) |
-| `Tick` | `Coordinator.Tick` (Server から定期呼び出し) | event 駆動 driver は no-op、polling 駆動 driver は `win.RecentLines()` で状態判定 |
+| `Tick` | `Coordinator.Tick` (Server から定期呼び出し) | Claude driver は `SessionContext.Active()` でガードし、active 時のみ 5 tick ごとに Tracker 経由で transcript 増分パースを実行 (inactive は即 return)。Generic driver は `win.RecentLines()` で状態判定 |
 | `HandleEvent` | `Coordinator.HandleHookEvent` (Server.handleAgentEvent から) | hook event を直接内部 status に反映 |
 | `Close` | `Coordinator.Stop` / `ReapDeadSessions` | リソース開放 |
 
-### Claude driver (event 駆動)
+### Active/Inactive と SessionContext (pull 型問い合わせ)
 
-`claudeDriver` は polling を一切行わない。`Tick` は (transcript meta refresh を除き) no-op で、`HandleEvent` が `state-change` event を受け取った瞬間だけ内部 status を更新する。新しい event が来なければ status は変わらない (= 復元された前回 status がそのまま表示され続ける)。
+「session が active」とは tmux window が pane 0.0 (メイン) に swap-pane されている状態を指す。**唯一の真実は `Coordinator.activeWindowID`** で、Driver はこの値を **問い合わせ型 (pull)** で参照する。
+
+```go
+// session/driver/driver.go
+type SessionContext interface {
+    Active() bool
+}
+```
+
+Coordinator が per-session adapter (`sessionContextAdapter{coord, sessionID}`) を実装し、Driver 生成時に `Deps.Session` で注入する。adapter は sessionID をキーに `SessionService.FindByID` で WindowID を解決して `c.activeWindowID == sess.WindowID` を返す — sessionID は cold boot 時の pane/window id 再発行に対しても安定なので、warm/cold restart 経路で adapter を作り直す必要はない。
+
+設計上のポイント:
+
+- **状態の単一化**: `active` 状態は `Coordinator.activeWindowID` だけが持つ。Driver 側に capture せず毎回問い合わせる → 通知漏れ / 順序問題が原理的に発生しない
+- **Driver は core を import しない**: `SessionContext` interface は `driver` パッケージで定義し、Coordinator がそれを実装する。依存方向は `core → driver` のまま
+- **Coordinator は Tick fan-out を変えない**: inactive Driver にも毎秒 `drv.Tick` を呼び続ける。Driver 側で `SessionContext.Active()` を見て早期 return する。これにより active 化の瞬間 (≤ 1 秒以内) で Driver が次の Tick を受け取って処理を再開できる — Coordinator → Driver の通知パスを別途用意する必要がない
+
+### Claude driver (event 駆動 + active gate 付き transcript 同期)
+
+`claudeDriver` の status は **完全に event 駆動** で、`HandleEvent` が `state-change` event を受け取った瞬間だけ内部 status を更新する。新しい event が来なければ status は変わらない (= 復元された前回 status がそのまま表示され続ける)。
+
+一方 transcript メタ (title / lastPrompt / subjects / insight) は `transcript.Tracker` に集約され、**単一の窓口**で増分パースされる。同じ JSONL を別経路で 2 回読まないため長時間セッションでも安価:
+
+- `Tick(now, win)`: `SessionContext.Active()` で gate。active 時のみ 5 tick (~5 秒) ごとに `Tracker.Update` で transcript 差分を畳み込み、driver 内のキャッシュ (title / lastPrompt / insight / statusLine) を更新する。inactive (この session の tmux window が pane 0.0 に swap されていない) 状態では interface dispatch + 1 回の `Active()` 問い合わせで即 return — Coordinator は fan-out を変えない (chicken-and-egg を避けるため)
+- `HandleEvent`: active/inactive を問わず常に `Tracker.Update` を回す。Hook event は鮮度の高い情報源なので、background session でも title / lastPrompt はその都度更新される
+- `Close`: `Tracker.Forget(sessionID)` を呼んで per-session 状態を解放 (メモリリーク防止)
+- ファイル truncation 検出: `claude --resume` で transcript が巻き戻されたとき、`Tracker.scanNewLines` が `Stat().Size() < offset` を検出して state を全リセットして再パースする
+
+#### lastPrompt の決定
+
+`lastPrompt` は `transcript.Tracker` が保持する **parentUuid チェーン**を `tailUUID` から逆向きに辿り、最初に出会う非 synthetic な `KindUser` エントリの text を返すことで決定する。
+
+- **rewind+resubmit の自然な扱い**: ユーザが Esc-Esc で巻き戻して別文言を再送信すると、Claude は同じ親 uuid を持つ user 子を 2 つ書く (実 transcript で観測済み)。新 branch のエントリだけが新 tail から到達可能なので、walk すれば自然に古い branch を無視する
+- **synthetic block-text の除外**: skill bootstrap (`Base directory for this skill: ...`)、interrupt marker (`[Request interrupted by user]`)、bang command の `<bash-input>` / `<bash-stdout>` 系の合成 user content は CLI からのユーザ入力ではないので、parser が `Synthetic` フラグを立てた KindUser として emit し、Tracker はこれらを userPrompts map に登録しない (チェーンは延ばす)
+- **チェーンスタブ**: 表示可能 entry を 0 個しか生成しない `assistant` 行 (例: `thinking` ブロックのみで `ShowThinking=false`) でも parser は `KindUnknown` のチェーンスタブを emit する。これがなければ後続の tail から walk しても uuid が parentOf に登録されておらず、chain が切れて lastPrompt が空になる
+- **`{"type":"last-prompt"}` イベントは使わない**: Claude Code がこのイベントを書くのは session resume の meta block (`last-prompt → custom-title → agent-name → permission-mode` 順) の中だけで、per-turn には emit されない。`parseLastPromptEntry` と `KindLastPrompt` 定数は dead code として残してあるが (将来の互換性 + 過去 transcript)、`applyEntryToMeta` / `applyMetaEntry` からは参照されない
 
 hook event → driver.Status マッピング:
 
@@ -841,7 +869,9 @@ func (c *Coordinator) HandleHookEvent(ev driver.AgentEvent) error
 | driver hook payload の抽象化 | `AgentEvent.DriverState` を不透明 `map[string]string` バッグとして運ぶ | 各 driver subcommand が tool 固有の hook field を **driver が定義した key** で DriverState に packing する。`Coordinator.HandleHookEvent` は中身を一切見ずに対象 Driver instance に転送するだけ。固有 field を増やしても core / Coordinator / SessionService / tmux / json には一切手が入らない |
 | Session ランタイム情報の保持 | Driver instance が `PersistedState() map[string]string` で identity + status を opaque に返し、`SessionService.UpdatePersistedState(sessionID, m)` が単一の tmux user option `@roost_persisted_state` (JSON-encoded) と sessions.json の `persisted_state` フィールドへ書き出す | driver 固有のキーを増やしても tmux 層は触らない。SessionService は中身を解釈しない (key 名すら知らない) ので、driver の追加 / 変更が SessionService や Coordinator に伝播しない。git branch 検出は Driver の `PersistedState()["working_dir"]` を Coordinator が読み出して反映 (driver 依存せず一律処理) |
 | 動的ステータスの永続化 | Status は Driver の `PersistedState()` に含めて永続化する。Driver が internal で更新し、Coordinator が変更検知時に `SessionService.UpdatePersistedState` を呼んで再永続化する | Warm/Cold restart 後、Driver factory が新 instance を作った直後に `RestorePersistedState` で前回値を復元する。Idle にリセットされない。書き込み失敗時は Driver の dirty flag が立ち続け、次の Tick で再試行される |
-| polling と event 駆動の統一インターフェース | `Driver` に `Tick(now, win)` (polling) と `HandleEvent(ev)` (event) を両方用意。driver ごとに片方だけ実装 | Claude (`claudeDriver`) は `Tick` を no-op にする = 新 event が来るまで status は不変。Generic (`genericDriver`) は `HandleEvent` を `return false` にする。Coordinator は両者を区別せず `Driver.Tick` / `Driver.HandleEvent` を呼ぶだけ。新 driver 追加時は Factory を 1 つ実装すればよい |
+| polling と event 駆動の統一インターフェース | `Driver` に `Tick(now, win)` (polling) と `HandleEvent(ev)` (event) を両方用意。driver ごとに片方だけ実装 | Claude (`claudeDriver`) の status は event 駆動 (新 event が来るまで status 不変)。transcript meta は `SessionContext.Active()` で gate した Tick で active 時のみ Tracker 経由 increment 更新。Generic (`genericDriver`) は `HandleEvent` を `return false` にする。Coordinator は両者を区別せず `Driver.Tick` / `Driver.HandleEvent` を呼ぶだけ。新 driver 追加時は Factory を 1 つ実装すればよい |
+| Driver の active 判定 | `SessionContext` interface (driver パッケージで定義、Coordinator が adapter で実装、`Deps.Session` で per-session 注入) を pull で問い合わせる | 真実は `Coordinator.activeWindowID` の 1 点のみ。Driver 側に状態を複製しない → 通知漏れ・順序問題が原理的に発生しない。Driver は core/ を import せず、依存方向は `core → driver` のまま保たれる。Coordinator は inactive Driver にも Tick fan-out を続けるので、active 化は Driver 側の次の Tick (≤ 1 秒以内) で自然に検出される (chicken-and-egg を避ける) |
+| transcript パースの単一窓口 | `transcript.Tracker` が title / lastPrompt / subjects / insight / token をまとめて offset ベースで増分パースし、`claudeDriver` はそのスナップショットをコピーするだけ | 旧設計では `Tracker.Update` (statusLine 用 increment) と `claudeDriver.refreshTranscriptMeta` (meta 用 ParseAll) で同じ JSONL を 2 回読んでいた。長時間セッションで Tick ごとにフルパースを払うコストは無視できない。Tracker に集約することで二重パースを解消し、ファイル truncation 検出 (claude --resume の rewind) も Tracker 1 か所で対応できる |
 | 初回 Tick で status を触らない | `genericDriver.Tick` は `primed=false` のとき hash baseline を設定するだけで status を更新しない | Warm start 直後の最初のポーリングで `RestorePersistedState` で復元した status を上書きしないため。次の Tick で実際に hash 変化を観測したときだけ status を更新する |
 | Session ライフサイクルラッパー | `Coordinator.Create` / `Coordinator.Stop` が `SessionService.Create`/`Stop` と `DriverService.Create`/`Close` をペアで呼ぶ | Server ハンドラが SessionService や DriverService を直接呼ぶと片側だけ作成 / 削除されて状態が乖離する。Coordinator がペアの操作を保証することで「sessionID が存在する = Driver instance も存在する」不変条件を守る。`ReapDeadSessions` も同様に `DriverService.Close` を呼ぶ |
 | WindowInfo の伝達 | `Driver.Tick(now, win)` で `WindowInfo` interface を pull で受け取る。adapter は Coordinator 内部の private 型 | Driver が Session を import すると import cycle を作りやすく、Session が tmux に I/O を持つと Session interface が肥大化する。Coordinator が両者を束ねた adapter を構築することで、Driver は I/O できるが Session interface は識別子のみに留まる (オプション B) |
@@ -915,13 +945,13 @@ src/
 │   ├── service.go       SessionService (CRUD + tmux user options I/O + sessions.json snapshot + UpdatePersistedState + ReconcileWindows)
 │   ├── log.go           ログパスヘルパー
 │   └── driver/
-│       ├── driver.go    Driver interface (MarkSpawned, Tick, HandleEvent, Close, Status, Title, LastPrompt, Insight, PersistedState, RestorePersistedState, SpawnCommand)
+│       ├── driver.go    Driver interface (MarkSpawned, Tick, HandleEvent, Close, Status, Title, LastPrompt, Insight, PersistedState, RestorePersistedState, SpawnCommand) + SessionContext interface (active 問い合わせ)
 │       ├── status.go    Status 列挙型 (Running/Waiting/Idle/Stopped/Pending) + StatusInfo 構造体 + ParseStatus
 │       ├── window_info.go  WindowInfo interface (Coordinator が adapter として実装)
 │       ├── service.go   DriverService (sessionID → Driver instance map + Registry)
 │       ├── factory.go   Factory + Registry + Deps
 │       ├── event.go     AgentEvent (driver-neutral hook payload。driver 固有値は DriverState map に packed)
-│       ├── claude_driver.go    claudeDriver (stateful。event 駆動。private status / title / lastPrompt / insight + transcript.Tracker)
+│       ├── claude_driver.go    claudeDriver (stateful。status は event 駆動。transcript meta は SessionContext.Active() でガードした Tick + HandleEvent から transcript.Tracker 経由で increment 更新)
 │       ├── generic_driver.go   genericDriver (stateful。polling 駆動。capture-pane + hash 比較 + idle 閾値)
 │       └── poll.go      capture-pane 駆動 driver 用の共通ヘルパー (hashContent, hasPromptIndicator)
 ├── tmux/

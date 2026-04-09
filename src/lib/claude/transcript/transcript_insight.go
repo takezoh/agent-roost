@@ -47,8 +47,15 @@ func applyEntryToMeta(snap *MetaSnapshot, e Entry) {
 	switch e.Kind {
 	case KindCustomTitle:
 		snap.Title = e.Text
-	case KindLastPrompt:
-		snap.LastPrompt = e.Text
+	case KindUser:
+		// AggregateMeta is a single-pass helper that doesn't have access
+		// to the parentUuid chain, so it falls back to "latest non-empty
+		// non-synthetic KindUser wins". transcript.Tracker uses chain
+		// walking to skip rewound branches; AggregateMeta is only used
+		// by tests now.
+		if e.Text != "" && !e.Synthetic {
+			snap.LastPrompt = e.Text
+		}
 	case KindToolUse:
 		if e.ToolName == "TaskCreate" && e.ToolInput.Primary != "" && len(snap.Subjects) < maxSubjectsAgg {
 			snap.Subjects = append(snap.Subjects, e.ToolInput.Primary)

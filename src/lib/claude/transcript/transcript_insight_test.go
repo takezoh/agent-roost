@@ -9,9 +9,7 @@ func TestAggregateMeta_TitleAndPrompt(t *testing.T) {
 	p := NewParser(ParserOptions{})
 	entries := p.ParseAll(strings.NewReader(`{"type":"custom-title","customTitle":"my-session"}
 {"type":"user","message":{"content":"first prompt"}}
-{"type":"last-prompt","lastPrompt":"first prompt"}
 {"type":"user","message":{"content":"latest prompt"}}
-{"type":"last-prompt","lastPrompt":"latest prompt"}
 `))
 	snap := AggregateMeta(entries)
 	if snap.Title != "my-session" {
@@ -22,63 +20,45 @@ func TestAggregateMeta_TitleAndPrompt(t *testing.T) {
 	}
 }
 
-func TestAggregateMeta_LastPromptIgnoresUserText(t *testing.T) {
-	// KindUser entries must NOT contribute to LastPrompt — only the
-	// last-prompt control event does. This guarantees rewound user-text
-	// (still present in the JSONL after a rewind) cannot leak into the
-	// session-meta view.
+func TestAggregateMeta_LastPromptFromUserStringContent(t *testing.T) {
+	// The single-pass AggregateMeta helper falls back to "latest non-empty
+	// KindUser wins" because it has no parentUuid chain context. tracker.go
+	// has the rewind-aware version.
 	p := NewParser(ParserOptions{})
-	entries := p.ParseAll(strings.NewReader(`{"type":"user","message":{"content":"rewound prompt A"}}
-{"type":"user","message":{"content":"rewound prompt B"}}
-{"type":"last-prompt","lastPrompt":"active prompt"}
+	entries := p.ParseAll(strings.NewReader(`{"type":"user","message":{"content":"first"}}
+{"type":"user","message":{"content":"second"}}
 `))
 	snap := AggregateMeta(entries)
-	if snap.LastPrompt != "active prompt" {
-		t.Errorf("LastPrompt = %q, want %q", snap.LastPrompt, "active prompt")
+	if snap.LastPrompt != "second" {
+		t.Errorf("LastPrompt = %q, want second", snap.LastPrompt)
 	}
 }
 
-func TestAggregateMeta_LastPromptRewindReverts(t *testing.T) {
-	// After the user rewinds without resubmitting, Claude Code emits a
-	// fresh last-prompt event pointing back to the rewind target.
-	// AggregateMeta must surface that target, not whatever user-text
-	// happens to be the latest line in the file.
+func TestAggregateMeta_LastPromptFiltersBashInputBlob(t *testing.T) {
+	// `! command` exec injects synthetic <bash-input>/<bash-stdout>
+	// user blocks. systemTagPrefixes strips them so they never become
+	// KindUser entries; the prior real prompt remains the latest one.
 	p := NewParser(ParserOptions{})
-	entries := p.ParseAll(strings.NewReader(`{"type":"user","message":{"content":"prompt A"}}
-{"type":"last-prompt","lastPrompt":"prompt A"}
-{"type":"user","message":{"content":"prompt B"}}
-{"type":"last-prompt","lastPrompt":"prompt B"}
-{"type":"last-prompt","lastPrompt":"prompt A"}
+	entries := p.ParseAll(strings.NewReader(`{"type":"user","message":{"content":"real prompt"}}
+{"type":"user","message":{"content":"<bash-input>git status</bash-input>"}}
+{"type":"user","message":{"content":"<bash-stdout>On branch master</bash-stdout>"}}
 `))
 	snap := AggregateMeta(entries)
-	if snap.LastPrompt != "prompt A" {
-		t.Errorf("LastPrompt = %q, want %q", snap.LastPrompt, "prompt A")
+	if snap.LastPrompt != "real prompt" {
+		t.Errorf("LastPrompt = %q, want real prompt (bash blobs must be filtered)", snap.LastPrompt)
 	}
 }
 
-func TestAggregateMeta_NoLastPromptEvent(t *testing.T) {
-	// Old transcripts without last-prompt events leave LastPrompt empty;
-	// no fallback to KindUser.
+func TestAggregateMeta_LastPromptIgnoresToolResultUserBlocks(t *testing.T) {
+	// User messages whose content is a tool_result block array contain
+	// no text → no KindUser entry → no contribution to LastPrompt.
 	p := NewParser(ParserOptions{})
-	entries := p.ParseAll(strings.NewReader(`{"type":"user","message":{"content":"hello"}}
-{"type":"user","message":{"content":"world"}}
+	entries := p.ParseAll(strings.NewReader(`{"type":"user","message":{"content":"the prompt"}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
 `))
 	snap := AggregateMeta(entries)
-	if snap.LastPrompt != "" {
-		t.Errorf("LastPrompt = %q, want empty", snap.LastPrompt)
-	}
-}
-
-func TestAggregateMeta_LastPromptEmptyString(t *testing.T) {
-	// An empty lastPrompt value must reset LastPrompt — represents the
-	// "rewind to a state with no user prompt yet" case.
-	p := NewParser(ParserOptions{})
-	entries := p.ParseAll(strings.NewReader(`{"type":"last-prompt","lastPrompt":"first"}
-{"type":"last-prompt","lastPrompt":""}
-`))
-	snap := AggregateMeta(entries)
-	if snap.LastPrompt != "" {
-		t.Errorf("LastPrompt = %q, want empty", snap.LastPrompt)
+	if snap.LastPrompt != "the prompt" {
+		t.Errorf("LastPrompt = %q, want the prompt (tool_result must not overwrite)", snap.LastPrompt)
 	}
 }
 

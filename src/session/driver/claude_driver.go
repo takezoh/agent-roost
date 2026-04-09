@@ -2,7 +2,6 @@ package driver
 
 import (
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -40,9 +39,9 @@ type claudeDriver struct {
 	mu sync.Mutex
 
 	// Static deps
-	fsys    fs.FS  // for transcript reading
-	home    string // for ~/.claude/projects/... resolution
-	tracker *transcript.Tracker
+	home       string // for ~/.claude/projects/... resolution
+	tracker    *transcript.Tracker
+	sessionCtx SessionContext // pull-based active-state query (never nil)
 
 	// Identity (set via RestorePersistedState or HandleEvent)
 	sessionID      string
@@ -64,11 +63,15 @@ type claudeDriver struct {
 func newClaudeFactory() Factory {
 	return func(deps Deps) Driver {
 		now := time.Now()
+		ctx := deps.Session
+		if ctx == nil {
+			ctx = inactiveSessionContext{}
+		}
 		return &claudeDriver{
-			fsys:    deps.FS,
-			home:    deps.Home,
-			tracker: transcript.NewTracker(),
-			status:  StatusInfo{Status: StatusIdle, ChangedAt: now},
+			home:       deps.Home,
+			tracker:    transcript.NewTracker(),
+			sessionCtx: ctx,
+			status:     StatusInfo{Status: StatusIdle, ChangedAt: now},
 		}
 	}
 }
@@ -85,10 +88,21 @@ func (d *claudeDriver) MarkSpawned() {
 	d.status = StatusInfo{Status: StatusIdle, ChangedAt: time.Now()}
 }
 
-// Tick: Claude is event-driven, so the only periodic work is occasional
-// transcript refresh to pick up title / lastPrompt / insight changes from
-// JSONL deltas. The window argument is unused (no capture-pane needed).
+// Tick: Claude is event-driven, so the only periodic work is the
+// transcript refresh that picks up title / lastPrompt / insight changes
+// from JSONL deltas. We gate this on the session being currently active
+// (swapped into pane 0.0) so background sessions don't pay for parsing
+// they will never display. HandleEvent still updates state regardless of
+// active state, so non-active sessions stay fresh whenever Claude actually
+// emits hook events.
+//
+// Coordinator continues to fan Tick out to every Driver every second; the
+// early return below means inactive Drivers cost only one interface
+// dispatch + one Active() lookup per tick (negligible).
 func (d *claudeDriver) Tick(now time.Time, _ WindowInfo) {
+	if !d.sessionCtx.Active() {
+		return
+	}
 	d.mu.Lock()
 	d.tickCounter++
 	if d.tickCounter%claudeMetaRefreshTicks != 0 {
@@ -146,7 +160,14 @@ func (d *claudeDriver) absorbDriverStateLocked(ds map[string]string) {
 	}
 }
 
-func (d *claudeDriver) Close() {}
+func (d *claudeDriver) Close() {
+	d.mu.Lock()
+	sid := d.sessionID
+	d.mu.Unlock()
+	if d.tracker != nil && sid != "" {
+		d.tracker.Forget(sid)
+	}
+}
 
 func (d *claudeDriver) Status() (StatusInfo, bool) {
 	d.mu.Lock()
@@ -261,9 +282,14 @@ func (d *claudeDriver) SpawnCommand(baseCommand string) string {
 	return cli.ResumeCommand(baseCommand, sid)
 }
 
-// refreshMeta opens the JSONL transcript and updates the cached title /
-// lastPrompt / insight + statusLine. No-ops when the path can't be resolved
-// yet (pre-SessionStart). Locks are held only while mutating fields.
+// refreshMeta folds any new transcript content into the Tracker (the
+// single window through which the driver consumes JSONL) and copies the
+// resulting snapshot into local fields the readers expose. No-ops when
+// the path can't be resolved yet (pre-SessionStart).
+//
+// statusLine is cached unconditionally — formatting is microsecond-cheap
+// and the value is consumed by the active-session sync path; gating it
+// here would just complicate the read path for no benefit.
 func (d *claudeDriver) refreshMeta() {
 	d.mu.Lock()
 	path := d.resolveTranscriptPathLocked()
@@ -272,47 +298,22 @@ func (d *claudeDriver) refreshMeta() {
 	if path == "" || sid == "" {
 		return
 	}
-	// Tracker uses fs.FS implicitly via os.Open under the hood — but our
-	// tracker isn't fs.FS-aware. Use the driver's fsys for parsing meta and
-	// the tracker for status-line aggregation (which calls os.Open directly).
-	d.refreshTranscriptMeta(path)
-	if d.tracker != nil {
-		if line, changed := d.tracker.Update(sid, path); changed {
-			d.mu.Lock()
-			d.statusLine = line
-			d.mu.Unlock()
-		}
-	}
-}
-
-func (d *claudeDriver) refreshTranscriptMeta(path string) {
-	if d.fsys == nil {
+	if _, err := d.tracker.Update(sid, path); err != nil {
+		slog.Debug("claude driver: tracker update failed", "path", path, "err", err)
 		return
 	}
-	f, err := d.fsys.Open(strings.TrimPrefix(path, "/"))
-	if err != nil {
-		slog.Debug("claude driver: open transcript failed", "path", path, "err", err)
-		return
-	}
-	defer f.Close()
-	parser := transcript.NewParser(transcript.ParserOptions{})
-	entries := parser.ParseAll(f)
-	snap := transcript.AggregateMeta(entries)
+	snap := d.tracker.Snapshot(sid)
+	line := d.tracker.StatusLine(sid)
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if snap.Title != "" {
-		d.title = snap.Title
-	}
-	if snap.LastPrompt != "" {
-		d.lastPrompt = snap.LastPrompt
-	}
-	if len(snap.Subjects) > 0 {
-		d.subjects = append(d.subjects[:0], snap.Subjects...)
-	}
+	d.title = snap.Title
+	d.lastPrompt = snap.LastPrompt
+	d.subjects = append(d.subjects[:0], snap.Subjects...)
 	d.currentTool = snap.Insight.CurrentTool
 	d.subagentCounts = snap.Insight.SubagentCounts
 	d.errorCount = snap.Insight.ErrorCount
+	d.statusLine = line
 }
 
 // resolveTranscriptPathLocked picks the best known transcript path. Caller

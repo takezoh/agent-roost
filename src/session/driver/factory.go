@@ -13,8 +13,9 @@ import (
 // genericDriver doesn't read transcripts).
 type Deps struct {
 	IdleThreshold time.Duration
-	FS            fs.FS  // for transcript reading (claudeDriver)
-	Home          string // user home dir for ~/.claude/projects/... resolution
+	FS            fs.FS          // for transcript reading (claudeDriver)
+	Home          string         // user home dir for ~/.claude/projects/... resolution
+	Session       SessionContext // per-session active-state query (set by DriverService.Create/Restore)
 }
 
 // Factory constructs a fresh Driver instance for one session. The instance

@@ -1,14 +1,27 @@
 package driver
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"testing/fstest"
 	"time"
 )
 
+// fakeSessionContext lets tests flip the active flag at will.
+type fakeSessionContext struct{ active bool }
+
+func (f *fakeSessionContext) Active() bool { return f.active }
+
 func newClaude(t *testing.T) *claudeDriver {
 	t.Helper()
 	d := newClaudeFactory()(Deps{FS: fstest.MapFS{}}).(*claudeDriver)
+	return d
+}
+
+func newClaudeWithCtx(t *testing.T, ctx SessionContext) *claudeDriver {
+	t.Helper()
+	d := newClaudeFactory()(Deps{FS: fstest.MapFS{}, Session: ctx}).(*claudeDriver)
 	return d
 }
 
@@ -99,5 +112,91 @@ func TestClaudeDriver_TickIsNoop(t *testing.T) {
 	d.Tick(time.Now(), nil)
 	if got, _ := d.Status(); got.Status != StatusRunning {
 		t.Errorf("Tick changed status from running to %v", got.Status)
+	}
+}
+
+// writeClaudeTranscript creates a small JSONL file with a custom-title
+// entry so refreshMeta has something observable to pick up.
+func writeClaudeTranscript(t *testing.T, title string) (path, sessionID string) {
+	t.Helper()
+	dir := t.TempDir()
+	sessionID = "sid-test"
+	path = filepath.Join(dir, sessionID+".jsonl")
+	body := `{"type":"custom-title","customTitle":"` + title + `"}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	return path, sessionID
+}
+
+func TestClaudeDriver_TickGatedByActiveContext(t *testing.T) {
+	ctx := &fakeSessionContext{active: false}
+	d := newClaudeWithCtx(t, ctx)
+	path, sid := writeClaudeTranscript(t, "first")
+	// Seed identity so resolveTranscriptPathLocked() returns a real path.
+	d.RestorePersistedState(map[string]string{
+		"session_id":      sid,
+		"transcript_path": path,
+	})
+	// Reset title set during the Restore-time refreshMeta so we can verify
+	// subsequent Ticks really did or didn't run.
+	d.mu.Lock()
+	d.title = ""
+	d.tickCounter = 0
+	d.mu.Unlock()
+
+	// Inactive: drive Tick claudeMetaRefreshTicks times. Should be a no-op.
+	for i := 0; i < claudeMetaRefreshTicks; i++ {
+		d.Tick(time.Now(), nil)
+	}
+	if got := d.Title(); got != "" {
+		t.Errorf("inactive Tick should not refresh title, got %q", got)
+	}
+
+	// Become active: next 5 ticks should trigger one refreshMeta.
+	ctx.active = true
+	for i := 0; i < claudeMetaRefreshTicks; i++ {
+		d.Tick(time.Now(), nil)
+	}
+	if got := d.Title(); got != "first" {
+		t.Errorf("active Tick should refresh title to %q, got %q", "first", got)
+	}
+}
+
+func TestClaudeDriver_HandleEventRefreshesRegardlessOfActive(t *testing.T) {
+	ctx := &fakeSessionContext{active: false}
+	d := newClaudeWithCtx(t, ctx)
+	path, sid := writeClaudeTranscript(t, "from event")
+
+	consumed := d.HandleEvent(AgentEvent{
+		Type:  AgentEventStateChange,
+		State: "running",
+		DriverState: map[string]string{
+			"session_id":      sid,
+			"transcript_path": path,
+		},
+	})
+	if !consumed {
+		t.Fatal("state-change event should be consumed")
+	}
+	if got := d.Title(); got != "from event" {
+		t.Errorf("HandleEvent should refresh title even when inactive, got %q", got)
+	}
+}
+
+func TestClaudeDriver_CloseForgetsTrackerState(t *testing.T) {
+	ctx := &fakeSessionContext{active: true}
+	d := newClaudeWithCtx(t, ctx)
+	path, sid := writeClaudeTranscript(t, "x")
+	d.RestorePersistedState(map[string]string{
+		"session_id":      sid,
+		"transcript_path": path,
+	})
+	if d.tracker.Snapshot(sid).Title != "x" {
+		t.Fatal("setup: tracker should have title cached")
+	}
+	d.Close()
+	if got := d.tracker.Snapshot(sid); got.Title != "" {
+		t.Errorf("Close should drop tracker state, got %+v", got)
 	}
 }
