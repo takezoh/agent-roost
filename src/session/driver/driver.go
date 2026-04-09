@@ -41,6 +41,18 @@ type Driver interface {
 	// process during cold-boot recovery. Drivers that support resume augment
 	// the base command using their own keys recovered from PersistedState.
 	SpawnCommand(baseCommand string) string
+
+	// Atomic runs fn with the underlying driver in a single critical
+	// section. In production this collapses to one driverActor inbox
+	// round-trip even when fn invokes several Driver methods, so callers
+	// can read multiple fields (e.g. PersistedState + View().StatusLine
+	// after a HandleEvent) without paying for one round-trip per call.
+	//
+	// fn must NOT call back into the Coordinator or any other actor that
+	// could be waiting on this Driver — doing so would deadlock the
+	// driverActor goroutine. The contract is "pure read/write of this
+	// driver's own state".
+	Atomic(fn func(d Driver))
 }
 
 // AgentEvent is defined in event.go. HandleEvent receives this driver-neutral

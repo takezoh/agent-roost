@@ -6,6 +6,16 @@ import (
 	"time"
 )
 
+// unwrapDriver returns the underlying impl when d is a *driverActor, or
+// d itself otherwise. Test-only convenience for code that needs to
+// inspect driver internals — production never reaches into the actor.
+func unwrapDriver(d Driver) Driver {
+	if a, ok := d.(*driverActor); ok {
+		return a.impl
+	}
+	return d
+}
+
 // fakeDriver records every method call so the actor wrapper can be
 // observed in isolation from any real Driver implementation. Field
 // access happens only on the actor goroutine (and the test goroutine
@@ -29,6 +39,7 @@ func (f *fakeDriver) PersistedState() map[string]string             { return map
 func (f *fakeDriver) RestorePersistedState(state map[string]string) {}
 func (f *fakeDriver) SpawnCommand(base string) string               { return base }
 func (f *fakeDriver) Close()                                        { f.closed = true }
+func (f *fakeDriver) Atomic(fn func(Driver))                        { fn(f) }
 
 func (f *fakeDriver) Tick(now time.Time, win WindowInfo) {
 	if f.tickStarted != nil {

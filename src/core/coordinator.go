@@ -1,13 +1,14 @@
 package core
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
+	"sync/atomic"
 
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
@@ -42,10 +43,19 @@ type Coordinator struct {
 	stop      chan struct{}
 	stopped   chan struct{}
 	closeOnce sync.Once
+	startOnce sync.Once // guards run() against double Start
+
+	// tickInFlight is set while a fan-out tick is still gathering Driver
+	// results. Subsequent ticker fires while one is in flight are
+	// dropped — the next tick will pick up any state the slow drivers
+	// produced. Periodic polling is naturally idempotent so dropping
+	// (vs. queueing) is the right semantics.
+	tickInFlight atomic.Bool
 
 	// Server registers this callback to receive sessions-changed events
-	// fired from the actor goroutine after every Tick / Reap. Must be
-	// non-blocking (Server's asyncBroadcast satisfies this).
+	// fired from the actor goroutine after every Tick / Reap / hook
+	// event. Must be non-blocking (Server's AsyncBroadcast satisfies
+	// this).
 	notifySessionsChanged sessionsChangedNotifier
 }
 
@@ -109,7 +119,9 @@ func (c *Coordinator) clearActiveInternal(windowID string) {
 // Preview swaps the named session into pane 0.0 without focusing it.
 func (c *Coordinator) Preview(id string) error {
 	var err error
-	c.exec(func() { err = c.previewInternal(id) })
+	if !c.exec(func() { err = c.previewInternal(id) }) {
+		return errCoordinatorStopped
+	}
 	return err
 }
 
@@ -130,7 +142,9 @@ func (c *Coordinator) previewInternal(id string) error {
 // Switch swaps the named session into pane 0.0 and focuses it.
 func (c *Coordinator) Switch(id string) error {
 	var err error
-	c.exec(func() { err = c.switchInternal(id) })
+	if !c.exec(func() { err = c.switchInternal(id) }) {
+		return errCoordinatorStopped
+	}
 	return err
 }
 
@@ -151,7 +165,9 @@ func (c *Coordinator) switchInternal(id string) error {
 // Deactivate swaps whatever is currently in pane 0.0 back to its origin.
 func (c *Coordinator) Deactivate() error {
 	var err error
-	c.exec(func() { err = c.deactivateInternal() })
+	if !c.exec(func() { err = c.deactivateInternal() }) {
+		return errCoordinatorStopped
+	}
 	return err
 }
 
@@ -206,7 +222,9 @@ func (c *Coordinator) Create(project, command string) (string, error) {
 		id  string
 		err error
 	)
-	c.exec(func() { id, err = c.createInternal(project, command) })
+	if !c.exec(func() { id, err = c.createInternal(project, command) }) {
+		return "", errCoordinatorStopped
+	}
 	return id, err
 }
 
@@ -225,7 +243,9 @@ func (c *Coordinator) createInternal(project, command string) (string, error) {
 // Stop kills a session window and tears down its Driver instance.
 func (c *Coordinator) Stop(id string) error {
 	var err error
-	c.exec(func() { err = c.stopInternal(id) })
+	if !c.exec(func() { err = c.stopInternal(id) }) {
+		return errCoordinatorStopped
+	}
 	return err
 }
 
@@ -281,64 +301,87 @@ func (c *Coordinator) Recreate() error {
 	return nil
 }
 
-// tickInternal fans the periodic tick out to every Driver. Runs only on
-// the actor goroutine via handleTickInternal. The active flag is baked
-// into the WindowInfo so Driver actors never have to call back into
-// Coordinator.
-func (c *Coordinator) tickInternal(now time.Time) {
-	for _, sess := range c.Sessions.All() {
-		drv, ok := c.Drivers.Get(sess.ID)
-		if !ok {
-			continue
-		}
-		win := newWindowInfoAdapter(sess, c.Tmux, c.isActiveInternal(sess.WindowID))
-		drv.Tick(now, win)
-		c.flushPersistedStateInternal(sess, drv)
-	}
-}
-
 // HandleHookEvent routes a Claude (or other) hook event to the right
-// Driver. The event carries the roost sessionID directly so routing is
-// a single FindByID lookup. Returns whether the event was consumed.
-func (c *Coordinator) HandleHookEvent(ev driver.AgentEvent) (sessionID string, consumed bool) {
-	c.exec(func() { sessionID, consumed = c.handleHookEventInternal(ev) })
-	return
-}
-
-func (c *Coordinator) handleHookEventInternal(ev driver.AgentEvent) (string, bool) {
+// Driver. The work is split across three phases so the actual
+// HandleEvent + state read on the Driver actor runs OFF the Coordinator
+// actor goroutine — that prevents a slow Driver from blocking the
+// Coordinator's inbox processing.
+//
+//  1. Lookup phase (on actor): resolve sessionID → (Session, Driver).
+//  2. Atomic phase (off actor): drv.Atomic combines HandleEvent +
+//     PersistedState + View().StatusLine into one Driver actor
+//     round-trip.
+//  3. Apply phase (on actor): write back persisted state, push the
+//     status line if this session is currently focused, and fire
+//     sessions-changed.
+func (c *Coordinator) HandleHookEvent(ev driver.AgentEvent) (string, bool) {
 	if ev.SessionID == "" {
 		slog.Warn("hook event: missing session id", "type", ev.Type, "state", ev.State)
 		return "", false
 	}
-	sess := c.Sessions.FindByID(ev.SessionID)
-	if sess == nil {
-		slog.Warn("hook event: unknown session", "session", ev.SessionID, "type", ev.Type)
+
+	// Phase 1: lookup on the Coordinator actor.
+	var (
+		sessID  string
+		sessWid string
+		drv     driver.Driver
+	)
+	if !c.exec(func() {
+		sess := c.Sessions.FindByID(ev.SessionID)
+		if sess == nil {
+			slog.Warn("hook event: unknown session", "session", ev.SessionID, "type", ev.Type)
+			return
+		}
+		d, ok := c.Drivers.Get(sess.ID)
+		if !ok {
+			slog.Warn("hook event: no driver for session", "session", ev.SessionID, "type", ev.Type)
+			sessID = sess.ID
+			return
+		}
+		sessID = sess.ID
+		sessWid = sess.WindowID
+		drv = d
+	}) {
 		return "", false
 	}
-	drv, ok := c.Drivers.Get(sess.ID)
-	if !ok {
-		slog.Warn("hook event: no driver for session", "session", ev.SessionID, "type", ev.Type)
-		return sess.ID, false
+	if drv == nil {
+		return sessID, false
 	}
-	consumed := drv.HandleEvent(ev)
+
+	// Phase 2: Driver actor round-trip OFF the Coordinator actor.
+	// Atomic collapses HandleEvent + PersistedState + View().StatusLine
+	// into a single Driver inbox round-trip and runs them under one
+	// critical section.
+	var (
+		consumed   bool
+		persisted  map[string]string
+		statusLine string
+	)
+	drv.Atomic(func(d driver.Driver) {
+		consumed = d.HandleEvent(ev)
+		persisted = d.PersistedState()
+		statusLine = d.View().StatusLine
+	})
+
 	if !consumed {
 		slog.Debug("hook event: not consumed by driver",
-			"session", sess.ID, "type", ev.Type, "state", ev.State)
+			"session", sessID, "type", ev.Type, "state", ev.State)
+		return sessID, false
 	}
-	c.flushPersistedStateInternal(sess, drv)
-	if consumed && c.syncStatus != nil && c.activeWindowID == sess.WindowID {
-		c.syncStatus(drv.View().StatusLine)
-	}
-	return sess.ID, consumed
+
+	// Phase 3: apply results back on the Coordinator actor. This is
+	// also where we fire sessions-changed so subscribers see the new
+	// state. The Server no longer broadcasts hook events on its own.
+	c.exec(func() {
+		c.Sessions.UpdatePersistedState(sessID, persisted)
+		if c.syncStatus != nil && c.activeWindowID == sessWid {
+			c.syncStatus(statusLine)
+		}
+		c.fireSessionsChanged()
+	})
+	return sessID, true
 }
 
-// flushPersistedStateInternal writes the driver's current PersistedState
-// bag back to SessionService. SessionService short-circuits when
-// nothing changed, so this is cheap to call after every Tick / event.
-func (c *Coordinator) flushPersistedStateInternal(sess *session.Session, drv driver.Driver) {
-	persisted := drv.PersistedState()
-	c.Sessions.UpdatePersistedState(sess.ID, persisted)
-}
 
 // SyncActiveStatusLine pushes the active session's cached status line
 // to tmux. Reads internal state so it routes through the actor.
@@ -366,28 +409,6 @@ func (c *Coordinator) syncActiveStatusLineInternal() {
 	}
 }
 
-// AllSessionInfos returns a snapshot of every session shipped as
-// SessionInfo records. Replaces the older "Server reaches into
-// SessionService directly + calls BuildSessionInfos" pattern.
-func (c *Coordinator) AllSessionInfos() []SessionInfo {
-	var infos []SessionInfo
-	c.exec(func() {
-		infos = BuildSessionInfos(c.Sessions.All(), c.Drivers)
-	})
-	return infos
-}
-
-// SnapshotSessionsAndActive returns sessions + active window in a single
-// actor round-trip. Convenience for command response messages that need
-// both at the same instant.
-func (c *Coordinator) SnapshotSessionsAndActive() (infos []SessionInfo, active string) {
-	c.exec(func() {
-		infos = BuildSessionInfos(c.Sessions.All(), c.Drivers)
-		active = c.activeWindowID
-	})
-	return
-}
-
 func (c *Coordinator) buildSwapChain(sess *session.Session) [][]string {
 	pane0 := c.SessionName + ":0.0"
 	var cmds [][]string
@@ -398,62 +419,12 @@ func (c *Coordinator) buildSwapChain(sess *session.Session) [][]string {
 	return cmds
 }
 
-// reapDeadSessionsInternal detects sessions whose tmux window has
-// disappeared (agent process exited normally), evicts them from
-// SessionService, and closes their Driver instances. Runs on the actor
-// goroutine. Returns the removed sessions so handleTickInternal can
-// fire a notification.
-func (c *Coordinator) reapDeadSessionsInternal() []session.RemovedSession {
-	c.reapDeadActivePane00Internal()
-	removed, err := c.Sessions.ReconcileWindows()
-	if err != nil {
-		slog.Error("reconcile windows failed", "err", err)
-		return nil
-	}
-	for _, r := range removed {
-		c.Drivers.Close(r.ID)
-		c.clearActiveInternal(r.WindowID)
-	}
-	return removed
+// errSessionNotFound is returned when a session id passed to
+// Preview/Switch/Stop does not match any known session.
+func errSessionNotFound(id string) error {
+	return fmt.Errorf("session not found: %s", id)
 }
 
-// reapDeadActivePane00Internal handles the dead-pane case where the
-// active session's agent pane has died but the window itself is still
-// alive (because the agent pane is currently swapped into pane 0.0 and
-// roost:0:0 is remain-on-exit).
-func (c *Coordinator) reapDeadActivePane00Internal() {
-	out, err := c.Panes.DisplayMessage(c.SessionName+":0.0", "#{pane_dead} #{pane_id}")
-	if err != nil {
-		return
-	}
-	parts := strings.Fields(out)
-	if len(parts) != 2 || parts[0] != "1" {
-		return
-	}
-	deadPaneID := parts[1]
-	owner := c.Sessions.FindByAgentPaneID(deadPaneID)
-	if owner == nil {
-		return
-	}
-	slog.Info("reaping dead pane", "pane", deadPaneID, "session", owner.ID, "window", owner.WindowID)
-	pane0 := c.SessionName + ":0.0"
-	swap := []string{"swap-pane", "-d", "-s", pane0, "-t", owner.WindowID + ".0"}
-	if err := c.Panes.RunChain(swap); err != nil {
-		slog.Error("reap swap-back failed", "err", err)
-		return
-	}
-	if err := c.Sessions.KillWindow(owner.WindowID); err != nil {
-		slog.Error("reap kill-window failed", "err", err)
-		return
-	}
-	c.Drivers.Close(owner.ID)
-	c.clearActiveInternal(owner.WindowID)
-}
-
-// errSessionNotFound is the standard error returned when a session id
-// passed to Preview/Switch/Stop does not match any known session.
-type sessionNotFoundError string
-
-func (e sessionNotFoundError) Error() string { return "session not found: " + string(e) }
-
-func errSessionNotFound(id string) error { return sessionNotFoundError(id) }
+// errCoordinatorStopped surfaces "the actor is no longer running" to
+// callers that need to act on it (e.g. propagate an IPC error).
+var errCoordinatorStopped = fmt.Errorf("coordinator: stopped")

@@ -8,9 +8,7 @@ import (
 	"os"
 	"sync"
 	"sync/atomic"
-	"time"
 
-	"github.com/take/agent-roost/session/driver"
 	"github.com/take/agent-roost/tmux"
 )
 
@@ -63,6 +61,14 @@ type clientConn struct {
 	broadcastEnabled bool
 }
 
+// clientOutboxSize bounds how many unsent messages a single client can
+// queue before sendTo starts dropping. Realistic depth on a healthy
+// connection is 1-2 messages (the writer drains as fast as the kernel
+// can take a write). 64 absorbs ~64 frames of writer stall — enough to
+// ride out a brief socket-buffer hiccup or a tick burst — without
+// letting a permanently broken client grow the queue without bound.
+// Past this point a client is misbehaving and dropping is the right
+// fail-fast: the next sessions-changed broadcast will resync state.
 const clientOutboxSize = 64
 
 func newClientConn(conn net.Conn) *clientConn {
@@ -128,17 +134,23 @@ func (s *Server) run() {
 }
 
 // exec submits fn to the server actor and waits for it to complete.
-// If the actor has already shut down, fn is dropped silently.
-func (s *Server) exec(fn func()) {
+// Returns true if the closure ran, false if it was dropped because the
+// actor was shutting down (or had already exited). A Warn-level log is
+// emitted on the dropped path so silent no-ops are observable.
+func (s *Server) exec(fn func()) bool {
 	done := make(chan struct{})
 	select {
 	case <-s.stop:
-		return
+		slog.Warn("server: exec dropped (actor stopped before submission)")
+		return false
 	case s.inbox <- func() { fn(); close(done) }:
 	}
 	select {
 	case <-done:
+		return true
 	case <-s.stopped:
+		slog.Warn("server: exec dropped (actor stopped while pending)")
+		return false
 	}
 }
 
@@ -241,10 +253,7 @@ func (s *Server) dispatch(cc *clientConn, msg Message) {
 	}
 	switch msg.Command {
 	case "subscribe":
-		s.exec(func() { cc.broadcastEnabled = true })
-		slog.Info("subscriber connected")
-		s.sendResponse(cc, Message{})
-		s.sendTo(cc, s.buildSessionsEvent(false))
+		s.handleSubscribe(cc)
 	case "create-session":
 		s.handleCreateSession(cc, msg.Args)
 	case "stop-session":
@@ -269,169 +278,6 @@ func (s *Server) dispatch(cc *clientConn, msg Message) {
 		s.handleDetach(cc)
 	default:
 		s.sendError(cc, "unknown command: "+msg.Command)
-	}
-}
-
-func (s *Server) handleCreateSession(cc *clientConn, args map[string]string) {
-	project := args["project"]
-	command := args["command"]
-	if project == "" {
-		s.sendError(cc, "missing project arg")
-		return
-	}
-	if command == "" {
-		command = "claude"
-	}
-	if expanded := ResolveCommandAlias(s.aliases, command); expanded != command {
-		slog.Info("alias expanded", "from", command, "to", expanded)
-		command = expanded
-	}
-	slog.Info("create session", "project", project, "command", command)
-	id, err := s.coord.Create(project, command)
-	if err != nil {
-		slog.Error("create session failed", "err", err)
-		s.sendError(cc, err.Error())
-		return
-	}
-	s.coord.Switch(id)
-	infos, active := s.coord.SnapshotSessionsAndActive()
-	s.sendResponse(cc, Message{
-		Sessions:       infos,
-		ActiveWindowID: active,
-	})
-	s.broadcastSessions()
-}
-
-func (s *Server) handleStopSession(cc *clientConn, args map[string]string) {
-	id := args["session_id"]
-	slog.Info("stop session", "id", id)
-	if id == "" {
-		s.sendError(cc, "missing id arg")
-		return
-	}
-	if err := s.coord.Stop(id); err != nil {
-		s.sendError(cc, err.Error())
-		return
-	}
-	s.sendResponse(cc, Message{})
-	s.broadcastSessions()
-}
-
-func (s *Server) handleListSessions(cc *clientConn) {
-	infos, active := s.coord.SnapshotSessionsAndActive()
-	s.sendResponse(cc, Message{
-		Sessions:       infos,
-		ActiveWindowID: active,
-	})
-}
-
-func (s *Server) handleShutdown(cc *clientConn) {
-	slog.Info("shutdown requested")
-	s.shutdownRequested.Store(true)
-	s.sendResponse(cc, Message{})
-	go func() {
-		time.Sleep(50 * time.Millisecond)
-		s.tmux.DetachClient()
-	}()
-}
-
-func (s *Server) handlePreviewSession(cc *clientConn, args map[string]string) {
-	id := args["session_id"]
-	slog.Info("preview session", "id", id)
-	if err := s.coord.Preview(id); err != nil {
-		s.sendError(cc, err.Error())
-		return
-	}
-	s.coord.SyncActiveStatusLine()
-	s.broadcastPreview()
-	s.sendResponse(cc, Message{
-		ActiveWindowID: s.coord.ActiveWindowID(),
-	})
-}
-
-func (s *Server) handleSwitchSession(cc *clientConn, args map[string]string) {
-	id := args["session_id"]
-	slog.Info("switch session", "id", id)
-	if err := s.coord.Switch(id); err != nil {
-		s.sendError(cc, err.Error())
-		return
-	}
-	s.coord.SyncActiveStatusLine()
-	s.broadcastSessions()
-	s.sendResponse(cc, Message{
-		ActiveWindowID: s.coord.ActiveWindowID(),
-	})
-}
-
-func (s *Server) handlePreviewProject(cc *clientConn, args map[string]string) {
-	slog.Info("preview project", "project", args["project"])
-	if err := s.coord.Deactivate(); err != nil {
-		s.sendResponse(cc, Message{})
-		return
-	}
-	s.sendResponse(cc, Message{})
-	msg := NewEvent("project-selected")
-	msg.SelectedProject = args["project"]
-	s.broadcast(msg)
-}
-
-func (s *Server) handleFocusPane(cc *clientConn, args map[string]string) {
-	s.coord.FocusPane(args["pane"])
-	s.sendResponse(cc, Message{})
-}
-
-func (s *Server) handleLaunchTool(cc *clientConn, args map[string]string) {
-	toolName := args["tool"]
-	toolArgs := make(map[string]string, len(args)-1)
-	for k, v := range args {
-		if k != "tool" {
-			toolArgs[k] = v
-		}
-	}
-	s.coord.LaunchTool(toolName, toolArgs)
-	s.sendResponse(cc, Message{})
-}
-
-func (s *Server) handleDetach(cc *clientConn) {
-	slog.Info("detach requested")
-	if err := s.tmux.DetachClient(); err != nil {
-		s.sendError(cc, err.Error())
-		return
-	}
-	s.sendResponse(cc, Message{})
-}
-
-func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
-	// AgentEventFromArgs is the single string-key boundary in core: every
-	// downstream call uses struct fields so the rest of the coordinator
-	// never has to know which agent driver produced the event. The driver
-	// is responsible for any side-effects (event log, etc.) — server only
-	// routes the event and rebroadcasts.
-	ev := driver.AgentEventFromArgs(args)
-	slog.Debug("agent event received",
-		"type", ev.Type, "session", ev.SessionID,
-		"state", ev.State, "log", ev.Log)
-	switch ev.Type {
-	case driver.AgentEventSessionStart:
-		_, consumed := s.coord.HandleHookEvent(ev)
-		if consumed {
-			s.broadcastSessions()
-		}
-		s.sendResponse(cc, Message{})
-	case driver.AgentEventStateChange:
-		if ev.State == "" {
-			s.sendError(cc, "state-change: state required")
-			return
-		}
-		_, consumed := s.coord.HandleHookEvent(ev)
-		if !consumed {
-			s.sendError(cc, "state-change: rejected by driver (state="+ev.State+")")
-			return
-		}
-		s.broadcastSessions()
-		s.sendResponse(cc, Message{})
-	default:
-		s.sendError(cc, "unknown agent event type: "+string(ev.Type))
 	}
 }
 

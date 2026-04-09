@@ -129,6 +129,16 @@ func (a *driverActor) SpawnCommand(baseCommand string) string {
 	return cmd
 }
 
+// Atomic submits fn to the actor goroutine in a single inbox round-trip.
+// Inside fn the impl is touched by the actor goroutine alone, so calls
+// to its other methods are safe and do NOT recurse through the actor —
+// they invoke the impl directly. This lets callers compose multiple
+// reads/writes (e.g. HandleEvent + PersistedState + View) into one
+// round-trip instead of N.
+func (a *driverActor) Atomic(fn func(Driver)) {
+	a.submit(func() { fn(a.impl) })
+}
+
 // Close runs the impl's Close on the actor goroutine, then shuts down the
 // actor itself. Idempotent — repeated calls are no-ops thanks to closeOnce.
 func (a *driverActor) Close() {
@@ -137,15 +147,4 @@ func (a *driverActor) Close() {
 		close(a.stop)
 		<-a.stopped
 	})
-}
-
-// unwrapDriver returns the underlying impl when d is a *driverActor, or d
-// itself otherwise. Test-only convenience for code that needs to inspect
-// driver internals (the production hot path always goes through the actor
-// surface).
-func unwrapDriver(d Driver) Driver {
-	if a, ok := d.(*driverActor); ok {
-		return a.impl
-	}
-	return d
 }

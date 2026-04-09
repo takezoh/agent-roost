@@ -282,6 +282,11 @@ func (d *claudeDriver) SpawnCommand(baseCommand string) string {
 	return cli.ResumeCommand(baseCommand, d.claudeSessionID)
 }
 
+// Atomic on the impl is a direct call — the impl is already protected
+// by whichever goroutine is invoking it (the driverActor in production,
+// the test goroutine in unit tests).
+func (d *claudeDriver) Atomic(fn func(Driver)) { fn(d) }
+
 // refreshMeta folds any new transcript content into the Tracker (the
 // single window through which the driver consumes JSONL) and copies the
 // resulting snapshot into local fields the readers expose. No-ops when

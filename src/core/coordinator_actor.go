@@ -32,15 +32,19 @@ type sessionsChangedNotifier func(msg Message)
 // on Coordinator routes through the actor. Init-time methods (Refresh,
 // Recreate, SetSyncActive, SetSyncStatus, the optional SetActiveWindowID
 // restore) MUST be called BEFORE Start.
+//
+// Idempotent — second and subsequent calls are no-ops. A double start
+// would otherwise spawn two run() goroutines competing for the same
+// inbox, breaking actor semantics.
 func (c *Coordinator) Start(ctx context.Context, tickInterval time.Duration) {
-	if c.inbox == nil {
+	c.startOnce.Do(func() {
 		c.inbox = make(chan func(), 32)
 		c.stop = make(chan struct{})
 		c.stopped = make(chan struct{})
-	}
-	started := make(chan struct{})
-	go c.run(ctx, tickInterval, started)
-	<-started
+		started := make(chan struct{})
+		go c.run(ctx, tickInterval, started)
+		<-started
+	})
 }
 
 // Shutdown terminates the Coordinator actor and blocks until the
@@ -79,57 +83,81 @@ func (c *Coordinator) run(ctx context.Context, tickInterval time.Duration, start
 	}
 }
 
-// exec submits fn to the actor and blocks until it completes. If the
-// actor has already shut down, fn is dropped silently and the caller
-// observes the zero value of any captured return variables. exec MUST
-// only be called after Start — calling it before Start blocks forever
-// because no goroutine is reading from inbox.
-func (c *Coordinator) exec(fn func()) {
+// exec submits fn to the actor and blocks until it completes. Returns
+// true if the closure ran to completion, false if it was dropped because
+// the actor was shutting down (or had already exited). Callers that
+// need to surface "stopped" as an error wrap the result; void callers
+// can ignore it but a Warn-level log is emitted either way so silent
+// no-ops are observable in production.
+//
+// exec MUST only be called after Start — calling it before Start would
+// block forever because no goroutine is reading from inbox.
+func (c *Coordinator) exec(fn func()) bool {
 	done := make(chan struct{})
 	select {
 	case <-c.stop:
-		return
+		slog.Warn("coordinator: exec dropped (actor stopped before submission)")
+		return false
 	case c.inbox <- func() { fn(); close(done) }:
 	}
 	select {
 	case <-done:
+		return true
 	case <-c.stopped:
+		slog.Warn("coordinator: exec dropped (actor stopped while pending)")
+		return false
 	}
 }
 
 // handleTickInternal runs every tick on the actor goroutine. It reaps
-// dead sessions, fans the tick out to every Driver, and notifies the
-// Server about any state changes via the registered callback.
+// dead sessions and asynchronously fans the tick out to every Driver
+// via fanOutTicks; the broadcast for the tick result is fired from
+// fanOutTicks itself once every Driver has reported back. The reaper
+// notification (if any) is fired here, before the fan-out, so the TUI
+// sees an evicted session immediately rather than waiting for the
+// fan-out to complete.
 func (c *Coordinator) handleTickInternal(now time.Time) {
 	reaped := c.reapDeadSessionsInternal()
 	if len(reaped) > 0 {
 		c.fireSessionsChanged()
 	}
-	if len(c.Sessions.All()) == 0 {
-		return
-	}
-	c.tickInternal(now)
-	c.fireSessionsChanged()
+	c.dispatchTickFanOut(now)
 }
 
-// fireSessionsChanged builds a sessions-changed Message inside the
-// actor and hands it to the registered notifier. The notifier (Server's
-// asyncBroadcast) is non-blocking, so the actor never stalls on the
-// downstream pipeline.
+// fireSessionsChanged captures the current (Session, Driver) entries
+// and active window id on the actor goroutine, then spawns a worker
+// that materializes the SessionInfo payload OUTSIDE the actor and
+// invokes the registered notifier. Building infos off-actor is
+// essential because BuildSessionInfos calls into Driver actors — doing
+// it inline would block the Coordinator actor on whichever Driver is
+// slowest, defeating the entire async-tick fan-out design.
+//
+// Multiple fireSessionsChanged calls in quick succession spawn parallel
+// workers; each carries its own snapshot so the notifier may receive
+// them out of order. The TUI is idempotent (it just re-renders the
+// latest payload) so this is acceptable — and the next tick produces
+// a fresh payload that supersedes any straggler.
 func (c *Coordinator) fireSessionsChanged() {
 	if c.notifySessionsChanged == nil {
 		return
 	}
-	msg := c.buildSessionsEventInternal(false)
-	c.notifySessionsChanged(msg)
-}
-
-func (c *Coordinator) buildSessionsEventInternal(preview bool) Message {
-	msg := NewEvent("sessions-changed")
-	msg.Sessions = BuildSessionInfos(c.Sessions.All(), c.Drivers)
-	msg.ActiveWindowID = c.activeWindowID
-	msg.IsPreview = preview
-	return msg
+	sessions := c.Sessions.All()
+	entries := make([]sessionEntry, 0, len(sessions))
+	for _, s := range sessions {
+		drv, ok := c.Drivers.Get(s.ID)
+		if !ok {
+			continue
+		}
+		entries = append(entries, sessionEntry{sess: s, drv: drv})
+	}
+	activeWid := c.activeWindowID
+	notifier := c.notifySessionsChanged
+	go func() {
+		msg := NewEvent("sessions-changed")
+		msg.Sessions = buildSessionInfosFromEntries(entries)
+		msg.ActiveWindowID = activeWid
+		notifier(msg)
+	}()
 }
 
 // SetSessionsChangedNotifier registers the callback the actor invokes

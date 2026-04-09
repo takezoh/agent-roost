@@ -186,3 +186,6 @@ func (d *genericDriver) RestorePersistedState(state map[string]string) {
 func (d *genericDriver) SpawnCommand(baseCommand string) string {
 	return baseCommand
 }
+
+// Atomic on the impl is a direct call — see claudeDriver.Atomic.
+func (d *genericDriver) Atomic(fn func(Driver)) { fn(d) }
