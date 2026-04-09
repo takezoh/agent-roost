@@ -856,11 +856,13 @@ func TestCreate_PersistsAgentPaneIDUserOption(t *testing.T) {
 	}
 }
 
-// Regression: Refresh must backfill AgentPaneID for sessions whose
-// @roost_agent_pane user option is missing (legacy sessions created before
-// pane id tracking landed). Without this, reapDeadPane00 cannot identify
-// dead panes by pane id and silently bails out.
-func TestRefresh_BackfillsMissingAgentPaneID(t *testing.T) {
+// Refresh must NOT auto-backfill AgentPaneID for legacy sessions whose
+// @roost_agent_pane user option is missing. The old auto-backfill could
+// store a wrong pane id when leftover swap-pane state had the displaced
+// TUI pane sitting in the session window's pane 0. The trade-off is that
+// legacy sessions stay unreapable via the active-pane path until cold
+// boot re-spawns them via Recreate.
+func TestRefresh_LegacySessionStaysEmpty(t *testing.T) {
 	mgr, mt := setupManager(t)
 	// Simulate a legacy session: window exists with all roost user options
 	// EXCEPT @roost_agent_pane.
@@ -882,14 +884,15 @@ func TestRefresh_BackfillsMissingAgentPaneID(t *testing.T) {
 	if sess == nil {
 		t.Fatal("expected legacy session to be loaded")
 	}
-	if sess.AgentPaneID != "%42" {
-		t.Fatalf("expected backfilled AgentPaneID=%%42, got %q", sess.AgentPaneID)
+	if sess.AgentPaneID != "" {
+		t.Fatalf("expected AgentPaneID to stay empty (no backfill), got %q", sess.AgentPaneID)
 	}
-	if got := mt.userOptions["@5"]["@roost_agent_pane"]; got != "%42" {
-		t.Fatalf("expected @roost_agent_pane user option to be backfilled, got %q", got)
+	if got := mt.userOptions["@5"]["@roost_agent_pane"]; got != "" {
+		t.Fatalf("expected @roost_agent_pane user option to remain unset, got %q", got)
 	}
-	// FindByAgentPaneID is what reapDeadPane00 uses; verify it now resolves.
-	if found := mgr.FindByAgentPaneID("%42"); found == nil || found.ID != "legacy" {
-		t.Fatal("expected FindByAgentPaneID to resolve backfilled session")
+	// FindByAgentPaneID must NOT resolve a legacy session: there is nothing
+	// to match against, since the user option is empty.
+	if found := mgr.FindByAgentPaneID("%42"); found != nil {
+		t.Fatalf("expected FindByAgentPaneID to return nil for legacy session, got %s", found.ID)
 	}
 }
