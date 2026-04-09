@@ -40,15 +40,19 @@ AI エージェントを複数プロジェクトで並行稼働させると、tm
 | **セッション** | AI エージェントの作業単位。`Session` 構造体 | tmux **window**（Window 1+、単一ペイン構成） |
 | **制御セッション** | roost 全体を収容する tmux セッション | tmux **session**（`roost`） |
 | **ペイン** | Window 0 内の制御ペイン | tmux **pane**（`0.0`, `0.1`, `0.2`） |
+| **Warm start (温起動)** | tmux session 生存状態での Coordinator 起動。tmux user options から状態を復元 | 既存の tmux session/window/pane を再利用 |
+| **Cold start (冷起動)** | tmux session 消滅状態 (PC 再起動 / tmux server 死亡) での Coordinator 起動。`sessions.json` から tmux session/window を再作成 | tmux session/window を新規作成 |
 
 以降「セッション」は roost セッションを指す。tmux セッションには「tmux セッション」と明記する。
+
+Coordinator の起動は必ず Warm start か Cold start のどちらかで、初回起動という分岐は持たない (sessions.json が存在しなければ空のセッション一覧で Cold start するだけ)。
 
 ## レイヤー構成
 
 ```
 tui/       表示層 — UI 状態管理、レンダリング、キー入力ディスパッチ
 core/      サービス層 — セッション切替/プレビュー、popup 起動、Observer ループ駆動、ツール定義
-session/   データ層 — セッション CRUD (静的メタデータのみ)、runtime は tmux user options が真実、cold-boot 用の sessions.json スナップショットを並行管理
+session/   データ層 — セッション CRUD (静的メタデータのみ)、runtime は tmux user options が真実、Cold start 用の sessions.json スナップショットを並行管理
 session/driver/  ドライバ層 — 各エージェントの Driver / Observer 実装。コマンド別プロンプト検出、AgentStore (driver メタデータのみ)、ObserverRegistry (per-session Observer のライフサイクル管理)
 state/     ステータス層 — 動的セッションステータスの単一情報源 (state.Store)。in-memory cache + tmux user options 永続化 (`@roost_state` / `@roost_state_changed_at`)。leaf パッケージで session / tmux に依存しない
 tmux/      インフラ層 — tmux コマンド実行、インターフェース定義
@@ -97,15 +101,15 @@ runCoordinator()
 │   (Store は tmux client を OptionWriter として保持。ObserverRegistry は driver.Registry と
 │    ObserverDeps{Store, Capturer, IdleThreshold} を保持)
 ├── tmux セッション存在確認
-│   ├── 存在 (warm: Coordinator のみ再起動)
+│   ├── 存在 (Warm start: Coordinator のみ起動)
 │   │   ├── restoreSession + Manager.Refresh（tmux window user options から静的メタデータを復元）
 │   │   └── state.Store.LoadFromTmux（@roost_state / @roost_state_changed_at を in-memory cache へ seed）
-│   └── 不在 (cold: PC 再起動 / tmux server 死亡)
-│       └── setupNewSession + Manager.Recreate（sessions.json から window を再作成。state.Store は LoadFromTmux しない — 新 windowID 用に Spawn が後続で Running を書く）
+│   └── 不在 (Cold start: PC 再起動 / tmux server 死亡)
+│       └── setupNewSession + Manager.Recreate（sessions.json から window を再作成。state.Store は LoadFromTmux しない — 新 windowID 用に Spawn が後続で Idle を書く）
 ├── Manager.SyncBranches（git ブランチ情報を tmux user option に同期）
 ├── per-session Observer 構築ループ:
-│   ├── warm restart → Observers.Adopt(windowID, command) — store を一切触らない
-│   └── cold boot → Observers.Spawn(windowID, command) — MarkSpawned が Running を書き込む
+│   ├── Warm start → Observers.Adopt(windowID, command) — store を一切触らない
+│   └── Cold start → Observers.Spawn(windowID, command) — MarkSpawned が Idle を書き込む
 ├── restoreActiveWindowID（tmux 環境変数 ROOST_ACTIVE_WINDOW から復元）
 ├── AgentStore.RestoreFromBindings（各セッションの DriverState から `Driver.IdentityKey()` で agent identity を取り出し、windowID ↔ identity を復元）
 ├── Service 初期化（Manager / AgentStore / driver.Registry / state.Store / ObserverRegistry を保持）
@@ -159,7 +163,7 @@ runTUI("log")
 └── Bubbletea イベントループ（タブ切替、スクロール、follow モード）
 ```
 
-**タブ構成**: Claude セッションがアクティブな場合 `TRANSCRIPT | EVENTS | LOG` の3タブ、それ以外は `LOG` のみ。`sessions-changed` イベントで動的に再構築。セッション切替時は TRANSCRIPT がデフォルト。タブ切替時はファイル末尾から再読み込み（状態保持不要）。マウスクリックはタブラベルの累積幅でヒット判定する。
+**タブ構成**: アクティブセッションがある場合 `TRANSCRIPT | EVENTS | INFO | LOG` (Claude セッション時)、または `INFO | LOG` (非 Claude)、それ以外は `LOG` のみ。`sessions-changed` イベントで動的に再構築。`INFO` は LOG の直前固定で、ファイルではなく `SessionInfo` のスナップショットを直接 viewport に描画する非ファイル系タブ。Switch 時は TRANSCRIPT がデフォルト、Preview (cursor hover) 時は `Message.IsPreview` フラグで判定して INFO がデフォルトになる。タブ切替時はファイル末尾から再読み込み（状態保持不要）。マウスクリックはタブラベルの累積幅でヒット判定する。
 
 **経過時間表示**: セッション一覧とメイン TUI の両方で、`CreatedAt` からの経過時間を `formatElapsed` で表示する（分/時/日の 3 段階）。
 
@@ -730,7 +734,7 @@ field と衝突しないようにしている。
 変更フラグが入っており、呼び出し側 (server.go) はそれを使ってログ出力や
 broadcast を判断する。
 
-`Driver.SpawnCommand` は cold-boot 復元時に `Manager.Recreate` から呼ばれ、
+`Driver.SpawnCommand` は Cold start 復元時に `Manager.Recreate` から呼ばれ、
 ドライバごとに固有の resume 方法でコマンド文字列を組み立てる。Claude ドライバは
 `sc.DriverState["session_id"]` を取り出し `lib/claude/cli.ResumeCommand` に
 委譲して `claude --resume <id>` を返す。Generic ドライバは base コマンドを
@@ -796,9 +800,9 @@ type TmuxClient interface {
 | パレットの実装方式 | tmux popup (独立プロセス) | crash 分離。Bubbletea サブモデルでは TUI 内で panic を共有する |
 | Ctrl+C の無効化 | KeyPressMsg を consume | 常駐プロセスの誤終了防止。ヘルスモニタの respawn まで操作不能になる |
 | 楽観的更新をしない | IPC エラー時に UI 状態を変更しない | 次回ポーリングで自動回復。状態不整合のリスクを回避 |
-| セッションメタデータの永続化 | tmux window user options (`@roost_*`) を runtime 真実、`sessions.json` を cold-boot スナップショット | runtime 中は tmux が単一の真実 (二重管理を避ける)。tmux server が落ちる PC 再起動時のみスナップショットから `Recreate` で復元。snapshot は読み取り専用バックアップとして役割が明確 |
+| セッションメタデータの永続化 | tmux window user options (`@roost_*`) を runtime 真実、`sessions.json` を Cold start スナップショット | runtime 中は tmux が単一の真実 (二重管理を避ける)。tmux server が落ちる PC 再起動時のみスナップショットから `Recreate` で復元。snapshot は読み取り専用バックアップとして役割が明確 |
 | shutdown (`C-b q`) の挙動 | `KillSession()` のみで sessions.json は残す | 次回起動時に `Manager.Recreate()` でセッションを復元できるようにするため。`Manager.Clear()` は呼ばない |
-| cold-boot 復元時の Claude 起動コマンド | `claude --resume <id>` を `Driver.SpawnCommand` で組立て | 過去の会話 transcript を新しい Claude プロセスにそのまま引き継ぐ。Claude 固有の `--resume` フラグ知識は `lib/claude/cli` に閉じ、`session/driver/claude.go` から委譲する |
+| Cold start 復元時の Claude 起動コマンド | `claude --resume <id>` を `Driver.SpawnCommand` で組立て | 過去の会話 transcript を新しい Claude プロセスにそのまま引き継ぐ。Claude 固有の `--resume` フラグ知識は `lib/claude/cli` に閉じ、`session/driver/claude.go` から委譲する |
 | swap-pane チェーンのロールバック | しない | tmux の `;` 連結はアトミックではなく途中ロールバック不可。内部状態を変更しないことで整合性を維持 |
 | IPC タイムアウト | 設定しない | Server のデッドロックは Coordinator 全体の障害を意味し、Client 側のタイムアウトでは回復できない。外部からの再起動が唯一の復帰手段であるため優先度は低い |
 | SessionMeta の定義場所 | `driver.SessionMeta` のみ（`session.SessionMeta` は廃止） | driver パッケージの独立性を保つ。Server が `driver.SessionMeta` → `AgentStore.UpdateMeta` で格納 |
@@ -807,9 +811,9 @@ type TmuxClient interface {
 | エージェントイベント連携 | `roost claude event` + `agent-event` IPC | SessionStart で `Service.ApplyAgentEvent` が `pane → WindowID` を解決し、`Driver.IdentityKey()` で agent identity を取り出して `AgentStore.Bind` + `Manager.MergeDriverState` を一括実行する。state-change は `Observers.Dispatch` 経由で claudeObserver にルーティングされ、`state.Store.Set` を呼ぶ。Coordinator 再起動後は各セッションの DriverState から identity を取り出して `RestoreFromBindings` |
 | driver hook payload の抽象化 | `AgentEvent.DriverState` を不透明 `map[string]string` バッグとして運ぶ | 各 driver subcommand が tool 固有の hook field (Claude の `cwd` / `transcript_path` 等) を **driver が定義した key** (例: `working_dir` / `transcript_path`) で DriverState に packing する。core/server.go は `AgentEventFromArgs` で構造体を取り出した後、DriverState を中身を見ずに `Manager.MergeDriverState` へ転送するだけ。固有 field を増やしても core / manager / tmux / json には一切手が入らない |
 | Session ランタイム情報の保持 | `Session.DriverState map[string]string` を tmux user option `@roost_driver_state` (1 列 packed JSON) と sessions.json の `driver_state` フィールドで永続化 | driver 固有のキーを増やしても tmux 層は触らない (per-key option を増やすと tmux/client の format string と parser が schema を持ってしまう)。git branch 検出は `Driver.WorkingDir(sc)` 経由で取得 (なければ `Project` フォールバック)。transcript path 解決は `Driver.TranscriptFilePath` 内部で完結し、driver が agent-reported / computed の優先順位を決める |
-| 動的ステータスの永続化 | `state.Store` が `@roost_state` / `@roost_state_changed_at` ペアを `SetWindowUserOptions` でアトミック書き込み。Coordinator 起動時 (warm restart) に `LoadFromTmux` で in-memory cache に seed | 書き込み元は driver Observer のみ。Manager / AgentStore / core は store を読みはするが書かない。warm restart 直後は seed された persisted ステータスがそのまま表示され、新しい hook event / 遷移観測まで上書きされない (再起動上書きバグの構造的解決)。書き込み失敗時は in-memory cache を更新せず error を伝播 |
+| 動的ステータスの永続化 | `state.Store` が `@roost_state` / `@roost_state_changed_at` ペアを `SetWindowUserOptions` でアトミック書き込み。Coordinator 起動時 (Warm start) に `LoadFromTmux` で in-memory cache に seed | 書き込み元は driver Observer のみ。Manager / AgentStore / core は store を読みはするが書かない。Warm start 直後は seed された persisted ステータスがそのまま表示され、新しい hook event / 遷移観測まで上書きされない (再起動上書きバグの構造的解決)。書き込み失敗時は in-memory cache を更新せず error を伝播 |
 | polling と event 駆動の統一インターフェース | `Observer` に `Tick` (polling) と `HandleEvent` (event) を両方用意。driver ごとに片方だけ実装 | Claude (`claudeObserver`) は `Tick` を no-op にする = 新 event が来るまで store は不変。Generic (`genericObserver`) は `HandleEvent` を `return false` にする。Coordinator は両者を区別せず `Observers.Tick` / `Observers.Dispatch` を呼ぶだけ。新 driver 追加時は `NewObserver` を 1 つ実装すればよい |
-| 初回 Tick で store を触らない | `genericObserver.Tick` は `primed=false` のとき hash baseline を設定するだけで `Set` を呼ばない | warm restart 直後の最初のポーリングで persisted ステータスを上書きしないため。次の Tick で実際に hash 変化を観測したときだけ書き込む |
+| 初回 Tick で store を触らない | `genericObserver.Tick` は `primed=false` のとき hash baseline を設定するだけで `Set` を呼ばない | Warm start 直後の最初のポーリングで persisted ステータスを上書きしないため。次の Tick で実際に hash 変化を観測したときだけ書き込む |
 | Session ライフサイクルラッパー | `Service.CreateSession` / `Service.StopSession` が `Manager.Create`/`Stop` と `Observers.Spawn`/`Remove` をペアで呼ぶ | Server ハンドラが Manager を直接呼ぶと Observer が漏れて store と Manager が乖離する。Service がペアの操作を保証することで「セッションが存在する = Observer も存在する」不変条件を守る。`ReapDeadSessions` も同様に `Observers.Remove` を呼ぶ |
 | StatusLine の表示 | transcript JSONL → `transcript.Tracker` (lib/claude/transcript) → `tmux set-option status-left` | statusLine hook 不要。state-change イベントをトリガーに差分読み。Insight (current tool / subagent count / error count) も同経路で抽出。`core.SessionTracker` interface 経由で Service に注入し core 中立を維持。`status-format[0]` でウィンドウリストを排除 |
 
@@ -837,7 +841,7 @@ type TmuxClient interface {
 | パス | 形式 | 内容 | ライフサイクル |
 |------|------|------|--------------|
 | `~/.config/roost/config.toml` | TOML | ユーザー設定（下記参照） | ユーザーが作成。存在しなければデフォルト値で動作 |
-| `~/.config/roost/sessions.json` | JSON | セッション静的メタデータの cold-boot スナップショット (動的ステータスは含まない) | Manager の各ミューテーション (Create/Stop/MergeDriverState/RefreshBranch/Refresh) で書き出し。読まれるのは PC 再起動 (`!client.SessionExists()`) 時の `Manager.Recreate` のみ。runtime の真実は tmux user options。動的ステータスは cold boot で復元する意味がない (新プロセスは Running から始まる) ため `state.Store` の値はここに含まれない |
+| `~/.config/roost/sessions.json` | JSON | セッション静的メタデータの Cold start スナップショット (動的ステータスは含まない) | Manager の各ミューテーション (Create/Stop/MergeDriverState/RefreshBranch/Refresh) で書き出し。読まれるのは PC 再起動 (`!client.SessionExists()`) 時の `Manager.Recreate` のみ。runtime の真実は tmux user options。動的ステータスは Cold start で復元する意味がない (新プロセスは Idle から始まる) ため `state.Store` の値はここに含まれない |
 | `~/.config/roost/events/{agentSessionID}.log` | テキスト | エージェント hook イベントログ | hook イベント受信時に追記。Service.AppendEventLog で書き込み |
 | `~/.config/roost/roost.log` | slog | アプリケーションログ | Coordinator 起動時に作成/追記 |
 | `~/.config/roost/roost.sock` | Unix socket | プロセス間通信 | Coordinator 起動時に作成。終了時に削除 |
@@ -882,7 +886,7 @@ src/
 ├── config/
 │   └── config.go        TOML 設定読み込み
 ├── session/
-│   ├── manager.go       セッション CRUD (静的メタデータのみ)。runtime は tmux user options 経由 (Refresh / SyncBranches)、cold-boot は sessions.json から Recreate。driver.Registry を保持
+│   ├── manager.go       セッション CRUD (静的メタデータのみ)。runtime は tmux user options 経由 (Refresh / SyncBranches)、Cold start は sessions.json から Recreate。driver.Registry を保持
 │   ├── manager_runtime.go  driver state mutator (MergeDriverState, RefreshBranch, refreshSessionBranchLocked)
 │   ├── state.go         Session struct (tmux 固有データ + DriverState map[string]string) + RoostWindow 型。動的ステータスは保持しない
 │   ├── log.go           ログパスヘルパー
