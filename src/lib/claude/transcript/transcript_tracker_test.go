@@ -102,22 +102,17 @@ func TestTracker_EmptyPath(t *testing.T) {
 	}
 }
 
-func TestTracker_TracksErrorsAndSubagents(t *testing.T) {
+func TestTracker_TracksSubagents(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sess.jsonl")
 	writeJSONL(t, path, `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Agent","input":{"description":"x","subagent_type":"Explore"}}]}}
 {"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"done"}]},"toolUseResult":{"agentId":"a","agentType":"Explore","status":"completed","totalDurationMs":1000}}
-{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"oops"}}]}}
-{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"err","is_error":true}]}}
 `)
 	tr := NewTracker()
 	if _, err := tr.Update("sess", path); err != nil {
 		t.Fatalf("update: %v", err)
 	}
 	line := tr.StatusLine("sess")
-	if !strings.Contains(line, "1 err") {
-		t.Errorf("error count missing: %q", line)
-	}
 	if !strings.Contains(line, "1 subs") {
 		t.Errorf("subagent count missing: %q", line)
 	}
@@ -276,24 +271,6 @@ func TestTracker_RewindWithoutResubmitStaysStale(t *testing.T) {
 	// Walking from a2 (tail) finds u2 first, not u1. Documented behavior.
 	if got := tr.Snapshot("sess").LastPrompt; got != "second (will be rewound)" {
 		t.Errorf("lastPrompt = %q, want second (will be rewound) — change of behavior intended?", got)
-	}
-}
-
-func TestTracker_SubjectsAccumulateBounded(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "sess.jsonl")
-	writeJSONL(t, path, `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"u1","name":"TaskCreate","input":{"subject":"first task"}}]}}
-{"type":"assistant","message":{"content":[{"type":"tool_use","id":"u2","name":"TaskCreate","input":{"subject":"second task"}}]}}
-{"type":"assistant","message":{"content":[{"type":"tool_use","id":"u3","name":"TaskCreate","input":{"subject":"first task"}}]}}
-`)
-	tr := NewTracker()
-	if _, err := tr.Update("sess", path); err != nil {
-		t.Fatalf("update: %v", err)
-	}
-	snap := tr.Snapshot("sess")
-	// duplicate moves to the end, so order is [second task, first task]
-	if len(snap.Subjects) != 2 {
-		t.Errorf("subjects = %v, want 2 unique entries", snap.Subjects)
 	}
 }
 

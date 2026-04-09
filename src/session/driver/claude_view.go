@@ -13,7 +13,7 @@ import (
 //   - Title    = transcript title (set by refreshMeta)
 //   - Subtitle = last user prompt (set by refreshMeta)
 //   - Tags     = [CommandTag("claude"), BranchTag(branch?)]
-//   - Indicators / Subjects = derived from transcript insight
+//   - Indicators = derived from transcript insight
 //
 // LogTabs:
 //   - TRANSCRIPT (transcript) — when transcriptPath is known
@@ -32,12 +32,6 @@ func (d *claudeDriver) View() SessionView {
 	tags := []Tag{CommandTag(d.Name())}
 	if t := BranchTag(d.branchTag); t.Text != "" {
 		tags = append(tags, t)
-	}
-
-	var subjects []string
-	if len(d.subjects) > 0 {
-		subjects = make([]string, len(d.subjects))
-		copy(subjects, d.subjects)
 	}
 
 	var logTabs []LogTab
@@ -62,7 +56,6 @@ func (d *claudeDriver) View() SessionView {
 			Subtitle:   d.lastPrompt,
 			Tags:       tags,
 			Indicators: d.indicators(),
-			Subjects:   subjects,
 		},
 		LogTabs:    logTabs,
 		InfoExtras: d.infoExtras(),
@@ -82,9 +75,6 @@ func (d *claudeDriver) indicators() []string {
 	}
 	if subs > 0 {
 		out = append(out, fmt.Sprintf("%d subs", subs))
-	}
-	if d.errorCount > 0 {
-		out = append(out, fmt.Sprintf("%d err", d.errorCount))
 	}
 	return out
 }

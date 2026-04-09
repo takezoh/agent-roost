@@ -82,7 +82,6 @@ func TestClaudeView_InfoExtrasPopulatedFromCachedFields(t *testing.T) {
 	d.workingDir = "/proj"
 	d.transcriptPath = "/tmp/x.jsonl"
 	d.branchTag = "feat/refactor"
-	d.errorCount = 2
 	d.currentTool = "Edit"
 
 	view := d.View()
@@ -107,7 +106,7 @@ func TestClaudeView_InfoExtrasPopulatedFromCachedFields(t *testing.T) {
 
 	// Fields that ARE shown via Tags/Indicators must NOT appear in InfoExtras
 	// to avoid duplicate rendering.
-	mustNotHave := []string{"Branch", "Errors", "Subagents", "Tool"}
+	mustNotHave := []string{"Branch", "Subagents", "Tool"}
 	for _, label := range mustNotHave {
 		if _, present := got[label]; present {
 			t.Errorf("InfoExtras[%q] should be absent (duplicated by Tags/Indicators)", label)

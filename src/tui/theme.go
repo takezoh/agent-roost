@@ -13,7 +13,7 @@ type Theme struct {
 	Primary color.Color // titles, accents
 	Accent  color.Color // tags, secondary highlights
 	Fg      color.Color // default text on cards/panels
-	Muted   color.Color // secondary info (last prompt, subjects)
+	Muted   color.Color // secondary info (last prompt)
 	Dim     color.Color // help, borders, background noise
 	SelBg   color.Color // selected row background (default mode)
 	SelFg   color.Color // selected row foreground

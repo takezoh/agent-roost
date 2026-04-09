@@ -76,15 +76,14 @@ func TestFormatStatusLine(t *testing.T) {
 			"opus-4-6 | ▸ Bash",
 		},
 		{
-			"errors and subs",
+			"subs",
 			StatusSnapshot{
 				Model: "opus-4-6",
 				Insight: SessionInsight{
-					ErrorCount:     2,
 					SubagentCounts: map[string]int{"Explore": 3},
 				},
 			},
-			"opus-4-6 | 2 err | 3 subs",
+			"opus-4-6 | 3 subs",
 		},
 		{
 			"empty",

@@ -11,11 +11,18 @@ import (
 type Config struct {
 	DataDir    string           `toml:"data_dir"`
 	Theme      string           `toml:"theme"`
+	Log        LogConfig        `toml:"log"`
 	Tmux       TmuxConfig       `toml:"tmux"`
 	Monitor    MonitorConfig    `toml:"monitor"`
 	Session    SessionConfig    `toml:"session"`
 	Projects   ProjectsConfig   `toml:"projects"`
 	Transcript TranscriptConfig `toml:"transcript"`
+}
+
+// LogConfig controls slog handler verbosity. Level values: "debug", "info",
+// "warn", "error". Unknown / empty values fall back to info in logger.Init.
+type LogConfig struct {
+	Level string `toml:"level"`
 }
 
 type TranscriptConfig struct {
@@ -76,6 +83,7 @@ func Load() (*Config, error) {
 func DefaultConfig() *Config {
 	return &Config{
 		Theme: "default",
+		Log:   LogConfig{Level: "info"},
 		Tmux: TmuxConfig{
 			SessionName:         "roost",
 			Prefix:              "C-b",

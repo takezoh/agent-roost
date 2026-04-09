@@ -307,17 +307,24 @@ func (c *Coordinator) HandleHookEvent(ev driver.AgentEvent) (sessionID string, c
 
 func (c *Coordinator) handleHookEventInternal(ev driver.AgentEvent) (string, bool) {
 	if ev.SessionID == "" {
+		slog.Warn("hook event: missing session id", "type", ev.Type, "state", ev.State)
 		return "", false
 	}
 	sess := c.Sessions.FindByID(ev.SessionID)
 	if sess == nil {
+		slog.Warn("hook event: unknown session", "session", ev.SessionID, "type", ev.Type)
 		return "", false
 	}
 	drv, ok := c.Drivers.Get(sess.ID)
 	if !ok {
+		slog.Warn("hook event: no driver for session", "session", ev.SessionID, "type", ev.Type)
 		return sess.ID, false
 	}
 	consumed := drv.HandleEvent(ev)
+	if !consumed {
+		slog.Debug("hook event: not consumed by driver",
+			"session", sess.ID, "type", ev.Type, "state", ev.State)
+	}
 	c.flushPersistedStateInternal(sess, drv)
 	if consumed && c.syncStatus != nil && c.activeWindowID == sess.WindowID {
 		c.syncStatus(drv.View().StatusLine)

@@ -24,7 +24,16 @@ import (
 )
 
 func main() {
-	logger.Init()
+	// Read config before initializing the logger so the slog level (which is
+	// fixed at handler construction) reflects the user's [log] level setting.
+	// All entry points — daemon, TUI subprocesses, and short-lived hook
+	// bridges like `roost claude event` — funnel through this single Init.
+	cfg, _ := config.Load()
+	level := "info"
+	if cfg != nil {
+		level = cfg.Log.Level
+	}
+	logger.Init(level)
 	defer logger.Close()
 
 	if lib.Dispatch(os.Args[1:]) {

@@ -408,6 +408,9 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 	// is responsible for any side-effects (event log, etc.) — server only
 	// routes the event and rebroadcasts.
 	ev := driver.AgentEventFromArgs(args)
+	slog.Debug("agent event received",
+		"type", ev.Type, "session", ev.SessionID,
+		"state", ev.State, "log", ev.Log)
 	switch ev.Type {
 	case driver.AgentEventSessionStart:
 		_, consumed := s.coord.HandleHookEvent(ev)

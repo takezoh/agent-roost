@@ -62,17 +62,6 @@ func TestAggregateMeta_LastPromptIgnoresToolResultUserBlocks(t *testing.T) {
 	}
 }
 
-func TestAggregateMeta_TaskCreateSubjects(t *testing.T) {
-	p := NewParser(ParserOptions{})
-	entries := p.ParseAll(strings.NewReader(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Fix login"}}]}}
-{"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Add tests"}}]}}
-`))
-	snap := AggregateMeta(entries)
-	if len(snap.Subjects) != 2 || snap.Subjects[0] != "Fix login" || snap.Subjects[1] != "Add tests" {
-		t.Errorf("Subjects = %v", snap.Subjects)
-	}
-}
-
 func TestAggregateMeta_AgentNameAndCurrentTool(t *testing.T) {
 	p := NewParser(ParserOptions{})
 	entries := p.ParseAll(strings.NewReader(`{"type":"agent-name","agentName":"explorer"}
@@ -95,19 +84,6 @@ func TestAggregateMeta_CurrentToolClearedOnResult(t *testing.T) {
 	snap := AggregateMeta(entries)
 	if snap.Insight.CurrentTool != "" {
 		t.Errorf("CurrentTool should be cleared, got %q", snap.Insight.CurrentTool)
-	}
-}
-
-func TestAggregateMeta_ErrorCount(t *testing.T) {
-	p := NewParser(ParserOptions{})
-	entries := p.ParseAll(strings.NewReader(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"oops"}}]}}
-{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"err","is_error":true}]}}
-{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"again"}}]}}
-{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t2","content":"err","is_error":true}]}}
-`))
-	snap := AggregateMeta(entries)
-	if snap.Insight.ErrorCount != 2 {
-		t.Errorf("ErrorCount = %d", snap.Insight.ErrorCount)
 	}
 }
 

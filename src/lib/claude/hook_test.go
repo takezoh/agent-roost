@@ -67,6 +67,7 @@ func TestDeriveState(t *testing.T) {
 		{"SessionEnd", "", "stopped"},
 		{"Notification", "permission_prompt", "pending"},
 		{"Notification", "idle_prompt", "waiting"},
+		{"Notification", "elicitation_dialog", "waiting"},
 		{"Notification", "auth_success", ""},
 		{"SessionStart", "", "idle"},
 		{"PostCompact", "", ""},
