@@ -16,6 +16,7 @@ const (
 	KindFileSnapshot
 	KindCustomTitle
 	KindAgentName
+	KindLastPrompt
 	KindSubagentBegin
 	KindSubagentEnd
 	KindUnknown

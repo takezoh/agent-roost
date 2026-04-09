@@ -137,3 +137,25 @@ func TestParser_AgentName(t *testing.T) {
 		t.Errorf("Text = %q", entries[0].Text)
 	}
 }
+
+func TestParser_LastPrompt(t *testing.T) {
+	p := NewParser(ParserOptions{})
+	entries := p.ParseLines([]byte(`{"type":"last-prompt","lastPrompt":"hello rewind","sessionId":"abc"}`))
+	if len(entries) != 1 || entries[0].Kind != KindLastPrompt {
+		t.Fatalf("got %+v", entries)
+	}
+	if entries[0].Text != "hello rewind" {
+		t.Errorf("Text = %q", entries[0].Text)
+	}
+}
+
+func TestParser_LastPromptEmpty(t *testing.T) {
+	p := NewParser(ParserOptions{})
+	entries := p.ParseLines([]byte(`{"type":"last-prompt","lastPrompt":""}`))
+	if len(entries) != 1 || entries[0].Kind != KindLastPrompt {
+		t.Fatalf("got %+v", entries)
+	}
+	if entries[0].Text != "" {
+		t.Errorf("Text = %q, want empty", entries[0].Text)
+	}
+}

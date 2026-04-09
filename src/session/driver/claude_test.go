@@ -137,6 +137,7 @@ func TestClaude_ResolveMeta(t *testing.T) {
 	jsonl := `{"type":"user","message":{"role":"user","content":"first prompt"}}
 {"type":"custom-title","customTitle":"my-session-name","sessionId":"abc"}
 {"type":"user","message":{"role":"user","content":"the last prompt"}}
+{"type":"last-prompt","lastPrompt":"the last prompt","sessionId":"abc"}
 `
 	fsys := mapFSWithTranscript("home/u/.claude/projects/-workspace-myproject/abc.jsonl", jsonl)
 	d := Claude{}
@@ -199,6 +200,7 @@ func TestClaude_ResolveMeta_NoFile(t *testing.T) {
 
 func TestClaude_ResolveMeta_TaskCreateSubjects(t *testing.T) {
 	jsonl := `{"type":"user","message":{"content":"hello"}}
+{"type":"last-prompt","lastPrompt":"hello","sessionId":"abc"}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Fix login bug"}},{"type":"tool_use","name":"Read","input":{"file_path":"main.go"}}]}}
 {"type":"assistant","message":{"content":[{"type":"tool_use","name":"TaskCreate","input":{"subject":"Add login tests"}}]}}
 `

@@ -10,7 +10,6 @@ type SessionInsight struct {
 	ErrorCount     int            // tool_result with is_error=true so far
 	TouchedFiles   []string       // up to 10 unique file paths from Read/Write/Edit
 	AgentName      string         // agent-name event (Claude-assigned slug)
-	LastUserPrompt string         // most recent user text prompt
 }
 
 // MetaSnapshot bundles the legacy session-meta fields with a freshly
@@ -48,10 +47,8 @@ func applyEntryToMeta(snap *MetaSnapshot, e Entry) {
 	switch e.Kind {
 	case KindCustomTitle:
 		snap.Title = e.Text
-	case KindUser:
-		if e.Text != "" {
-			snap.LastPrompt = e.Text
-		}
+	case KindLastPrompt:
+		snap.LastPrompt = e.Text
 	case KindToolUse:
 		if e.ToolName == "TaskCreate" && e.ToolInput.Primary != "" && len(snap.Subjects) < maxSubjectsAgg {
 			snap.Subjects = append(snap.Subjects, e.ToolInput.Primary)
@@ -62,10 +59,6 @@ func applyEntryToMeta(snap *MetaSnapshot, e Entry) {
 
 func applyEntryToInsight(insight *SessionInsight, e Entry) {
 	switch e.Kind {
-	case KindUser:
-		if e.Text != "" {
-			insight.LastUserPrompt = e.Text
-		}
 	case KindAgentName:
 		insight.AgentName = e.Text
 	case KindToolUse:
