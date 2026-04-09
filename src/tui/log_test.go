@@ -175,9 +175,9 @@ func TestSwitchToTab_DynamicTab(t *testing.T) {
 
 func TestRebuildTabs(t *testing.T) {
 	m := NewLogModel("/app.log", nil, false)
-	m.rebuildTabs("/events.log", "/transcript.jsonl")
+	m.rebuildTabs("/events.log", "/transcript.jsonl", nil)
 
-	// TRANSCRIPT + EVENTS + LOG = 3
+	// TRANSCRIPT + EVENTS + LOG = 3 (no current session → no INFO)
 	if len(m.tabs) != 3 {
 		t.Fatalf("got %d tabs, want 3", len(m.tabs))
 	}
@@ -194,7 +194,7 @@ func TestRebuildTabs(t *testing.T) {
 
 func TestRebuildTabs_NoClaudeActive(t *testing.T) {
 	m := NewLogModel("/app.log", nil, false)
-	m.rebuildTabs("", "")
+	m.rebuildTabs("", "", nil)
 	if len(m.tabs) != 1 { // LOG only
 		t.Fatalf("got %d tabs, want 1", len(m.tabs))
 	}
@@ -205,7 +205,7 @@ func TestRebuildTabs_ActiveTabFallback(t *testing.T) {
 	m.tabs = append(m.tabs, &tabState{label: "EVENTS", logPath: "/x.log"})
 	m.activeTab = 1
 
-	m.rebuildTabs("", "")
+	m.rebuildTabs("", "", nil)
 	if m.activeTab != 0 {
 		t.Fatalf("activeTab = %d, want %d (0)", m.activeTab, 0)
 	}
@@ -221,7 +221,7 @@ func TestRebuildTabs_PreservesStateWhenUnchanged(t *testing.T) {
 	os.WriteFile(transcriptLog, []byte("tr1\ntr2\n"), 0o644)
 
 	m := NewLogModel(appLog, nil, false)
-	m.rebuildTabs(eventsLog, transcriptLog)
+	m.rebuildTabs(eventsLog, transcriptLog, nil)
 	if len(m.tabs) != 3 {
 		t.Fatalf("got %d tabs, want 3", len(m.tabs))
 	}
@@ -245,7 +245,7 @@ func TestRebuildTabs_PreservesStateWhenUnchanged(t *testing.T) {
 	}
 
 	// Rebuild with identical paths — should be a no-op for state.
-	m.rebuildTabs(eventsLog, transcriptLog)
+	m.rebuildTabs(eventsLog, transcriptLog, nil)
 	if len(m.tabs) != 3 {
 		t.Fatalf("got %d tabs after rebuild, want 3", len(m.tabs))
 	}
@@ -274,7 +274,7 @@ func TestRebuildTabs_NewTabFreshState(t *testing.T) {
 	m := NewLogModel("/app.log", nil, false)
 	logTabPtr := m.tabs[0]
 
-	m.rebuildTabs("/events.log", "/transcript.jsonl")
+	m.rebuildTabs("/events.log", "/transcript.jsonl", nil)
 	if len(m.tabs) != 3 {
 		t.Fatalf("got %d tabs, want 3", len(m.tabs))
 	}
@@ -296,11 +296,11 @@ func TestRebuildTabs_NewTabFreshState(t *testing.T) {
 
 func TestRebuildTabs_ChangedPathReplacesState(t *testing.T) {
 	m := NewLogModel("/app.log", nil, false)
-	m.rebuildTabs("/events1.log", "/transcript1.jsonl")
+	m.rebuildTabs("/events1.log", "/transcript1.jsonl", nil)
 	oldTranscript := m.tabs[0]
 	oldEvents := m.tabs[1]
 
-	m.rebuildTabs("/events2.log", "/transcript2.jsonl")
+	m.rebuildTabs("/events2.log", "/transcript2.jsonl", nil)
 	if m.tabs[0] == oldTranscript {
 		t.Errorf("TRANSCRIPT pointer should change when path changes")
 	}

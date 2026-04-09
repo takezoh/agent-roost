@@ -39,12 +39,13 @@ type LogModel struct {
 	appLogPath string
 	tabs       []*tabState
 
-	following    bool
-	width        int
-	height       int
-	client       *core.Client
-	parser       *transcript.Parser
-	showThinking bool
+	following      bool
+	width          int
+	height         int
+	client         *core.Client
+	parser         *transcript.Parser
+	showThinking   bool
+	currentSession *core.SessionInfo
 }
 
 func NewLogModel(appLogPath string, client *core.Client, showThinking bool) LogModel {
@@ -111,7 +112,7 @@ func (m LogModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 
 func (m LogModel) handleTick() (tea.Model, tea.Cmd) {
 	tab := m.activeTabState()
-	if tab != nil {
+	if tab != nil && tab.logPath != "" {
 		newContent, err := readNewLines(tab)
 		if err == nil && newContent != "" {
 			m.appendContent(newContent)
@@ -149,12 +150,34 @@ func (m LogModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 func (m LogModel) handleLogEvent(msg core.Message) (tea.Model, tea.Cmd) {
 	if msg.Event == "sessions-changed" {
-		m.rebuildTabs(msg.EventLogPath, msg.TranscriptPath)
+		m.currentSession = pickActiveSession(msg.Sessions, msg.ActiveWindowID)
+		m.rebuildTabs(msg.EventLogPath, msg.TranscriptPath, m.currentSession)
+		if msg.IsPreview {
+			if idx, ok := m.tabIndexByLabel("INFO"); ok {
+				m.activeTab = idx
+				m.renderInfoTab()
+				m.following = true
+			}
+		} else if m.activeTabIs("INFO") {
+			m.renderInfoTab()
+		}
 	}
 	if m.client != nil {
 		return m, m.listenEvents()
 	}
 	return m, nil
+}
+
+func pickActiveSession(sessions []core.SessionInfo, activeWID string) *core.SessionInfo {
+	if activeWID == "" {
+		return nil
+	}
+	for i := range sessions {
+		if sessions[i].WindowID == activeWID {
+			return &sessions[i]
+		}
+	}
+	return nil
 }
 
 func (m LogModel) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
@@ -165,18 +188,38 @@ func (m LogModel) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *LogModel) rebuildTabs(eventLogPath, transcriptPath string) {
+func (m *LogModel) rebuildTabs(eventLogPath, transcriptPath string, current *core.SessionInfo) {
 	prev := make(map[string]*tabState, len(m.tabs))
 	for _, t := range m.tabs {
 		prev[t.label] = t
 	}
-
 	prevTranscript := ""
 	if t, ok := prev["TRANSCRIPT"]; ok {
 		prevTranscript = t.logPath
 	}
 	sessionChanged := transcriptPath != prevTranscript
 
+	m.tabs = buildTabList(prev, eventLogPath, transcriptPath, current, m.appLogPath)
+	for _, t := range prev {
+		if t.file != nil {
+			t.file.Close()
+		}
+	}
+	if int(m.activeTab) >= len(m.tabs) {
+		m.activeTab = 0
+	}
+	if sessionChanged && transcriptPath != "" {
+		m.activeTab = 0
+		m.viewport.SetContent("")
+		m.following = true
+		m.rebuildParser(transcriptPath)
+	}
+}
+
+// buildTabList assembles the ordered tab list, reusing entries from prev
+// (and removing each reused entry from the map) when label and path match.
+// Order: TRANSCRIPT, EVENTS, INFO, LOG. INFO sits immediately before LOG.
+func buildTabList(prev map[string]*tabState, eventLogPath, transcriptPath string, current *core.SessionInfo, appLogPath string) []*tabState {
 	reuseOrNew := func(label, path string) *tabState {
 		if t, ok := prev[label]; ok && t.logPath == path {
 			delete(prev, label)
@@ -184,8 +227,6 @@ func (m *LogModel) rebuildTabs(eventLogPath, transcriptPath string) {
 		}
 		return &tabState{label: label, logPath: path}
 	}
-
-	// Rebuild: TRANSCRIPT + EVENTS (Claude) + LOG (always last)
 	var tabs []*tabState
 	if transcriptPath != "" {
 		tabs = append(tabs, reuseOrNew("TRANSCRIPT", transcriptPath))
@@ -193,26 +234,10 @@ func (m *LogModel) rebuildTabs(eventLogPath, transcriptPath string) {
 	if eventLogPath != "" {
 		tabs = append(tabs, reuseOrNew("EVENTS", eventLogPath))
 	}
-	tabs = append(tabs, reuseOrNew("LOG", m.appLogPath))
-
-	for _, t := range prev {
-		if t.file != nil {
-			t.file.Close()
-		}
+	if current != nil {
+		tabs = append(tabs, reuseOrNew("INFO", ""))
 	}
-	m.tabs = tabs
-
-	if int(m.activeTab) >= len(m.tabs) {
-		m.activeTab = 0
-	}
-
-	// Reset viewport when active session changes
-	if sessionChanged && transcriptPath != "" {
-		m.activeTab = 0
-		m.viewport.SetContent("")
-		m.following = true
-		m.rebuildParser(transcriptPath)
-	}
+	return append(tabs, reuseOrNew("LOG", appLogPath))
 }
 
 // rebuildParser constructs a new transcript Parser pointed at the
@@ -245,13 +270,29 @@ func subagentDir(transcriptPath string) string {
 }
 
 func (m *LogModel) isLogTab() bool {
-	tab := m.activeTabState()
-	return tab != nil && tab.label == "LOG"
+	return m.activeTabIs("LOG")
 }
 
 func (m *LogModel) isTranscriptTab() bool {
+	return m.activeTabIs("TRANSCRIPT")
+}
+
+func (m *LogModel) activeTabIs(label string) bool {
 	tab := m.activeTabState()
-	return tab != nil && tab.label == "TRANSCRIPT"
+	return tab != nil && tab.label == label
+}
+
+func (m *LogModel) tabIndexByLabel(label string) (logTab, bool) {
+	for i, tab := range m.tabs {
+		if tab.label == label {
+			return logTab(i), true
+		}
+	}
+	return 0, false
+}
+
+func (m *LogModel) renderInfoTab() {
+	m.viewport.SetContent(formatSessionInfo(m.currentSession))
 }
 
 func (m *LogModel) activeTabState() *tabState {
@@ -291,18 +332,26 @@ func (m *LogModel) switchToTab(tab logTab) {
 	}
 	m.activeTab = tab
 
-	// Reset reader to tail from end of file
-	if t := m.activeTabState(); t != nil {
-		if t.file != nil {
-			t.file.Close()
-			t.file = nil
-		}
-		t.offset = 0
-		t.buf = ""
-		m.viewport.SetContent("")
-		m.following = true
-		m.parser.Reset()
+	t := m.activeTabState()
+	if t == nil {
+		return
 	}
+	if t.label == "INFO" {
+		m.renderInfoTab()
+		m.following = true
+		return
+	}
+
+	// Reset reader to tail from end of file
+	if t.file != nil {
+		t.file.Close()
+		t.file = nil
+	}
+	t.offset = 0
+	t.buf = ""
+	m.viewport.SetContent("")
+	m.following = true
+	m.parser.Reset()
 }
 
 func (m *LogModel) tabIndexAtX(x int) logTab {
