@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"io"
 	"os"
 	"strings"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/lib/claude/transcript"
+	"github.com/take/agent-roost/session/driver"
 )
 
 const (
@@ -31,9 +31,18 @@ type logTab int
 type logEventMsg core.Message
 type logDisconnectMsg struct{}
 
+// tabKindLog and tabKindInfo are LogModel-internal kinds used by tabs the
+// TUI manages itself (the always-on LOG tab and the synthesized INFO
+// tab). Driver-provided tabs carry one of driver.TabKind* values.
+const (
+	tabKindLog  driver.TabKind = "_log"
+	tabKindInfo driver.TabKind = "_info"
+)
+
 type tabState struct {
 	label   string
 	logPath string
+	kind    driver.TabKind
 	file    *os.File
 	offset  int64
 	buf     string
@@ -58,7 +67,7 @@ func NewLogModel(appLogPath string, client *core.Client, showThinking bool) LogM
 	return LogModel{
 		appLogPath: appLogPath,
 		tabs: []*tabState{
-			{label: "LOG", logPath: appLogPath},
+			{label: "LOG", logPath: appLogPath, kind: tabKindLog},
 		},
 		client:       client,
 		activeTab:    0,
@@ -157,7 +166,7 @@ func (m LogModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m LogModel) handleLogEvent(msg core.Message) (tea.Model, tea.Cmd) {
 	if msg.Event == "sessions-changed" {
 		m.currentSession = pickActiveSession(msg.Sessions, msg.ActiveWindowID)
-		m.rebuildTabs(msg.EventLogPath, msg.TranscriptPath, m.currentSession)
+		m.rebuildTabs(m.currentSession)
 		if msg.IsPreview {
 			if idx, ok := m.tabIndexByLabel("INFO"); ok {
 				m.activeTab = idx
@@ -194,7 +203,7 @@ func (m LogModel) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *LogModel) rebuildTabs(eventLogPath, transcriptPath string, current *core.SessionInfo) {
+func (m *LogModel) rebuildTabs(current *core.SessionInfo) {
 	prev := make(map[string]*tabState, len(m.tabs))
 	for _, t := range m.tabs {
 		prev[t.label] = t
@@ -203,9 +212,10 @@ func (m *LogModel) rebuildTabs(eventLogPath, transcriptPath string, current *cor
 	if t, ok := prev["TRANSCRIPT"]; ok {
 		prevTranscript = t.logPath
 	}
+	transcriptPath := transcriptPathFromView(current)
 	sessionChanged := transcriptPath != prevTranscript
 
-	m.tabs = buildTabList(prev, eventLogPath, transcriptPath, current, m.appLogPath)
+	m.tabs = buildTabList(prev, current, m.appLogPath)
 	for _, t := range prev {
 		if t.file != nil {
 			t.file.Close()
@@ -222,28 +232,42 @@ func (m *LogModel) rebuildTabs(eventLogPath, transcriptPath string, current *cor
 	}
 }
 
+// transcriptPathFromView returns the path of the first TRANSCRIPT-kind
+// tab the driver declared, or "" when no transcript tab exists.
+func transcriptPathFromView(current *core.SessionInfo) string {
+	if current == nil {
+		return ""
+	}
+	for _, lt := range current.View.LogTabs {
+		if lt.Kind == driver.TabKindTranscript {
+			return lt.Path
+		}
+	}
+	return ""
+}
+
 // buildTabList assembles the ordered tab list, reusing entries from prev
-// (and removing each reused entry from the map) when label and path match.
-// Order: TRANSCRIPT, EVENTS, INFO, LOG. INFO sits immediately before LOG.
-func buildTabList(prev map[string]*tabState, eventLogPath, transcriptPath string, current *core.SessionInfo, appLogPath string) []*tabState {
-	reuseOrNew := func(label, path string) *tabState {
-		if t, ok := prev[label]; ok && t.logPath == path {
+// (and removing each reused entry from the map) when label, path and kind
+// all match. Order: driver-declared LogTabs (in driver's order) → INFO →
+// LOG. The driver opts-out of INFO via SessionView.SuppressInfo.
+func buildTabList(prev map[string]*tabState, current *core.SessionInfo, appLogPath string) []*tabState {
+	reuseOrNew := func(label, path string, kind driver.TabKind) *tabState {
+		if t, ok := prev[label]; ok && t.logPath == path && t.kind == kind {
 			delete(prev, label)
 			return t
 		}
-		return &tabState{label: label, logPath: path}
+		return &tabState{label: label, logPath: path, kind: kind}
 	}
 	var tabs []*tabState
-	if transcriptPath != "" {
-		tabs = append(tabs, reuseOrNew("TRANSCRIPT", transcriptPath))
-	}
-	if eventLogPath != "" {
-		tabs = append(tabs, reuseOrNew("EVENTS", eventLogPath))
-	}
 	if current != nil {
-		tabs = append(tabs, reuseOrNew("INFO", ""))
+		for _, lt := range current.View.LogTabs {
+			tabs = append(tabs, reuseOrNew(lt.Label, lt.Path, lt.Kind))
+		}
+		if !current.View.SuppressInfo {
+			tabs = append(tabs, reuseOrNew("INFO", "", tabKindInfo))
+		}
 	}
-	return append(tabs, reuseOrNew("LOG", appLogPath))
+	return append(tabs, reuseOrNew("LOG", appLogPath, tabKindLog))
 }
 
 // rebuildParser constructs a new transcript Parser pointed at the
@@ -276,11 +300,13 @@ func subagentDir(transcriptPath string) string {
 }
 
 func (m *LogModel) isLogTab() bool {
-	return m.activeTabIs("LOG")
+	tab := m.activeTabState()
+	return tab != nil && tab.kind == tabKindLog
 }
 
 func (m *LogModel) isTranscriptTab() bool {
-	return m.activeTabIs("TRANSCRIPT")
+	tab := m.activeTabState()
+	return tab != nil && tab.kind == driver.TabKindTranscript
 }
 
 func (m *LogModel) activeTabIs(label string) bool {
@@ -298,7 +324,7 @@ func (m *LogModel) tabIndexByLabel(label string) (logTab, bool) {
 }
 
 func (m *LogModel) renderInfoTab() {
-	m.viewport.SetContent(formatSessionInfo(m.currentSession))
+	m.viewport.SetContent(renderInfoContent(m.currentSession))
 }
 
 func (m *LogModel) activeTabState() *tabState {
@@ -342,7 +368,7 @@ func (m *LogModel) switchToTab(tab logTab) {
 	if t == nil {
 		return
 	}
-	if t.label == "INFO" {
+	if t.kind == tabKindInfo {
 		m.renderInfoTab()
 		m.following = true
 		return
@@ -393,132 +419,6 @@ func (m *LogModel) appendContent(newContent string) {
 	m.viewport.SetContent(content)
 }
 
-func readNewLines(tab *tabState) (string, error) {
-	if err := openTabFile(tab); err != nil {
-		return "", err
-	}
-	info, err := tab.file.Stat()
-	if err != nil {
-		tab.file.Close()
-		tab.file = nil
-		return "", err
-	}
-	if info.Size() < tab.offset {
-		tab.file.Close()
-		tab.file = nil
-		tab.offset = 0
-		tab.buf = ""
-		return "", nil
-	}
-	if info.Size() == tab.offset {
-		return "", nil
-	}
-	tab.file.Seek(tab.offset, io.SeekStart)
-	data, err := io.ReadAll(io.LimitReader(tab.file, info.Size()-tab.offset))
-	if err != nil {
-		return "", err
-	}
-	tab.offset += int64(len(data))
-	return splitTrailingPartial(tab, tab.buf+string(data)), nil
-}
-
-func openTabFile(tab *tabState) error {
-	if tab.file != nil {
-		return nil
-	}
-	f, err := os.Open(tab.logPath)
-	if err != nil {
-		return err
-	}
-	tab.file = f
-	off, err := seekToLastNLines(f, initialBackfillLines)
-	if err != nil {
-		return err
-	}
-	tab.offset = off
-	return nil
-}
-
-// seekToLastNLines returns the byte offset that starts the last n lines of
-// f (counting both terminated lines and a final unterminated line). If the
-// file has fewer than n lines, or n <= 0, it returns 0. The file's seek
-// position is left unchanged.
-func seekToLastNLines(f *os.File, n int) (int64, error) {
-	if n <= 0 {
-		return 0, nil
-	}
-	info, err := f.Stat()
-	if err != nil {
-		return 0, err
-	}
-	size := info.Size()
-	if size == 0 {
-		return 0, nil
-	}
-
-	// Detect a trailing newline: when present, the final \n doesn't open
-	// a new line, so the (n+1)-th newline from the end marks the start of
-	// the desired suffix. When absent, the trailing partial line counts
-	// as line #1 from the end, so we only need n newlines back.
-	lastByte := make([]byte, 1)
-	if _, err := f.ReadAt(lastByte, size-1); err != nil {
-		return 0, err
-	}
-	target := n
-	if lastByte[0] == '\n' {
-		target = n + 1
-	}
-
-	buf := make([]byte, tailReadChunk)
-	pos := size
-	newlines := 0
-	for pos > 0 {
-		readSize := int64(len(buf))
-		if pos < readSize {
-			readSize = pos
-		}
-		pos -= readSize
-		if _, err := f.ReadAt(buf[:readSize], pos); err != nil {
-			return 0, err
-		}
-		for i := readSize - 1; i >= 0; i-- {
-			if buf[i] != '\n' {
-				continue
-			}
-			newlines++
-			if newlines >= target {
-				return pos + i + 1, nil
-			}
-		}
-	}
-	return 0, nil
-}
-
-func splitTrailingPartial(tab *tabState, text string) string {
-	if strings.HasSuffix(text, "\n") {
-		tab.buf = ""
-		return strings.TrimRight(text, "\n")
-	}
-	lastNL := strings.LastIndex(text, "\n")
-	if lastNL < 0 {
-		tab.buf = text
-		return ""
-	}
-	tab.buf = text[lastNL+1:]
-	return text[:lastNL]
-}
-
-func trimLines(content string, max int) string {
-	lines := strings.Split(content, "\n")
-	if len(lines) <= max {
-		return content
-	}
-	return strings.Join(lines[len(lines)-max:], "\n")
-}
-
-func tickCmd() tea.Cmd {
-	return tea.Tick(tailPollInterval, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
-}
+// File I/O helpers (readNewLines / openTabFile / seekToLastNLines /
+// splitTrailingPartial / trimLines / tickCmd) live in log_io.go.
 

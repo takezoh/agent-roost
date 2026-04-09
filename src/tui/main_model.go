@@ -10,7 +10,6 @@ import (
 
 type MainModel struct {
 	client          *core.Client
-	drivers         *driver.Registry
 	sessions        []core.SessionInfo
 	selectedProject string
 	width           int
@@ -23,7 +22,6 @@ type mainDisconnectMsg struct{}
 func NewMainModel(client *core.Client) MainModel {
 	return MainModel{
 		client: client,
-		drivers: driver.DefaultRegistry(),
 	}
 }
 

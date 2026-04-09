@@ -9,7 +9,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
 )
 
@@ -47,7 +46,7 @@ func renderSessionsBody(m Model, innerWidth int) string {
 	var b strings.Builder
 	for i := range m.items {
 		selected := i == m.cursor
-		rendered := renderItem(m.items[i], selected, innerWidth, m.folded[m.items[i].project], m.drivers)
+		rendered := renderItem(m.items[i], selected, innerWidth, m.folded[m.items[i].project])
 		// In minimal mode, draw a horizontal separator between two adjacent
 		// sessions. The separator is prepended to the lower card so that
 		// SetRows accounts for it and mouse mapping clicks the lower card.
@@ -73,11 +72,11 @@ func countSessions(items []listItem) int {
 	return n
 }
 
-func renderItem(item listItem, selected bool, width int, folded bool, registry *driver.Registry) string {
+func renderItem(item listItem, selected bool, width int, folded bool) string {
 	if item.isProject {
 		return renderProject(item.project, folded, selected)
 	}
-	return renderSession(item.session, selected, width, registry)
+	return renderSession(item.session, selected, width)
 }
 
 func renderProject(name string, folded, selected bool) string {
@@ -98,13 +97,13 @@ func renderProject(name string, folded, selected bool) string {
 	return projectStyle.Render(line)
 }
 
-func renderSession(s *core.SessionInfo, selected bool, width int, registry *driver.Registry) string {
+func renderSession(s *core.SessionInfo, selected bool, width int) string {
 	if Active.Minimal {
-		return renderSessionMinimal(s, selected, width, registry)
+		return renderSessionMinimal(s, selected, width)
 	}
 	cardOuter := width - 2     // leave room for the 2-space indent
 	textWidth := cardOuter - 4 // subtract Card border + padding
-	body := strings.Join(sessionCardLines(s, textWidth, registry), "\n")
+	body := strings.Join(sessionCardLines(s, textWidth), "\n")
 	return indent(Card(body, selected, cardOuter), "  ")
 }
 
@@ -113,10 +112,10 @@ func renderSession(s *core.SessionInfo, selected bool, width int, registry *driv
 // is selected and a blank cell otherwise (to keep alignment across all
 // cards). No background fill — adjacent sessions are separated by a
 // horizontal rule drawn in renderSessionsBody.
-func renderSessionMinimal(s *core.SessionInfo, selected bool, width int, registry *driver.Registry) string {
+func renderSessionMinimal(s *core.SessionInfo, selected bool, width int) string {
 	cardOuter := width - 2     // 2-cell outer indent
 	textWidth := cardOuter - 3 // 1 border + 1 left padding + 1 right padding
-	lines := sessionCardLines(s, textWidth, registry)
+	lines := sessionCardLines(s, textWidth)
 	body := strings.Join(lines, "\n")
 
 	barChar := " "
@@ -143,11 +142,11 @@ func renderSessionSeparator(innerWidth int) string {
 	return "  " + minimalSeparatorStyle.Render(strings.Repeat("─", n))
 }
 
-func sessionCardLines(s *core.SessionInfo, textWidth int, registry *driver.Registry) []string {
+func sessionCardLines(s *core.SessionInfo, textWidth int) []string {
 	stateStr := stateStyle(s.State).Render(s.State.Symbol() + " " + s.State.String())
 	elapsed := mutedStyle.Render(formatElapsed(time.Since(s.StateChangedAtTime())))
 
-	title := s.Title
+	title := s.View.Card.Title
 	if title == "" {
 		title = s.ID[:6]
 	}
@@ -160,12 +159,12 @@ func sessionCardLines(s *core.SessionInfo, textWidth int, registry *driver.Regis
 
 	lines := []string{prefix + titleStr}
 
-	if s.LastPrompt != "" {
-		lines = append(lines, mutedStyle.Render(truncate(s.LastPrompt, textWidth)))
+	if subtitle := s.View.Card.Subtitle; subtitle != "" {
+		lines = append(lines, mutedStyle.Render(truncate(subtitle, textWidth)))
 	}
 
 	const maxDisplaySubjects = 3
-	subjects := s.Subjects
+	subjects := s.View.Card.Subjects
 	if len(subjects) > maxDisplaySubjects {
 		subjects = subjects[len(subjects)-maxDisplaySubjects:]
 	}
@@ -176,40 +175,46 @@ func sessionCardLines(s *core.SessionInfo, textWidth int, registry *driver.Regis
 	if chips := renderIndicators(s); chips != "" {
 		lines = append(lines, chips)
 	}
-	if tagsLine := renderTags(s, registry); tagsLine != "" {
+	if tagsLine := renderTags(s); tagsLine != "" {
 		lines = append(lines, tagsLine)
 	}
 	return lines
 }
 
-func renderTags(s *core.SessionInfo, registry *driver.Registry) string {
-	displayName := registry.DisplayName(s.Command)
+// renderTags walks the driver-provided Tags list and renders each one with
+// the color the driver chose. The TUI does no special-casing — every tag
+// (including the command tag) is identical from the renderer's POV.
+func renderTags(s *core.SessionInfo) string {
+	tags := s.View.Card.Tags
+	if len(tags) == 0 {
+		return ""
+	}
 	if Active.Minimal {
-		driverPrefix := minimalTagDriverPrefixStyle.Render("▸")
-		branchPrefix := minimalTagBranchPrefixStyle.Render("⎇")
 		var parts []string
-		parts = append(parts, driverPrefix+" "+minimalTagTextStyle.Render(displayName))
-		for _, tag := range s.Tags {
-			parts = append(parts, branchPrefix+" "+minimalTagTextStyle.Render(tag.Text))
+		for i, tag := range tags {
+			prefix := minimalTagBranchPrefixStyle.Render("⎇")
+			if i == 0 {
+				prefix = minimalTagDriverPrefixStyle.Render("▸")
+			}
+			parts = append(parts, prefix+" "+minimalTagTextStyle.Render(tag.Text))
 		}
 		return strings.Join(parts, "  ")
 	}
 	var parts []string
-	parts = append(parts, tagStyle.Render(displayName))
-	for _, tag := range s.Tags {
+	for _, tag := range tags {
 		parts = append(parts, renderTag(tag))
 	}
 	return strings.Join(parts, " ")
 }
 
 func renderIndicators(s *core.SessionInfo) string {
-	if len(s.Indicators) == 0 {
+	if len(s.View.Card.Indicators) == 0 {
 		return ""
 	}
-	return mutedStyle.Render(strings.Join(s.Indicators, "  "))
+	return mutedStyle.Render(strings.Join(s.View.Card.Indicators, "  "))
 }
 
-func renderTag(tag session.Tag) string {
+func renderTag(tag driver.Tag) string {
 	style := tagStyle
 	if tag.Foreground != "" {
 		style = style.Foreground(lipgloss.Color(tag.Foreground))

@@ -66,16 +66,17 @@ func runCoordinator() {
 
 	home, _ := os.UserHomeDir()
 	driverRegistry := driver.DefaultRegistry()
+	eventLogDir := filepath.Join(dataDir, "events")
+	os.MkdirAll(eventLogDir, 0o755)
 	driverDeps := driver.Deps{
 		IdleThreshold: time.Duration(cfg.Monitor.IdleThresholdSec) * time.Second,
-		FS:            os.DirFS("/"),
 		Home:          home,
+		EventLogDir:   eventLogDir,
 	}
 	drivers := driver.NewDriverService(driverRegistry, driverDeps)
 	sessions := session.NewSessionService(client, dataDir)
 
-	eventLogDir := filepath.Join(dataDir, "events")
-	coord := core.NewCoordinator(sessions, drivers, client, client, sessionName, eventLogDir, "")
+	coord := core.NewCoordinator(sessions, drivers, client, client, sessionName, "")
 
 	warmRestart := client.SessionExists()
 	if warmRestart {
@@ -91,11 +92,10 @@ func runCoordinator() {
 			slog.Error("coordinator recreate failed", "err", err)
 		}
 	}
-	sessions.SyncBranches()
 	slog.Info("sessions loaded", "count", len(sessions.All()))
 
 	if wid := restoreActiveWindowID(client, sessions); wid != "" {
-		coord = core.NewCoordinator(sessions, drivers, client, client, sessionName, eventLogDir, wid)
+		coord = core.NewCoordinator(sessions, drivers, client, client, sessionName, wid)
 	}
 	coord.SetSyncActive(func(wid string) {
 		if wid != "" {

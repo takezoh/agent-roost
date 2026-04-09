@@ -20,9 +20,6 @@ type Message struct {
 	Sessions        []SessionInfo `json:"sessions,omitempty"`
 	Error           string        `json:"error,omitempty"`
 	ActiveWindowID  string        `json:"active_window_id,omitempty"`
-	SessionLogPath  string        `json:"session_log_path,omitempty"`
-	EventLogPath    string        `json:"event_log_path,omitempty"`
-	TranscriptPath  string        `json:"transcript_path,omitempty"`
 	SelectedProject string        `json:"selected_project,omitempty"`
 	// IsPreview marks a sessions-changed event as triggered by Preview
 	// (cursor hover) rather than Switch. The log pane uses this to
@@ -30,25 +27,19 @@ type Message struct {
 	IsPreview bool `json:"is_preview,omitempty"`
 }
 
+// SessionInfo is the wire form of one roost session shipped to the TUI.
+// Generic fields (ID, Project, Command, WindowID, CreatedAt, State,
+// StateChangedAt) are rendered by the TUI directly. View carries all
+// driver-owned UI content (Card / LogTabs / InfoExtras / StatusLine).
 type SessionInfo struct {
-	ID             string        `json:"id"`
-	Project        string        `json:"project"`
-	Command        string        `json:"command"`
-	WindowID       string        `json:"window_id"`
-	CreatedAt      string        `json:"created_at"`
-	State          driver.Status `json:"state"`
-	StateChangedAt string        `json:"state_changed_at,omitempty"`
-	Tags           []session.Tag `json:"tags,omitempty"`
-	Title          string        `json:"title,omitempty"`
-	LastPrompt     string        `json:"last_prompt,omitempty"`
-	Subjects       []string      `json:"subjects,omitempty"`
-	StatusLine     string        `json:"status_line,omitempty"`
-
-	// Indicators are driver-built status chips (e.g. current tool,
-	// subagent counts, error counts) shown next to the session card.
-	// Each entry is a pre-formatted, driver-neutral string so the core
-	// layer never has to know about Claude-specific concepts.
-	Indicators []string `json:"indicators,omitempty"`
+	ID             string             `json:"id"`
+	Project        string             `json:"project"`
+	Command        string             `json:"command"`
+	WindowID       string             `json:"window_id"`
+	CreatedAt      string             `json:"created_at"`
+	State          driver.Status      `json:"state"`
+	StateChangedAt string             `json:"state_changed_at,omitempty"`
+	View           driver.SessionView `json:"view"`
 }
 
 func (si SessionInfo) DisplayCommand() string {
@@ -85,7 +76,7 @@ func NewEvent(event string) Message {
 
 // BuildSessionInfos pulls static metadata from SessionService and dynamic
 // state from each session's Driver. There is no resolution / fallback layer
-// — fields the Driver doesn't expose are simply absent in the output.
+// — fields the Driver doesn't expose via View() are simply absent.
 func BuildSessionInfos(sessions []*session.Session, drivers *driver.DriverService) []SessionInfo {
 	infos := make([]SessionInfo, len(sessions))
 	for i, s := range sessions {
@@ -95,7 +86,6 @@ func BuildSessionInfos(sessions []*session.Session, drivers *driver.DriverServic
 			Command:   s.Command,
 			WindowID:  s.WindowID,
 			CreatedAt: s.CreatedAt.Format(time.RFC3339),
-			Tags:      s.Tags,
 		}
 		if drv, ok := drivers.Get(s.ID); ok {
 			if st, has := drv.Status(); has {
@@ -104,11 +94,7 @@ func BuildSessionInfos(sessions []*session.Session, drivers *driver.DriverServic
 					info.StateChangedAt = st.ChangedAt.Format(time.RFC3339)
 				}
 			}
-			info.Title = drv.Title()
-			info.LastPrompt = drv.LastPrompt()
-			info.Subjects = drv.Subjects()
-			info.StatusLine = drv.StatusLine()
-			info.Indicators = drv.Indicators()
+			info.View = drv.View()
 		}
 		infos[i] = info
 	}

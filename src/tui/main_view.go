@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session/driver"
 )
 
 func (m MainModel) View() tea.View {
@@ -21,7 +20,7 @@ func (m MainModel) View() tea.View {
 	if name := m.selectedProjectName(); name != "" {
 		sessions := m.projectSessions()
 		header := projectStyle.Render(name) + "  " + badgeStyle.Render(fmt.Sprintf("%d sessions", len(sessions)))
-		parts = append(parts, "", header, "", renderProjectSessionsBody(sessions, m.drivers))
+		parts = append(parts, "", header, "", renderProjectSessionsBody(sessions))
 	}
 
 	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
@@ -49,7 +48,7 @@ func renderKeybindingsBody() string {
 	return b.String()
 }
 
-func renderProjectSessionsBody(sessions []core.SessionInfo, registry *driver.Registry) string {
+func renderProjectSessionsBody(sessions []core.SessionInfo) string {
 	if len(sessions) == 0 {
 		return mutedStyle.Render("No sessions")
 	}
@@ -60,12 +59,17 @@ func renderProjectSessionsBody(sessions []core.SessionInfo, registry *driver.Reg
 		}
 		symbol := stateSymbol(s.State)
 		elapsed := formatElapsed(time.Since(s.CreatedAtTime()))
-		displayName := registry.DisplayName(s.Command)
+		// Command tag comes from the driver via View.Card.Tags[0].
+		// Falls back to "?" only if the driver produced no tags at all.
+		tagText := "?"
+		if len(s.View.Card.Tags) > 0 {
+			tagText = s.View.Card.Tags[0].Text
+		}
 		b.WriteString(fmt.Sprintf("%s  %s %s  %s",
 			mutedStyle.Render(s.ID[:6]),
 			symbol,
 			mutedStyle.Render(fmt.Sprintf("%-5s", elapsed)),
-			tagStyle.Render(displayName),
+			tagStyle.Render(tagText),
 		))
 	}
 	return b.String()

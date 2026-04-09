@@ -160,7 +160,8 @@ func (c *Client) SetWindowUserOptions(windowID string, kv map[string]string) err
 // ListRoostWindows returns all windows that carry the @roost_id user option.
 // Driver-defined persistent state is packed into a single JSON-encoded
 // @roost_persisted_state user option so this layer never has to know about
-// individual driver keys.
+// individual driver keys. Tags are no longer stored as a top-level user
+// option — drivers cache them inside their own PersistedState bag.
 func (c *Client) ListRoostWindows() ([]session.RoostWindow, error) {
 	fmtStr := strings.Join([]string{
 		"#{window_id}",
@@ -168,7 +169,6 @@ func (c *Client) ListRoostWindows() ([]session.RoostWindow, error) {
 		"#{@roost_project}",
 		"#{@roost_command}",
 		"#{@roost_created_at}",
-		"#{@roost_tags}",
 		"#{@roost_agent_pane}",
 		"#{@roost_persisted_state}",
 	}, "\t")
@@ -188,7 +188,7 @@ func (c *Client) ListRoostWindows() ([]session.RoostWindow, error) {
 // on the last line). Without this padding, ReconcileWindows would treat
 // freshly created sessions whose persisted state is still empty as "missing"
 // and evict them from the cache on the next polling tick.
-const roostWindowFields = 8
+const roostWindowFields = 7
 
 func parseRoostWindows(out string) []session.RoostWindow {
 	var windows []session.RoostWindow
@@ -209,9 +209,8 @@ func parseRoostWindows(out string) []session.RoostWindow {
 			Project:        parts[2],
 			Command:        parts[3],
 			CreatedAt:      parts[4],
-			Tags:           parts[5],
-			AgentPaneID:    parts[6],
-			PersistedState: parts[7],
+			AgentPaneID:    parts[5],
+			PersistedState: parts[6],
 		})
 	}
 	return windows

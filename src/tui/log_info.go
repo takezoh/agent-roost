@@ -7,11 +7,17 @@ import (
 	"github.com/take/agent-roost/core"
 )
 
-func formatSessionInfo(s *core.SessionInfo) string {
+// renderInfoContent builds the INFO tab body. The TUI prepends a generic
+// header from SessionInfo (ID / Project / WindowID / Command / State /
+// Created / StateChanged) and then appends the driver-specific
+// View.InfoExtras lines, followed by the driver's Subjects / Indicators /
+// Tags chips for at-a-glance debugging. Driver-side rendering is
+// intentionally minimal: the TUI controls layout and ordering of the
+// generic block so every session shows the same header in the same order.
+func renderInfoContent(s *core.SessionInfo) string {
 	if s == nil {
 		return ""
 	}
-
 	var b strings.Builder
 	writeField := func(label, value string) {
 		if value == "" {
@@ -31,24 +37,26 @@ func formatSessionInfo(s *core.SessionInfo) string {
 	if t := s.StateChangedAtTime(); !t.IsZero() {
 		writeField("StateChanged", t.Format("2006-01-02 15:04:05"))
 	}
-	writeField("Title", s.Title)
-	writeField("LastPrompt", s.LastPrompt)
 
-	if len(s.Subjects) > 0 {
+	for _, line := range s.View.InfoExtras {
+		writeField(line.Label, line.Value)
+	}
+
+	if len(s.View.Card.Subjects) > 0 {
 		b.WriteString("\nSubjects:\n")
-		for _, subj := range s.Subjects {
+		for _, subj := range s.View.Card.Subjects {
 			fmt.Fprintf(&b, "  • %s\n", subj)
 		}
 	}
-	if len(s.Indicators) > 0 {
+	if len(s.View.Card.Indicators) > 0 {
 		b.WriteString("\nIndicators:\n")
-		for _, ind := range s.Indicators {
+		for _, ind := range s.View.Card.Indicators {
 			fmt.Fprintf(&b, "  • %s\n", ind)
 		}
 	}
-	if len(s.Tags) > 0 {
+	if len(s.View.Card.Tags) > 0 {
 		b.WriteString("\nTags:\n")
-		for _, tag := range s.Tags {
+		for _, tag := range s.View.Card.Tags {
 			fmt.Fprintf(&b, "  • %s\n", tag.Text)
 		}
 	}

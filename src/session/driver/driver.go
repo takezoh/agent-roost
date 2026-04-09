@@ -23,13 +23,14 @@ type Driver interface {
 	HandleEvent(ev AgentEvent) bool     // hook event arrived
 	Close()                             // session destroyed; release resources
 
-	// Status / metadata readers
+	// Status returns the current state machine value. Used by core for
+	// generic state-aware logic (filters, state-changed-at, etc.).
 	Status() (StatusInfo, bool)
-	Title() string
-	LastPrompt() string
-	Subjects() []string
-	StatusLine() string
-	Indicators() []string
+
+	// View returns the complete TUI payload for this session. The driver
+	// owns all UI content (Card / LogTabs / InfoExtras / StatusLine).
+	// View() is a pure getter — heavy work belongs in Tick / HandleEvent.
+	View() SessionView
 
 	// Persistence (driver-defined opaque bag round-tripped through tmux user
 	// options + sessions.json by SessionService).
@@ -59,6 +60,11 @@ type SessionContext interface {
 	// swapped into the main pane (0.0). Drivers use this to gate
 	// expensive polling work (e.g. Tick refreshing transcript meta).
 	Active() bool
+	// ID returns the immutable session id this context belongs to.
+	// Drivers cache this once at construction and use it for any
+	// per-session resources they manage themselves (e.g. event log
+	// file names) without taking a back-reference to core/.
+	ID() string
 }
 
 // inactiveSessionContext is the zero value used when no SessionContext was
@@ -67,3 +73,4 @@ type SessionContext interface {
 type inactiveSessionContext struct{}
 
 func (inactiveSessionContext) Active() bool { return false }
+func (inactiveSessionContext) ID() string   { return "" }

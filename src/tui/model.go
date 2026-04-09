@@ -8,7 +8,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session/driver"
 )
 
 type listItem struct {
@@ -27,7 +26,6 @@ type Model struct {
 	client   *core.Client
 	cfg      *config.Config
 	registry *core.ToolRegistry
-	drivers  *driver.Registry
 	keys     KeyMap
 
 	sessions []core.SessionInfo
@@ -63,7 +61,6 @@ func NewModel(client *core.Client, cfg *config.Config) Model {
 		client:   client,
 		cfg:      cfg,
 		registry: core.DefaultToolRegistry(),
-		drivers:  driver.DefaultRegistry(),
 		keys:     DefaultKeyMap(),
 		folded:   make(map[string]bool),
 		filter:   allOnFilter(),
