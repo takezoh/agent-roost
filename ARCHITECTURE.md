@@ -635,7 +635,43 @@ hook event → driver.Status マッピング:
 | SessionStart | Idle |
 | SessionEnd | Stopped |
 
-`roost claude event` サブコマンドが Claude hook payload を `driver.AgentEvent` に詰め替えて IPC で送り、`Server.handleAgentEvent` が `Coordinator.HandleHookEvent(sessionID, ev)` 経由で `DriverService.Get(sessionID).HandleEvent(ev)` にルーティングする。Server / Coordinator / SessionService は Claude 固有の状態ロジックを一切持たない。
+`roost claude event` サブコマンドが Claude hook payload を `driver.AgentEvent` に詰め替えて IPC で送り、`Server.handleAgentEvent` が `Coordinator.HandleHookEvent(ev)` 経由で `DriverService.Get(ev.SessionID).HandleEvent(ev)` にルーティングする。Server / Coordinator / SessionService は Claude 固有の状態ロジックを一切持たない。
+
+ルーティングは sessionID で 1 段ルックアップ。詳細は [hook event ルーティングと race-free identification](#hook-event-ルーティングと-race-free-identification) を参照。
+
+### hook event ルーティングと race-free identification
+
+agent (Claude 等) の hook subprocess が `roost <agent> event` として起動されたとき、自分がどの roost セッションに属するかを **race-free に** 識別する仕組み。
+
+#### 問題
+
+`SessionService.spawnWindowLocked` は `tmux new-window` で agent プロセスを起動した **後** に `SetWindowUserOptions` で `@roost_id` などの user option を設定する。各 tmux 呼び出しは独立した `exec.Command` で 5-20ms かかるため、`new-window` から `SetWindowUserOptions` 完了まで 20-50ms の窓が開く。この間に agent が SessionStart hook を発火すると、hook subprocess が pane 経由で `@roost_id` を問い合わせても **未設定** の値しか返らず、event が破棄される (origin: commit `7e541ad` の "外部 claude を排除する" ガード)。
+
+#### 解決: env var による atomic injection
+
+`tmux new-window -e ROOST_SESSION_ID=<sess.ID>` で **新ウィンドウのプロセス環境変数として sessionID を注入する**。env var は `new-window` と同時に kernel exec レベルで設定されるので、後続の `set-option` 呼び出しを待たない:
+
+```
+T+0ms   roost: tmux new-window -e ROOST_SESSION_ID=abc123 'exec claude'
+        → claude プロセス起動 (env に ROOST_SESSION_ID=abc123 が既に入っている)
+T+5ms   claude が SessionStart hook を発火
+T+5ms   roost claude event 起動 (環境変数を継承)
+T+5ms   currentRoostSessionID() → os.Getenv("ROOST_SESSION_ID") == "abc123" → 即 OK
+T+5ms   → SendAgentEvent({SessionID: "abc123", ...}) ✓
+T+5ms   server: HandleHookEvent → Sessions.FindByID("abc123") → 該当 → drv.HandleEvent
+```
+
+`lib/claude/command.go` の `currentRoostSessionID()` は env var を読むだけのトリビアル関数で、tmux への往復を一切しない。
+
+#### 副次効果
+
+- **間接参照の削除**: 旧設計は AgentEvent に `Pane` (tmux pane id) を載せ、Coordinator が `findSessionByPane` で pane → window → session の 3 段 fallback を辿っていた。新設計では AgentEvent.SessionID を `Sessions.FindByID` する 1 段ルックアップ。
+- **roost cross-talk の防止**: 同じ tmux サーバー内で複数 roost インスタンスが動いていても、各 roost は自分の知っている sessionID しか受理しないので hook event の cross-talk が起きない。
+- **セキュリティ**: 攻撃者が env var を spoof しても、`Sessions.FindByID` は実在しない ID には nil を返すので event は破棄される。socket access も user-private で従来通りのガードが効く。
+
+#### 補足: 残存する微小な race
+
+`tmux new-window` が返ってから `SessionService.Create` が `s.sessions` map に append するまでに <1ms の窓が残る (この間に hook が届くと `FindByID` が空振り)。ただし agent の bootstrap latency (~100ms+) >> このギャップなので実用上踏むことはほぼ無い。完全に解消するには session を `NewWindow` の前に reservation で登録する restructure が必要だが、本設計では deferred している。
 
 ### Generic driver (polling 駆動)
 
@@ -731,7 +767,6 @@ type PaneOperator interface {
     SelectPane(target string) error
     RespawnPane(target, command string) error
     RunChain(commands ...[]string) error
-    WindowIDFromPane(paneID string) (string, error)
     DisplayMessage(target, format string) (string, error)
     CapturePaneLines(target string, n int) (string, error)
 }
@@ -845,14 +880,14 @@ func (r *Registry) Resolve(command string) Factory
 // session/driver/event.go
 type AgentEvent struct {
     Type        AgentEventType    // session-start | state-change
-    Pane        string            // TMUX_PANE
+    SessionID   string            // roost session id (hook bridge が $ROOST_SESSION_ID から設定)
     State       string            // running / waiting / pending / stopped / idle
     Log         string            // event log 行
     DriverState map[string]string // driver が解釈する不透明な key/value バッグ
 }
 ```
 
-driver-specific な値 (Claude なら `session_id` / `cwd` / `transcript_path`) はすべて `DriverState` に packed されて IPC を渡る。各 driver subcommand (`roost claude event` 等) が自分の hook payload を `AgentEvent` に **詰め替えて** 送信し、`Coordinator.HandleHookEvent` は (a) `pane → sessionID` を `SessionService.FindByAgentPaneID` で解決し、(b) `DriverService.Get(sessionID).HandleEvent(ev)` を呼ぶだけ。Driver instance は AgentEvent.DriverState から自分が必要なキーを取り出し、private state を更新する。core / Coordinator は driver 固有のキー名 (`session_id` 等) を一切ハードコードしない。ToArgs / FromArgs は wire format 上で `drv_<key>` プレフィックスを使い、generic field と衝突しないようにしている。
+driver-specific な値 (Claude なら `session_id` / `cwd` / `transcript_path`) はすべて `DriverState` に packed されて IPC を渡る。各 driver subcommand (`roost claude event` 等) が自分の hook payload を `AgentEvent` に **詰め替えて** 送信し、`Coordinator.HandleHookEvent` は `Sessions.FindByID(ev.SessionID)` で 1 段ルックアップして `DriverService.Get(sessionID).HandleEvent(ev)` を呼ぶだけ。Driver instance は AgentEvent.DriverState から自分が必要なキーを取り出し、private state を更新する。core / Coordinator は driver 固有のキー名 (`session_id` 等) を一切ハードコードしない。ToArgs / FromArgs は wire format 上で `drv_<key>` プレフィックスを使い、generic field と衝突しないようにしている。
 
 `Driver.SpawnCommand` は Cold start 復元時に `Coordinator.Recreate` から呼ばれ、ドライバごとに固有の resume 方法でコマンド文字列を組み立てる。Claude ドライバは `RestorePersistedState` で受け取った `session_id` を内部に保持しており、`lib/claude/cli.ResumeCommand` に委譲して `claude --resume <id>` を返す。Generic ドライバは base コマンドをそのまま返す。
 
@@ -876,8 +911,8 @@ func (c *Coordinator) ReapDeadSessions()
 // windowInfoAdapter を組み立てて Driver.Tick に渡す
 func (c *Coordinator) Tick(now time.Time)
 
-// hook event routing: pane → sessionID → driver
-func (c *Coordinator) HandleHookEvent(ev driver.AgentEvent) error
+// hook event routing: ev.SessionID → Sessions.FindByID → driver
+func (c *Coordinator) HandleHookEvent(ev driver.AgentEvent) (sessionID string, consumed bool)
 
 // windowInfoAdapter は Coordinator 内 private 型で、Session + tmux.Client を
 // 束ねて WindowInfo interface を実装する。driver 側からは pull で I/O できる
@@ -911,7 +946,7 @@ func (c *Coordinator) HandleHookEvent(ev driver.AgentEvent) error
 | SessionMeta の定義場所 | `driver.SessionMeta` のみ (`session.SessionMeta` は廃止) | driver パッケージの独立性を保つ。Driver instance が内部に保持し、`Title()` / `LastPrompt()` / `Insight()` getter で公開する |
 | Session と Driver の責務分離 | Session interface は静的メタデータと識別子のみ。動的状態 (status / title / lastPrompt / insight) はすべて Driver instance の private field。Coordinator が sessionID で correlate する | 1 つの session に対して 1 つの真実、合成不要。状態を複数層がキャッシュする以前の構造は再起動直後の上書きバグの温床だった (合成ロジックが原料の欠落を Idle にフォールバックしていた)。Strict service separation により Session と Driver が独立 lifecycle を持ち、片方の変更がもう片方に影響しない |
 | エージェント状態検出 | Stateful Driver instance 自身が producer | `DriverService` が sessionID ごとに Driver instance を保持し、Driver が hook 受信 (Claude) または capture-pane polling (Generic) で自分の private status を更新する。Observer 抽象は廃止。core 側に状態合成ロジックは存在しない (`ResolveAgentState` は廃止)。フォールバック禁止: Driver の `HandleEvent` / `Tick` が走らない限り status は変わらない |
-| エージェントイベント連携 | `roost claude event` + `agent-event` IPC | `Coordinator.HandleHookEvent` が `pane → sessionID` を `SessionService.FindByAgentPaneID` で解決し、`DriverService.Get(sessionID).HandleEvent(ev)` を呼ぶ。Driver instance 内部で AgentEvent.DriverState から自分が必要なキー (Claude なら `session_id` / `cwd` / `transcript_path`) を取り出して private state に merge する。Coordinator 再起動後は SessionService が tmux user option から AgentPaneID を復元し、最初の hook event 到着で自然に再 binding される |
+| エージェントイベント連携 | `roost claude event` + `agent-event` IPC | `Coordinator.HandleHookEvent` が `Sessions.FindByID(ev.SessionID)` で 1 段ルックアップし、`DriverService.Get(sessionID).HandleEvent(ev)` を呼ぶ。AgentEvent.SessionID は hook bridge が `$ROOST_SESSION_ID` env var から読む (race-free な atomic injection)。Driver instance 内部で AgentEvent.DriverState から自分が必要なキー (Claude なら `session_id` / `cwd` / `transcript_path`) を取り出して private state に merge する。詳細は [hook event ルーティングと race-free identification](#hook-event-ルーティングと-race-free-identification) |
 | driver hook payload の抽象化 | `AgentEvent.DriverState` を不透明 `map[string]string` バッグとして運ぶ | 各 driver subcommand が tool 固有の hook field を **driver が定義した key** で DriverState に packing する。`Coordinator.HandleHookEvent` は中身を一切見ずに対象 Driver instance に転送するだけ。固有 field を増やしても core / Coordinator / SessionService / tmux / json には一切手が入らない |
 | Session ランタイム情報の保持 | Driver instance が `PersistedState() map[string]string` で identity + status を opaque に返し、`SessionService.UpdatePersistedState(sessionID, m)` が単一の tmux user option `@roost_persisted_state` (JSON-encoded) と sessions.json の `persisted_state` フィールドへ書き出す | driver 固有のキーを増やしても tmux 層は触らない。SessionService は中身を解釈しない (key 名すら知らない) ので、driver の追加 / 変更が SessionService や Coordinator に伝播しない。git branch 検出は Driver の `PersistedState()["working_dir"]` を Coordinator が読み出して反映 (driver 依存せず一律処理) |
 | 動的ステータスの永続化 | Status は Driver の `PersistedState()` に含めて永続化する。Driver が internal で更新し、Coordinator が変更検知時に `SessionService.UpdatePersistedState` を呼んで再永続化する | Warm/Cold restart 後、Driver factory が新 instance を作った直後に `RestorePersistedState` で前回値を復元する。Idle にリセットされない。書き込み失敗時は Driver の dirty flag が立ち続け、次の Tick で再試行される |
@@ -987,9 +1022,8 @@ src/
 ├── config/
 │   └── config.go        TOML 設定読み込み
 ├── session/
-│   ├── session.go       Session interface + sessionImpl (識別子と Tags のみ)
+│   ├── session.go       Session 構造体 (識別子 + 静的メタ + PersistedState bag)
 │   ├── service.go       SessionService (CRUD + tmux user options I/O + sessions.json snapshot + UpdatePersistedState + ReconcileWindows)
-│   ├── log.go           ログパスヘルパー
 │   └── driver/
 │       ├── driver.go    Driver interface (MarkSpawned, Tick, HandleEvent, Close, Status, Title, LastPrompt, Insight, PersistedState, RestorePersistedState, SpawnCommand) + SessionContext interface (active 問い合わせ)
 │       ├── status.go    Status 列挙型 (Running/Waiting/Idle/Stopped/Pending) + StatusInfo 構造体 + ParseStatus
