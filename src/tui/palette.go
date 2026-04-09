@@ -172,13 +172,28 @@ func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		m.refilter()
 		return m, nil
 	case key.Matches(msg, enterBinding):
-		filtered := m.filterParamOptions()
-		if len(filtered) > 0 && m.paramCursor < len(filtered) {
-			p := m.selectedTool.Params[m.paramIndex]
-			m.paramArgs[p.Name] = filtered[m.paramCursor]
-			m.paramIndex++
-			return m.advanceParam()
+		p := m.selectedTool.Params[m.paramIndex]
+		var value string
+		if len(m.paramOptions) == 0 {
+			// Free-form text input mode: triggered when a Param's Options
+			// returns nil/empty. Used by tools like create-project (`name`)
+			// and stop-session (`session_id`). Note: it also kicks in as a
+			// fallback for tools like new-session when their Options happens
+			// to be empty (e.g. no projects configured) — by design.
+			value = strings.TrimSpace(m.input)
+			if value == "" {
+				return m, nil
+			}
+		} else {
+			filtered := m.filterParamOptions()
+			if len(filtered) == 0 || m.paramCursor >= len(filtered) {
+				return m, nil
+			}
+			value = filtered[m.paramCursor]
 		}
+		m.paramArgs[p.Name] = value
+		m.paramIndex++
+		return m.advanceParam()
 	case key.Matches(msg, upBinding):
 		if m.paramCursor > 0 {
 			m.paramCursor--
@@ -276,6 +291,10 @@ func renderPaletteParam(m PaletteModel) string {
 	b.WriteString(inputStyle.Render(m.input))
 	b.WriteString("█\n\n")
 
+	if len(m.paramOptions) == 0 {
+		b.WriteString(descStyle.Render("(type value, enter to confirm)"))
+		return b.String()
+	}
 	filtered := m.filterParamOptions()
 	for i, o := range filtered {
 		display := core.ProjectDisplayName(o)
