@@ -67,6 +67,63 @@ func TestClaudeDriver_HookEventUnparseableStateRejected(t *testing.T) {
 	}
 }
 
+// TestClaudeDriver_StateSequence drives the realistic running → waiting →
+// running → waiting cycle a Claude turn produces and verifies that every
+// transition lands in the StatusInfo and that ChangedAt advances on each
+// step. This is the regression test for the "input prompt but status stuck
+// at running" bug — if a future change drops or coalesces transitions this
+// test will catch it.
+func TestClaudeDriver_StateSequence(t *testing.T) {
+	d := newClaude(t)
+	steps := []struct {
+		state string
+		want  Status
+	}{
+		{"running", StatusRunning},
+		{"waiting", StatusWaiting},
+		{"running", StatusRunning},
+		{"waiting", StatusWaiting},
+	}
+	var prevAt time.Time
+	for i, step := range steps {
+		ok := d.HandleEvent(AgentEvent{Type: AgentEventStateChange, State: step.state})
+		if !ok {
+			t.Fatalf("step %d (%s): event not consumed", i, step.state)
+		}
+		got, _ := d.Status()
+		if got.Status != step.want {
+			t.Errorf("step %d: status = %v, want %v", i, got.Status, step.want)
+		}
+		if !got.ChangedAt.After(prevAt) && i > 0 {
+			t.Errorf("step %d: ChangedAt did not advance (prev=%v, now=%v)", i, prevAt, got.ChangedAt)
+		}
+		prevAt = got.ChangedAt
+		// Force a measurable delta between steps so ChangedAt comparisons
+		// are reliable on systems with coarse monotonic clocks.
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// TestClaudeDriver_StateSequence_LastWriteWins documents the current
+// "last write wins" behavior: if a late PostToolUse arrives after the Stop
+// (e.g. because each Claude hook fires its own roost claude event process and
+// they race over the unix socket), the driver will revert from waiting back
+// to running. This is the suspected root cause of the "input prompt but
+// status stuck at running" report. If a future change adds sequence numbers
+// or monotonic timestamps to suppress out-of-order writes, this test will
+// fail and should be updated.
+func TestClaudeDriver_StateSequence_LastWriteWins(t *testing.T) {
+	d := newClaude(t)
+	d.HandleEvent(AgentEvent{Type: AgentEventStateChange, State: "running"})
+	d.HandleEvent(AgentEvent{Type: AgentEventStateChange, State: "waiting"})
+	// Simulated late-arriving PostToolUse from earlier in the turn.
+	d.HandleEvent(AgentEvent{Type: AgentEventStateChange, State: "running"})
+	got, _ := d.Status()
+	if got.Status != StatusRunning {
+		t.Fatalf("documented behavior: late running should win, got %v", got.Status)
+	}
+}
+
 func TestClaudeDriver_PersistedStateRoundtrip(t *testing.T) {
 	d := newClaude(t)
 	d.RestorePersistedState(map[string]string{
