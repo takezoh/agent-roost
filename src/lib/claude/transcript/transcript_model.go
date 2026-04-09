@@ -23,8 +23,16 @@ const (
 )
 
 // Entry is a single structured record parsed from one Claude transcript line.
-// PR1 carries the minimal fields required to reproduce the legacy rendering
-// behaviour; richer fields (UUID, Timestamp, etc.) land in later PRs.
+// UUID / ParentUUID are populated from the JSONL line wrapper for any
+// "user" or "assistant" entry; meta entries (custom-title, system, etc.)
+// have no uuid in the wire format and leave both fields empty.
+//
+// Synthetic marks KindUser entries that originate from Claude-injected
+// content blocks rather than the user's CLI input. Examples are skill
+// bootstrap text ("Base directory for this skill: ..."), interrupt
+// markers ("[Request interrupted by user]"), and command output echoes.
+// transcript.Tracker uses this flag to keep these out of the lastPrompt
+// chain while still letting renderers display them.
 type Entry struct {
 	Kind       Kind
 	Depth      int
@@ -34,6 +42,9 @@ type Entry struct {
 	ToolInput  ToolInput
 	ToolResult ToolResult
 	IsError    bool
+	UUID       string
+	ParentUUID string
+	Synthetic  bool
 }
 
 // ToolInput is a human-readable summary of a tool_use input.

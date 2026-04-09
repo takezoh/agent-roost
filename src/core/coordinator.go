@@ -69,6 +69,35 @@ func (c *Coordinator) setActiveWindowID(wid string) {
 
 func (c *Coordinator) ActiveWindowID() string { return c.activeWindowID }
 
+// sessionContextAdapter implements driver.SessionContext for one session.
+// It closes over the Coordinator and the stable sessionID — Active()
+// resolves the current WindowID through SessionService at query time.
+// This is robust to cold-boot pane/window id reissue, since sessionID is
+// the only identifier that survives a tmux server restart.
+//
+// Coordinator.activeWindowID is the single source of truth — there is no
+// state cached on the adapter. swap-pane changes the active window in one
+// place; every Driver's next Active() call observes the new value.
+type sessionContextAdapter struct {
+	coord     *Coordinator
+	sessionID string
+}
+
+func (a *sessionContextAdapter) Active() bool {
+	if a.coord.activeWindowID == "" {
+		return false
+	}
+	sess := a.coord.Sessions.FindByID(a.sessionID)
+	if sess == nil {
+		return false
+	}
+	return a.coord.activeWindowID == sess.WindowID
+}
+
+func (c *Coordinator) sessionContextFor(sessionID string) driver.SessionContext {
+	return &sessionContextAdapter{coord: c, sessionID: sessionID}
+}
+
 func (c *Coordinator) ClearActive(windowID string) {
 	if c.activeWindowID == windowID {
 		slog.Info("clear active", "window", windowID)
@@ -155,7 +184,7 @@ func (c *Coordinator) Create(project, command string) (*session.Session, error) 
 	if err != nil {
 		return nil, err
 	}
-	c.Drivers.Create(sess.ID, sess.Command)
+	c.Drivers.Create(sess.ID, sess.Command, c.sessionContextFor(sess.ID))
 	// Persist the freshly initialized PersistedState (driver factory's
 	// initial values) so warm-restart immediately after creation finds a
 	// non-empty bag.
@@ -186,7 +215,7 @@ func (c *Coordinator) Refresh() error {
 		return err
 	}
 	for _, sess := range c.Sessions.All() {
-		c.Drivers.Restore(sess.ID, sess.Command, sess.PersistedState)
+		c.Drivers.Restore(sess.ID, sess.Command, sess.PersistedState, c.sessionContextFor(sess.ID))
 	}
 	return nil
 }
@@ -204,7 +233,7 @@ func (c *Coordinator) Recreate() error {
 	}
 	slog.Info("recreating sessions from snapshot", "count", len(snapshot))
 	for _, sess := range snapshot {
-		drv := c.Drivers.Restore(sess.ID, sess.Command, sess.PersistedState)
+		drv := c.Drivers.Restore(sess.ID, sess.Command, sess.PersistedState, c.sessionContextFor(sess.ID))
 		spawnCmd := drv.SpawnCommand(sess.Command)
 		startDir := sess.Project
 		if wd := sess.PersistedState["working_dir"]; wd != "" {

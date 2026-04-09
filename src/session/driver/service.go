@@ -26,9 +26,10 @@ func NewDriverService(registry *Registry, deps Deps) *DriverService {
 
 // Create constructs a new Driver instance for a fresh session and
 // immediately calls MarkSpawned. Used by Coordinator.Create after
-// SessionService.Create has set up the tmux window.
-func (s *DriverService) Create(sessionID, command string) Driver {
-	drv := s.registry.Resolve(command)(s.deps)
+// SessionService.Create has set up the tmux window. The sessionCtx is
+// merged into the per-instance Deps so Drivers can pull active state.
+func (s *DriverService) Create(sessionID, command string, sessionCtx SessionContext) Driver {
+	drv := s.registry.Resolve(command)(s.depsFor(sessionCtx))
 	drv.MarkSpawned()
 	s.mu.Lock()
 	s.drivers[sessionID] = drv
@@ -40,13 +41,26 @@ func (s *DriverService) Create(sessionID, command string) Driver {
 // (warm or cold restart) and seeds it from a persisted state bag. The bag
 // is opaque to DriverService — only the driver knows what its keys mean.
 // Restore does NOT call MarkSpawned: status is restored from the bag.
-func (s *DriverService) Restore(sessionID, command string, persisted map[string]string) Driver {
-	drv := s.registry.Resolve(command)(s.deps)
+func (s *DriverService) Restore(sessionID, command string, persisted map[string]string, sessionCtx SessionContext) Driver {
+	drv := s.registry.Resolve(command)(s.depsFor(sessionCtx))
 	drv.RestorePersistedState(persisted)
 	s.mu.Lock()
 	s.drivers[sessionID] = drv
 	s.mu.Unlock()
 	return drv
+}
+
+// depsFor returns a copy of the base Deps with Session populated. A nil
+// sessionCtx falls back to inactiveSessionContext{} so Drivers always have
+// a non-nil interface to call.
+func (s *DriverService) depsFor(sessionCtx SessionContext) Deps {
+	deps := s.deps
+	if sessionCtx == nil {
+		deps.Session = inactiveSessionContext{}
+	} else {
+		deps.Session = sessionCtx
+	}
+	return deps
 }
 
 func (s *DriverService) Get(sessionID string) (Driver, bool) {

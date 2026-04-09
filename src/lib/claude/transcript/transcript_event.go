@@ -7,17 +7,23 @@ import (
 )
 
 // parseLine turns a single JSONL line into zero or more Entry values.
-// Unknown event types and invalid JSON produce no entries.
+// Unknown event types and invalid JSON produce no entries. UUID and
+// ParentUUID are stamped onto every emitted entry from the line wrapper
+// so callers (notably transcript.Tracker) can reconstruct the active
+// conversation chain and ignore rewound branches.
 func (p *Parser) parseLine(line []byte) []Entry {
 	if len(line) == 0 {
 		return nil
 	}
 	var head struct {
-		Type string `json:"type"`
+		Type       string `json:"type"`
+		UUID       string `json:"uuid"`
+		ParentUUID string `json:"parentUuid"`
 	}
 	if json.Unmarshal(line, &head) != nil {
 		return nil
 	}
+	var entries []Entry
 	switch head.Type {
 	case "user":
 		var u struct {
@@ -27,7 +33,7 @@ func (p *Parser) parseLine(line []byte) []Entry {
 		if json.Unmarshal(line, &u) != nil {
 			return nil
 		}
-		return p.parseUserEntry(u.Message, u.ToolUseResult)
+		entries = p.parseUserEntry(u.Message, u.ToolUseResult)
 	case "assistant":
 		var a struct {
 			Message *jsonMessage `json:"message"`
@@ -35,22 +41,38 @@ func (p *Parser) parseLine(line []byte) []Entry {
 		if json.Unmarshal(line, &a) != nil {
 			return nil
 		}
-		return p.parseAssistantEntry(a.Message)
+		entries = p.parseAssistantEntry(a.Message)
 	case "system":
-		return parseSystemEntry(line)
+		entries = parseSystemEntry(line)
 	case "attachment":
-		return parseAttachmentEntry(line)
+		entries = parseAttachmentEntry(line)
 	case "file-history-snapshot":
-		return parseFileSnapshotEntry(line)
+		entries = parseFileSnapshotEntry(line)
 	case "custom-title":
-		return parseCustomTitleEntry(line)
+		entries = parseCustomTitleEntry(line)
 	case "agent-name":
-		return parseAgentNameEntry(line)
+		entries = parseAgentNameEntry(line)
 	case "last-prompt":
-		return parseLastPromptEntry(line)
+		entries = parseLastPromptEntry(line)
 	default:
 		return nil
 	}
+	if head.UUID != "" {
+		if len(entries) == 0 {
+			// The line had a uuid but produced no displayable Entry
+			// (e.g. an assistant turn whose only block is `thinking`
+			// when ShowThinking is false). Emit a no-op chain stub so
+			// downstream consumers like transcript.Tracker can keep
+			// their parentUuid chain intact across such turns. Renderers
+			// ignore KindUnknown entries with empty text.
+			entries = []Entry{{Kind: KindUnknown}}
+		}
+		for i := range entries {
+			entries[i].UUID = head.UUID
+			entries[i].ParentUUID = head.ParentUUID
+		}
+	}
+	return entries
 }
 
 // maybeInlineSubagent appends the subagent transcript directly under a
@@ -208,7 +230,12 @@ func (p *Parser) parseUserEntry(msg *jsonMessage, topToolUseResult json.RawMessa
 		switch b.Type {
 		case "text":
 			if t := strings.TrimSpace(b.Text); t != "" {
-				entries = append(entries, Entry{Kind: KindUser, Text: t})
+				// Block-text user content always originates from Claude
+				// itself (skill bootstrap, interrupt markers, command
+				// output echoes) — never from the human at the CLI.
+				// Mark Synthetic so transcript.Tracker excludes it from
+				// the lastPrompt chain.
+				entries = append(entries, Entry{Kind: KindUser, Text: t, Synthetic: true})
 			}
 		case "tool_result":
 			e := p.buildToolResultEntry(b, topToolUseResult, &toolResultConsumed)
@@ -320,6 +347,9 @@ var systemTagPrefixes = []string{
 	"<local-command-caveat>",
 	"<command-name>",
 	"<system-reminder>",
+	"<bash-input>",
+	"<bash-stdout>",
+	"<bash-stderr>",
 }
 
 func stripSystemTags(s string) string {

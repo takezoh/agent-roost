@@ -159,3 +159,46 @@ func TestParser_LastPromptEmpty(t *testing.T) {
 		t.Errorf("Text = %q, want empty", entries[0].Text)
 	}
 }
+
+func TestParser_UUIDStampedOnConversationEntries(t *testing.T) {
+	p := NewParser(ParserOptions{})
+	entries := p.ParseLines([]byte(`{"type":"user","uuid":"u-123","parentUuid":"p-456","message":{"content":"hello"}}`))
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	if entries[0].UUID != "u-123" {
+		t.Errorf("UUID = %q, want u-123", entries[0].UUID)
+	}
+	if entries[0].ParentUUID != "p-456" {
+		t.Errorf("ParentUUID = %q, want p-456", entries[0].ParentUUID)
+	}
+}
+
+func TestParser_UUIDStampedOnAllEntriesFromSameLine(t *testing.T) {
+	// An assistant message with multiple content blocks emits multiple
+	// Entry values from one JSONL line. They must all share the same UUID.
+	p := NewParser(ParserOptions{})
+	entries := p.ParseLines([]byte(`{"type":"assistant","uuid":"a-1","parentUuid":"u-1","message":{"content":[{"type":"text","text":"hi"},{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}`))
+	if len(entries) < 2 {
+		t.Fatalf("expected >=2 entries, got %d", len(entries))
+	}
+	for i, e := range entries {
+		if e.UUID != "a-1" || e.ParentUUID != "u-1" {
+			t.Errorf("entry %d: UUID=%q ParentUUID=%q, want a-1/u-1", i, e.UUID, e.ParentUUID)
+		}
+	}
+}
+
+func TestParser_NoUUIDOnMetaEntries(t *testing.T) {
+	// custom-title / system / attachment lines don't carry uuid in the
+	// wire format, so the stamped fields stay empty (no opportunistic
+	// fallback to ParentUUID).
+	p := NewParser(ParserOptions{})
+	entries := p.ParseLines([]byte(`{"type":"custom-title","customTitle":"x"}`))
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1", len(entries))
+	}
+	if entries[0].UUID != "" || entries[0].ParentUUID != "" {
+		t.Errorf("meta entry got UUID=%q ParentUUID=%q, want empty", entries[0].UUID, entries[0].ParentUUID)
+	}
+}
