@@ -150,11 +150,25 @@ func (m PaletteModel) advanceParam() (tea.Model, tea.Cmd) {
 	}
 
 	// all params filled, execute
-	err := m.selectedTool.Run(m.ctx, m.paramArgs)
+	next, err := m.selectedTool.Run(m.ctx, m.paramArgs)
 	if err != nil {
 		slog.Error("tool execution failed", "tool", m.selectedTool.Name, "args", m.paramArgs, "err", err)
-	} else {
-		slog.Info("tool executed", "tool", m.selectedTool.Name, "args", m.paramArgs)
+		return m, tea.Quit
+	}
+	slog.Info("tool executed", "tool", m.selectedTool.Name, "args", m.paramArgs)
+	if next != nil && next.Name != "" {
+		if t := m.registry.Get(next.Name); t != nil {
+			m.selectedTool = t
+			m.paramIndex = 0
+			m.paramArgs = make(map[string]string, len(next.Args))
+			for k, v := range next.Args {
+				m.paramArgs[k] = v
+			}
+			m.input = ""
+			m.paramCursor = 0
+			return m.advanceParam()
+		}
+		slog.Error("chained tool not found", "tool", next.Name)
 	}
 	return m, tea.Quit
 }

@@ -73,3 +73,40 @@ func TestMakeProjectDir(t *testing.T) {
 	}
 }
 
+func TestRunCreateProject(t *testing.T) {
+	root := t.TempDir()
+	ctx := &ToolContext{
+		Config: ToolConfig{ProjectRoots: []string{root}},
+	}
+
+	t.Run("returns new-session invocation on success", func(t *testing.T) {
+		next, err := runCreateProject(ctx, map[string]string{"root": root, "name": "alpha"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if next == nil {
+			t.Fatal("expected non-nil ToolInvocation, got nil")
+		}
+		if next.Name != "new-session" {
+			t.Errorf("next.Name = %q, want %q", next.Name, "new-session")
+		}
+		wantPath := filepath.Join(root, "alpha")
+		if got := next.Args["project"]; got != wantPath {
+			t.Errorf("next.Args[project] = %q, want %q", got, wantPath)
+		}
+		if _, err := os.Stat(wantPath); err != nil {
+			t.Errorf("expected project dir to exist: %v", err)
+		}
+	})
+
+	t.Run("returns nil invocation on failure", func(t *testing.T) {
+		next, err := runCreateProject(ctx, map[string]string{"root": "/not/configured", "name": "beta"})
+		if err == nil {
+			t.Fatal("expected error, got nil")
+		}
+		if next != nil {
+			t.Errorf("expected nil ToolInvocation on error, got %+v", next)
+		}
+	})
+}
+
