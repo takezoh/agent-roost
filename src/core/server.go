@@ -41,7 +41,7 @@ func NewServer(svc *Service, tmuxClient *tmux.Client, sockPath string) *Server {
 	}
 	svc.OnPreview(func(sessionID string) {
 		if svc.Manager.RefreshBranch(sessionID) {
-			s.broadcastSessions()
+			s.broadcastPreview()
 		}
 	})
 	return s
@@ -267,7 +267,7 @@ func (s *Server) handlePreviewSession(cc *clientConn, args map[string]string) {
 		return
 	}
 	s.svc.SyncActiveStatusLine()
-	s.broadcastSessions()
+	s.broadcastPreview()
 	s.sendResponse(cc, Message{
 		ActiveWindowID: s.svc.ActiveWindowID(),
 		SessionLogPath: s.svc.ActiveSessionLogPath(),
@@ -432,13 +432,22 @@ func (s *Server) broadcast(msg Message) {
 }
 
 func (s *Server) broadcastSessions() {
+	s.broadcast(s.buildSessionsEvent(false))
+}
+
+func (s *Server) broadcastPreview() {
+	s.broadcast(s.buildSessionsEvent(true))
+}
+
+func (s *Server) buildSessionsEvent(preview bool) Message {
 	msg := NewEvent("sessions-changed")
 	msg.Sessions = BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore)
 	msg.ActiveWindowID = s.svc.ActiveWindowID()
 	msg.SessionLogPath = s.svc.ActiveSessionLogPath()
 	msg.EventLogPath = s.svc.EventLogPathByWindow(s.svc.ActiveWindowID())
 	msg.TranscriptPath = s.svc.ActiveTranscriptPath()
-	s.broadcast(msg)
+	msg.IsPreview = preview
+	return msg
 }
 
 

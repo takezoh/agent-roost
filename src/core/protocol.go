@@ -25,6 +25,10 @@ type Message struct {
 	EventLogPath    string                    `json:"event_log_path,omitempty"`
 	TranscriptPath  string                    `json:"transcript_path,omitempty"`
 	SelectedProject string                    `json:"selected_project,omitempty"`
+	// IsPreview marks a sessions-changed event as triggered by Preview
+	// (cursor hover) rather than Switch. The log pane uses this to
+	// activate the INFO tab on preview only.
+	IsPreview bool `json:"is_preview,omitempty"`
 }
 
 type SessionInfo struct {

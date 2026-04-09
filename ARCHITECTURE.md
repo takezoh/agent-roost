@@ -149,7 +149,7 @@ runTUI("log")
 └── Bubbletea イベントループ（タブ切替、スクロール、follow モード）
 ```
 
-**タブ構成**: Claude セッションがアクティブな場合 `TRANSCRIPT | EVENTS | LOG` の3タブ、それ以外は `LOG` のみ。`sessions-changed` イベントで動的に再構築。セッション切替時は TRANSCRIPT がデフォルト。タブ切替時はファイル末尾から再読み込み（状態保持不要）。マウスクリックはタブラベルの累積幅でヒット判定する。
+**タブ構成**: アクティブセッションがある場合 `TRANSCRIPT | EVENTS | INFO | LOG` (Claude セッション時)、または `INFO | LOG` (非 Claude)、それ以外は `LOG` のみ。`sessions-changed` イベントで動的に再構築。`INFO` は LOG の直前固定で、ファイルではなく `SessionInfo` のスナップショットを直接 viewport に描画する非ファイル系タブ。Switch 時は TRANSCRIPT がデフォルト、Preview (cursor hover) 時は `Message.IsPreview` フラグで判定して INFO がデフォルトになる。タブ切替時はファイル末尾から再読み込み（状態保持不要）。マウスクリックはタブラベルの累積幅でヒット判定する。
 
 **経過時間表示**: セッション一覧とメイン TUI の両方で、`CreatedAt` からの経過時間を `formatElapsed` で表示する（分/時/日の 3 段階）。
 
