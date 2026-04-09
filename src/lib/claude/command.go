@@ -10,6 +10,7 @@ import (
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/lib"
 	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/tmux"
 )
 
 func init() {
@@ -47,6 +48,17 @@ Commands:
 }
 
 func runEvent() {
+	// Hooks are registered globally in ~/.claude/settings.json, so this
+	// command can be invoked by Claude instances running anywhere — outside
+	// tmux entirely, or inside an unrelated tmux server/session/window. Only
+	// events from a roost-managed window should mutate roost state, so bail
+	// out before reading stdin / dialing the coordinator if the caller's pane
+	// has no @roost_id user option.
+	pane, ok := currentRoostPane()
+	if !ok {
+		return
+	}
+
 	input, _ := io.ReadAll(os.Stdin)
 	event, err := ParseHookEvent(input)
 	if err != nil {
@@ -72,7 +84,6 @@ func runEvent() {
 	// keys below are part of the Claude driver's contract — this is the only
 	// place outside session/driver/claude.go that knows them, and the
 	// coordinator forwards the bag to the driver without inspection.
-	pane := os.Getenv("TMUX_PANE")
 	state := claudeDriverState(event)
 
 	if event.HookEventName == "SessionStart" {
@@ -92,6 +103,24 @@ func runEvent() {
 			DriverState: state,
 		})
 	}
+}
+
+// currentRoostPane returns the caller's $TMUX_PANE if and only if that pane
+// belongs to a roost-managed window (i.e. carries the @roost_id user option).
+// It returns ("", false) when invoked outside tmux, or from any tmux pane that
+// roost did not create.
+func currentRoostPane() (string, bool) {
+	pane := os.Getenv("TMUX_PANE")
+	if pane == "" {
+		return "", false
+	}
+	// SessionName is irrelevant for `display-message -t <pane>`, so an empty
+	// client works without loading config.
+	out, err := tmux.NewClient("").DisplayMessage(pane, "#{@roost_id}")
+	if err != nil || out == "" {
+		return "", false
+	}
+	return pane, true
 }
 
 // claudeDriverState packs the relevant Claude hook fields into the
