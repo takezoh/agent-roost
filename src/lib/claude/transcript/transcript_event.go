@@ -46,6 +46,8 @@ func (p *Parser) parseLine(line []byte) []Entry {
 		return parseCustomTitleEntry(line)
 	case "agent-name":
 		return parseAgentNameEntry(line)
+	case "last-prompt":
+		return parseLastPromptEntry(line)
 	default:
 		return nil
 	}
@@ -168,6 +170,16 @@ func parseAgentNameEntry(line []byte) []Entry {
 		return nil
 	}
 	return []Entry{{Kind: KindAgentName, Text: v.AgentName}}
+}
+
+func parseLastPromptEntry(line []byte) []Entry {
+	var v struct {
+		LastPrompt string `json:"lastPrompt"`
+	}
+	if json.Unmarshal(line, &v) != nil {
+		return nil
+	}
+	return []Entry{{Kind: KindLastPrompt, Text: v.LastPrompt}}
 }
 
 type jsonMessage struct {
