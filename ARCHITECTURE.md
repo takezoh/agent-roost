@@ -749,7 +749,7 @@ sequenceDiagram
     participant D as Driver instance
     participant Coord as Coordinator
     participant SS as SessionService
-    participant Opt as tmux user options<br/>(runtime truth)
+    participant TmuxOpt as tmux user options<br/>(runtime truth)
     participant JSON as sessions.json<br/>(cold-boot snapshot)
 
     Note over D: status / sessionID / working_dir<br/>などが変化
@@ -759,9 +759,9 @@ sequenceDiagram
     D-->>Coord: opaque map[string]string
     Coord->>SS: UpdatePersistedState(sessionID, m)
     SS->>SS: persistedEqual で比較<br/>(変化なしなら no-op)
-    SS->>Opt: SetWindowUserOption<br/>@roost_persisted_state = JSON
+    SS->>TmuxOpt: SetWindowUserOption<br/>@roost_persisted_state = JSON
     SS->>JSON: saveSnapshotLocked()
-    Note over Opt,JSON: tmux options が runtime の真実<br/>JSON は PC 再起動向けのバックアップ
+    Note over TmuxOpt,JSON: tmux options が runtime の真実<br/>JSON は PC 再起動向けのバックアップ
 ```
 
 #### 復元 (warm restart / cold boot)
@@ -774,13 +774,13 @@ sequenceDiagram
     participant SS as SessionService
     participant DS as DriverService
     participant D as Driver instance<br/>(新 factory instance)
-    participant Opt as tmux user options
+    participant TmuxOpt as tmux user options
     participant JSON as sessions.json
 
     alt warm restart (tmux server 生存)
         Coord->>SS: Refresh()
-        SS->>Opt: ListRoostWindows()
-        Opt-->>SS: window 一覧 +<br/>@roost_persisted_state
+        SS->>TmuxOpt: ListRoostWindows()
+        TmuxOpt-->>SS: window 一覧 +<br/>@roost_persisted_state
         SS->>SS: in-memory cache 再構築
         Coord->>DS: Restore(sessionID, command, persistedState)
         DS->>D: factory.Build(deps)<br/>(新 instance を生成)
