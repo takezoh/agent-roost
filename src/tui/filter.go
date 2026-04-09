@@ -4,29 +4,29 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
-	"github.com/take/agent-roost/state"
+	"github.com/take/agent-roost/session/driver"
 )
 
 // statusFilter tracks which session statuses are currently visible in the
-// sessions list. The array index matches state.Status's iota
+// sessions list. The array index matches driver.Status's iota
 // (Running=0..Pending=4). All-true means "show everything" (the default).
 type statusFilter [5]bool
 
 // filterStates lists the Status values in chip order, used to translate the
-// filter array index back into a state.Status.
-var filterStates = [5]state.Status{
-	state.StatusRunning,
-	state.StatusWaiting,
-	state.StatusIdle,
-	state.StatusStopped,
-	state.StatusPending,
+// filter array index back into a driver.Status.
+var filterStates = [5]driver.Status{
+	driver.StatusRunning,
+	driver.StatusWaiting,
+	driver.StatusIdle,
+	driver.StatusStopped,
+	driver.StatusPending,
 }
 
 func allOnFilter() statusFilter {
 	return statusFilter{true, true, true, true, true}
 }
 
-func (f statusFilter) matches(s state.Status) bool {
+func (f statusFilter) matches(s driver.Status) bool {
 	idx := int(s)
 	if idx < 0 || idx >= len(f) {
 		return true
@@ -55,7 +55,7 @@ func (f statusFilter) allOn() bool {
 // toggle flips the bit for the given state. If the toggle would leave every
 // chip off, the filter snaps back to all-on so the list is never empty just
 // because of the filter.
-func (f *statusFilter) toggle(s state.Status) {
+func (f *statusFilter) toggle(s driver.Status) {
 	idx := int(s)
 	if idx < 0 || idx >= len(f) {
 		return
@@ -82,7 +82,7 @@ func (f *statusFilter) toggleAll() {
 // filter bar row, used for mouse hit-testing. isAll marks the trailing All
 // reset chip; otherwise state names which status the chip toggles.
 type chipHitbox struct {
-	state state.Status
+	state driver.Status
 	isAll bool
 	x0    int
 	x1    int
@@ -126,7 +126,7 @@ func filterBarLayout(f statusFilter) (string, []chipHitbox) {
 // is rendered as the second row of the sessions screen (header=0, filter=1,
 // blank=2, items start at sessionsHeaderRows). Returns hit=false when the
 // click is not on a chip.
-func (m Model) hitTestFilterChip(x, y int) (status state.Status, isAll bool, hit bool) {
+func (m Model) hitTestFilterChip(x, y int) (status driver.Status, isAll bool, hit bool) {
 	const filterRow = 1
 	if y != filterRow {
 		return 0, false, false

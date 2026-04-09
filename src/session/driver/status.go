@@ -1,15 +1,13 @@
-// Package state owns the dynamic per-session status (running / waiting / etc.)
-// and is the single source of truth for it. Manager / AgentStore / Observer
-// implementations never store status separately — they all read and write
-// through state.Store.
-package state
+// Status is the user-facing operational status of an agent session.
+// Owned by the driver layer because each Driver instance is the sole producer
+// of its own status.
+package driver
 
 import (
 	"encoding/json"
 	"time"
 )
 
-// Status is the user-facing operational status of an agent session.
 type Status int
 
 const (
@@ -74,8 +72,6 @@ func ParseStatus(name string) (Status, bool) {
 	}
 }
 
-// MarshalJSON / UnmarshalJSON keep snapshots human-readable and decoupled
-// from the enum's iota order.
 func (s Status) MarshalJSON() ([]byte, error) {
 	return json.Marshal(s.String())
 }
@@ -93,8 +89,9 @@ func (s *Status) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Info is the dynamic status of one session.
-type Info struct {
+// StatusInfo is the dynamic status of one session — what the Driver tracks
+// internally and returns from Status().
+type StatusInfo struct {
 	Status    Status
 	ChangedAt time.Time
 }

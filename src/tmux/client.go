@@ -158,11 +158,9 @@ func (c *Client) SetWindowUserOptions(windowID string, kv map[string]string) err
 }
 
 // ListRoostWindows returns all windows that carry the @roost_id user option.
-// Driver-specific persistent state is packed into a single JSON-encoded
-// @roost_driver_state user option so this layer never has to know about
-// individual driver keys. Dynamic per-session status is owned by state.Store
-// (see ListWindowOptions for the read path) — Manager only receives the
-// static metadata here.
+// Driver-defined persistent state is packed into a single JSON-encoded
+// @roost_persisted_state user option so this layer never has to know about
+// individual driver keys.
 func (c *Client) ListRoostWindows() ([]session.RoostWindow, error) {
 	fmtStr := strings.Join([]string{
 		"#{window_id}",
@@ -172,7 +170,7 @@ func (c *Client) ListRoostWindows() ([]session.RoostWindow, error) {
 		"#{@roost_created_at}",
 		"#{@roost_tags}",
 		"#{@roost_agent_pane}",
-		"#{@roost_driver_state}",
+		"#{@roost_persisted_state}",
 	}, "\t")
 	out, err := c.Run("list-windows", "-t", c.SessionName, "-F", fmtStr)
 	if err != nil {
@@ -181,15 +179,15 @@ func (c *Client) ListRoostWindows() ([]session.RoostWindow, error) {
 	return parseRoostWindows(out), nil
 }
 
-// parseRoostWindows parses the tab-separated output of list-windows into roost
-// window snapshots. Lines whose @roost_id field is empty are skipped.
+// parseRoostWindows parses the tab-separated output of list-windows into
+// roost window snapshots. Lines whose @roost_id field is empty are skipped.
 //
 // The output is right-padded to roostWindowFields columns before parsing
 // because Client.Run trims trailing whitespace from the tmux output, which
-// silently drops empty trailing fields (e.g. an empty @roost_driver_state on
-// the last line). Without this padding, ReconcileWindows would treat freshly
-// created sessions whose DriverState is still empty as "missing" and evict
-// them from the Manager cache on the next polling tick.
+// silently drops empty trailing fields (e.g. an empty @roost_persisted_state
+// on the last line). Without this padding, ReconcileWindows would treat
+// freshly created sessions whose persisted state is still empty as "missing"
+// and evict them from the cache on the next polling tick.
 const roostWindowFields = 8
 
 func parseRoostWindows(out string) []session.RoostWindow {
@@ -206,76 +204,22 @@ func parseRoostWindows(out string) []session.RoostWindow {
 			continue
 		}
 		windows = append(windows, session.RoostWindow{
-			WindowID:    parts[0],
-			ID:          parts[1],
-			Project:     parts[2],
-			Command:     parts[3],
-			CreatedAt:   parts[4],
-			Tags:        parts[5],
-			AgentPaneID: parts[6],
-			DriverState: parts[7],
+			WindowID:       parts[0],
+			ID:             parts[1],
+			Project:        parts[2],
+			Command:        parts[3],
+			CreatedAt:      parts[4],
+			Tags:           parts[5],
+			AgentPaneID:    parts[6],
+			PersistedState: parts[7],
 		})
 	}
 	return windows
 }
 
-// ListWindowOptions returns the @roost_state / @roost_state_changed_at
-// values for every roost-managed window, keyed by tmux window ID. Used by
-// state.Store at Coordinator startup to seed itself from tmux user options
-// (warm restart). Windows that are not roost-managed (no @roost_id) are
-// skipped.
-func (c *Client) ListWindowOptions() (map[string]map[string]string, error) {
-	fmtStr := strings.Join([]string{
-		"#{window_id}",
-		"#{@roost_id}",
-		"#{@roost_state}",
-		"#{@roost_state_changed_at}",
-	}, "\t")
-	out, err := c.Run("list-windows", "-t", c.SessionName, "-F", fmtStr)
-	if err != nil {
-		return nil, err
-	}
-	result := make(map[string]map[string]string)
-	for _, line := range strings.Split(out, "\n") {
-		if line == "" {
-			continue
-		}
-		parts := strings.Split(line, "\t")
-		// Right-pad to 4 columns: Client.Run trims trailing whitespace from
-		// the tmux output, which silently drops empty trailing fields (e.g.
-		// @roost_state_changed_at on a session that was just spawned and
-		// hasn't recorded a changed-at timestamp yet).
-		for len(parts) < 4 {
-			parts = append(parts, "")
-		}
-		if parts[1] == "" {
-			continue
-		}
-		result[parts[0]] = map[string]string{
-			"@roost_state":            parts[2],
-			"@roost_state_changed_at": parts[3],
-		}
-	}
-	return result, nil
-}
-
-// UnsetWindowUserOptions removes one or more user options from a window in
-// a single tmux invocation. Used by state.Store.Delete to clear persisted
-// status when a session is removed.
-func (c *Client) UnsetWindowUserOptions(windowID string, keys ...string) error {
-	if len(keys) == 0 {
-		return nil
-	}
-	cmds := make([][]string, 0, len(keys))
-	for _, k := range keys {
-		cmds = append(cmds, []string{"set-option", "-w", "-u", "-t", windowID, k})
-	}
-	return c.RunChain(cmds...)
-}
-
 // CapturePaneLines captures the last n lines of the given pane. Used by
-// genericObserver.Tick for capture-pane based status detection — the only
-// production caller. Claude sessions are event-driven and never hit this.
+// genericDriver.Tick for capture-pane based status detection — Claude
+// sessions are event-driven and never hit this.
 func (c *Client) CapturePaneLines(paneTarget string, n int) (string, error) {
 	return c.Run("capture-pane", "-p", "-t", paneTarget, "-S", fmt.Sprintf("-%d", n))
 }

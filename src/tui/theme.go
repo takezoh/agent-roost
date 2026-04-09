@@ -4,7 +4,7 @@ import (
 	"image/color"
 
 	"charm.land/lipgloss/v2"
-	"github.com/take/agent-roost/state"
+	"github.com/take/agent-roost/session/driver"
 )
 
 // Theme holds the colors and rendering toggles used across every TUI screen.
@@ -221,17 +221,17 @@ func rebuildMinimalStyles(t Theme) {
 	minimalSeparatorStyle = lipgloss.NewStyle().Foreground(t.Dim)
 }
 
-func stateStyle(s state.Status) lipgloss.Style {
+func stateStyle(s driver.Status) lipgloss.Style {
 	switch s {
-	case state.StatusRunning:
+	case driver.StatusRunning:
 		return runningStyle
-	case state.StatusWaiting:
+	case driver.StatusWaiting:
 		return waitingStyle
-	case state.StatusIdle:
+	case driver.StatusIdle:
 		return idleStyle
-	case state.StatusStopped:
+	case driver.StatusStopped:
 		return stoppedStyle
-	case state.StatusPending:
+	case driver.StatusPending:
 		return pendingStyle
 	default:
 		return idleStyle
@@ -241,17 +241,17 @@ func stateStyle(s state.Status) lipgloss.Style {
 // stateColor returns the foreground color associated with a session status.
 // Used by the filter bar so chips can wear their status color while keeping
 // the shared chip background.
-func stateColor(s state.Status) color.Color {
+func stateColor(s driver.Status) color.Color {
 	switch s {
-	case state.StatusRunning:
+	case driver.StatusRunning:
 		return Active.Running
-	case state.StatusWaiting:
+	case driver.StatusWaiting:
 		return Active.Waiting
-	case state.StatusIdle:
+	case driver.StatusIdle:
 		return Active.Idle
-	case state.StatusStopped:
+	case driver.StatusStopped:
 		return Active.Stopped
-	case state.StatusPending:
+	case driver.StatusPending:
 		return Active.Pending
 	default:
 		return Active.Fg
