@@ -1,4 +1,8 @@
-package claude
+// Package hookevent defines the wire-format types and helpers for Claude
+// Code hook payloads. It is intentionally a leaf package (no dependencies on
+// session/driver) so it can be imported by both the hook bridge in lib/claude
+// and the Claude driver in session/driver without creating an import cycle.
+package hookevent
 
 import (
 	"encoding/json"

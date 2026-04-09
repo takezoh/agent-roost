@@ -1,4 +1,4 @@
-package claude
+package hookevent
 
 import "testing"
 

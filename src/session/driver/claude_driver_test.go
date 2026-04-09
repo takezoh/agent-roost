@@ -67,6 +67,78 @@ func TestClaudeDriver_HookEventUnparseableStateRejected(t *testing.T) {
 	}
 }
 
+// TestClaudeDriver_HookEventJSONAbsorbed verifies that the raw hook payload
+// shipped under hook_event_json is parsed and stored on lastHookEvent so
+// callers can introspect fields beyond the pre-derived Status (e.g.
+// hook_event_name to differentiate UserPromptSubmit from PreToolUse, both of
+// which currently collapse to "running").
+func TestClaudeDriver_HookEventJSONAbsorbed(t *testing.T) {
+	d := newClaude(t)
+	rawJSON := `{"session_id":"abc-123","hook_event_name":"UserPromptSubmit","cwd":"/proj"}`
+	consumed := d.HandleEvent(AgentEvent{
+		Type:  AgentEventStateChange,
+		State: "running",
+		DriverState: map[string]string{
+			"session_id":      "abc-123",
+			"working_dir":     "/proj",
+			"hook_event_json": rawJSON,
+		},
+	})
+	if !consumed {
+		t.Fatal("event should be consumed")
+	}
+	if got, _ := d.Status(); got.Status != StatusRunning {
+		t.Errorf("status = %v, want running", got.Status)
+	}
+	if d.lastHookEvent.HookEventName != "UserPromptSubmit" {
+		t.Errorf("lastHookEvent.HookEventName = %q, want UserPromptSubmit",
+			d.lastHookEvent.HookEventName)
+	}
+	if d.lastHookEvent.SessionID != "abc-123" {
+		t.Errorf("lastHookEvent.SessionID = %q, want abc-123",
+			d.lastHookEvent.SessionID)
+	}
+}
+
+// TestClaudeDriver_HookEventJSONMalformed ensures a malformed hook_event_json
+// doesn't break the Status pipeline (fail-open) and clears any previous
+// parsed event so callers don't read stale data.
+func TestClaudeDriver_HookEventJSONMalformed(t *testing.T) {
+	d := newClaude(t)
+	// Seed a valid prior event so we can verify the malformed one resets it.
+	d.HandleEvent(AgentEvent{
+		Type:  AgentEventStateChange,
+		State: "running",
+		DriverState: map[string]string{
+			"session_id":      "abc-123",
+			"hook_event_json": `{"hook_event_name":"PreToolUse"}`,
+		},
+	})
+	if d.lastHookEvent.HookEventName != "PreToolUse" {
+		t.Fatalf("setup: lastHookEvent.HookEventName = %q, want PreToolUse",
+			d.lastHookEvent.HookEventName)
+	}
+
+	consumed := d.HandleEvent(AgentEvent{
+		Type:  AgentEventStateChange,
+		State: "waiting",
+		DriverState: map[string]string{
+			"session_id":      "abc-123",
+			"hook_event_json": "not json",
+		},
+	})
+	if !consumed {
+		t.Fatal("event should still be consumed when only the JSON is malformed")
+	}
+	if got, _ := d.Status(); got.Status != StatusWaiting {
+		t.Errorf("status = %v, want waiting", got.Status)
+	}
+	if d.lastHookEvent.HookEventName != "" {
+		t.Errorf("lastHookEvent should be cleared on parse failure, got %q",
+			d.lastHookEvent.HookEventName)
+	}
+}
+
 // TestClaudeDriver_StateSequence drives the realistic running → waiting →
 // running → waiting cycle a Claude turn produces and verifies that every
 // transition lands in the StatusInfo and that ChangedAt advances on each

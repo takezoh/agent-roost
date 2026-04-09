@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/take/agent-roost/lib/claude/cli"
+	"github.com/take/agent-roost/lib/claude/hookevent"
 	"github.com/take/agent-roost/lib/claude/transcript"
 	"github.com/take/agent-roost/lib/git"
 )
@@ -40,6 +41,10 @@ const (
 	claudeKeyBranchTag       = "branch_tag"
 	claudeKeyBranchTarget    = "branch_target"
 	claudeKeyBranchAt        = "branch_at"
+	// claudeKeyHookEventJSON carries the raw hook payload bytes from the
+	// hook bridge so the driver can inspect fields beyond the pre-derived
+	// Status (e.g. hook_event_name). Volatile — not persisted.
+	claudeKeyHookEventJSON = "hook_event_json"
 
 	// Refresh transcript metadata every N ticks (~5 seconds at 1 Hz).
 	claudeMetaRefreshTicks = 5
@@ -76,6 +81,12 @@ type claudeDriver struct {
 	currentTool    string
 	subagentCounts map[string]int
 	tickCounter    int
+
+	// lastHookEvent is the most recent hook payload received from the
+	// bridge, parsed from claudeKeyHookEventJSON. Read-only after
+	// absorbDriverStateLocked. Volatile: cleared on parse failure, never
+	// persisted across restarts.
+	lastHookEvent hookevent.HookEvent
 
 	// Branch tag cache (see claude_branch.go)
 	branchTag    string
@@ -210,6 +221,20 @@ func (d *claudeDriver) absorbDriverStateLocked(ds map[string]string) {
 	}
 	if v, ok := ds[claudeKeyTranscriptPath]; ok && v != "" {
 		d.transcriptPath = v
+	}
+	if v, ok := ds[claudeKeyHookEventJSON]; ok && v != "" {
+		ev, err := hookevent.ParseHookEvent([]byte(v))
+		if err != nil {
+			// Fail open: the bridge already pre-derived Status, so a
+			// malformed payload only loses the auxiliary inspection
+			// surface. Drop the previous parse so callers don't read
+			// stale data.
+			slog.Debug("claude driver: hook_event_json parse failed",
+				"session", d.sessionID, "err", err)
+			d.lastHookEvent = hookevent.HookEvent{}
+		} else {
+			d.lastHookEvent = ev
+		}
 	}
 }
 
