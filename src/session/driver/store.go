@@ -25,10 +25,7 @@ func (s *AgentStore) bindLocked(windowID, agentSessionID string) bool {
 	oldID := s.bindings[windowID]
 	s.bindings[windowID] = agentSessionID
 	if _, ok := s.sessions[agentSessionID]; !ok {
-		s.sessions[agentSessionID] = &AgentSession{
-			ID:    agentSessionID,
-			State: AgentStateUnset,
-		}
+		s.sessions[agentSessionID] = &AgentSession{ID: agentSessionID}
 	}
 	return oldID != agentSessionID
 }
@@ -67,20 +64,6 @@ func (s *AgentStore) GetByWindow(windowID string) *AgentSession {
 		return nil
 	}
 	return s.sessions[id]
-}
-
-func (s *AgentStore) UpdateState(agentSessionID string, state AgentState) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	sess, ok := s.sessions[agentSessionID]
-	if !ok {
-		return false
-	}
-	if sess.State == state {
-		return false
-	}
-	sess.State = state
-	return true
 }
 
 func (s *AgentStore) UpdateStatusLine(agentSessionID string, line string) bool {

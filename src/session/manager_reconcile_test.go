@@ -47,13 +47,12 @@ func TestReconcileWindows_OneRemoved(t *testing.T) {
 	}
 }
 
-func TestReconcileWindows_PreservesRuntimeFields(t *testing.T) {
+func TestReconcileWindows_PreservesMetadata(t *testing.T) {
 	mgr, tmux := setupManager(t)
 	sessKeep, _ := mgr.Create("/tmp/proj-a", "claude")
 	tmux.nextWindowID = "@2"
 	sessGone, _ := mgr.Create("/tmp/proj-b", "claude")
 
-	mgr.UpdateStates(map[string]State{sessKeep.WindowID: StateWaiting})
 	delete(tmux.windows, sessGone.WindowID)
 
 	removed, err := mgr.ReconcileWindows()
@@ -68,7 +67,7 @@ func TestReconcileWindows_PreservesRuntimeFields(t *testing.T) {
 	if survivor == nil {
 		t.Fatal("expected surviving session to remain")
 	}
-	if survivor.State != StateWaiting {
-		t.Fatalf("runtime State must be preserved, got %s", survivor.State)
+	if survivor.Project != "/tmp/proj-a" {
+		t.Fatalf("metadata lost on reconcile: %+v", survivor)
 	}
 }

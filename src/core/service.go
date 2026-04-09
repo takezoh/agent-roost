@@ -11,6 +11,7 @@ import (
 
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/state"
 	"github.com/take/agent-roost/tmux"
 )
 
@@ -18,7 +19,8 @@ type Service struct {
 	Manager        *session.Manager
 	AgentStore     *driver.AgentStore
 	Drivers        *driver.Registry
-	Monitor        *tmux.Monitor
+	States         state.Store
+	Observers      *driver.ObserverRegistry
 	Panes          tmux.PaneOperator
 	Tracker        SessionTracker
 	SessionName    string
@@ -30,7 +32,7 @@ type Service struct {
 	lastCount      int
 }
 
-func NewService(mgr *session.Manager, store *driver.AgentStore, drivers *driver.Registry, mon *tmux.Monitor, panes tmux.PaneOperator, sessionName, eventLogDir, activeWindowID string) *Service {
+func NewService(mgr *session.Manager, store *driver.AgentStore, drivers *driver.Registry, states state.Store, observers *driver.ObserverRegistry, panes tmux.PaneOperator, sessionName, eventLogDir, activeWindowID string) *Service {
 	if eventLogDir != "" {
 		os.MkdirAll(eventLogDir, 0o755)
 	}
@@ -38,7 +40,8 @@ func NewService(mgr *session.Manager, store *driver.AgentStore, drivers *driver.
 		Manager:        mgr,
 		AgentStore:     store,
 		Drivers:        drivers,
-		Monitor:        mon,
+		States:         states,
+		Observers:      observers,
 		Panes:          panes,
 		Tracker:        noopTracker{},
 		SessionName:    sessionName,
@@ -187,16 +190,33 @@ func (s *Service) SessionsByProject() map[string][]*session.Session {
 	return s.Manager.ByProject()
 }
 
-func (s *Service) PollStates(sessions []*session.Session) map[string]session.State {
-	windowCommands := make(map[string]string, len(sessions))
-	for _, sess := range sessions {
-		windowCommands[sess.WindowID] = sess.Command
+// CreateSession spawns a new session and registers a state observer for it.
+// All session creation must go through this method (never Manager.Create
+// directly) so the Observer registry stays in lockstep with the Manager
+// cache and state.Store.
+func (s *Service) CreateSession(project, command string) (*session.Session, error) {
+	sess, err := s.Manager.Create(project, command)
+	if err != nil {
+		return nil, err
 	}
-	return s.Monitor.PollAll(windowCommands)
+	s.Observers.Spawn(sess.WindowID, sess.Command)
+	return sess, nil
 }
 
-func (s *Service) UpdateStates(states map[string]session.State) {
-	s.Manager.UpdateStates(states)
+// StopSession kills a session window, removes its observer, and clears its
+// state.Store entry. All session stops must go through this method.
+func (s *Service) StopSession(id string) error {
+	sess := s.Manager.FindByID(id)
+	if sess == nil {
+		return nil
+	}
+	windowID := sess.WindowID
+	if err := s.Manager.Stop(id); err != nil {
+		return err
+	}
+	s.Observers.Remove(windowID)
+	s.ClearActive(windowID)
+	return nil
 }
 
 // SyncActiveStatusLine pushes the active session's cached status line to tmux.
@@ -216,33 +236,10 @@ func (s *Service) SyncActiveStatusLine() {
 	}
 }
 
-// ResolveAgentState returns the final display state for a session,
-// merging capture-pane state with agent hook state.
-func ResolveAgentState(command string, captureState session.State, agent *driver.AgentSession) session.State {
-	if driver.Kind(command) != "claude" {
-		return captureState
-	}
-	if agent == nil || agent.State == driver.AgentStateUnset {
-		return session.StateIdle
-	}
-	switch agent.State {
-	case driver.AgentStateRunning:
-		return session.StateRunning
-	case driver.AgentStateWaiting:
-		return session.StateWaiting
-	case driver.AgentStatePending:
-		return session.StatePending
-	case driver.AgentStateStopped:
-		return session.StateStopped
-	case driver.AgentStateIdle:
-		return session.StateIdle
-	default:
-		return session.StateIdle
-	}
-}
-
-// resolveWindowID finds a window ID by pane, falling back to active session.
-func (s *Service) resolveWindowID(pane string) string {
+// ResolveWindowID finds a window ID by pane, falling back to active session.
+// Exported so the Server hook handler can route events to per-window
+// driver observers.
+func (s *Service) ResolveWindowID(pane string) string {
 	if pane != "" {
 		if wid, err := s.Panes.WindowIDFromPane(pane); err == nil {
 			if s.Manager.FindByWindowID(wid) != nil {

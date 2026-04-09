@@ -134,13 +134,6 @@ func (m Model) handleServerEvent(msg core.Message) (tea.Model, tea.Cmd) {
 		if msg.ActiveWindowID == "" && m.active == "" {
 			m.cursor = m.firstSessionIndex()
 		}
-	case "states-updated":
-		for i := range m.sessions {
-			if st, ok := msg.States[m.sessions[i].WindowID]; ok {
-				m.sessions[i].State = st
-			}
-		}
-		m.rebuildItems()
 	}
 	return m, m.listenEvents()
 }

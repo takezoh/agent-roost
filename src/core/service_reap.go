@@ -38,6 +38,9 @@ func (s *Service) ReapDeadSessions() []string {
 	for _, r := range removed {
 		s.ClearActive(r.WindowID)
 		s.AgentStore.Unbind(r.WindowID)
+		// Observer + state.Store entry must follow the Manager cache so the
+		// next polling tick doesn't try to capture-pane on a dead window.
+		s.Observers.Remove(r.WindowID)
 		ids = append(ids, r.ID)
 	}
 	return ids
@@ -84,6 +87,11 @@ func (s *Service) reapDeadPane00() {
 	if err := s.Manager.KillWindow(sess.WindowID); err != nil {
 		slog.Warn("reap dead pane: kill window failed", "window", sess.WindowID, "err", err)
 	}
+	// Drop the observer immediately so the next polling tick (which can
+	// run before ReconcileWindows finalizes the in-memory cache) doesn't
+	// touch a dead window. ReconcileWindows will finalize the Manager
+	// cache cleanup independently.
+	s.Observers.Remove(sess.WindowID)
 }
 
 // swapPaneBackTo swaps whatever is currently in SESSION:0.0 back into the

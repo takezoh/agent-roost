@@ -138,11 +138,6 @@ func (m *Manager) Recreate() error {
 		// boot — query the freshly spawned pane for its new id before
 		// writing user options.
 		s.AgentPaneID = m.queryAgentPaneID(windowID)
-		// We just spawned a fresh agent process, so the persisted state is
-		// stale — reset before writing options so tmux records the new
-		// runtime, not whatever the previous Coordinator left behind.
-		s.State = StateRunning
-		s.StateChangedAt = time.Now()
 		if err := m.tmux.SetWindowUserOptions(windowID, sessionUserOptions(s)); err != nil {
 			slog.Error("recreate: SetWindowUserOptions failed", "id", s.ID, "err", err)
 			m.tmux.KillWindow(windowID)
@@ -155,7 +150,9 @@ func (m *Manager) Recreate() error {
 }
 
 // sessionUserOptions converts a Session into the @roost_* user options that
-// represent its runtime truth in tmux. DriverState is packed into a single
+// represent its static metadata in tmux. Dynamic per-session status lives
+// in state.Store and is owned by per-session driver Observer instances —
+// it never flows through this function. DriverState is packed into a single
 // JSON-encoded option so this layer never has to know which keys a driver
 // uses; an empty driver state is omitted entirely.
 func sessionUserOptions(s *Session) map[string]string {
@@ -165,13 +162,9 @@ func sessionUserOptions(s *Session) map[string]string {
 		"@roost_command":    s.Command,
 		"@roost_created_at": s.CreatedAt.UTC().Format(time.RFC3339),
 		"@roost_tags":       encodeTags(s.Tags),
-		"@roost_state":      s.State.String(),
 	}
 	if s.AgentPaneID != "" {
 		opts["@roost_agent_pane"] = s.AgentPaneID
-	}
-	if !s.StateChangedAt.IsZero() {
-		opts["@roost_state_changed_at"] = s.StateChangedAt.UTC().Format(time.RFC3339)
 	}
 	if encoded := encodeDriverState(s.DriverState); encoded != "" {
 		opts["@roost_driver_state"] = encoded
@@ -228,13 +221,11 @@ func (m *Manager) Create(project, command string) (*Session, error) {
 
 	now := time.Now()
 	s := &Session{
-		ID:             id,
-		Project:        project,
-		Command:        command,
-		CreatedAt:      now,
-		State:          StateRunning,
-		StateChangedAt: now,
-		Tags:           buildTags(m.detectBranch(project)),
+		ID:        id,
+		Project:   project,
+		Command:   command,
+		CreatedAt: now,
+		Tags:      buildTags(m.detectBranch(project)),
 	}
 
 	name := filepath.Base(project) + ":" + id
@@ -512,18 +503,15 @@ func decodeTags(s string) []Tag {
 
 func windowToSession(w RoostWindow) *Session {
 	createdAt, _ := time.Parse(time.RFC3339, w.CreatedAt)
-	stateChangedAt, _ := time.Parse(time.RFC3339, w.StateChangedAt)
 	return &Session{
-		ID:             w.ID,
-		Project:        w.Project,
-		Command:        w.Command,
-		WindowID:       w.WindowID,
-		AgentPaneID:    w.AgentPaneID,
-		CreatedAt:      createdAt,
-		Tags:           decodeTags(w.Tags),
-		DriverState:    decodeDriverState(w.DriverState),
-		State:          ParseState(w.State),
-		StateChangedAt: stateChangedAt,
+		ID:          w.ID,
+		Project:     w.Project,
+		Command:     w.Command,
+		WindowID:    w.WindowID,
+		AgentPaneID: w.AgentPaneID,
+		CreatedAt:   createdAt,
+		Tags:        decodeTags(w.Tags),
+		DriverState: decodeDriverState(w.DriverState),
 	}
 }
 

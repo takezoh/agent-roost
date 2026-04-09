@@ -5,8 +5,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/state"
 )
 
 type MainModel struct {
@@ -58,12 +58,6 @@ func (m MainModel) handleEvent(msg core.Message) (tea.Model, tea.Cmd) {
 	switch msg.Event {
 	case "sessions-changed":
 		m.sessions = msg.Sessions
-	case "states-updated":
-		for i := range m.sessions {
-			if st, ok := msg.States[m.sessions[i].WindowID]; ok {
-				m.sessions[i].State = st
-			}
-		}
 	case "project-selected":
 		m.selectedProject = msg.SelectedProject
 	}
@@ -118,6 +112,6 @@ func (m MainModel) selectedProjectName() string {
 	return ""
 }
 
-func stateSymbol(s session.State) string {
+func stateSymbol(s state.Status) string {
 	return stateStyle(s).Render(s.Symbol())
 }

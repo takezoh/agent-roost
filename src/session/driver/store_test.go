@@ -15,9 +15,6 @@ func TestBind(t *testing.T) {
 	if sess.ID != "agent-abc" {
 		t.Errorf("got ID %q, want %q", sess.ID, "agent-abc")
 	}
-	if sess.State != AgentStateUnset {
-		t.Errorf("got State %v, want AgentStateUnset", sess.State)
-	}
 
 	// rebind same window to same agent returns false
 	if s.Bind("win1", "agent-abc") {
@@ -43,19 +40,19 @@ func TestBind(t *testing.T) {
 	}
 }
 
-func TestBind_Resume(t *testing.T) {
+func TestBind_ResumePreservesMetadata(t *testing.T) {
 	s := NewAgentStore()
 
 	s.Bind("win1", "agent-abc")
-	s.UpdateState("agent-abc", AgentStateRunning)
+	s.UpdateStatusLine("agent-abc", "status: ok")
 
 	// resume: same agentID, different window
 	if !s.Bind("win2", "agent-abc") {
 		t.Fatal("expected true on resume bind to different window")
 	}
 	sess := s.Get("agent-abc")
-	if sess.State != AgentStateRunning {
-		t.Errorf("resume should preserve state, got %v", sess.State)
+	if sess.StatusLine != "status: ok" {
+		t.Errorf("resume should preserve metadata, got StatusLine %q", sess.StatusLine)
 	}
 	sess2 := s.GetByWindow("win2")
 	if sess2 != sess {
@@ -96,33 +93,6 @@ func TestGet(t *testing.T) {
 	}
 	if sess.ID != "agent-abc" {
 		t.Errorf("got ID %q, want %q", sess.ID, "agent-abc")
-	}
-}
-
-func TestUpdateState(t *testing.T) {
-	s := NewAgentStore()
-
-	// update nonexistent returns false
-	if s.UpdateState("nonexistent", AgentStateIdle) {
-		t.Error("expected false for nonexistent session")
-	}
-
-	s.Bind("win1", "agent-abc")
-
-	if !s.UpdateState("agent-abc", AgentStateRunning) {
-		t.Error("expected true on state change")
-	}
-	if s.Get("agent-abc").State != AgentStateRunning {
-		t.Error("state not updated")
-	}
-
-	// same value returns false
-	if s.UpdateState("agent-abc", AgentStateRunning) {
-		t.Error("expected false when state unchanged")
-	}
-
-	if !s.UpdateState("agent-abc", AgentStateStopped) {
-		t.Error("expected true on state change")
 	}
 }
 
@@ -213,7 +183,7 @@ func TestRestoreFromBindings(t *testing.T) {
 	s.RestoreFromBindings(map[string]string{
 		"@1": "agent-1",
 		"@2": "agent-2",
-		"@3": "", // skipped
+		"@3": "",        // skipped
 		"":   "agent-x", // skipped
 	})
 
@@ -228,28 +198,5 @@ func TestRestoreFromBindings(t *testing.T) {
 	}
 	if s.Get("agent-1") == nil {
 		t.Errorf("expected agent-1 session to be created")
-	}
-	if s.Get("agent-2").State != AgentStateUnset {
-		t.Errorf("expected restored session in Unset state")
-	}
-}
-
-func TestAgentState_String(t *testing.T) {
-	tests := []struct {
-		state AgentState
-		want  string
-	}{
-		{AgentStateUnset, "unset"},
-		{AgentStateIdle, "idle"},
-		{AgentStateRunning, "running"},
-		{AgentStateWaiting, "waiting"},
-		{AgentStatePending, "pending"},
-		{AgentStateStopped, "stopped"},
-		{AgentState(99), "unknown"},
-	}
-	for _, tt := range tests {
-		if got := tt.state.String(); got != tt.want {
-			t.Errorf("AgentState(%d).String() = %q, want %q", tt.state, got, tt.want)
-		}
 	}
 }

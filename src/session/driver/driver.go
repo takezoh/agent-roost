@@ -52,4 +52,12 @@ type Driver interface {
 	// ResolveMeta reads session metadata from the agent's transcript file.
 	// Empty/unreadable files yield an empty SessionMeta silently.
 	ResolveMeta(fsys fs.FS, home string, sc SessionContext) SessionMeta
+
+	// NewObserver creates a per-session state producer Observer for the given
+	// window. The Observer is the sole writer to state.Store for windowID.
+	// Construction MUST NOT touch the store — warm-restart paths rely on the
+	// persisted status surviving observer creation. Drivers that don't use
+	// some of the deps (e.g. event-driven drivers don't need the capturer)
+	// simply ignore the unused fields.
+	NewObserver(windowID string, deps ObserverDeps) Observer
 }

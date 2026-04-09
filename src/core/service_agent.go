@@ -25,7 +25,7 @@ type AgentEventResult struct {
 // This is the single core entry point for hook payloads: core never reads
 // driver-specific keys directly, it just hands the bag to the driver.
 func (s *Service) ApplyAgentEvent(ev driver.AgentEvent) AgentEventResult {
-	windowID := s.resolveWindowID(ev.Pane)
+	windowID := s.ResolveWindowID(ev.Pane)
 	if windowID == "" {
 		return AgentEventResult{}
 	}
@@ -42,24 +42,6 @@ func (s *Service) ApplyAgentEvent(ev driver.AgentEvent) AgentEventResult {
 	}
 	res.StateChanged = s.Manager.MergeDriverState(windowID, ev.DriverState)
 	return res
-}
-
-// HandleStateChange updates the agent state by agentSessionID.
-func (s *Service) HandleStateChange(agentSessionID string, state driver.AgentState) bool {
-	return s.AgentStore.UpdateState(agentSessionID, state)
-}
-
-// HandleStateChangeWithContext updates agent state, auto-binding if the session is unknown.
-func (s *Service) HandleStateChangeWithContext(agentSessionID string, state driver.AgentState, pane string) bool {
-	if s.AgentStore.Get(agentSessionID) == nil && pane != "" {
-		// Auto-bind without going through ApplyAgentEvent: we only have the
-		// raw agent ID here (no driver state), so bind directly.
-		windowID := s.resolveWindowID(pane)
-		if windowID != "" {
-			s.AgentStore.Bind(windowID, agentSessionID)
-		}
-	}
-	return s.AgentStore.UpdateState(agentSessionID, state)
 }
 
 // HandleStatusLine updates the agent status line by agentSessionID.

@@ -6,20 +6,20 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/state"
 )
 
 func TestStatusFilterMatches(t *testing.T) {
 	f := statusFilter{true, false, true, false, true}
 	cases := []struct {
-		state session.State
+		state state.Status
 		want  bool
 	}{
-		{session.StateRunning, true},
-		{session.StateWaiting, false},
-		{session.StateIdle, true},
-		{session.StateStopped, false},
-		{session.StatePending, true},
+		{state.StatusRunning, true},
+		{state.StatusWaiting, false},
+		{state.StatusIdle, true},
+		{state.StatusStopped, false},
+		{state.StatusPending, true},
 	}
 	for _, c := range cases {
 		if got := f.matches(c.state); got != c.want {
@@ -30,12 +30,12 @@ func TestStatusFilterMatches(t *testing.T) {
 
 func TestStatusFilterToggleFlipsBit(t *testing.T) {
 	f := allOnFilter()
-	f.toggle(session.StateIdle)
-	if f.matches(session.StateIdle) {
+	f.toggle(state.StatusIdle)
+	if f.matches(state.StatusIdle) {
 		t.Fatal("idle should be off after first toggle")
 	}
-	f.toggle(session.StateIdle)
-	if !f.matches(session.StateIdle) {
+	f.toggle(state.StatusIdle)
+	if !f.matches(state.StatusIdle) {
 		t.Fatal("idle should be on after second toggle")
 	}
 }
@@ -44,7 +44,7 @@ func TestStatusFilterToggleAllOffResetsToAllOn(t *testing.T) {
 	// Only running is on; toggling it off should snap the filter back to
 	// all-on rather than producing an empty list.
 	f := statusFilter{true, false, false, false, false}
-	f.toggle(session.StateRunning)
+	f.toggle(state.StatusRunning)
 	if !f.allOn() {
 		t.Fatalf("expected filter to reset to all-on, got %#v", f)
 	}
@@ -96,7 +96,7 @@ func TestFilterBarLayoutHitboxesAlignWithRender(t *testing.T) {
 		}
 	}
 
-	// First five boxes correspond to the five States in iota order.
+	// First five boxes correspond to the five Statuses in iota order.
 	for i, st := range filterStates {
 		if boxes[i].state != st {
 			t.Errorf("box %d state = %v, want %v", i, boxes[i].state, st)
@@ -113,16 +113,16 @@ func TestFilterBarLayoutHitboxesAlignWithRender(t *testing.T) {
 func TestHitTestFilterChip(t *testing.T) {
 	m := NewModel(nil, &config.Config{})
 	m.sessions = []core.SessionInfo{
-		{State: session.StateRunning},
-		{State: session.StateWaiting},
+		{State: state.StatusRunning},
+		{State: state.StatusWaiting},
 	}
 	_, boxes := filterBarLayout(m.filter)
 
 	// Click in the middle of the first chip (running) — should hit it.
 	x := (boxes[0].x0 + boxes[0].x1) / 2
-	state, isAll, hit := m.hitTestFilterChip(x, 1)
-	if !hit || isAll || state != session.StateRunning {
-		t.Errorf("expected hit on running, got hit=%v isAll=%v state=%v", hit, isAll, state)
+	status, isAll, hit := m.hitTestFilterChip(x, 1)
+	if !hit || isAll || status != state.StatusRunning {
+		t.Errorf("expected hit on running, got hit=%v isAll=%v status=%v", hit, isAll, status)
 	}
 
 	// Click on the All chip.

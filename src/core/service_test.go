@@ -9,7 +9,7 @@ import (
 
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
-	"github.com/take/agent-roost/tmux"
+	"github.com/take/agent-roost/state"
 )
 
 type mockPaneOp struct {
@@ -114,19 +114,27 @@ func (m *mockTmuxForService) ListRoostWindows() ([]session.RoostWindow, error) {
 			continue
 		}
 		out = append(out, session.RoostWindow{
-			WindowID:       id,
-			ID:             opts["@roost_id"],
-			Project:        opts["@roost_project"],
-			Command:        opts["@roost_command"],
-			CreatedAt:      opts["@roost_created_at"],
-			Tags:           opts["@roost_tags"],
-			AgentPaneID:    opts["@roost_agent_pane"],
-			DriverState:    opts["@roost_driver_state"],
-			State:          opts["@roost_state"],
-			StateChangedAt: opts["@roost_state_changed_at"],
+			WindowID:    id,
+			ID:           opts["@roost_id"],
+			Project:      opts["@roost_project"],
+			Command:      opts["@roost_command"],
+			CreatedAt:    opts["@roost_created_at"],
+			Tags:         opts["@roost_tags"],
+			AgentPaneID:  opts["@roost_agent_pane"],
+			DriverState:  opts["@roost_driver_state"],
 		})
 	}
 	return out, nil
+}
+
+func (m *mockTmuxForService) UnsetWindowUserOptions(windowID string, keys ...string) error {
+	if m.userOptions[windowID] == nil {
+		return nil
+	}
+	for _, k := range keys {
+		delete(m.userOptions[windowID], k)
+	}
+	return nil
 }
 
 type mockCapturer struct{ content map[string]string }
@@ -147,9 +155,13 @@ func setupServiceWithTmux(t *testing.T) (*Service, *mockPaneOp, *session.Manager
 	drivers := driver.DefaultRegistry()
 	mgr := session.NewManager(mt, t.TempDir(), drivers)
 	store := driver.NewAgentStore()
-	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
+	states := state.NewStore(mt)
+	observers := driver.NewObserverRegistry(drivers, driver.ObserverDeps{
+		Store:    states,
+		Capturer: &mockCapturer{content: map[string]string{}},
+	})
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, store, drivers, mon, panes, "roost", "", "")
+	svc := NewService(mgr, store, drivers, states, observers, panes, "roost", "", "")
 	return svc, panes, mgr, mt
 }
 
@@ -190,9 +202,13 @@ func TestRefreshSessions_Changed(t *testing.T) {
 	drivers := driver.DefaultRegistry()
 	mgr := session.NewManager(mt, dataDir, drivers)
 	store := driver.NewAgentStore()
-	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
+	states := state.NewStore(mt)
+	observers := driver.NewObserverRegistry(drivers, driver.ObserverDeps{
+		Store:    states,
+		Capturer: &mockCapturer{content: map[string]string{}},
+	})
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, store, drivers, mon, panes, "roost", "", "")
+	svc := NewService(mgr, store, drivers, states, observers, panes, "roost", "", "")
 
 	// Create via a separate manager so svc.Manager has empty in-memory state.
 	mgr2 := session.NewManager(mt, dataDir, drivers)
@@ -274,9 +290,13 @@ func TestNewService_RestoresActiveWindowID(t *testing.T) {
 	drivers := driver.DefaultRegistry()
 	mgr := session.NewManager(mt, t.TempDir(), drivers)
 	store := driver.NewAgentStore()
-	mon := tmux.NewMonitor(&mockCapturer{content: map[string]string{}}, 30, nil)
+	states := state.NewStore(mt)
+	observers := driver.NewObserverRegistry(drivers, driver.ObserverDeps{
+		Store:    states,
+		Capturer: &mockCapturer{content: map[string]string{}},
+	})
 	panes := &mockPaneOp{}
-	svc := NewService(mgr, store, drivers, mon, panes, "roost", "", "@5")
+	svc := NewService(mgr, store, drivers, states, observers, panes, "roost", "", "@5")
 	if svc.ActiveWindowID() != "@5" {
 		t.Fatalf("expected @5, got %s", svc.ActiveWindowID())
 	}
@@ -332,59 +352,6 @@ func sessionStartEvent(pane, sessionID string) driver.AgentEvent {
 		Type:        driver.AgentEventSessionStart,
 		Pane:        pane,
 		DriverState: map[string]string{"session_id": sessionID},
-	}
-}
-
-func TestHandleStateChangeWithContext_AutoBind(t *testing.T) {
-	svc, _, mgr := setupService(t)
-	sess, _ := mgr.Create("/tmp/proj", "claude")
-	svc.Preview(sess)
-
-	// No prior session-start: state-change with pane should auto-bind
-	changed := svc.HandleStateChangeWithContext("new-agent", driver.AgentStateRunning, "%0")
-	if !changed {
-		t.Fatal("expected true on auto-bind state change")
-	}
-	agent := svc.AgentStore.GetByWindow(sess.WindowID)
-	if agent == nil {
-		t.Fatal("expected agent after auto-bind")
-	}
-	if agent.ID != "new-agent" {
-		t.Errorf("got ID %q, want %q", agent.ID, "new-agent")
-	}
-	if agent.State != driver.AgentStateRunning {
-		t.Errorf("got state %v, want running", agent.State)
-	}
-}
-
-func TestHandleStateChangeWithContext_NoPane(t *testing.T) {
-	svc, _, _ := setupService(t)
-
-	// No pane: should not auto-bind, returns false
-	changed := svc.HandleStateChangeWithContext("unknown", driver.AgentStateRunning, "")
-	if changed {
-		t.Fatal("expected false without pane")
-	}
-	if svc.AgentStore.Get("unknown") != nil {
-		t.Fatal("should not create session without pane")
-	}
-}
-
-func TestHandleStateChangeWithContext_KnownSession(t *testing.T) {
-	svc, _, mgr := setupService(t)
-	sess, _ := mgr.Create("/tmp/proj", "claude")
-	svc.Preview(sess)
-
-	// Bind normally first
-	svc.ApplyAgentEvent(sessionStartEvent("%0", "agent-1"))
-
-	// state-change on known session works without re-binding
-	changed := svc.HandleStateChangeWithContext("agent-1", driver.AgentStateRunning, "%0")
-	if !changed {
-		t.Fatal("expected true on state change")
-	}
-	if svc.AgentStore.Get("agent-1").State != driver.AgentStateRunning {
-		t.Fatal("state not updated")
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/state"
 )
 
 type Message struct {
@@ -16,30 +17,29 @@ type Message struct {
 	Args    map[string]string `json:"args,omitempty"`
 
 	// Event fields (server → client)
-	Event    string                    `json:"event,omitempty"`
-	Sessions []SessionInfo             `json:"sessions,omitempty"`
-	States   map[string]session.State  `json:"states,omitempty"`
-	Error          string                    `json:"error,omitempty"`
-	ActiveWindowID  string                    `json:"active_window_id,omitempty"`
-	SessionLogPath  string                    `json:"session_log_path,omitempty"`
-	EventLogPath    string                    `json:"event_log_path,omitempty"`
-	TranscriptPath  string                    `json:"transcript_path,omitempty"`
-	SelectedProject string                    `json:"selected_project,omitempty"`
+	Event           string        `json:"event,omitempty"`
+	Sessions        []SessionInfo `json:"sessions,omitempty"`
+	Error           string        `json:"error,omitempty"`
+	ActiveWindowID  string        `json:"active_window_id,omitempty"`
+	SessionLogPath  string        `json:"session_log_path,omitempty"`
+	EventLogPath    string        `json:"event_log_path,omitempty"`
+	TranscriptPath  string        `json:"transcript_path,omitempty"`
+	SelectedProject string        `json:"selected_project,omitempty"`
 }
 
 type SessionInfo struct {
-	ID        string        `json:"id"`
-	Project   string        `json:"project"`
-	Command   string        `json:"command"`
-	WindowID  string        `json:"window_id"`
-	CreatedAt string        `json:"created_at"`
-	State          session.State `json:"state"`
+	ID             string        `json:"id"`
+	Project        string        `json:"project"`
+	Command        string        `json:"command"`
+	WindowID       string        `json:"window_id"`
+	CreatedAt      string        `json:"created_at"`
+	State          state.Status  `json:"state"`
 	StateChangedAt string        `json:"state_changed_at,omitempty"`
-	Tags           []session.Tag  `json:"tags,omitempty"`
-	Title      string        `json:"title,omitempty"`
-	LastPrompt string        `json:"last_prompt,omitempty"`
-	Subjects   []string      `json:"subjects,omitempty"`
-	StatusLine string        `json:"status_line,omitempty"`
+	Tags           []session.Tag `json:"tags,omitempty"`
+	Title          string        `json:"title,omitempty"`
+	LastPrompt     string        `json:"last_prompt,omitempty"`
+	Subjects       []string      `json:"subjects,omitempty"`
+	StatusLine     string        `json:"status_line,omitempty"`
 
 	// Indicators are driver-built status chips (e.g. current tool,
 	// subagent counts, error counts) shown next to the session card.
@@ -80,24 +80,27 @@ func NewEvent(event string) Message {
 	return Message{Type: "event", Event: event}
 }
 
-// BuildSessionInfos merges tmux sessions with agent session data.
-func BuildSessionInfos(sessions []*session.Session, store *driver.AgentStore) []SessionInfo {
+// BuildSessionInfos merges tmux session metadata, the agent metadata cache,
+// and the per-session dynamic status from state.Store. Status is read directly
+// from the store — there is no resolution / fallback layer here.
+func BuildSessionInfos(sessions []*session.Session, agents *driver.AgentStore, states state.Store) []SessionInfo {
 	infos := make([]SessionInfo, len(sessions))
 	for i, s := range sessions {
-		agent := store.GetByWindow(s.WindowID)
 		info := SessionInfo{
 			ID:        s.ID,
 			Project:   s.Project,
 			Command:   s.Command,
 			WindowID:  s.WindowID,
 			CreatedAt: s.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			State:     ResolveAgentState(s.Command, s.State, agent),
 			Tags:      s.Tags,
 		}
-		if !s.StateChangedAt.IsZero() {
-			info.StateChangedAt = s.StateChangedAt.Format("2006-01-02T15:04:05Z07:00")
+		if st, ok := states.Get(s.WindowID); ok {
+			info.State = st.Status
+			if !st.ChangedAt.IsZero() {
+				info.StateChangedAt = st.ChangedAt.Format("2006-01-02T15:04:05Z07:00")
+			}
 		}
-		if agent != nil {
+		if agent := agents.GetByWindow(s.WindowID); agent != nil {
 			info.Title = agent.Title
 			info.LastPrompt = agent.LastPrompt
 			info.Subjects = agent.Subjects

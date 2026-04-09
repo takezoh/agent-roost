@@ -68,7 +68,7 @@ func TestDeriveState(t *testing.T) {
 		{"Notification", "permission_prompt", "pending"},
 		{"Notification", "idle_prompt", "waiting"},
 		{"Notification", "auth_success", ""},
-		{"SessionStart", "", ""},
+		{"SessionStart", "", "idle"},
 		{"PostCompact", "", ""},
 	}
 	for _, tt := range tests {

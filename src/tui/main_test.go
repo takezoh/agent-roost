@@ -6,7 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/state"
 )
 
 func TestMainDisconnectQuitsProgram(t *testing.T) {
@@ -70,8 +70,8 @@ func TestMainViewShowsProjectSessions(t *testing.T) {
 	m.height = 24
 	m.selectedProject = "/tmp/proj"
 	m.sessions = []core.SessionInfo{
-		{ID: "abc123def", Project: "/tmp/proj", Command: "claude", WindowID: "@1", State: session.StateRunning, CreatedAt: "2025-01-01T00:00:00Z"},
-		{ID: "xyz789ghi", Project: "/other", Command: "gemini", WindowID: "@2", State: session.StateIdle, CreatedAt: "2025-01-01T00:00:00Z"},
+		{ID: "abc123def", Project: "/tmp/proj", Command: "claude", WindowID: "@1", State: state.StatusRunning, CreatedAt: "2025-01-01T00:00:00Z"},
+		{ID: "xyz789ghi", Project: "/other", Command: "gemini", WindowID: "@2", State: state.StatusIdle, CreatedAt: "2025-01-01T00:00:00Z"},
 	}
 	view := m.View()
 	content := view.Content

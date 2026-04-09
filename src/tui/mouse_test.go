@@ -6,7 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/state"
 )
 
 func setupModelWithSessions() Model {
@@ -122,8 +122,8 @@ func TestClickSetsAnchor(t *testing.T) {
 func TestFilterChipClickTogglesFilter(t *testing.T) {
 	m := setupModelWithSessions()
 	// Mark sessions with distinct states so the chips have meaningful counts.
-	m.sessions[0].State = session.StateRunning
-	m.sessions[1].State = session.StateIdle
+	m.sessions[0].State = state.StatusRunning
+	m.sessions[1].State = state.StatusIdle
 	m.rebuildItems()
 	m.View() // populate row cache (also exercises filter bar layout)
 
@@ -134,7 +134,7 @@ func TestFilterChipClickTogglesFilter(t *testing.T) {
 
 	result, _ := m.Update(tea.MouseClickMsg{X: x, Y: 1, Button: tea.MouseLeft})
 	model := result.(Model)
-	if model.filter.matches(session.StateIdle) {
+	if model.filter.matches(state.StatusIdle) {
 		t.Fatal("idle should be off after clicking idle chip")
 	}
 	if got := countSessions(model.items); got != 1 {

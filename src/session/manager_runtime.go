@@ -2,7 +2,6 @@ package session
 
 import (
 	"log/slog"
-	"time"
 )
 
 // This file groups the runtime-mutation methods that update agent-reported
@@ -72,58 +71,6 @@ func mergeDriverStateMap(current, updates map[string]string) (map[string]string,
 		return nil, changed
 	}
 	return merged, changed
-}
-
-// UpdateStates merges polled states into the in-memory cache and persists
-// each session whose state actually changed. The hot-loop case (no changes)
-// only takes the lock and reads — no I/O is performed. State and the
-// derived StateChangedAt are written to dedicated tmux user options
-// (@roost_state, @roost_state_changed_at) so warm restart of the
-// Coordinator restores the previously displayed state without waiting for
-// the next poll cycle, and cold-boot recovery via sessions.json sees the
-// last-known state too.
-//
-// Follows the "I/O 先行・状態変更後行" rule: tmux is written first via
-// persistStateLocked, and the in-memory cache is only mutated when that
-// write succeeds. Failed writes are logged and the session keeps its old
-// state so the cache stays consistent with what tmux actually has.
-func (m *Manager) UpdateStates(states map[string]State) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	now := time.Now()
-	dirty := false
-	for _, s := range m.sessions {
-		st, ok := states[s.WindowID]
-		if !ok || s.State == st {
-			continue
-		}
-		if !m.persistStateLocked(s.WindowID, st, now) {
-			continue
-		}
-		s.State = st
-		s.StateChangedAt = now
-		dirty = true
-	}
-	if dirty {
-		m.saveSnapshotLocked()
-	}
-}
-
-// persistStateLocked writes the @roost_state and @roost_state_changed_at
-// user options atomically (single tmux RunChain) and reports whether the
-// write succeeded. Caller must hold m.mu. Errors are logged but not
-// propagated since the polling loop has nothing actionable to do on tmux
-// write failure other than skipping the in-memory mutation.
-func (m *Manager) persistStateLocked(windowID string, st State, when time.Time) bool {
-	opts := map[string]string{
-		"@roost_state":            st.String(),
-		"@roost_state_changed_at": when.UTC().Format(time.RFC3339),
-	}
-	if err := m.tmux.SetWindowUserOptions(windowID, opts); err != nil {
-		slog.Warn("set state options failed", "window", windowID, "err", err)
-		return false
-	}
-	return true
 }
 
 // RefreshBranch re-detects the git branch for the given session and updates

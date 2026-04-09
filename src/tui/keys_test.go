@@ -6,7 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/state"
 )
 
 func TestKeyboardNavSetsAnchor(t *testing.T) {
@@ -43,8 +43,8 @@ func TestKeyPressDuringHoverClearsHovering(t *testing.T) {
 func filterTestModel() Model {
 	m := NewModel(nil, &config.Config{})
 	m.sessions = []core.SessionInfo{
-		{ID: "aaa", Project: "/tmp/proj", Command: "claude", WindowID: "@1", State: session.StateRunning},
-		{ID: "bbb", Project: "/tmp/proj", Command: "claude", WindowID: "@2", State: session.StateIdle},
+		{ID: "aaa", Project: "/tmp/proj", Command: "claude", WindowID: "@1", State: state.StatusRunning},
+		{ID: "bbb", Project: "/tmp/proj", Command: "claude", WindowID: "@2", State: state.StatusIdle},
 	}
 	m.rebuildItems()
 	return m
@@ -59,7 +59,7 @@ func TestFilterKeyTogglesStatus(t *testing.T) {
 	// Press "3" → toggle idle off.
 	result, _ := m.Update(tea.KeyPressMsg{Code: '3', Text: "3"})
 	model := result.(Model)
-	if model.filter.matches(session.StateIdle) {
+	if model.filter.matches(state.StatusIdle) {
 		t.Fatal("idle should be off after pressing 3")
 	}
 	if got := countSessions(model.items); got != 1 {
@@ -69,7 +69,7 @@ func TestFilterKeyTogglesStatus(t *testing.T) {
 	// Press "3" again → toggle idle back on.
 	result, _ = model.Update(tea.KeyPressMsg{Code: '3', Text: "3"})
 	model = result.(Model)
-	if !model.filter.matches(session.StateIdle) {
+	if !model.filter.matches(state.StatusIdle) {
 		t.Fatal("idle should be on after second 3 press")
 	}
 }

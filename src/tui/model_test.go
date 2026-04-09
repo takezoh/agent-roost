@@ -6,7 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session"
+	"github.com/take/agent-roost/state"
 )
 
 func TestDisconnectMsgQuitsProgram(t *testing.T) {
@@ -239,25 +239,6 @@ func TestRowToItemIndex(t *testing.T) {
 	}
 }
 
-func TestStatesUpdatedPreservesExistingSessions(t *testing.T) {
-	m := NewModel(nil, &config.Config{})
-	m.sessions = []core.SessionInfo{
-		{ID: "abc123", Project: "/tmp/proj", Command: "claude", WindowID: "@1"},
-	}
-	m.rebuildItems()
-
-	event := core.NewEvent("states-updated")
-	event.States = map[string]session.State{"@1": session.StateWaiting}
-
-	result, _ := m.Update(serverEventMsg(event))
-	model := result.(Model)
-	if len(model.sessions) != 1 {
-		t.Fatal("sessions should be preserved")
-	}
-	if model.sessions[0].State != session.StateWaiting {
-		t.Fatalf("expected Waiting, got %s", model.sessions[0].State)
-	}
-}
 
 func TestFirstSessionIndex(t *testing.T) {
 	m := NewModel(nil, &config.Config{})
@@ -281,8 +262,8 @@ func TestFirstSessionIndex(t *testing.T) {
 func TestRebuildItemsFilterHidesSessions(t *testing.T) {
 	m := NewModel(nil, &config.Config{})
 	m.sessions = []core.SessionInfo{
-		{ID: "aaa111", Project: "/tmp/proj", Command: "claude", WindowID: "@1", State: session.StateRunning},
-		{ID: "bbb222", Project: "/tmp/proj", Command: "claude", WindowID: "@2", State: session.StateIdle},
+		{ID: "aaa111", Project: "/tmp/proj", Command: "claude", WindowID: "@1", State: state.StatusRunning},
+		{ID: "bbb222", Project: "/tmp/proj", Command: "claude", WindowID: "@2", State: state.StatusIdle},
 	}
 	m.filter = statusFilter{true, false, false, false, false} // running only
 	m.rebuildItems()
@@ -299,8 +280,8 @@ func TestRebuildItemsFilterHidesSessions(t *testing.T) {
 func TestRebuildItemsEmptyProjectHiddenByFilter(t *testing.T) {
 	m := NewModel(nil, &config.Config{})
 	m.sessions = []core.SessionInfo{
-		{ID: "aaa111", Project: "/tmp/proj1", Command: "claude", WindowID: "@1", State: session.StateRunning},
-		{ID: "bbb222", Project: "/tmp/proj2", Command: "claude", WindowID: "@2", State: session.StateIdle},
+		{ID: "aaa111", Project: "/tmp/proj1", Command: "claude", WindowID: "@1", State: state.StatusRunning},
+		{ID: "bbb222", Project: "/tmp/proj2", Command: "claude", WindowID: "@2", State: state.StatusIdle},
 	}
 	m.filter = statusFilter{true, false, false, false, false}
 	m.rebuildItems()
@@ -318,8 +299,8 @@ func TestRebuildItemsEmptyProjectHiddenByFilter(t *testing.T) {
 func TestRebuildItemsCursorFallsBackWhenCurrentFilteredOut(t *testing.T) {
 	m := NewModel(nil, &config.Config{})
 	m.sessions = []core.SessionInfo{
-		{ID: "aaa111", Project: "/tmp/proj", Command: "claude", WindowID: "@1", State: session.StateRunning},
-		{ID: "bbb222", Project: "/tmp/proj", Command: "claude", WindowID: "@2", State: session.StateIdle},
+		{ID: "aaa111", Project: "/tmp/proj", Command: "claude", WindowID: "@1", State: state.StatusRunning},
+		{ID: "bbb222", Project: "/tmp/proj", Command: "claude", WindowID: "@2", State: state.StatusIdle},
 	}
 	m.rebuildItems()
 	// items: [proj(0), sess1(1), sess2(2)] — park cursor on the idle session.

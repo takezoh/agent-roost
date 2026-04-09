@@ -20,6 +20,7 @@ import (
 	"github.com/take/agent-roost/logger"
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/state"
 	"github.com/take/agent-roost/tmux"
 	"github.com/take/agent-roost/tui"
 )
@@ -67,21 +68,52 @@ func runCoordinator() {
 	drivers := driver.DefaultRegistry()
 	mgr := session.NewManager(client, dataDir, drivers)
 
-	if client.SessionExists() {
+	// state.Store is the single source of truth for per-session dynamic
+	// status. Per-session driver Observers (created below) are the only
+	// writers; the store persists their writes to tmux user options so
+	// warm restart of the Coordinator doesn't lose them.
+	statesStore := state.NewStore(client)
+	observers := driver.NewObserverRegistry(drivers, driver.ObserverDeps{
+		Store:         statesStore,
+		Capturer:      client,
+		IdleThreshold: time.Duration(cfg.Monitor.IdleThresholdSec) * time.Second,
+	})
+
+	warmRestart := client.SessionExists()
+	if warmRestart {
 		slog.Info("session exists, restoring")
 		restoreSession(client, cfg, sessionName)
 		mgr.Refresh()
+		// Warm restart: the prior Coordinator's status writes are still
+		// in tmux user options. Load them before any Observer is created
+		// so Adopt finds the persisted ChangedAt for its idle countdown.
+		if err := statesStore.LoadFromTmux(client); err != nil {
+			slog.Warn("state.Store LoadFromTmux failed", "err", err)
+		}
 	} else {
 		slog.Info("creating new session")
 		setupNewSession(client, cfg, sessionName)
 		// Cold boot (PC reboot, tmux server gone): rebuild the session list
 		// from the on-disk snapshot since tmux user options were wiped.
+		// state.Store stays empty here — Spawn below writes a fresh Running
+		// status for each respawned session.
 		if err := mgr.Recreate(); err != nil {
 			slog.Error("recreate failed", "err", err)
 		}
 	}
 	mgr.SyncBranches()
 	slog.Info("sessions loaded", "count", len(mgr.All()))
+
+	for _, s := range mgr.All() {
+		if warmRestart {
+			// Adopt does NOT call MarkSpawned: the persisted status from
+			// LoadFromTmux must survive observer creation.
+			observers.Adopt(s.WindowID, s.Command)
+		} else {
+			// Spawn calls MarkSpawned which writes a fresh Running status.
+			observers.Spawn(s.WindowID, s.Command)
+		}
+	}
 
 	activeWID := restoreActiveWindowID(client, mgr)
 
@@ -97,9 +129,8 @@ func runCoordinator() {
 		}
 	}
 	agentStore.RestoreFromBindings(bindings)
-	monitor := tmux.NewMonitor(client, cfg.Monitor.IdleThresholdSec, drivers)
 	eventLogDir := filepath.Join(dataDir, "events")
-	svc := core.NewService(mgr, agentStore, drivers, monitor, client, sessionName, eventLogDir, activeWID)
+	svc := core.NewService(mgr, agentStore, drivers, statesStore, observers, client, sessionName, eventLogDir, activeWID)
 	svc.SetTracker(transcript.NewTracker())
 	svc.SetSyncActive(func(wid string) {
 		if wid != "" {

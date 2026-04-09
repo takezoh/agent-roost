@@ -67,6 +67,14 @@ func (e HookEvent) DeriveState() string {
 		return "waiting"
 	case "SessionEnd":
 		return "stopped"
+	case "SessionStart":
+		// A SessionStart fires for fresh launch / --resume / /resume / /clear.
+		// In every case the new session is freshly initialized and hasn't done
+		// anything yet, so Idle is the right starting point. This also resets
+		// the Stopped that the preceding SessionEnd wrote on /resume — without
+		// it the resumed session would stick at Stopped until the user typed
+		// something, which is wrong because the agent is fully alive.
+		return "idle"
 	case "Notification":
 		switch e.NotificationType {
 		case "permission_prompt":

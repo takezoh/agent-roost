@@ -8,6 +8,7 @@ import (
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/state"
 )
 
 func TestTruncate(t *testing.T) {
@@ -36,7 +37,7 @@ func TestRenderSession_TagsAndTitle(t *testing.T) {
 		Tags:       []session.Tag{{Text: "main", Background: "#A9DC76"}},
 		Title:      "my-session-name",
 		LastPrompt: "the last prompt",
-		State:      session.StateWaiting,
+		State:      state.StatusWaiting,
 		CreatedAt:  time.Now().Add(-3 * time.Minute).Format("2006-01-02T15:04:05Z07:00"),
 	}
 	out := renderSession(s, false, 60, registry)
@@ -62,7 +63,7 @@ func TestRenderSession_NoTitle_ShowsID(t *testing.T) {
 		Tags:    nil,
 
 		Title:     "",
-		State:     session.StateIdle,
+		State:     state.StatusIdle,
 		CreatedAt: time.Now().Add(-5 * time.Minute).Format("2006-01-02T15:04:05Z07:00"),
 	}
 	out := renderSession(s, false, 60, registry)
@@ -84,7 +85,7 @@ func TestRenderSession_MinimalTags(t *testing.T) {
 		Command:   "claude",
 		Tags:      []session.Tag{{Text: "main", Background: "#A9DC76"}},
 		Title:     "my-session",
-		State:     session.StateIdle,
+		State:     state.StatusIdle,
 		CreatedAt: time.Now().Add(-1 * time.Minute).Format("2006-01-02T15:04:05Z07:00"),
 	}
 	out := stripANSI(renderSession(s, false, 60, registry))
@@ -106,7 +107,7 @@ func TestRenderSession_MinimalSavesRowsVsDefault(t *testing.T) {
 		Tags:       []session.Tag{{Text: "main"}},
 		Title:      "my-session",
 		LastPrompt: "the last prompt",
-		State:      session.StateIdle,
+		State:      state.StatusIdle,
 		CreatedAt:  time.Now().Add(-1 * time.Minute).Format("2006-01-02T15:04:05Z07:00"),
 	}
 
@@ -133,7 +134,7 @@ func TestRenderSession_MinimalSelectionBar(t *testing.T) {
 		ID:        "abc123",
 		Command:   "claude",
 		Title:     "x",
-		State:     session.StateIdle,
+		State:     state.StatusIdle,
 		CreatedAt: time.Now().Format("2006-01-02T15:04:05Z07:00"),
 	}
 

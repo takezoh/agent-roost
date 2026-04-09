@@ -145,7 +145,7 @@ func (s *Server) dispatch(cc *clientConn, msg Message) {
 		s.sendResponse(cc, Message{})
 		// Push current state immediately
 		msg := NewEvent("sessions-changed")
-		msg.Sessions = BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore)
+		msg.Sessions = BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore, s.svc.States)
 		msg.ActiveWindowID = s.svc.ActiveWindowID()
 		msg.SessionLogPath = s.svc.ActiveSessionLogPath()
 		msg.EventLogPath = s.svc.EventLogPathByWindow(s.svc.ActiveWindowID())
@@ -193,7 +193,7 @@ func (s *Server) handleCreateSession(cc *clientConn, args map[string]string) {
 		command = expanded
 	}
 	slog.Info("create session", "project", project, "command", command)
-	sess, err := s.svc.Manager.Create(project, command)
+	sess, err := s.svc.CreateSession(project, command)
 	if err != nil {
 		slog.Error("create session failed", "err", err)
 		s.sendError(cc, err.Error())
@@ -201,7 +201,7 @@ func (s *Server) handleCreateSession(cc *clientConn, args map[string]string) {
 	}
 	s.svc.Switch(sess)
 	s.sendResponse(cc, Message{
-		Sessions:       BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore),
+		Sessions:       BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore, s.svc.States),
 		ActiveWindowID: s.svc.ActiveWindowID(),
 		SessionLogPath: s.svc.ActiveSessionLogPath(),
 	})
@@ -215,17 +215,9 @@ func (s *Server) handleStopSession(cc *clientConn, args map[string]string) {
 		s.sendError(cc, "missing id arg")
 		return
 	}
-	sess := s.findSession(id)
-	var windowID string
-	if sess != nil {
-		windowID = sess.WindowID
-	}
-	if err := s.svc.Manager.Stop(id); err != nil {
+	if err := s.svc.StopSession(id); err != nil {
 		s.sendError(cc, err.Error())
 		return
-	}
-	if windowID != "" {
-		s.svc.ClearActive(windowID)
 	}
 	s.sendResponse(cc, Message{})
 	s.broadcastSessions()
@@ -233,7 +225,7 @@ func (s *Server) handleStopSession(cc *clientConn, args map[string]string) {
 
 func (s *Server) handleListSessions(cc *clientConn) {
 	s.sendResponse(cc, Message{
-		Sessions:       BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore),
+		Sessions:       BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore, s.svc.States),
 		ActiveWindowID: s.svc.ActiveWindowID(),
 		SessionLogPath: s.svc.ActiveSessionLogPath(),
 		EventLogPath:   s.svc.EventLogPathByWindow(s.svc.ActiveWindowID()),
@@ -358,21 +350,26 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 			s.sendError(cc, "state-change: state required")
 			return
 		}
-		agentState := parseAgentState(ev.State)
-		if agentState == driver.AgentStateUnset {
-			s.sendError(cc, "state-change: unknown state: "+ev.State)
-			return
-		}
 		// Apply the driver state bag first so the binding exists before the
 		// transcript reader needs to look up workdir / transcript_path.
 		res := s.svc.ApplyAgentEvent(ev)
-		stateChanged := false
+		// Route the state-change to the per-window driver Observer. The
+		// Observer is the only writer to state.Store for its session — core
+		// has no special knowledge of which states a driver supports.
+		windowID := s.svc.ResolveWindowID(ev.Pane)
+		consumed := false
+		if windowID != "" {
+			consumed = s.svc.Observers.Dispatch(windowID, ev)
+		}
+		if !consumed {
+			s.sendError(cc, "state-change: rejected by driver observer (state="+ev.State+")")
+			return
+		}
 		usageChanged := false
 		if res.Identity != "" {
-			stateChanged = s.svc.HandleStateChangeWithContext(res.Identity, agentState, ev.Pane)
 			usageChanged = s.svc.UpdateStatusFromTranscript(res.Identity)
 		}
-		if stateChanged || res.StateChanged || usageChanged {
+		if consumed || res.BindChanged || res.StateChanged || usageChanged {
 			s.broadcastSessions()
 		}
 		logLine := ev.Log
@@ -383,31 +380,6 @@ func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 		s.sendResponse(cc, Message{})
 	default:
 		s.sendError(cc, "unknown agent event type: "+string(ev.Type))
-	}
-}
-
-// resolveAgentStates overrides capture-pane states using agent session data.
-func (s *Server) resolveAgentStates(sessions []*session.Session, states map[string]session.State) {
-	for _, sess := range sessions {
-		agent := s.svc.AgentStore.GetByWindow(sess.WindowID)
-		states[sess.WindowID] = ResolveAgentState(sess.Command, states[sess.WindowID], agent)
-	}
-}
-
-func parseAgentState(s string) driver.AgentState {
-	switch s {
-	case "running":
-		return driver.AgentStateRunning
-	case "waiting":
-		return driver.AgentStateWaiting
-	case "idle":
-		return driver.AgentStateIdle
-	case "stopped":
-		return driver.AgentStateStopped
-	case "pending":
-		return driver.AgentStatePending
-	default:
-		return driver.AgentStateUnset
 	}
 }
 
@@ -433,7 +405,7 @@ func (s *Server) broadcast(msg Message) {
 
 func (s *Server) broadcastSessions() {
 	msg := NewEvent("sessions-changed")
-	msg.Sessions = BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore)
+	msg.Sessions = BuildSessionInfos(s.svc.Sessions(), s.svc.AgentStore, s.svc.States)
 	msg.ActiveWindowID = s.svc.ActiveWindowID()
 	msg.SessionLogPath = s.svc.ActiveSessionLogPath()
 	msg.EventLogPath = s.svc.EventLogPathByWindow(s.svc.ActiveWindowID())
@@ -452,20 +424,19 @@ func (s *Server) StartMonitor(intervalMs int) {
 		select {
 		case <-s.done:
 			return
-		case <-ticker.C:
+		case t := <-ticker.C:
 			if reaped := s.svc.ReapDeadSessions(); len(reaped) > 0 {
 				s.broadcastSessions()
 			}
-			sessions := s.svc.Sessions()
-			if len(sessions) == 0 {
+			if len(s.svc.Sessions()) == 0 {
 				continue
 			}
-			states := s.svc.PollStates(sessions)
-			s.resolveAgentStates(sessions, states)
-			s.svc.UpdateStates(states)
-			msg := NewEvent("states-updated")
-			msg.States = states
-			s.broadcast(msg)
+			// Per-session driver Observers own the polling logic. Each
+			// observer decides whether to capture-pane, compute hash, or
+			// no-op (event-driven drivers like Claude). All writes go
+			// through state.Store, so this loop has nothing to merge.
+			s.svc.Observers.Tick(t)
+			s.broadcastSessions()
 
 			titleTick++
 			if titleTick >= metaResolveCycle {

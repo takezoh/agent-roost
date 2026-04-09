@@ -2,36 +2,13 @@ package driver
 
 import "fmt"
 
-type AgentState int
-
-const (
-	AgentStateUnset   AgentState = -1
-	AgentStateIdle    AgentState = 0
-	AgentStateRunning AgentState = 1
-	AgentStateWaiting AgentState = 2
-	AgentStatePending AgentState = 3
-	AgentStateStopped AgentState = 4
-)
-
-var agentStateNames = map[AgentState]string{
-	AgentStateUnset:   "unset",
-	AgentStateIdle:    "idle",
-	AgentStateRunning: "running",
-	AgentStateWaiting: "waiting",
-	AgentStatePending: "pending",
-	AgentStateStopped: "stopped",
-}
-
-func (s AgentState) String() string {
-	if name, ok := agentStateNames[s]; ok {
-		return name
-	}
-	return "unknown"
-}
-
+// AgentSession holds metadata an agent driver reports about its session,
+// independently of the dynamic operational status (running / waiting / etc.)
+// which lives in state.Store. AgentStore caches one AgentSession per agent
+// session ID; status is intentionally absent here so the two layers stay
+// decoupled.
 type AgentSession struct {
 	ID         string
-	State      AgentState
 	StatusLine string
 	Title      string
 	LastPrompt string

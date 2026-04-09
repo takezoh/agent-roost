@@ -6,6 +6,7 @@ import (
 
 	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/state"
 )
 
 func TestSessionInfoDisplayCommand(t *testing.T) {
@@ -64,14 +65,36 @@ func TestNewEvent(t *testing.T) {
 	}
 }
 
+type stubStore struct {
+	data map[string]state.Info
+}
+
+func (s stubStore) Get(windowID string) (state.Info, bool) {
+	info, ok := s.data[windowID]
+	return info, ok
+}
+func (s stubStore) Set(windowID string, info state.Info) error { s.data[windowID] = info; return nil }
+func (s stubStore) Delete(windowID string) error               { delete(s.data, windowID); return nil }
+func (s stubStore) Snapshot() map[string]state.Info {
+	out := make(map[string]state.Info, len(s.data))
+	for k, v := range s.data {
+		out[k] = v
+	}
+	return out
+}
+func (s stubStore) LoadFromTmux(reader state.OptionReader) error { return nil }
+
 func TestBuildSessionInfos(t *testing.T) {
 	created := time.Date(2024, 3, 10, 12, 0, 0, 0, time.UTC)
 	sessions := []*session.Session{{
 		ID: "s1", Project: "/tmp/proj", Command: "test",
-		WindowID: "w1", CreatedAt: created, State: session.StateRunning,
+		WindowID: "w1", CreatedAt: created,
 	}}
-	store := driver.NewAgentStore()
-	infos := BuildSessionInfos(sessions, store)
+	agents := driver.NewAgentStore()
+	states := stubStore{data: map[string]state.Info{
+		"w1": {Status: state.StatusRunning, ChangedAt: created},
+	}}
+	infos := BuildSessionInfos(sessions, agents, states)
 	if len(infos) != 1 {
 		t.Fatalf("len = %d, want 1", len(infos))
 	}
@@ -79,7 +102,7 @@ func TestBuildSessionInfos(t *testing.T) {
 	if info.ID != "s1" || info.Project != "/tmp/proj" || info.Command != "test" {
 		t.Errorf("unexpected fields: %+v", info)
 	}
-	if info.WindowID != "w1" || info.State != session.StateRunning {
+	if info.WindowID != "w1" || info.State != state.StatusRunning {
 		t.Errorf("unexpected fields: %+v", info)
 	}
 	if info.CreatedAt != "2024-03-10T12:00:00Z" {
