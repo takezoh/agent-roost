@@ -1,7 +1,10 @@
 package core
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -27,6 +30,7 @@ type ToolConfig struct {
 	DefaultCommand string
 	Commands       []string
 	Projects       []string
+	ProjectRoots   []string
 }
 
 type ToolRegistry struct {
@@ -81,6 +85,15 @@ func DefaultToolRegistry() *ToolRegistry {
 		},
 	})
 	r.Register(Tool{
+		Name:        "create-project",
+		Description: "Create new project dir and start session",
+		Params: []Param{
+			{Name: "root", Options: func(ctx *ToolContext) []string { return ctx.Config.ProjectRoots }},
+			{Name: "name", Options: func(ctx *ToolContext) []string { return nil }},
+		},
+		Run: runCreateProject,
+	})
+	r.Register(Tool{
 		Name:        "stop-session",
 		Description: "Stop session",
 		Params: []Param{
@@ -109,4 +122,35 @@ func DefaultToolRegistry() *ToolRegistry {
 
 func ProjectDisplayName(path string) string {
 	return filepath.Base(path)
+}
+
+func runCreateProject(ctx *ToolContext, args map[string]string) error {
+	path, err := makeProjectDir(ctx.Config.ProjectRoots, args["root"], args["name"])
+	if err != nil {
+		return err
+	}
+	ctx.Client.LaunchTool("new-session", map[string]string{"project": path})
+	return nil
+}
+
+// makeProjectDir creates a new project directory `name` under `root`. `root`
+// must be one of the configured project_roots — palette free-form input
+// fallback (when ProjectRoots is empty) must not be allowed to create
+// directories at arbitrary paths. The name is validated to forbid path
+// separators (`/`, `\`) and leading dots (hidden files, `.`, `..`).
+func makeProjectDir(roots []string, root, name string) (string, error) {
+	if !slices.Contains(roots, root) {
+		return "", fmt.Errorf("root must be one of configured project_roots")
+	}
+	if name == "" {
+		return "", fmt.Errorf("name required")
+	}
+	if strings.ContainsAny(name, `/\`) || strings.HasPrefix(name, ".") {
+		return "", fmt.Errorf("invalid project name: %q", name)
+	}
+	path := filepath.Join(root, name)
+	if err := os.Mkdir(path, 0o755); err != nil {
+		return "", err
+	}
+	return path, nil
 }
