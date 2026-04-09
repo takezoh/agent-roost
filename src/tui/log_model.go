@@ -164,7 +164,8 @@ func (m LogModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m LogModel) handleLogEvent(msg core.Message) (tea.Model, tea.Cmd) {
-	if msg.Event == "sessions-changed" {
+	switch msg.Event {
+	case "sessions-changed":
 		m.currentSession = pickActiveSession(msg.Sessions, msg.ActiveWindowID)
 		m.rebuildTabs(m.currentSession)
 		if msg.IsPreview {
@@ -173,10 +174,14 @@ func (m LogModel) handleLogEvent(msg core.Message) (tea.Model, tea.Cmd) {
 				m.renderInfoTab()
 				m.following = true
 			}
-		} else if idx, ok := m.tabIndexByLabel("TRANSCRIPT"); ok {
-			m.switchToTab(idx)
 		} else if m.activeTabIs("INFO") {
 			m.renderInfoTab()
+		}
+	case "pane-focused":
+		if msg.Pane == mainPane {
+			if idx, ok := m.tabIndexByLabel("TRANSCRIPT"); ok {
+				m.switchToTab(idx)
+			}
 		}
 	}
 	if m.client != nil {

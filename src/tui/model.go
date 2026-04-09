@@ -91,14 +91,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil && msg.windowID != "" {
 			m.active = msg.windowID
 		}
-		return m, m.focusCmd("0.2")
+		return m, m.focusCmd(sidebarPane)
 
 	case switchDoneMsg:
 		if msg.err == nil && msg.windowID != "" {
 			m.active = msg.windowID
 			m.anchored = msg.windowID
 		}
-		return m, m.focusCmd("0.0")
+		return m, m.focusCmd(mainPane)
 
 	case mouseLeaveMsg:
 		return m.handleMouseLeave(msg)
@@ -126,7 +126,7 @@ func (m Model) handleServerEvent(msg core.Message) (tea.Model, tea.Cmd) {
 			if sc := m.findSessionCursorByWindowID(msg.ActiveWindowID); sc >= 0 {
 				m.cursor = sc
 			}
-			return m, tea.Batch(m.listenEvents(), m.focusCmd("0.0"))
+			return m, tea.Batch(m.listenEvents(), m.focusCmd(mainPane))
 		}
 		if msg.ActiveWindowID == "" && m.active == "" {
 			m.cursor = m.firstSessionIndex()
