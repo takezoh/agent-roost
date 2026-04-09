@@ -173,6 +173,8 @@ func (m LogModel) handleLogEvent(msg core.Message) (tea.Model, tea.Cmd) {
 				m.renderInfoTab()
 				m.following = true
 			}
+		} else if idx, ok := m.tabIndexByLabel("TRANSCRIPT"); ok {
+			m.switchToTab(idx)
 		} else if m.activeTabIs("INFO") {
 			m.renderInfoTab()
 		}

@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/take/agent-roost/core"
+	"github.com/take/agent-roost/session/driver"
 )
 
 func writeTempFile(t *testing.T, content string) *os.File {
@@ -105,6 +108,104 @@ func TestSeekToLastNLines_ChunkBoundary(t *testing.T) {
 	}
 	if !strings.HasPrefix(suffix, "line07900") {
 		t.Errorf("suffix start = %q, want line07900", suffix[:9])
+	}
+}
+
+func sessionWithTranscript(t *testing.T) core.SessionInfo {
+	t.Helper()
+	dir := t.TempDir()
+	transcriptPath := filepath.Join(dir, "transcript.jsonl")
+	if err := os.WriteFile(transcriptPath, []byte(""), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+	eventsPath := filepath.Join(dir, "events.log")
+	if err := os.WriteFile(eventsPath, []byte(""), 0o644); err != nil {
+		t.Fatalf("write events: %v", err)
+	}
+	return core.SessionInfo{
+		ID:       "s1",
+		WindowID: "w1",
+		View: driver.SessionView{
+			LogTabs: []driver.LogTab{
+				{Label: "TRANSCRIPT", Path: transcriptPath, Kind: driver.TabKindTranscript},
+				{Label: "EVENTS", Path: eventsPath, Kind: driver.TabKindText},
+			},
+		},
+	}
+}
+
+func TestHandleLogEvent_PreviewActivatesInfoTab(t *testing.T) {
+	m := NewLogModel("/var/log/roost.log", nil, false)
+	sess := sessionWithTranscript(t)
+
+	model, _ := m.handleLogEvent(core.Message{
+		Event:          "sessions-changed",
+		Sessions:       []core.SessionInfo{sess},
+		ActiveWindowID: sess.WindowID,
+		IsPreview:      true,
+	})
+	lm := model.(LogModel)
+	if !lm.activeTabIs("INFO") {
+		t.Errorf("active tab = %q, want INFO", lm.activeTabState().label)
+	}
+}
+
+func TestHandleLogEvent_FocusAfterPreviewActivatesTranscript(t *testing.T) {
+	m := NewLogModel("/var/log/roost.log", nil, false)
+	sess := sessionWithTranscript(t)
+
+	// Step 1: preview → INFO becomes active.
+	model, _ := m.handleLogEvent(core.Message{
+		Event:          "sessions-changed",
+		Sessions:       []core.SessionInfo{sess},
+		ActiveWindowID: sess.WindowID,
+		IsPreview:      true,
+	})
+	lm := model.(LogModel)
+	if !lm.activeTabIs("INFO") {
+		t.Fatalf("preview did not set INFO active (got %q)", lm.activeTabState().label)
+	}
+
+	// Step 2: focus the same session → should switch to TRANSCRIPT.
+	model, _ = lm.handleLogEvent(core.Message{
+		Event:          "sessions-changed",
+		Sessions:       []core.SessionInfo{sess},
+		ActiveWindowID: sess.WindowID,
+		IsPreview:      false,
+	})
+	lm = model.(LogModel)
+	if !lm.activeTabIs("TRANSCRIPT") {
+		t.Errorf("active tab after focus = %q, want TRANSCRIPT", lm.activeTabState().label)
+	}
+}
+
+func TestHandleLogEvent_FocusWithoutTranscriptKeepsInfo(t *testing.T) {
+	m := NewLogModel("/var/log/roost.log", nil, false)
+	// Session with no driver-provided log tabs (only INFO + LOG will be built).
+	sess := core.SessionInfo{ID: "s1", WindowID: "w1"}
+
+	// First preview to land on INFO.
+	model, _ := m.handleLogEvent(core.Message{
+		Event:          "sessions-changed",
+		Sessions:       []core.SessionInfo{sess},
+		ActiveWindowID: sess.WindowID,
+		IsPreview:      true,
+	})
+	lm := model.(LogModel)
+	if !lm.activeTabIs("INFO") {
+		t.Fatalf("preview did not set INFO active (got %q)", lm.activeTabState().label)
+	}
+
+	// Then focus — no TRANSCRIPT tab exists, so INFO should be retained.
+	model, _ = lm.handleLogEvent(core.Message{
+		Event:          "sessions-changed",
+		Sessions:       []core.SessionInfo{sess},
+		ActiveWindowID: sess.WindowID,
+		IsPreview:      false,
+	})
+	lm = model.(LogModel)
+	if !lm.activeTabIs("INFO") {
+		t.Errorf("active tab = %q, want INFO (no TRANSCRIPT to switch to)", lm.activeTabState().label)
 	}
 }
 
