@@ -77,7 +77,7 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	m.cursor = idx
 	if s := m.cursorSession(); s != nil {
 		m.anchored = s.WindowID
-		return m, m.focusCmd("0.0")
+		return m, m.focusCmd(mainPane)
 	}
 	return m, nil
 }

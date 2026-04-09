@@ -150,7 +150,7 @@ func TestHandleLogEvent_PreviewActivatesInfoTab(t *testing.T) {
 	}
 }
 
-func TestHandleLogEvent_FocusAfterPreviewActivatesTranscript(t *testing.T) {
+func TestHandleLogEvent_PaneFocusedActivatesTranscript(t *testing.T) {
 	m := NewLogModel("/var/log/roost.log", nil, false)
 	sess := sessionWithTranscript(t)
 
@@ -166,20 +166,18 @@ func TestHandleLogEvent_FocusAfterPreviewActivatesTranscript(t *testing.T) {
 		t.Fatalf("preview did not set INFO active (got %q)", lm.activeTabState().label)
 	}
 
-	// Step 2: focus the same session → should switch to TRANSCRIPT.
+	// Step 2: focus the main pane → should switch to TRANSCRIPT.
 	model, _ = lm.handleLogEvent(core.Message{
-		Event:          "sessions-changed",
-		Sessions:       []core.SessionInfo{sess},
-		ActiveWindowID: sess.WindowID,
-		IsPreview:      false,
+		Event: "pane-focused",
+		Pane:  mainPane,
 	})
 	lm = model.(LogModel)
 	if !lm.activeTabIs("TRANSCRIPT") {
-		t.Errorf("active tab after focus = %q, want TRANSCRIPT", lm.activeTabState().label)
+		t.Errorf("active tab after main-pane focus = %q, want TRANSCRIPT", lm.activeTabState().label)
 	}
 }
 
-func TestHandleLogEvent_FocusWithoutTranscriptKeepsInfo(t *testing.T) {
+func TestHandleLogEvent_PaneFocusedWithoutTranscriptKeepsInfo(t *testing.T) {
 	m := NewLogModel("/var/log/roost.log", nil, false)
 	// Session with no driver-provided log tabs (only INFO + LOG will be built).
 	sess := core.SessionInfo{ID: "s1", WindowID: "w1"}
@@ -196,7 +194,37 @@ func TestHandleLogEvent_FocusWithoutTranscriptKeepsInfo(t *testing.T) {
 		t.Fatalf("preview did not set INFO active (got %q)", lm.activeTabState().label)
 	}
 
-	// Then focus — no TRANSCRIPT tab exists, so INFO should be retained.
+	// Focus the main pane — no TRANSCRIPT tab exists, so INFO should be retained.
+	model, _ = lm.handleLogEvent(core.Message{
+		Event: "pane-focused",
+		Pane:  mainPane,
+	})
+	lm = model.(LogModel)
+	if !lm.activeTabIs("INFO") {
+		t.Errorf("active tab = %q, want INFO (no TRANSCRIPT to switch to)", lm.activeTabState().label)
+	}
+}
+
+// Regression: Tick re-broadcasts sessions-changed with IsPreview=false
+// every poll interval. That must NOT clobber whichever tab the user is
+// currently looking at, otherwise INFO/LOG/etc become unviewable.
+func TestHandleLogEvent_NonPreviewSessionsChangedKeepsCurrentTab(t *testing.T) {
+	m := NewLogModel("/var/log/roost.log", nil, false)
+	sess := sessionWithTranscript(t)
+
+	// Preview → INFO is active.
+	model, _ := m.handleLogEvent(core.Message{
+		Event:          "sessions-changed",
+		Sessions:       []core.SessionInfo{sess},
+		ActiveWindowID: sess.WindowID,
+		IsPreview:      true,
+	})
+	lm := model.(LogModel)
+	if !lm.activeTabIs("INFO") {
+		t.Fatalf("preview did not set INFO active (got %q)", lm.activeTabState().label)
+	}
+
+	// Simulate a Tick-driven broadcast (IsPreview=false) for the same session.
 	model, _ = lm.handleLogEvent(core.Message{
 		Event:          "sessions-changed",
 		Sessions:       []core.SessionInfo{sess},
@@ -205,7 +233,34 @@ func TestHandleLogEvent_FocusWithoutTranscriptKeepsInfo(t *testing.T) {
 	})
 	lm = model.(LogModel)
 	if !lm.activeTabIs("INFO") {
-		t.Errorf("active tab = %q, want INFO (no TRANSCRIPT to switch to)", lm.activeTabState().label)
+		t.Errorf("active tab after tick = %q, want INFO (tick must not switch tabs)", lm.activeTabState().label)
+	}
+}
+
+func TestHandleLogEvent_PaneFocusedNonMainPaneIgnored(t *testing.T) {
+	m := NewLogModel("/var/log/roost.log", nil, false)
+	sess := sessionWithTranscript(t)
+
+	// Preview → INFO active.
+	model, _ := m.handleLogEvent(core.Message{
+		Event:          "sessions-changed",
+		Sessions:       []core.SessionInfo{sess},
+		ActiveWindowID: sess.WindowID,
+		IsPreview:      true,
+	})
+	lm := model.(LogModel)
+	if !lm.activeTabIs("INFO") {
+		t.Fatalf("preview did not set INFO active (got %q)", lm.activeTabState().label)
+	}
+
+	// Focusing the sidebar (non-main pane) must not switch tabs.
+	model, _ = lm.handleLogEvent(core.Message{
+		Event: "pane-focused",
+		Pane:  sidebarPane,
+	})
+	lm = model.(LogModel)
+	if !lm.activeTabIs("INFO") {
+		t.Errorf("active tab after sidebar focus = %q, want INFO", lm.activeTabState().label)
 	}
 }
 

@@ -90,7 +90,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, m.keys.Enter):
 		if s := m.cursorSession(); s != nil {
 			m.anchored = s.WindowID
-			return m, m.focusCmd("0.0")
+			return m, m.focusCmd(mainPane)
 		}
 	case key.Matches(msg, m.keys.New):
 		return m, m.launchToolCmd("new-session", map[string]string{

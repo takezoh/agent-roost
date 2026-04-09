@@ -257,7 +257,7 @@ runTUI("log")
 └── Bubbletea イベントループ（タブ切替、スクロール、follow モード）
 ```
 
-**タブ構成**: アクティブセッションがある場合 `TRANSCRIPT | EVENTS | INFO | LOG` (Claude セッション時)、または `INFO | LOG` (非 Claude)、それ以外は `LOG` のみ。`sessions-changed` イベントで動的に再構築。`INFO` は LOG の直前固定で、ファイルではなく `SessionInfo` のスナップショットを直接 viewport に描画する非ファイル系タブ。Switch 時は TRANSCRIPT がデフォルト、Preview (cursor hover) 時は `Message.IsPreview` フラグで判定して INFO がデフォルトになる。タブ切替時はファイル末尾から再読み込み（状態保持不要）。マウスクリックはタブラベルの累積幅でヒット判定する。
+**タブ構成**: アクティブセッションがある場合 `TRANSCRIPT | EVENTS | INFO | LOG` (Claude セッション時)、または `INFO | LOG` (非 Claude)、それ以外は `LOG` のみ。`sessions-changed` イベントで動的に再構築。`INFO` は LOG の直前固定で、ファイルではなく `SessionInfo` のスナップショットを直接 viewport に描画する非ファイル系タブ。Preview (サイドバーで cursor hover、メインペインに window を swap するだけ) 時は `Message.IsPreview` フラグで判定して INFO をアクティブにする。メインペインが実際に focus された (`pane-focused` イベントで `Pane == "0.0"`) ときに TRANSCRIPT へ切り替える。`sessions-changed` の Tick broadcast はアクティブタブを変更しない（ユーザーが選んだタブを保持）。タブ切替時はファイル末尾から再読み込み（状態保持不要）。マウスクリックはタブラベルの累積幅でヒット判定する。
 
 **経過時間表示**: セッション一覧とメイン TUI の両方で、`CreatedAt` からの経過時間を `formatElapsed` で表示する（分/時/日の 3 段階）。
 
@@ -392,7 +392,7 @@ flowchart TB
 | パターン | 方向 | 特徴 | 例 |
 |---------|------|------|-----|
 | **Request-Response** | TUI → Server → TUI | 同期。Client が response ch でブロック待ち | `switch-session`, `preview-session` |
-| **Event Broadcast** | Server → 全クライアント | 非同期。subscribe 済みクライアントに一斉配信 | `sessions-changed`, `project-selected` |
+| **Event Broadcast** | Server → 全クライアント | 非同期。subscribe 済みクライアントに一斉配信 | `sessions-changed`, `project-selected`, `pane-focused` |
 | **Tool Launch** | TUI → Server → tmux popup → Palette → Server | 間接通信。popup が独立クライアントとしてコマンド送信 | `new-session` |
 
 `SessionInfo` は静的メタデータと動的状態を 1 メッセージで運ぶ統合型: `BuildSessionInfos` が `SessionService.All()` の各 Session について `DriverService.Get(sessionID)` から status / title / insight 等を pull して 1 つの構造体に詰め込む。状態専用イベント (`states-updated`) は廃止された — Driver instance が status を更新するたびに次の `Server.StartMonitor` tick が `sessions-changed` を broadcast する。
@@ -428,7 +428,7 @@ Response は `sendResponse` メソッドで統一送信。Broadcast は `subscri
 | `preview-session` | session_id | Pane 0.0 にプレビュー |
 | `preview-project` | project | アクティブセッションを退避し `project-selected` イベントを broadcast |
 | `switch-session` | session_id | Pane 0.0 に切替 + フォーカス |
-| `focus-pane` | pane | ペインフォーカス |
+| `focus-pane` | pane | ペインフォーカス。`pane-focused` イベントを broadcast |
 | `launch-tool` | tool | パレット popup 起動 |
 | `agent-event` | type, (type 別引数) | エージェントからのイベント通知。Service に委譲 |
 | `shutdown` | - | 全終了 |
