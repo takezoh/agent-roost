@@ -3,6 +3,7 @@ package claude
 import (
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -62,18 +63,29 @@ func runEvent() {
 	input, _ := io.ReadAll(os.Stdin)
 	event, err := ParseHookEvent(input)
 	if err != nil {
+		slog.Warn("claude hook: parse failed", "session", sessionID, "err", err)
 		return
 	}
 	if event.SessionID == "" {
+		slog.Debug("claude hook: missing claude session_id", "session", sessionID, "hook_event", event.HookEventName)
 		return
 	}
+	slog.Debug("claude hook received",
+		"session", sessionID,
+		"hook_event", event.HookEventName,
+		"notification_type", event.NotificationType,
+		"tool", event.ToolName,
+		"claude_session", event.SessionID,
+	)
 	cfg, err := config.Load()
 	if err != nil {
+		slog.Warn("claude hook: config load failed", "session", sessionID, "err", err)
 		return
 	}
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	client, err := core.Dial(sockPath)
 	if err != nil {
+		slog.Warn("claude hook: dial failed", "session", sessionID, "sock", sockPath, "err", err)
 		return
 	}
 	defer client.Close()
@@ -87,21 +99,33 @@ func runEvent() {
 	state := claudeDriverState(event)
 
 	if event.HookEventName == "SessionStart" {
-		client.SendAgentEvent(driver.AgentEvent{
+		if err := client.SendAgentEvent(driver.AgentEvent{
 			Type:        driver.AgentEventSessionStart,
 			SessionID:   sessionID,
 			DriverState: state,
-		})
+		}); err != nil {
+			slog.Warn("claude hook: send SessionStart failed", "session", sessionID, "err", err)
+		}
 	}
 
-	if hookState := event.DeriveState(); hookState != "" {
-		client.SendAgentEvent(driver.AgentEvent{
-			Type:        driver.AgentEventStateChange,
-			SessionID:   sessionID,
-			State:       hookState,
-			Log:         event.FormatLog(),
-			DriverState: state,
-		})
+	hookState := event.DeriveState()
+	if hookState == "" {
+		slog.Debug("claude hook: no state mapping",
+			"session", sessionID,
+			"hook_event", event.HookEventName,
+			"notification_type", event.NotificationType)
+		return
+	}
+	if err := client.SendAgentEvent(driver.AgentEvent{
+		Type:        driver.AgentEventStateChange,
+		SessionID:   sessionID,
+		State:       hookState,
+		Log:         event.FormatLog(),
+		DriverState: state,
+	}); err != nil {
+		slog.Warn("claude hook: send StateChange failed",
+			"session", sessionID, "hook_event", event.HookEventName,
+			"state", hookState, "err", err)
 	}
 }
 

@@ -79,7 +79,11 @@ func (e HookEvent) DeriveState() string {
 		switch e.NotificationType {
 		case "permission_prompt":
 			return "pending"
-		case "idle_prompt":
+		case "idle_prompt", "elicitation_dialog":
+			// elicitation_dialog: an MCP server has asked the user a
+			// question and Claude is blocked on the response. Treat it
+			// as the same waiting state as the regular idle prompt so
+			// the status indicator and any "needs you" UX kick in.
 			return "waiting"
 		}
 	}

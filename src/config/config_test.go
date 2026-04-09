@@ -20,6 +20,25 @@ func TestDefaultConfig(t *testing.T) {
 	if len(cfg.Session.Commands) != 3 {
 		t.Errorf("len(Commands) = %d, want 3", len(cfg.Session.Commands))
 	}
+	if cfg.Log.Level != "info" {
+		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "info")
+	}
+}
+
+func TestLoadFrom_LogLevel(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	os.WriteFile(path, []byte(`[log]
+level = "debug"
+`), 0o644)
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Log.Level != "debug" {
+		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "debug")
+	}
 }
 
 func TestExpandPath(t *testing.T) {

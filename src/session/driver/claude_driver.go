@@ -165,6 +165,8 @@ func (d *claudeDriver) HandleEvent(ev AgentEvent) bool {
 		d.mu.Lock()
 		d.absorbDriverStateLocked(ev.DriverState)
 		d.mu.Unlock()
+		slog.Debug("claude driver: session start",
+			"session", d.sessionID, "claude_session", d.claudeSessionID)
 		// Trigger an immediate meta refresh: SessionStart often arrives
 		// before any state-change, and we want the title chip populated
 		// as soon as the transcript file appears.
@@ -174,12 +176,18 @@ func (d *claudeDriver) HandleEvent(ev AgentEvent) bool {
 	case AgentEventStateChange:
 		status, ok := ParseStatus(ev.State)
 		if !ok {
+			slog.Warn("claude driver: unparseable state",
+				"session", d.sessionID, "state", ev.State, "log", ev.Log)
 			return false
 		}
 		d.mu.Lock()
+		prev := d.status.Status
 		d.absorbDriverStateLocked(ev.DriverState)
 		d.status = StatusInfo{Status: status, ChangedAt: time.Now()}
 		d.mu.Unlock()
+		slog.Debug("claude driver: state change",
+			"session", d.sessionID, "from", prev.String(),
+			"to", status.String(), "log", ev.Log)
 		d.refreshMeta()
 		logLine := ev.Log
 		if logLine == "" {
@@ -188,6 +196,7 @@ func (d *claudeDriver) HandleEvent(ev AgentEvent) bool {
 		d.appendEventLog(logLine)
 		return true
 	}
+	slog.Debug("claude driver: unknown event type", "session", d.sessionID, "type", ev.Type)
 	return false
 }
 
