@@ -33,24 +33,12 @@ type clientConn struct {
 }
 
 func NewServer(coord *Coordinator, tmuxClient *tmux.Client, sockPath string) *Server {
-	s := &Server{
+	return &Server{
 		coord:    coord,
 		tmux:     tmuxClient,
 		sockPath: sockPath,
 		done:     make(chan struct{}),
 	}
-	coord.OnPreview(func(sessionID string) {
-		// Preview triggers a branch refresh: if the driver has reported a
-		// new working dir since the previous preview, the user wants to
-		// see the new branch tag immediately.
-		if sess := coord.Sessions.FindByID(sessionID); sess != nil {
-			if drv, ok := coord.Drivers.Get(sess.ID); ok {
-				coord.Sessions.UpdatePersistedState(sess.ID, drv.PersistedState())
-			}
-		}
-		s.broadcastPreview()
-	})
-	return s
 }
 
 func (s *Server) Done() <-chan struct{} { return s.done }
@@ -197,7 +185,6 @@ func (s *Server) handleCreateSession(cc *clientConn, args map[string]string) {
 	s.sendResponse(cc, Message{
 		Sessions:       BuildSessionInfos(s.coord.Sessions.All(), s.coord.Drivers),
 		ActiveWindowID: s.coord.ActiveWindowID(),
-		SessionLogPath: s.coord.ActiveSessionLogPath(),
 	})
 	s.broadcastSessions()
 }
@@ -221,9 +208,6 @@ func (s *Server) handleListSessions(cc *clientConn) {
 	s.sendResponse(cc, Message{
 		Sessions:       BuildSessionInfos(s.coord.Sessions.All(), s.coord.Drivers),
 		ActiveWindowID: s.coord.ActiveWindowID(),
-		SessionLogPath: s.coord.ActiveSessionLogPath(),
-		EventLogPath:   s.coord.EventLogPathByWindow(s.coord.ActiveWindowID()),
-		TranscriptPath: s.coord.ActiveTranscriptPath(),
 	})
 }
 
@@ -254,7 +238,6 @@ func (s *Server) handlePreviewSession(cc *clientConn, args map[string]string) {
 	s.broadcastPreview()
 	s.sendResponse(cc, Message{
 		ActiveWindowID: s.coord.ActiveWindowID(),
-		SessionLogPath: s.coord.ActiveSessionLogPath(),
 	})
 }
 
@@ -273,7 +256,6 @@ func (s *Server) handleSwitchSession(cc *clientConn, args map[string]string) {
 	s.broadcastSessions()
 	s.sendResponse(cc, Message{
 		ActiveWindowID: s.coord.ActiveWindowID(),
-		SessionLogPath: s.coord.ActiveSessionLogPath(),
 	})
 }
 
@@ -327,32 +309,28 @@ func (s *Server) handleDetach(cc *clientConn) {
 func (s *Server) handleAgentEvent(cc *clientConn, args map[string]string) {
 	// AgentEventFromArgs is the single string-key boundary in core: every
 	// downstream call uses struct fields so the rest of the coordinator
-	// never has to know which agent driver produced the event.
+	// never has to know which agent driver produced the event. The driver
+	// is responsible for any side-effects (event log, etc.) — server only
+	// routes the event and rebroadcasts.
 	ev := driver.AgentEventFromArgs(args)
 	switch ev.Type {
 	case driver.AgentEventSessionStart:
-		sessionID, consumed := s.coord.HandleHookEvent(ev)
+		_, consumed := s.coord.HandleHookEvent(ev)
 		if consumed {
 			s.broadcastSessions()
 		}
-		s.coord.AppendEventLog(sessionID, "SessionStart")
 		s.sendResponse(cc, Message{})
 	case driver.AgentEventStateChange:
 		if ev.State == "" {
 			s.sendError(cc, "state-change: state required")
 			return
 		}
-		sessionID, consumed := s.coord.HandleHookEvent(ev)
+		_, consumed := s.coord.HandleHookEvent(ev)
 		if !consumed {
 			s.sendError(cc, "state-change: rejected by driver (state="+ev.State+")")
 			return
 		}
 		s.broadcastSessions()
-		logLine := ev.Log
-		if logLine == "" {
-			logLine = ev.State
-		}
-		s.coord.AppendEventLog(sessionID, logLine)
 		s.sendResponse(cc, Message{})
 	default:
 		s.sendError(cc, "unknown agent event type: "+string(ev.Type))
@@ -385,9 +363,6 @@ func (s *Server) buildSessionsEvent(preview bool) Message {
 	msg := NewEvent("sessions-changed")
 	msg.Sessions = BuildSessionInfos(s.coord.Sessions.All(), s.coord.Drivers)
 	msg.ActiveWindowID = s.coord.ActiveWindowID()
-	msg.SessionLogPath = s.coord.ActiveSessionLogPath()
-	msg.EventLogPath = s.coord.EventLogPathByWindow(s.coord.ActiveWindowID())
-	msg.TranscriptPath = s.coord.ActiveTranscriptPath()
 	msg.IsPreview = preview
 	return msg
 }

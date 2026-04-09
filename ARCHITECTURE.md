@@ -28,12 +28,60 @@ AI エージェントを複数プロジェクトで並行稼働させると、tm
 - **Coordinator によるライフサイクル管理**: Coordinator（後述）が TUI プロセスの死活監視と自動復帰を担う。終了判断は Coordinator の責務
 - **副作用の分離**: パス計算・状態遷移ロジック・データ構築は純粋関数。I/O (ファイル作成, tmux 操作) は呼び出し側が明示的に実行する。関数名で副作用の有無を区別する (`XxxPath` = 純粋, `EnsureXxx` = 副作用あり)
 - **I/O 先行・状態変更後行**: 外部操作 (tmux, ファイル) を全て完了してから内部状態を変更する。I/O 失敗時は内部状態を変更せず汚染を防ぐ。ただし tmux の `RunChain` のようにアトミックにできない外部操作チェーンでは、途中失敗時の tmux 側ロールバックは行わない（設計判断参照）
-- **動的状態は Driver instance が所有する**: セッションごとの動的状態 (status / title / lastPrompt / insight) は **Driver instance** が単独で所有する。Driver が status を生み、保持し、読まれる。`Session` は静的メタデータと Tags のみを持ち Driver の状態には触らない。`Coordinator` は Driver の getter 経由で状態を読むだけで、独自の cache を持たない。状態の合成や複数 source からの merge ロジックは存在しない
+- **動的状態は Driver instance が所有する**: セッションごとの動的状態 (status / title / lastPrompt / insight / tags / 追加ログタブ / status line) は **Driver instance** が単独で所有する。Driver が `View()` を通じて TUI ペイロードを丸ごと produce する。`Session` は静的メタデータのみを持ち、Tags も branch 検出も Driver の関心事になる。`Coordinator` は Driver の getter 経由で状態を読むだけで、独自の cache を持たない。状態の合成や複数 source からの merge ロジックは存在しない
 - **Driver-owned state production**: ステータスを生む責務は driver が持つ。各 driver は **stateful instance** として hook 受信 (`HandleEvent`) や capture-pane polling (`Tick`) を内部メソッドに閉じ込め、自分の private state を更新する。Claude driver の Tick は `SessionContext.Active()` でガードされ、active session のみ transcript を Tracker 経由で増分パースする。`Observer` 抽象は廃止 — Driver instance が直接 producer の役割を兼ねる。`SessionService` / `Coordinator` は Driver の中身を知らず、interface 経由でしかアクセスしない
 - **Strict service separation**: Session と Driver はそれぞれ独立した service (`session.SessionService`, `driver.DriverService`) で管理される。Session は Driver の存在を知らず、Driver は Session の存在を知らない。`core.Coordinator` が sessionID で 2 service を correlate する唯一の場所。Bridge は型ではなく Coordinator の orchestration logic として表現される
 - **WindowInfo via Coordinator adapter**: Driver は `Tick(now, win WindowInfo)` で window 情報を pull する。`WindowInfo` interface は Coordinator が adapter として構築する (Session interface には I/O メソッドを露出しない)。Driver は WindowInfo の実装が Session であることを知らない
 - **フォールバック禁止**: 「情報源 A が無ければ B」という合成は行わない。Driver instance が `HandleEvent` / `Tick` で自分の status を更新しない限り、status は変わらない — それだけ。新規 / 復元セッションでは Driver factory が初期化した値、または `RestorePersistedState` で復元した値が次の遷移まで持続する
 - **テスト可能な設計**: tmux 操作はインターフェース経由。ファイルパスは注入可能。状態遷移ロジックは mock 不要で単体テスト可能
+
+## 描画責務の所在
+
+agent-roost の TUI 描画は driver と TUI の間で以下の境界で責務を分ける。**新しい driver を追加するとき、Coordinator や TUI のコードを触る必要はない**。Driver は `View() SessionView` を実装するだけで完結する。
+
+### Driver 所有 (`SessionView`)
+
+Driver は `View() SessionView` を返す。pure getter であり、I/O や検出を行わない (重い処理は `Tick()` で更新済みの内部 cache から組み立てる)。
+
+- `Card.Title`: 1 行目 (例: 会話タイトル)
+- `Card.Subtitle`: 2 行目 (例: 直近プロンプト)
+- `Card.Tags`: identity 系のチップ。**色も driver が直接決める** (`Foreground` / `Background` を Tag に持たせる)
+  - 全 driver は通常 `CommandTag(d.Name())` を先頭に置く規約 (driver 共有ヘルパ `session/driver/tags.go` 経由)
+- `Card.Indicators`: state 系のチップ (例: `▸ Edit`, `2 subs`, `3 err`)
+- `Card.Subjects`: ぶら下がり箇条書き
+- `LogTabs`: 追加ログタブ (label + 絶対パス + kind)。kind は `TabKindText` か `TabKindTranscript`
+- `InfoExtras`: INFO タブの driver-specific 行
+- `SuppressInfo`: INFO タブの opt-out (driver 明示)
+- `StatusLine`: tmux status-left に流す pre-rendered 文字列
+
+### TUI 所有
+
+TUI は driver-agnostic な汎用 renderer に徹する。
+
+- `SessionInfo` の generic フィールド (ID / Project / Command / WindowID / CreatedAt / State / StateChangedAt) の描画
+- `State` enum 値からの色選択 (`tui/theme.go`) — universal な状態色は driver 横断で統一
+- 経過時間フォーマット (`5m ago` などの相対表記)
+- カードレイアウト (各スロットの並び順 / 余白 / wrap / truncate)
+- INFO タブの generic header (`renderInfoContent` で SessionInfo の generic フィールドから自動生成 → driver の `InfoExtras` を後ろに append)
+- LOG タブ (常時最後尾、`~/.config/roost/roost.log` を tail)
+- フィルタ / フォールド / カーソル復元
+
+### 禁止事項
+
+- **TUI から driver 名で分岐しない** (`if cmd == "claude" {...}` のようなコード禁止)。grep で検証可能:
+  ```sh
+  grep -rn '"claude"\|"bash"\|"codex"\|"gemini"' src/tui/  # → 0 件であること
+  ```
+- **driver から TUI を import しない** (`tui` パッケージ / lipgloss / bubbletea に依存しない)
+- **driver から `session` パッケージを import しない** (必要な型は driver パッケージで再宣言)
+- **Coordinator から driver-specific I/O を呼び出さない** (`AppendEventLog` のような Claude 専用 API を Coordinator に置かない。driver が自前のファイルハンドルで書く)
+- **Coordinator に observable / callback パターンを追加しない** (`OnPreview` のような fire-and-forget 通知は Coordinator の責務外。Server が事前/事後フックを直接書く)
+
+### Tag の色は driver、State の色は TUI — なぜ別所有なのか
+
+- **State** の概念 (idle / running / waiting / error) と色は **全 driver で共通すべき**。同じ状態は同じ色で見えないと混乱する → TUI theme に集約
+- **Tag** は driver 固有 (branch tag, command tag, ...)。何を出すかも色も driver の自由 → driver 所有
+- 結果として `@roost_tags` user option は撤廃。tag のキャッシュ/永続化が必要なら driver が `PersistedState` bag 内に持つ (例: claudeDriver の `branch_tag` / `branch_target` / `branch_at`)
 
 ## 用語
 
@@ -294,9 +342,8 @@ flowchart TB
 
 **Coordinator のコールバック / フィールド**:
 - `SetSyncActive(fn)`: active window ID 変更時に tmux 環境変数に同期するコールバック
-- `OnPreview(fn)`: プレビュー時にブランチ情報を更新するコールバック（Server が登録）
+- `SetSyncStatus(fn)`: tmux status-left に driver の `View().StatusLine` を流すコールバック
 - `ClearActive(windowID)`: window 停止時に active 状態をクリア
-- `ActiveSessionLogPath()`: アクティブセッションのログファイルパスを返す
 - `Create(project, command)` / `Stop(id)`: SessionService と DriverService をペアで操作するライフサイクルラッパー。Server ハンドラは必ずこれらを使い、各 service を直接呼んではいけない (片側だけ作成 / 削除されるのを防ぐ)
 - `SessionService` / `DriverService` フィールドは exported（Server が読み出し系で直接アクセス）
 
@@ -504,15 +551,13 @@ type Driver interface {
 
     // 動的状態 producer
     MarkSpawned()                          // 新プロセス起動直後だけ呼ぶ
-    Tick(now time.Time, win WindowInfo)    // 定期 polling tick (Claude は active 時のみ Tracker を更新、inactive は no-op)
+    Tick(now time.Time, win WindowInfo)    // 定期 polling tick (Claude は active 時のみ Tracker と branch 検出を更新、inactive は no-op)
     HandleEvent(ev AgentEvent) bool        // hook event を受け取る
     Close()                                // セッション破棄時のクリーンアップ
 
-    // 動的状態 reader
-    Status() (StatusInfo, bool)            // 現在の status と changed_at
-    Title() string
-    LastPrompt() string
-    Insight() Insight                      // current tool / subagent counts / error count
+    // 状態 reader
+    Status() (StatusInfo, bool)            // 現在の status と changed_at (TUI の generic state 描画に使う)
+    View() SessionView                     // TUI に渡す UI コンテンツ (Card / LogTabs / InfoExtras / StatusLine)。pure getter
 
     // 永続化
     PersistedState() map[string]string                    // tmux user options へ書き出す opaque bag
@@ -548,6 +593,7 @@ type WindowInfo interface {
 // session/driver/driver.go
 type SessionContext interface {
     Active() bool
+    ID() string  // immutable session id; driver caches once at construction
 }
 ```
 
@@ -901,8 +947,8 @@ func (c *Coordinator) HandleHookEvent(ev driver.AgentEvent) error
 | パス | 形式 | 内容 | ライフサイクル |
 |------|------|------|--------------|
 | `~/.config/roost/config.toml` | TOML | ユーザー設定（下記参照） | ユーザーが作成。存在しなければデフォルト値で動作 |
-| `~/.config/roost/sessions.json` | JSON | セッション静的メタデータと Driver の `PersistedState` (opaque map。status を含む) の Cold start スナップショット | SessionService の各ミューテーション (Create/Stop/UpdatePersistedState/RefreshBranch/Refresh) で書き出し。読まれるのは PC 再起動 (`!client.SessionExists()`) 時の `Coordinator.Recreate` のみ。runtime の真実は tmux user options。`PersistedState` の中身は driver が解釈する opaque な key/value で、SessionService は key 名を一切知らない |
-| `~/.config/roost/events/{sessionID}.log` | テキスト | エージェント hook イベントログ | hook イベント受信時に追記。Coordinator.AppendEventLog で書き込み |
+| `~/.config/roost/sessions.json` | JSON | セッション静的メタデータと Driver の `PersistedState` (opaque map。status を含む) の Cold start スナップショット | SessionService の各ミューテーション (Create/Stop/UpdatePersistedState/Refresh) で書き出し。読まれるのは PC 再起動 (`!client.SessionExists()`) 時の `Coordinator.Recreate` のみ。runtime の真実は tmux user options。`PersistedState` の中身は driver が解釈する opaque な key/value で、SessionService は key 名を一切知らない |
+| `~/.config/roost/events/{sessionID}.log` | テキスト | エージェント hook イベントログ | hook イベント受信時に driver が直接追記 (claudeDriver の `appendEventLog`)。`Deps.EventLogDir` 経由で書き込み先 dir を注入 |
 | `~/.config/roost/roost.log` | slog | アプリケーションログ | Coordinator 起動時に作成/追記 |
 | `~/.config/roost/roost.sock` | Unix socket | プロセス間通信 | Coordinator 起動時に作成。終了時に削除 |
 

@@ -7,8 +7,8 @@ import (
 
 // Session is the in-memory view of a roost-managed tmux window. It holds
 // only static metadata + the driver-managed PersistedState bag — dynamic
-// per-session state (status / title / lastPrompt / insight) lives in the
-// Driver instance owned by DriverService, never on Session itself.
+// per-session state (status / title / lastPrompt / insight / tags) lives
+// in the Driver instance owned by DriverService, never on Session itself.
 //
 // PersistedState is the opaque key/value bag the driver round-trips through
 // tmux user options + sessions.json. SessionService never reads or writes
@@ -25,14 +25,7 @@ type Session struct {
 	// re-queries each fresh window.
 	AgentPaneID    string            `json:"-"`
 	CreatedAt      time.Time         `json:"created_at"`
-	Tags           []Tag             `json:"tags,omitempty"`
 	PersistedState map[string]string `json:"persisted_state,omitempty"`
-}
-
-type Tag struct {
-	Text       string `json:"text"`
-	Foreground string `json:"fg,omitempty"`
-	Background string `json:"bg,omitempty"`
 }
 
 // RoostWindow is a raw snapshot of a roost-managed tmux window's user
@@ -46,7 +39,6 @@ type RoostWindow struct {
 	Project        string
 	Command        string
 	CreatedAt      string
-	Tags           string
 	AgentPaneID    string
 	PersistedState string // JSON-encoded map[string]string
 }

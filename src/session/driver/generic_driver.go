@@ -138,12 +138,20 @@ func (d *genericDriver) Status() (StatusInfo, bool) {
 	return d.status, true
 }
 
-func (d *genericDriver) Title() string      { return "" }
-func (d *genericDriver) LastPrompt() string { return "" }
-func (d *genericDriver) Subjects() []string { return nil }
-func (d *genericDriver) StatusLine() string { return "" }
-func (d *genericDriver) Indicators() []string {
-	return nil
+// View returns the minimal SessionView for a generic (non-Claude) session.
+// The only driver-specific UI element is the command tag — everything else
+// (state symbol, generic INFO header, project name, elapsed time) is
+// rendered by the TUI from SessionInfo. Drivers with no display name
+// (the unnamed fallback factory) emit no command tag rather than an empty
+// colored chip.
+func (d *genericDriver) View() SessionView {
+	var tags []Tag
+	if name := d.DisplayName(); name != "" {
+		tags = []Tag{CommandTag(name)}
+	}
+	return SessionView{
+		Card: CardView{Tags: tags},
+	}
 }
 
 // PersistedState returns the opaque bag for SessionService to round-trip.

@@ -2,11 +2,10 @@ package driver
 
 import (
 	"testing"
-	"testing/fstest"
 )
 
 func newTestDriverService() *DriverService {
-	return NewDriverService(DefaultRegistry(), Deps{FS: fstest.MapFS{}})
+	return NewDriverService(DefaultRegistry(), Deps{})
 }
 
 func TestDriverService_CreateThenGet(t *testing.T) {
@@ -76,7 +75,7 @@ func TestDriverService_NilSessionContextDefaultsToInactive(t *testing.T) {
 func TestRegistry_DefaultRegistryRegistersClaude(t *testing.T) {
 	r := DefaultRegistry()
 	f := r.Resolve("claude")
-	d := f(Deps{FS: fstest.MapFS{}, Session: inactiveSessionContext{}})
+	d := f(Deps{Session: inactiveSessionContext{}})
 	if d.Name() != "claude" {
 		t.Errorf("Resolve(claude) returned driver name = %q", d.Name())
 	}

@@ -21,7 +21,7 @@ const (
 // outside the driver implementation and the driver's hook bridge.
 type AgentEvent struct {
 	Type        AgentEventType
-	Pane        string // tmux pane that fired the event (if known)
+	SessionID   string // roost session id (set by hook bridge from $ROOST_SESSION_ID)
 	State       string // state-change payload: "running" / "waiting" / ...
 	Log         string // human-readable line for the event log file
 	DriverState map[string]string
@@ -39,11 +39,11 @@ func (e AgentEvent) ToArgs() map[string]string {
 	args := map[string]string{
 		"type": string(e.Type),
 	}
+	if e.SessionID != "" {
+		args["session_id"] = e.SessionID
+	}
 	if e.State != "" {
 		args["state"] = e.State
-	}
-	if e.Pane != "" {
-		args["pane"] = e.Pane
 	}
 	if e.Log != "" {
 		args["log"] = e.Log
@@ -62,10 +62,10 @@ func (e AgentEvent) ToArgs() map[string]string {
 // raw IPC keys; the rest of core sees only struct fields.
 func AgentEventFromArgs(args map[string]string) AgentEvent {
 	ev := AgentEvent{
-		Type:  AgentEventType(args["type"]),
-		State: args["state"],
-		Pane:  args["pane"],
-		Log:   args["log"],
+		Type:      AgentEventType(args["type"]),
+		SessionID: args["session_id"],
+		State:     args["state"],
+		Log:       args["log"],
 	}
 	for k, v := range args {
 		if strings.HasPrefix(k, driverStateArgPrefix) {

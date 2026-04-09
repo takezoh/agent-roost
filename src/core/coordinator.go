@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -24,41 +23,25 @@ type Coordinator struct {
 	Tmux     *tmux.Client
 
 	SessionName    string
-	eventLogDir    string
 	activeWindowID string
 	syncActive     func(string)
 	syncStatus     func(string)
-	onPreview      []func(string)
 }
 
-// NewCoordinator constructs a Coordinator. event log directory is created
-// if missing.
-func NewCoordinator(sessions *session.SessionService, drivers *driver.DriverService, panes tmux.PaneOperator, tmuxClient *tmux.Client, sessionName, eventLogDir, activeWindowID string) *Coordinator {
-	if eventLogDir != "" {
-		os.MkdirAll(eventLogDir, 0o755)
-	}
+// NewCoordinator constructs a Coordinator.
+func NewCoordinator(sessions *session.SessionService, drivers *driver.DriverService, panes tmux.PaneOperator, tmuxClient *tmux.Client, sessionName, activeWindowID string) *Coordinator {
 	return &Coordinator{
 		Sessions:       sessions,
 		Drivers:        drivers,
 		Panes:          panes,
 		Tmux:           tmuxClient,
 		SessionName:    sessionName,
-		eventLogDir:    eventLogDir,
 		activeWindowID: activeWindowID,
 	}
 }
 
 func (c *Coordinator) SetSyncStatus(fn func(string)) { c.syncStatus = fn }
 func (c *Coordinator) SetSyncActive(fn func(string)) { c.syncActive = fn }
-func (c *Coordinator) OnPreview(fn func(sessionID string)) {
-	c.onPreview = append(c.onPreview, fn)
-}
-
-func (c *Coordinator) emitPreview(sessionID string) {
-	for _, fn := range c.onPreview {
-		fn(sessionID)
-	}
-}
 
 func (c *Coordinator) setActiveWindowID(wid string) {
 	c.activeWindowID = wid
@@ -94,6 +77,10 @@ func (a *sessionContextAdapter) Active() bool {
 	return a.coord.activeWindowID == sess.WindowID
 }
 
+func (a *sessionContextAdapter) ID() string {
+	return a.sessionID
+}
+
 func (c *Coordinator) sessionContextFor(sessionID string) driver.SessionContext {
 	return &sessionContextAdapter{coord: c, sessionID: sessionID}
 }
@@ -113,7 +100,6 @@ func (c *Coordinator) Preview(sess *session.Session) error {
 		return err
 	}
 	c.setActiveWindowID(sess.WindowID)
-	c.emitPreview(sess.ID)
 	return nil
 }
 
@@ -161,18 +147,6 @@ func (c *Coordinator) LaunchTool(toolName string, args map[string]string) {
 	}
 	popupCmd := resolved + " " + strings.Join(paletteArgs, " ")
 	exec.Command("tmux", "display-popup", "-E", "-w", "60%", "-h", "50%", popupCmd).Start()
-}
-
-func (c *Coordinator) ActiveSessionLogPath() string {
-	if c.activeWindowID == "" {
-		return ""
-	}
-	for _, sess := range c.Sessions.All() {
-		if sess.WindowID == c.activeWindowID {
-			return session.LogPath(c.Sessions.DataDir(), sess.ID)
-		}
-	}
-	return ""
 }
 
 // Create constructs a new session: tmux window via SessionService, then a
@@ -265,11 +239,15 @@ func (c *Coordinator) Tick(now time.Time) {
 	}
 }
 
-// HandleHookEvent routes a Claude (or other) hook event to the right
-// Driver. The event's Pane is mapped to a sessionID via SessionService.
-// Returns whether the event was consumed.
+// HandleHookEvent routes a Claude (or other) hook event to the right Driver.
+// The event carries the roost sessionID directly (set by the hook bridge from
+// $ROOST_SESSION_ID), so routing is a single FindByID lookup — no pane id
+// indirection. Returns whether the event was consumed.
 func (c *Coordinator) HandleHookEvent(ev driver.AgentEvent) (sessionID string, consumed bool) {
-	sess := c.findSessionByPane(ev.Pane)
+	if ev.SessionID == "" {
+		return "", false
+	}
+	sess := c.Sessions.FindByID(ev.SessionID)
 	if sess == nil {
 		return "", false
 	}
@@ -280,32 +258,9 @@ func (c *Coordinator) HandleHookEvent(ev driver.AgentEvent) (sessionID string, c
 	consumed = drv.HandleEvent(ev)
 	c.flushPersistedState(sess, drv)
 	if consumed && c.syncStatus != nil && c.activeWindowID == sess.WindowID {
-		c.syncStatus(drv.StatusLine())
+		c.syncStatus(drv.View().StatusLine)
 	}
 	return sess.ID, consumed
-}
-
-// findSessionByPane resolves a tmux pane id to a Session via the agent
-// pane id stored at session creation. Falls back to the active session if
-// the pane is empty.
-func (c *Coordinator) findSessionByPane(pane string) *session.Session {
-	if pane != "" {
-		// Pane ids (%5) are stable across swap-pane, so SessionService
-		// can find the owning Session by id.
-		if sess := c.Sessions.FindByAgentPaneID(pane); sess != nil {
-			return sess
-		}
-		// Otherwise resolve through tmux: pane → window → session.
-		if wid, err := c.Panes.WindowIDFromPane(pane); err == nil {
-			if sess := c.Sessions.FindByWindowID(wid); sess != nil {
-				return sess
-			}
-		}
-	}
-	if c.activeWindowID == "" {
-		return nil
-	}
-	return c.Sessions.FindByWindowID(c.activeWindowID)
 }
 
 // flushPersistedState writes the driver's current PersistedState bag back
@@ -332,7 +287,7 @@ func (c *Coordinator) SyncActiveStatusLine() {
 		return
 	}
 	if drv, ok := c.Drivers.Get(sess.ID); ok {
-		c.syncStatus(drv.StatusLine())
+		c.syncStatus(drv.View().StatusLine)
 	} else {
 		c.syncStatus("")
 	}
@@ -346,50 +301,6 @@ func (c *Coordinator) buildSwapChain(sess *session.Session) [][]string {
 	}
 	cmds = append(cmds, []string{"swap-pane", "-d", "-s", pane0, "-t", sess.WindowID + ".0"})
 	return cmds
-}
-
-// AppendEventLog writes a timestamped line to the session's event log file.
-func (c *Coordinator) AppendEventLog(sessionID, line string) {
-	if c.eventLogDir == "" || sessionID == "" {
-		return
-	}
-	path := filepath.Join(c.eventLogDir, sessionID+".log")
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	fmt.Fprintf(f, "%s %s\n", time.Now().Format("15:04:05"), line)
-}
-
-// EventLogPathByWindow returns the event log file path for the active session.
-func (c *Coordinator) EventLogPathByWindow(windowID string) string {
-	if c.eventLogDir == "" || windowID == "" {
-		return ""
-	}
-	sess := c.Sessions.FindByWindowID(windowID)
-	if sess == nil {
-		return ""
-	}
-	return filepath.Join(c.eventLogDir, sess.ID+".log")
-}
-
-// ActiveTranscriptPath returns the transcript file path for the active
-// session, by asking its Driver. Empty if there's no active session or no
-// driver claims a transcript.
-func (c *Coordinator) ActiveTranscriptPath() string {
-	if c.activeWindowID == "" {
-		return ""
-	}
-	sess := c.Sessions.FindByWindowID(c.activeWindowID)
-	if sess == nil {
-		return ""
-	}
-	drv, ok := c.Drivers.Get(sess.ID)
-	if !ok {
-		return ""
-	}
-	return drv.PersistedState()["transcript_path"]
 }
 
 // ReapDeadSessions detects sessions whose tmux window has disappeared

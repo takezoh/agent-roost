@@ -4,25 +4,35 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"testing/fstest"
 	"time"
 )
 
 // fakeSessionContext lets tests flip the active flag at will.
-type fakeSessionContext struct{ active bool }
+type fakeSessionContext struct {
+	active bool
+	id     string
+}
 
 func (f *fakeSessionContext) Active() bool { return f.active }
+func (f *fakeSessionContext) ID() string   { return f.id }
 
 func newClaude(t *testing.T) *claudeDriver {
 	t.Helper()
-	d := newClaudeFactory()(Deps{FS: fstest.MapFS{}}).(*claudeDriver)
+	d := newClaudeFactory()(Deps{Session: inactiveSessionContext{}}).(*claudeDriver)
 	return d
 }
 
 func newClaudeWithCtx(t *testing.T, ctx SessionContext) *claudeDriver {
 	t.Helper()
-	d := newClaudeFactory()(Deps{FS: fstest.MapFS{}, Session: ctx}).(*claudeDriver)
+	d := newClaudeFactory()(Deps{Session: ctx}).(*claudeDriver)
 	return d
+}
+
+// claudeTitle returns the driver's currently cached transcript title.
+// Tests use this in place of the removed Title() reader so the assertion
+// code stays terse without bypassing locking.
+func claudeTitle(d *claudeDriver) string {
+	return d.View().Card.Title
 }
 
 func TestClaudeDriver_HookEventStateChange(t *testing.T) {
@@ -149,7 +159,7 @@ func TestClaudeDriver_TickGatedByActiveContext(t *testing.T) {
 	for i := 0; i < claudeMetaRefreshTicks; i++ {
 		d.Tick(time.Now(), nil)
 	}
-	if got := d.Title(); got != "" {
+	if got := claudeTitle(d); got != "" {
 		t.Errorf("inactive Tick should not refresh title, got %q", got)
 	}
 
@@ -158,7 +168,7 @@ func TestClaudeDriver_TickGatedByActiveContext(t *testing.T) {
 	for i := 0; i < claudeMetaRefreshTicks; i++ {
 		d.Tick(time.Now(), nil)
 	}
-	if got := d.Title(); got != "first" {
+	if got := claudeTitle(d); got != "first" {
 		t.Errorf("active Tick should refresh title to %q, got %q", "first", got)
 	}
 }
@@ -179,7 +189,7 @@ func TestClaudeDriver_HandleEventRefreshesRegardlessOfActive(t *testing.T) {
 	if !consumed {
 		t.Fatal("state-change event should be consumed")
 	}
-	if got := d.Title(); got != "from event" {
+	if got := claudeTitle(d); got != "from event" {
 		t.Errorf("HandleEvent should refresh title even when inactive, got %q", got)
 	}
 }

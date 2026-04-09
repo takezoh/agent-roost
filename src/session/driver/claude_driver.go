@@ -1,8 +1,8 @@
 package driver
 
 import (
-	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/take/agent-roost/lib/claude/cli"
 	"github.com/take/agent-roost/lib/claude/transcript"
+	"github.com/take/agent-roost/lib/git"
 )
 
 // Claude driver: event-driven status producer for the Claude Code CLI.
@@ -18,6 +19,12 @@ import (
 // (hook events from `roost claude event`) and refreshed (transcript meta)
 // from Tick. Construction never touches I/O — RestorePersistedState is the
 // only path that fills the instance from external storage.
+//
+// claudeDriver is intentionally split across multiple files:
+//   - claude_driver.go    — Driver interface implementation (lifecycle / Status / persistence)
+//   - claude_view.go      — View() construction (Card / InfoExtras / LogTabs / StatusLine)
+//   - claude_branch.go    — branch detection + cache
+//   - claude_eventlog.go  — event log writer (lazy file open + append)
 
 const (
 	claudeNamePromptPattern = `(?m)(^>|❯\s*$)`
@@ -30,23 +37,36 @@ const (
 	claudeKeyTranscriptPath  = "transcript_path"
 	claudeKeyStatus          = "status"
 	claudeKeyStatusChangedAt = "status_changed_at"
+	claudeKeyBranchTag       = "branch_tag"
+	claudeKeyBranchTarget    = "branch_target"
+	claudeKeyBranchAt        = "branch_at"
 
 	// Refresh transcript metadata every N ticks (~5 seconds at 1 Hz).
 	claudeMetaRefreshTicks = 5
+
+	// Re-detect branch at most every N (only when active).
+	claudeBranchRefreshInterval = 30 * time.Second
 )
 
 type claudeDriver struct {
 	mu sync.Mutex
 
 	// Static deps
-	home       string // for ~/.claude/projects/... resolution
-	tracker    *transcript.Tracker
-	sessionCtx SessionContext // pull-based active-state query (never nil)
+	home        string // for ~/.claude/projects/... resolution
+	tracker     *transcript.Tracker
+	sessionCtx  SessionContext // pull-based active-state query (never nil)
+	sessionID   string         // cached from sessionCtx.ID() at construction
+	eventLogDir string         // base dir; the per-session file path is derived from sessionID
+
+	// detectBranch defaults to git.DetectBranch but is a field so tests
+	// (in-package) can stub it without forking real git. Production
+	// callers never override the default.
+	detectBranch func(dir string) string
 
 	// Identity (set via RestorePersistedState or HandleEvent)
-	sessionID      string
-	workingDir     string
-	transcriptPath string
+	claudeSessionID string // distinct from sessionID: the *Claude* conversation id used by --resume
+	workingDir      string
+	transcriptPath  string
 
 	// Dynamic state
 	status         StatusInfo
@@ -58,6 +78,15 @@ type claudeDriver struct {
 	subagentCounts map[string]int
 	errorCount     int
 	tickCounter    int
+
+	// Branch tag cache (see claude_branch.go)
+	branchTag    string
+	branchTarget string
+	branchAt     time.Time
+
+	// Event log writer state (see claude_eventlog.go)
+	eventLogMu sync.Mutex
+	eventLogF  *os.File
 }
 
 func newClaudeFactory() Factory {
@@ -68,10 +97,13 @@ func newClaudeFactory() Factory {
 			ctx = inactiveSessionContext{}
 		}
 		return &claudeDriver{
-			home:       deps.Home,
-			tracker:    transcript.NewTracker(),
-			sessionCtx: ctx,
-			status:     StatusInfo{Status: StatusIdle, ChangedAt: now},
+			home:         deps.Home,
+			tracker:      transcript.NewTracker(),
+			sessionCtx:   ctx,
+			sessionID:    ctx.ID(),
+			eventLogDir:  deps.EventLogDir,
+			detectBranch: git.DetectBranch,
+			status:       StatusInfo{Status: StatusIdle, ChangedAt: now},
 		}
 	}
 }
@@ -90,19 +122,18 @@ func (d *claudeDriver) MarkSpawned() {
 
 // Tick: Claude is event-driven, so the only periodic work is the
 // transcript refresh that picks up title / lastPrompt / insight changes
-// from JSONL deltas. We gate this on the session being currently active
-// (swapped into pane 0.0) so background sessions don't pay for parsing
-// they will never display. HandleEvent still updates state regardless of
-// active state, so non-active sessions stay fresh whenever Claude actually
-// emits hook events.
+// from JSONL deltas + branch detection. Both are gated on the session
+// being currently active (swapped into pane 0.0) so background sessions
+// don't pay for parsing or git they will never display.
 //
 // Coordinator continues to fan Tick out to every Driver every second; the
 // early return below means inactive Drivers cost only one interface
 // dispatch + one Active() lookup per tick (negligible).
-func (d *claudeDriver) Tick(now time.Time, _ WindowInfo) {
+func (d *claudeDriver) Tick(now time.Time, win WindowInfo) {
 	if !d.sessionCtx.Active() {
 		return
 	}
+	d.refreshBranch(now, projectFromWindow(win))
 	d.mu.Lock()
 	d.tickCounter++
 	if d.tickCounter%claudeMetaRefreshTicks != 0 {
@@ -111,6 +142,15 @@ func (d *claudeDriver) Tick(now time.Time, _ WindowInfo) {
 	}
 	d.mu.Unlock()
 	d.refreshMeta()
+}
+
+// projectFromWindow returns win.Project() if win is non-nil, otherwise "".
+// Tests may pass nil to exercise the no-window path.
+func projectFromWindow(win WindowInfo) string {
+	if win == nil {
+		return ""
+	}
+	return win.Project()
 }
 
 // HandleEvent: classify the hook payload and update private state.
@@ -129,6 +169,7 @@ func (d *claudeDriver) HandleEvent(ev AgentEvent) bool {
 		// before any state-change, and we want the title chip populated
 		// as soon as the transcript file appears.
 		d.refreshMeta()
+		d.appendEventLog("SessionStart")
 		return true
 	case AgentEventStateChange:
 		status, ok := ParseStatus(ev.State)
@@ -140,6 +181,11 @@ func (d *claudeDriver) HandleEvent(ev AgentEvent) bool {
 		d.status = StatusInfo{Status: status, ChangedAt: time.Now()}
 		d.mu.Unlock()
 		d.refreshMeta()
+		logLine := ev.Log
+		if logLine == "" {
+			logLine = ev.State
+		}
+		d.appendEventLog(logLine)
 		return true
 	}
 	return false
@@ -150,7 +196,7 @@ func (d *claudeDriver) absorbDriverStateLocked(ds map[string]string) {
 		return
 	}
 	if v, ok := ds[claudeKeySessionID]; ok && v != "" {
-		d.sessionID = v
+		d.claudeSessionID = v
 	}
 	if v, ok := ds[claudeKeyWorkingDir]; ok && v != "" {
 		d.workingDir = v
@@ -162,11 +208,12 @@ func (d *claudeDriver) absorbDriverStateLocked(ds map[string]string) {
 
 func (d *claudeDriver) Close() {
 	d.mu.Lock()
-	sid := d.sessionID
+	csid := d.claudeSessionID
 	d.mu.Unlock()
-	if d.tracker != nil && sid != "" {
-		d.tracker.Forget(sid)
+	if d.tracker != nil && csid != "" {
+		d.tracker.Forget(csid)
 	}
+	d.closeEventLog()
 }
 
 func (d *claudeDriver) Status() (StatusInfo, bool) {
@@ -175,66 +222,16 @@ func (d *claudeDriver) Status() (StatusInfo, bool) {
 	return d.status, true
 }
 
-func (d *claudeDriver) Title() string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.title
-}
-
-func (d *claudeDriver) LastPrompt() string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.lastPrompt
-}
-
-func (d *claudeDriver) Subjects() []string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if len(d.subjects) == 0 {
-		return nil
-	}
-	out := make([]string, len(d.subjects))
-	copy(out, d.subjects)
-	return out
-}
-
-func (d *claudeDriver) StatusLine() string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.statusLine
-}
-
-// Indicators returns the driver-formatted status chips: current tool,
-// subagent counts, error count. Mirrors the legacy AgentSession.Indicators().
-func (d *claudeDriver) Indicators() []string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	var out []string
-	if d.currentTool != "" {
-		out = append(out, "▸ "+d.currentTool)
-	}
-	subs := 0
-	for _, n := range d.subagentCounts {
-		subs += n
-	}
-	if subs > 0 {
-		out = append(out, fmt.Sprintf("%d subs", subs))
-	}
-	if d.errorCount > 0 {
-		out = append(out, fmt.Sprintf("%d err", d.errorCount))
-	}
-	return out
-}
-
 // PersistedState returns the opaque bag SessionService rounds-trips through
 // tmux user options + sessions.json. Includes status so warm/cold restart
-// restores the prior status without resetting to Idle.
+// restores the prior status without resetting to Idle, plus the cached
+// branch tag so the user sees the prior branch immediately on restart.
 func (d *claudeDriver) PersistedState() map[string]string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	out := make(map[string]string, 5)
-	if d.sessionID != "" {
-		out[claudeKeySessionID] = d.sessionID
+	out := make(map[string]string, 8)
+	if d.claudeSessionID != "" {
+		out[claudeKeySessionID] = d.claudeSessionID
 	}
 	if d.workingDir != "" {
 		out[claudeKeyWorkingDir] = d.workingDir
@@ -246,12 +243,21 @@ func (d *claudeDriver) PersistedState() map[string]string {
 	if !d.status.ChangedAt.IsZero() {
 		out[claudeKeyStatusChangedAt] = d.status.ChangedAt.UTC().Format(time.RFC3339)
 	}
+	if d.branchTag != "" {
+		out[claudeKeyBranchTag] = d.branchTag
+	}
+	if d.branchTarget != "" {
+		out[claudeKeyBranchTarget] = d.branchTarget
+	}
+	if !d.branchAt.IsZero() {
+		out[claudeKeyBranchAt] = d.branchAt.UTC().Format(time.RFC3339)
+	}
 	return out
 }
 
-// RestorePersistedState rehydrates identity + status from the opaque bag
-// previously returned by PersistedState. Empty maps leave the factory
-// defaults intact.
+// RestorePersistedState rehydrates identity + status + branch cache from
+// the opaque bag previously returned by PersistedState. Empty maps leave
+// the factory defaults intact.
 func (d *claudeDriver) RestorePersistedState(state map[string]string) {
 	if len(state) == 0 {
 		return
@@ -267,6 +273,11 @@ func (d *claudeDriver) RestorePersistedState(state map[string]string) {
 			d.status = StatusInfo{Status: status, ChangedAt: changedAt}
 		}
 	}
+	d.branchTag = state[claudeKeyBranchTag]
+	d.branchTarget = state[claudeKeyBranchTarget]
+	if at, err := time.Parse(time.RFC3339, state[claudeKeyBranchAt]); err == nil {
+		d.branchAt = at
+	}
 	d.mu.Unlock()
 	// Pre-populate transcript meta so the UI shows the prior title/insight
 	// immediately on restart, without waiting for the first periodic tick.
@@ -277,7 +288,7 @@ func (d *claudeDriver) RestorePersistedState(state map[string]string) {
 // known so cold-boot recovery picks up the prior conversation.
 func (d *claudeDriver) SpawnCommand(baseCommand string) string {
 	d.mu.Lock()
-	sid := d.sessionID
+	sid := d.claudeSessionID
 	d.mu.Unlock()
 	return cli.ResumeCommand(baseCommand, sid)
 }
@@ -293,17 +304,17 @@ func (d *claudeDriver) SpawnCommand(baseCommand string) string {
 func (d *claudeDriver) refreshMeta() {
 	d.mu.Lock()
 	path := d.resolveTranscriptPathLocked()
-	sid := d.sessionID
+	csid := d.claudeSessionID
 	d.mu.Unlock()
-	if path == "" || sid == "" {
+	if path == "" || csid == "" {
 		return
 	}
-	if _, err := d.tracker.Update(sid, path); err != nil {
+	if _, err := d.tracker.Update(csid, path); err != nil {
 		slog.Debug("claude driver: tracker update failed", "path", path, "err", err)
 		return
 	}
-	snap := d.tracker.Snapshot(sid)
-	line := d.tracker.StatusLine(sid)
+	snap := d.tracker.Snapshot(csid)
+	line := d.tracker.StatusLine(csid)
 
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -319,16 +330,16 @@ func (d *claudeDriver) refreshMeta() {
 // resolveTranscriptPathLocked picks the best known transcript path. Caller
 // must hold d.mu. Priority:
 //  1. Agent-reported path (canonical, handles --worktree)
-//  2. Computed path from working_dir + session_id
+//  2. Computed path from working_dir + claudeSessionID
 //  3. "" if neither is available
 func (d *claudeDriver) resolveTranscriptPathLocked() string {
 	if d.transcriptPath != "" {
 		return d.transcriptPath
 	}
-	if d.home == "" || d.sessionID == "" || d.workingDir == "" {
+	if d.home == "" || d.claudeSessionID == "" || d.workingDir == "" {
 		return ""
 	}
-	return filepath.Join(d.home, ".claude", "projects", projectDir(d.workingDir), d.sessionID+".jsonl")
+	return filepath.Join(d.home, ".claude", "projects", projectDir(d.workingDir), d.claudeSessionID+".jsonl")
 }
 
 // projectDir mirrors Claude Code's encoding of working dir → ~/.claude/projects/

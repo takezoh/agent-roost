@@ -10,15 +10,13 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/take/agent-roost/lib/git"
 )
 
 // TmuxClient is the subset of tmux operations SessionService needs.
 // Defined here (not in tmux/) so the session package never imports tmux,
 // avoiding an import cycle. Coordinator wires the concrete *tmux.Client.
 type TmuxClient interface {
-	NewWindow(name, command, startDir string) (string, error)
+	NewWindow(name, command, startDir string, env map[string]string) (string, error)
 	KillWindow(windowID string) error
 	SetOption(target, key, value string) error
 	SetWindowUserOption(windowID, key, value string) error
@@ -29,15 +27,16 @@ type TmuxClient interface {
 
 // SessionService keeps an in-memory cache of roost sessions reconstructed
 // from tmux window user options. The cache is rebuilt by Refresh() and
-// updated in-place by Create / Stop / UpdatePersistedState / RefreshBranch.
+// updated in-place by Create / Stop / UpdatePersistedState.
 //
 // SessionService never references DriverService or any Driver instance —
 // the only correlation between the two services is the sessionID, which
-// Coordinator uses to bind them together.
+// Coordinator uses to bind them together. Likewise SessionService no
+// longer concerns itself with branch detection or any per-session UI
+// state — those live in the Driver instance and surface via View().
 type SessionService struct {
-	tmux         TmuxClient
-	dataDir      string
-	detectBranch func(string) string
+	tmux    TmuxClient
+	dataDir string
 
 	mu       sync.RWMutex
 	sessions []*Session
@@ -45,19 +44,9 @@ type SessionService struct {
 
 func NewSessionService(t TmuxClient, dataDir string) *SessionService {
 	return &SessionService{
-		tmux:         t,
-		dataDir:      dataDir,
-		detectBranch: git.DetectBranch,
+		tmux:    t,
+		dataDir: dataDir,
 	}
-}
-
-// SetBranchDetector overrides the git branch detector. Tests use this to
-// inject a deterministic stub.
-func (s *SessionService) SetBranchDetector(fn func(string) string) {
-	if fn == nil {
-		fn = git.DetectBranch
-	}
-	s.detectBranch = fn
 }
 
 func (s *SessionService) DataDir() string {
@@ -65,8 +54,7 @@ func (s *SessionService) DataDir() string {
 }
 
 // Refresh rebuilds the in-memory cache from tmux user options and writes
-// the result to the cold-boot snapshot. Branch synchronization is the
-// caller's responsibility (see SyncBranches).
+// the result to the cold-boot snapshot.
 func (s *SessionService) Refresh() error {
 	slog.Info("refreshing sessions")
 	windows, err := s.tmux.ListRoostWindows()
@@ -81,16 +69,6 @@ func (s *SessionService) Refresh() error {
 	}
 	s.saveSnapshotLocked()
 	return nil
-}
-
-// SyncBranches re-detects the git branch for every session and writes
-// changes back to the @roost_tags user option.
-func (s *SessionService) SyncBranches() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for _, sess := range s.sessions {
-		s.refreshBranchLocked(sess, "")
-	}
 }
 
 // LoadSnapshot reads sessions.json. Returns nil, nil when the file does
@@ -113,7 +91,6 @@ func (s *SessionService) Create(project, command string) (*Session, error) {
 		Project:   project,
 		Command:   command,
 		CreatedAt: now,
-		Tags:      buildTags(s.detectBranch(project)),
 	}
 	if err := s.spawnWindowLocked(sess, "exec "+command, project); err != nil {
 		return nil, err
@@ -144,7 +121,12 @@ func (s *SessionService) Spawn(sess *Session, spawnCmd, startDir string) error {
 // callers acquire the write lock around the slice append themselves.
 func (s *SessionService) spawnWindowLocked(sess *Session, command, startDir string) error {
 	name := filepath.Base(sess.Project) + ":" + sess.ID
-	windowID, err := s.tmux.NewWindow(name, command, startDir)
+	// ROOST_SESSION_ID is set atomically with the new window so the agent's
+	// hook bridge (e.g. roost claude event) can identify itself without
+	// racing against the subsequent SetWindowUserOptions call below.
+	windowID, err := s.tmux.NewWindow(name, command, startDir, map[string]string{
+		"ROOST_SESSION_ID": sess.ID,
+	})
 	if err != nil {
 		slog.Error("create window failed", "err", err)
 		return err
@@ -255,35 +237,10 @@ func (s *SessionService) UpdatePersistedState(sessionID string, persisted map[st
 			return false
 		}
 		sess.PersistedState = clonePersisted(persisted)
-		// Branch detection target may have shifted (driver reported a new
-		// working dir), so re-derive tags now that PersistedState changed.
-		s.refreshBranchLocked(sess, persisted["working_dir"])
 		s.saveSnapshotLocked()
 		return true
 	}
 	return false
-}
-
-// refreshBranchLocked re-detects the git branch for the given session and
-// updates the @roost_tags user option if it changed. workingDir is the
-// driver's preferred branch-detection target; "" falls back to Project.
-// Caller must hold s.mu.
-func (s *SessionService) refreshBranchLocked(sess *Session, workingDir string) bool {
-	target := workingDir
-	if target == "" {
-		target = sess.Project
-	}
-	tags := buildTags(s.detectBranch(target))
-	if tagsEqual(sess.Tags, tags) {
-		return false
-	}
-	if err := s.tmux.SetWindowUserOption(sess.WindowID, "@roost_tags", encodeTags(tags)); err != nil {
-		slog.Warn("refresh branch: set tags failed", "window", sess.WindowID, "err", err)
-		return false
-	}
-	sess.Tags = tags
-	s.saveSnapshotLocked()
-	return true
 }
 
 func (s *SessionService) All() []*Session {
@@ -391,14 +348,14 @@ func (s *SessionService) loadSnapshot() ([]*Session, error) {
 // sessionUserOptions converts a Session into the @roost_* user options that
 // represent its static metadata in tmux. PersistedState is packed into a
 // single JSON-encoded option so this layer never has to know which keys
-// the driver uses; an empty bag is omitted entirely.
+// the driver uses; an empty bag is omitted entirely. Tags are not stored
+// here — they live in the driver's PersistedState bag (driver-owned).
 func sessionUserOptions(sess *Session) map[string]string {
 	opts := map[string]string{
 		"@roost_id":         sess.ID,
 		"@roost_project":    sess.Project,
 		"@roost_command":    sess.Command,
 		"@roost_created_at": sess.CreatedAt.UTC().Format(time.RFC3339),
-		"@roost_tags":       encodeTags(sess.Tags),
 	}
 	if sess.AgentPaneID != "" {
 		opts["@roost_agent_pane"] = sess.AgentPaneID
@@ -457,47 +414,6 @@ func persistedEqual(a, b map[string]string) bool {
 	return true
 }
 
-func buildTags(branch string) []Tag {
-	if branch == "" {
-		return nil
-	}
-	return []Tag{{Text: branch, Background: "#A9DC76"}}
-}
-
-func tagsEqual(a, b []Tag) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
-func encodeTags(tags []Tag) string {
-	if len(tags) == 0 {
-		return ""
-	}
-	data, err := json.Marshal(tags)
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
-
-func decodeTags(s string) []Tag {
-	if s == "" {
-		return nil
-	}
-	var tags []Tag
-	if err := json.Unmarshal([]byte(s), &tags); err != nil {
-		return nil
-	}
-	return tags
-}
-
 func windowToSession(w RoostWindow) *Session {
 	createdAt, _ := time.Parse(time.RFC3339, w.CreatedAt)
 	return &Session{
@@ -507,7 +423,6 @@ func windowToSession(w RoostWindow) *Session {
 		WindowID:       w.WindowID,
 		AgentPaneID:    w.AgentPaneID,
 		CreatedAt:      createdAt,
-		Tags:           decodeTags(w.Tags),
 		PersistedState: decodePersistedState(w.PersistedState),
 	}
 }
