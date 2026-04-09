@@ -38,8 +38,13 @@ func (c *Client) ResizePane(target string, widthPct, heightPct int) error {
 	return err
 }
 
-func (c *Client) NewWindow(name, command, startDir string) (string, error) {
-	return c.Run("new-window", "-d", "-a", "-t", c.SessionName+":", "-n", name, "-c", startDir, "-P", "-F", "#{window_id}", command)
+func (c *Client) NewWindow(name, command, startDir string, env map[string]string) (string, error) {
+	args := []string{"new-window", "-d", "-a", "-t", c.SessionName + ":", "-n", name, "-c", startDir, "-P", "-F", "#{window_id}"}
+	for k, v := range env {
+		args = append(args, "-e", k+"="+v)
+	}
+	args = append(args, command)
+	return c.Run(args...)
 }
 
 func (c *Client) KillWindow(windowID string) error {
@@ -55,11 +60,6 @@ func (c *Client) SendKeys(target, keys string) error {
 func (c *Client) PipePane(target, command string) error {
 	_, err := c.Run("pipe-pane", "-t", target, command)
 	return err
-}
-
-// WindowIDFromPane returns the tmux window ID for a given pane ID (e.g. "%5" → "@3").
-func (c *Client) WindowIDFromPane(paneID string) (string, error) {
-	return c.Run("display-message", "-t", paneID, "-p", "#{window_id}")
 }
 
 // DisplayMessage runs `tmux display-message -t <target> -p <format>` and

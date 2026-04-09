@@ -239,11 +239,15 @@ func (c *Coordinator) Tick(now time.Time) {
 	}
 }
 
-// HandleHookEvent routes a Claude (or other) hook event to the right
-// Driver. The event's Pane is mapped to a sessionID via SessionService.
-// Returns whether the event was consumed.
+// HandleHookEvent routes a Claude (or other) hook event to the right Driver.
+// The event carries the roost sessionID directly (set by the hook bridge from
+// $ROOST_SESSION_ID), so routing is a single FindByID lookup — no pane id
+// indirection. Returns whether the event was consumed.
 func (c *Coordinator) HandleHookEvent(ev driver.AgentEvent) (sessionID string, consumed bool) {
-	sess := c.findSessionByPane(ev.Pane)
+	if ev.SessionID == "" {
+		return "", false
+	}
+	sess := c.Sessions.FindByID(ev.SessionID)
 	if sess == nil {
 		return "", false
 	}
@@ -257,29 +261,6 @@ func (c *Coordinator) HandleHookEvent(ev driver.AgentEvent) (sessionID string, c
 		c.syncStatus(drv.View().StatusLine)
 	}
 	return sess.ID, consumed
-}
-
-// findSessionByPane resolves a tmux pane id to a Session via the agent
-// pane id stored at session creation. Falls back to the active session if
-// the pane is empty.
-func (c *Coordinator) findSessionByPane(pane string) *session.Session {
-	if pane != "" {
-		// Pane ids (%5) are stable across swap-pane, so SessionService
-		// can find the owning Session by id.
-		if sess := c.Sessions.FindByAgentPaneID(pane); sess != nil {
-			return sess
-		}
-		// Otherwise resolve through tmux: pane → window → session.
-		if wid, err := c.Panes.WindowIDFromPane(pane); err == nil {
-			if sess := c.Sessions.FindByWindowID(wid); sess != nil {
-				return sess
-			}
-		}
-	}
-	if c.activeWindowID == "" {
-		return nil
-	}
-	return c.Sessions.FindByWindowID(c.activeWindowID)
 }
 
 // flushPersistedState writes the driver's current PersistedState bag back

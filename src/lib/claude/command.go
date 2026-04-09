@@ -10,7 +10,6 @@ import (
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/lib"
 	"github.com/take/agent-roost/session/driver"
-	"github.com/take/agent-roost/tmux"
 )
 
 func init() {
@@ -52,9 +51,10 @@ func runEvent() {
 	// command can be invoked by Claude instances running anywhere — outside
 	// tmux entirely, or inside an unrelated tmux server/session/window. Only
 	// events from a roost-managed window should mutate roost state, so bail
-	// out before reading stdin / dialing the coordinator if the caller's pane
-	// has no @roost_id user option.
-	pane, ok := currentRoostPane()
+	// out before reading stdin / dialing the coordinator if the caller's
+	// environment has no ROOST_SESSION_ID (set atomically by SessionService
+	// via tmux new-window -e).
+	sessionID, ok := currentRoostSessionID()
 	if !ok {
 		return
 	}
@@ -89,7 +89,7 @@ func runEvent() {
 	if event.HookEventName == "SessionStart" {
 		client.SendAgentEvent(driver.AgentEvent{
 			Type:        driver.AgentEventSessionStart,
-			Pane:        pane,
+			SessionID:   sessionID,
 			DriverState: state,
 		})
 	}
@@ -97,30 +97,27 @@ func runEvent() {
 	if hookState := event.DeriveState(); hookState != "" {
 		client.SendAgentEvent(driver.AgentEvent{
 			Type:        driver.AgentEventStateChange,
+			SessionID:   sessionID,
 			State:       hookState,
-			Pane:        pane,
 			Log:         event.FormatLog(),
 			DriverState: state,
 		})
 	}
 }
 
-// currentRoostPane returns the caller's $TMUX_PANE if and only if that pane
-// belongs to a roost-managed window (i.e. carries the @roost_id user option).
-// It returns ("", false) when invoked outside tmux, or from any tmux pane that
-// roost did not create.
-func currentRoostPane() (string, bool) {
-	pane := os.Getenv("TMUX_PANE")
-	if pane == "" {
+// currentRoostSessionID returns the roost session id this hook bridge is
+// running under, by reading the ROOST_SESSION_ID environment variable that
+// SessionService injects via `tmux new-window -e`. This is the only legitimate
+// way for an in-process caller to identify itself: env vars are set atomically
+// at window creation, so they're race-free against the subsequent
+// SetWindowUserOptions call. Hook events from any other claude process
+// (started outside roost, or in a window roost did not create) are dropped.
+func currentRoostSessionID() (string, bool) {
+	id := os.Getenv("ROOST_SESSION_ID")
+	if id == "" {
 		return "", false
 	}
-	// SessionName is irrelevant for `display-message -t <pane>`, so an empty
-	// client works without loading config.
-	out, err := tmux.NewClient("").DisplayMessage(pane, "#{@roost_id}")
-	if err != nil || out == "" {
-		return "", false
-	}
-	return pane, true
+	return id, true
 }
 
 // claudeDriverState packs the relevant Claude hook fields into the

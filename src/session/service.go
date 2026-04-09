@@ -16,7 +16,7 @@ import (
 // Defined here (not in tmux/) so the session package never imports tmux,
 // avoiding an import cycle. Coordinator wires the concrete *tmux.Client.
 type TmuxClient interface {
-	NewWindow(name, command, startDir string) (string, error)
+	NewWindow(name, command, startDir string, env map[string]string) (string, error)
 	KillWindow(windowID string) error
 	SetOption(target, key, value string) error
 	SetWindowUserOption(windowID, key, value string) error
@@ -121,7 +121,12 @@ func (s *SessionService) Spawn(sess *Session, spawnCmd, startDir string) error {
 // callers acquire the write lock around the slice append themselves.
 func (s *SessionService) spawnWindowLocked(sess *Session, command, startDir string) error {
 	name := filepath.Base(sess.Project) + ":" + sess.ID
-	windowID, err := s.tmux.NewWindow(name, command, startDir)
+	// ROOST_SESSION_ID is set atomically with the new window so the agent's
+	// hook bridge (e.g. roost claude event) can identify itself without
+	// racing against the subsequent SetWindowUserOptions call below.
+	windowID, err := s.tmux.NewWindow(name, command, startDir, map[string]string{
+		"ROOST_SESSION_ID": sess.ID,
+	})
 	if err != nil {
 		slog.Error("create window failed", "err", err)
 		return err
