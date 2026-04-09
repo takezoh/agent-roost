@@ -11,9 +11,9 @@ import (
 // Tracker incrementally parses Claude transcript files for one or more
 // agent sessions and produces a status-line snapshot describing each. It
 // is the single window through which Drivers consume transcripts: every
-// piece of cached state (title / lastPrompt / subjects / insight / token
-// counters) is folded in via the offset-based scanner, so the same JSONL
-// file is never re-parsed from scratch on every tick.
+// piece of cached state (title / lastPrompt / insight / token counters)
+// is folded in via the offset-based scanner, so the same JSONL file is
+// never re-parsed from scratch on every tick.
 type Tracker struct {
 	mu       sync.Mutex
 	sessions map[string]*trackerState
@@ -26,8 +26,6 @@ type trackerState struct {
 
 	// meta — title is last-write-wins from KindCustomTitle.
 	title string
-	// subjects accumulates TaskCreate primaries (deduplicated, capped).
-	subjects []string
 
 	// Active conversation chain. parentOf records every conversation entry
 	// (user + assistant) so chain walks can hop through assistant turns.
@@ -101,11 +99,9 @@ func (t *Tracker) Snapshot(agentSessionID string) MetaSnapshot {
 	if !ok {
 		return MetaSnapshot{}
 	}
-	subjects := append([]string(nil), st.subjects...)
 	return MetaSnapshot{
 		Title:      st.title,
 		LastPrompt: st.activeLastPrompt(),
-		Subjects:   subjects,
 		Insight:    st.insight,
 	}
 }
@@ -198,7 +194,6 @@ func (st *trackerState) resetForRescan() {
 	st.offset = 0
 	st.buf = ""
 	st.title = ""
-	st.subjects = st.subjects[:0]
 	st.insight = SessionInsight{}
 	st.model = ""
 	st.inputTokens = 0
@@ -226,18 +221,13 @@ func (st *trackerState) applyLine(line []byte) {
 	UpdateInsight(&st.insight, entries)
 }
 
-// applyMetaEntry handles the title / subjects branches. Note that
-// lastPrompt is NOT updated here — it's derived from the parentUuid
-// chain via activeLastPrompt() so that rewound user prompts are
-// transparently filtered out.
+// applyMetaEntry handles the title branch. Note that lastPrompt is NOT
+// updated here — it's derived from the parentUuid chain via
+// activeLastPrompt() so that rewound user prompts are transparently
+// filtered out.
 func (st *trackerState) applyMetaEntry(e Entry) {
-	switch e.Kind {
-	case KindCustomTitle:
+	if e.Kind == KindCustomTitle {
 		st.title = e.Text
-	case KindToolUse:
-		if e.ToolName == "TaskCreate" && e.ToolInput.Primary != "" {
-			st.subjects = appendBoundedUnique(st.subjects, e.ToolInput.Primary, maxSubjectsAgg)
-		}
 	}
 }
 
@@ -288,9 +278,6 @@ func FormatStatusLine(snap StatusSnapshot) string {
 	}
 	if snap.Insight.CurrentTool != "" {
 		parts = append(parts, "▸ "+snap.Insight.CurrentTool)
-	}
-	if snap.Insight.ErrorCount > 0 {
-		parts = append(parts, fmt.Sprintf("%d err", snap.Insight.ErrorCount))
 	}
 	if n := snap.Insight.SubagentTotal(); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d subs", n))

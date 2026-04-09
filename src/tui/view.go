@@ -163,15 +163,6 @@ func sessionCardLines(s *core.SessionInfo, textWidth int) []string {
 		lines = append(lines, mutedStyle.Render(truncate(subtitle, textWidth)))
 	}
 
-	const maxDisplaySubjects = 3
-	subjects := s.View.Card.Subjects
-	if len(subjects) > maxDisplaySubjects {
-		subjects = subjects[len(subjects)-maxDisplaySubjects:]
-	}
-	for _, subj := range subjects {
-		lines = append(lines, mutedStyle.Render("• "+truncate(subj, textWidth-2)))
-	}
-
 	if chips := renderIndicators(s); chips != "" {
 		lines = append(lines, chips)
 	}

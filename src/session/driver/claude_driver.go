@@ -72,11 +72,9 @@ type claudeDriver struct {
 	status         StatusInfo
 	title          string
 	lastPrompt     string
-	subjects       []string
 	statusLine     string
 	currentTool    string
 	subagentCounts map[string]int
-	errorCount     int
 	tickCounter    int
 
 	// Branch tag cache (see claude_branch.go)
@@ -329,10 +327,8 @@ func (d *claudeDriver) refreshMeta() {
 	defer d.mu.Unlock()
 	d.title = snap.Title
 	d.lastPrompt = snap.LastPrompt
-	d.subjects = append(d.subjects[:0], snap.Subjects...)
 	d.currentTool = snap.Insight.CurrentTool
 	d.subagentCounts = snap.Insight.SubagentCounts
-	d.errorCount = snap.Insight.ErrorCount
 	d.statusLine = line
 }
 
