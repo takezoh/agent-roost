@@ -55,14 +55,10 @@ func (d *claudeDriver) View() SessionView {
 		})
 	}
 
-	d.summaryMu.Lock()
-	subtitle := firstNonEmpty(d.summary, d.lastPrompt)
-	d.summaryMu.Unlock()
-
 	return SessionView{
 		Card: CardView{
 			Title:      d.title,
-			Subtitle:   subtitle,
+			Subtitle:   firstNonEmpty(d.summary, d.lastPrompt),
 			Tags:       tags,
 			Indicators: d.indicators(),
 		},
@@ -100,11 +96,8 @@ func (d *claudeDriver) infoExtras() []InfoLine {
 			lines = append(lines, InfoLine{Label: label, Value: value})
 		}
 	}
-	d.summaryMu.Lock()
-	summary := d.summary
-	d.summaryMu.Unlock()
 	add("Title", d.title)
-	add("Summary", summary)
+	add("Summary", d.summary)
 	add("Last Prompt", d.lastPrompt)
 	add("Working Dir", d.workingDir)
 	add("Transcript", d.transcriptPath)

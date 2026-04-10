@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/take/agent-roost/lib/claude/cli"
@@ -96,27 +95,27 @@ type claudeDriver struct {
 	branchAt     time.Time
 
 	// Summary state (see claude_summary.go). summary is the last haiku-
-	// generated session summary string shown as Card.Subtitle. summarizing
-	// is the in-flight guard so concurrent UserPromptSubmit hooks don't
-	// each spawn a duplicate summarizer.
+	// generated session summary string shown as Card.Subtitle.
+	// summarizing is the in-flight guard so concurrent UserPromptSubmit
+	// hooks don't each spawn a duplicate summarizer.
 	//
-	// summaryMu is the ONE mutex left in claudeDriver: the haiku worker
-	// runs in its own goroutine (off the driverActor), so the summary
-	// fields are touched from two goroutines and need explicit
-	// synchronization. Every other field on claudeDriver is single-
-	// threaded by virtue of the driverActor wrapper. The locking is
-	// extremely localized — only triggerSummaryAsync's in-flight read,
-	// runSummary's apply, View()'s subtitle read, and PersistedState /
-	// Restore touch it.
-	summaryMu   sync.Mutex
+	// No mutex: the haiku worker in runSummary calls summarizeFn (which
+	// touches neither field) and then forwards its result through
+	// actorSubmit. In production actorSubmit routes to the driverActor
+	// goroutine, so all reads and writes of summary / summarizing happen
+	// on a single goroutine. Tests install their own actorSubmit wrapper
+	// in testClaudeDriver (see claude_summary_test.go) that signals an
+	// apply-done channel; the test waits on that channel before reading
+	// the fields, which establishes the happens-before relation without
+	// any sync primitive on this production struct.
 	summary     string
 	summarizing bool
 
-	// actorSubmit, when non-nil, schedules fn to run on the wrapping
-	// driverActor's goroutine. Set by newDriverActor for production use,
-	// nil in tests that exercise the impl directly. The summary worker
-	// uses it to apply its result back inside the actor without taking
-	// any extra locks beyond summaryMu.
+	// actorSubmit is set by newDriverActor in production so runSummary's
+	// result lands on the actor goroutine. Tests install a signaling
+	// wrapper from *testClaudeDriver. It must be non-nil before any
+	// summary path runs; the assumption is that anyone exercising the
+	// summary flow wraps the impl appropriately.
 	actorSubmit func(fn func())
 
 	// Event log writer state (see claude_eventlog.go). Lazy file open;
@@ -314,11 +313,9 @@ func (d *claudeDriver) PersistedState() map[string]string {
 	if !d.branchAt.IsZero() {
 		out[claudeKeyBranchAt] = d.branchAt.UTC().Format(time.RFC3339)
 	}
-	d.summaryMu.Lock()
 	if d.summary != "" {
 		out[claudeKeySummary] = d.summary
 	}
-	d.summaryMu.Unlock()
 	return out
 }
 
@@ -345,9 +342,7 @@ func (d *claudeDriver) RestorePersistedState(state map[string]string) {
 		d.branchAt = at
 	}
 	if s, ok := state[claudeKeySummary]; ok {
-		d.summaryMu.Lock()
 		d.summary = s
-		d.summaryMu.Unlock()
 	}
 	// Pre-populate transcript meta so the UI shows the prior title/insight
 	// immediately on restart, without waiting for the first periodic tick.

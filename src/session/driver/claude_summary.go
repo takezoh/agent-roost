@@ -63,21 +63,22 @@ var summarizeFn = cli.SummarizeWithHaiku
 // as the synthetic latest entry.
 //
 // Concurrency: triggerSummaryAsync is invoked from HandleEvent which
-// runs on the driverActor goroutine. summaryMu protects the in-flight
-// guard against the off-actor runSummary worker that flips it back.
+// runs on the driverActor goroutine. All reads and writes of
+// d.summarizing / d.summary happen on that single goroutine, so the
+// in-flight guard is a plain boolean check with no mutex. The only
+// cross-goroutine access to these fields is runSummary's final apply,
+// which routes back through d.actorSubmit — in production that lands
+// on the driverActor goroutine, and in tests the installed wrapper
+// signals a channel the test waits on before reading the fields.
 func (d *claudeDriver) triggerSummaryAsync(hookPrompt string) {
-	d.summaryMu.Lock()
 	if d.summarizing {
-		d.summaryMu.Unlock()
 		return
 	}
-	prev := d.summary
-	d.summaryMu.Unlock()
-
 	csid := d.claudeSessionID
 	if csid == "" {
 		return
 	}
+	prev := d.summary
 
 	turns := d.tracker.RecentRounds(csid, summaryUserRoundLim)
 	turns = appendHookPromptTurn(turns, hookPrompt)
@@ -86,15 +87,7 @@ func (d *claudeDriver) triggerSummaryAsync(hookPrompt string) {
 	}
 	prompt := formatSummaryPrompt(prev, turns)
 
-	d.summaryMu.Lock()
-	if d.summarizing {
-		// A racing call won the slot while we were assembling the prompt.
-		d.summaryMu.Unlock()
-		return
-	}
 	d.summarizing = true
-	d.summaryMu.Unlock()
-
 	sessionID := d.sessionID
 	go d.runSummary(sessionID, prompt)
 }
@@ -121,19 +114,19 @@ func appendHookPromptTurn(turns []transcript.TurnText, hookPrompt string) []tran
 //
 // runSummary runs OFF the driverActor goroutine (it was launched via
 // `go` from triggerSummaryAsync). The haiku call is allowed to take
-// seconds; only the final state apply needs to land back on the actor
-// goroutine, which it does via d.actorSubmit. The actorSubmit hook is
-// nil in unit tests that exercise the impl directly — those callers
-// observe the apply inline so the test goroutine still sees consistent
-// state.
+// seconds; only the final state apply needs to land back where the
+// driver fields are serialized, which is accomplished via
+// d.actorSubmit. In production newDriverActor sets actorSubmit to the
+// actor's submit method so apply lands on the actor goroutine. Tests
+// install their own wrapper on *testClaudeDriver that signals an
+// apply-done channel; no mutex or WaitGroup is needed on this
+// production struct.
 func (d *claudeDriver) runSummary(sessionID, prompt string) {
 	ctx, cancel := context.WithTimeout(context.Background(), summaryTimeout)
 	defer cancel()
 	result, err := summarizeFn(ctx, prompt)
 
 	apply := func() {
-		d.summaryMu.Lock()
-		defer d.summaryMu.Unlock()
 		d.summarizing = false
 		if err != nil {
 			slog.Debug("claude driver: summary failed",
@@ -145,6 +138,12 @@ func (d *claudeDriver) runSummary(sessionID, prompt string) {
 		}
 		d.summary = result
 	}
+	// actorSubmit is always set by newDriverActor in production and by
+	// testClaudeDriver in tests that exercise the summary path. The nil
+	// branch is a defensive fallback for impl-direct tests that
+	// accidentally trip this code path — it runs apply inline (races
+	// with the test goroutine, which is why such tests should not
+	// exist).
 	if d.actorSubmit != nil {
 		d.actorSubmit(apply)
 	} else {

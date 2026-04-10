@@ -20,20 +20,64 @@ func (a *activeWindow) Project() string                    { return a.project }
 func (a *activeWindow) Active() bool                       { return a.active }
 func (a *activeWindow) RecentLines(_ int) (string, error)  { return "", nil }
 
-func newClaude(t *testing.T) *claudeDriver {
-	t.Helper()
-	return newClaudeImpl(Deps{})
+// testClaudeDriver is a test-only wrapper around *claudeDriver that
+// installs a signaling actorSubmit. The production struct has no
+// test-facing sync primitives; this wrapper hosts them instead so
+// tests can deterministically wait for runSummary's apply() to have
+// completed before reading driver fields from the test goroutine.
+//
+// Go struct embedding promotes every claudeDriver method and field,
+// so tests can keep writing `d.HandleEvent(...)`, `d.View()`,
+// `d.title = "..."`, etc. exactly as before.
+type testClaudeDriver struct {
+	*claudeDriver
+	// summaryApplied receives one token every time runSummary's apply
+	// closure finishes. Buffered so fast stubs don't block the runSummary
+	// goroutine; only tests that actually exercise the summary path need
+	// to drain it.
+	summaryApplied chan struct{}
 }
 
-func newClaudeWithSessionID(t *testing.T, sessionID string) *claudeDriver {
+func newClaude(t *testing.T) *testClaudeDriver {
 	t.Helper()
-	return newClaudeImpl(Deps{SessionID: sessionID})
+	return wrapClaude(t, newClaudeImpl(Deps{}))
+}
+
+func newClaudeWithSessionID(t *testing.T, sessionID string) *testClaudeDriver {
+	t.Helper()
+	return wrapClaude(t, newClaudeImpl(Deps{SessionID: sessionID}))
+}
+
+// wrapClaude installs the test-only actorSubmit on the impl and wires
+// up a cleanup that drains any undrained apply signals — protecting
+// against a summary goroutine that outlived the test racing the
+// t.Cleanup that restores summarizeFn.
+func wrapClaude(t *testing.T, impl *claudeDriver) *testClaudeDriver {
+	t.Helper()
+	applied := make(chan struct{}, 16)
+	impl.actorSubmit = func(fn func()) {
+		fn()
+		select {
+		case applied <- struct{}{}:
+		default:
+		}
+	}
+	t.Cleanup(func() {
+		for {
+			select {
+			case <-applied:
+			default:
+				return
+			}
+		}
+	})
+	return &testClaudeDriver{claudeDriver: impl, summaryApplied: applied}
 }
 
 // claudeTitle returns the driver's currently cached transcript title.
 // Tests use this in place of the removed Title() reader so the assertion
-// code stays terse without bypassing locking.
-func claudeTitle(d *claudeDriver) string {
+// code stays terse.
+func claudeTitle(d *testClaudeDriver) string {
 	return d.View().Card.Title
 }
 

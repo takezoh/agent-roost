@@ -8,12 +8,15 @@ import (
 
 func timeZero() time.Time { return time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC) }
 
-// newClaudeWithStubBranch builds a claudeDriver and replaces the default
-// git.DetectBranch with a counting stub. Tests use this to assert how often
-// branch detection runs without actually forking git.
-func newClaudeWithStubBranch(t *testing.T, fn func(string) string) (*claudeDriver, *int32) {
+// newClaudeWithStubBranch builds a claudeDriver wrapped in a
+// testClaudeDriver and replaces the default git.DetectBranch with a
+// counting stub. Tests use this to assert how often branch detection
+// runs without actually forking git. The test wrapper provides the
+// apply-done channel in case the test also happens to exercise the
+// summary path; branch-only tests simply ignore it.
+func newClaudeWithStubBranch(t *testing.T, fn func(string) string) (*testClaudeDriver, *int32) {
 	t.Helper()
-	d := newClaudeImpl(Deps{})
+	d := wrapClaude(t, newClaudeImpl(Deps{}))
 	var calls int32
 	d.detectBranch = func(dir string) string {
 		atomic.AddInt32(&calls, 1)

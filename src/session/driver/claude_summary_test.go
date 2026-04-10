@@ -15,16 +15,24 @@ import (
 // stubSummarizer is a goroutine-safe seam used to swap out the real haiku
 // invocation in tests. It records every call and either returns a canned
 // reply or blocks on a release channel so tests can observe the in-flight
-// state.
+// state. The `started` channel (if non-nil) is closed on the first fn
+// invocation so callers can wait deterministically for the summarizer
+// goroutine to actually be inside the stub before making further
+// assertions — no polling / no mutex peeks at driver state required.
 type stubSummarizer struct {
-	mu      sync.Mutex
-	calls   []string
-	reply   string
-	err     error
-	release chan struct{}
+	mu         sync.Mutex
+	calls      []string
+	reply      string
+	err        error
+	release    chan struct{}
+	started    chan struct{}
+	startedOnce sync.Once
 }
 
 func (s *stubSummarizer) fn(_ context.Context, prompt string) (string, error) {
+	if s.started != nil {
+		s.startedOnce.Do(func() { close(s.started) })
+	}
 	if s.release != nil {
 		<-s.release
 	}
@@ -95,9 +103,13 @@ func TestClaudeDriver_SummaryFiresOnUserPromptSubmit(t *testing.T) {
 		t.Fatal("event should be consumed")
 	}
 
-	// triggerSummaryAsync runs in a goroutine, so wait briefly for it.
-	if !waitFor(t, 500*time.Millisecond, func() bool { return stub.callCount() == 1 }) {
-		t.Fatalf("summarizer was not called within timeout (calls=%d)", stub.callCount())
+	// runSummary was spawned in a goroutine; the test-only
+	// summaryApplied channel (installed by wrapClaude) carries a token
+	// once apply() has run, giving us a happens-before edge to its
+	// state writes. No polling or mutex needed.
+	<-d.summaryApplied
+	if stub.callCount() != 1 {
+		t.Fatalf("summarizer was not called (calls=%d)", stub.callCount())
 	}
 	prompt := stub.lastCall()
 	if !strings.Contains(prompt, "explain the driver") {
@@ -110,11 +122,10 @@ func TestClaudeDriver_SummaryFiresOnUserPromptSubmit(t *testing.T) {
 		t.Errorf("prompt missing assistant turn: %q", prompt)
 	}
 
-	// Wait for the result to land on d.summary.
-	if !waitFor(t, 500*time.Millisecond, func() bool {
-		return d.View().Card.Subtitle == "セッション要約を実装中"
-	}) {
-		t.Errorf("summary did not propagate to Card.Subtitle, got %q", d.View().Card.Subtitle)
+	// The summaryApplied receive already happened above; apply() has
+	// written d.summary so this read is race-free.
+	if got := d.View().Card.Subtitle; got != "セッション要約を実装中" {
+		t.Errorf("summary did not propagate to Card.Subtitle, got %q", got)
 	}
 }
 
@@ -143,7 +154,8 @@ func TestClaudeDriver_SummaryDoesNotFireOnPreToolUse(t *testing.T) {
 
 func TestClaudeDriver_SummaryDropsOverlappingCalls(t *testing.T) {
 	release := make(chan struct{})
-	stub := &stubSummarizer{reply: "first", release: release}
+	started := make(chan struct{})
+	stub := &stubSummarizer{reply: "first", release: release, started: started}
 	withStubSummarizer(t, stub)
 
 	d := newClaude(t)
@@ -158,31 +170,38 @@ func TestClaudeDriver_SummaryDropsOverlappingCalls(t *testing.T) {
 		},
 	}
 
-	// First call: enters the stub and blocks on `release`.
+	// First call: spawns runSummary which enters the stub and blocks on
+	// `release`. triggerSummaryAsync set d.summarizing = true synchronously
+	// on this goroutine, so after HandleEvent returns we can read it
+	// directly — no polling / no mutex. We still wait on stub.started to
+	// prove the goroutine actually reached the summarizer (protecting
+	// against a silent regression where triggerSummaryAsync stops
+	// launching the goroutine at all).
 	d.HandleEvent(ev)
-	if !waitFor(t, 500*time.Millisecond, func() bool {
-		d.summaryMu.Lock()
-		defer d.summaryMu.Unlock()
-		return d.summarizing
-	}) {
+	select {
+	case <-started:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("stub was not entered — first summarizer never started")
+	}
+	if !d.summarizing {
 		t.Fatal("first summarizer should be in flight")
 	}
 
-	// Second call while first is still blocked: must be dropped.
+	// Second call while first is still blocked: must be dropped by the
+	// in-flight guard. triggerSummaryAsync runs on the same goroutine as
+	// this test, so no race on d.summarizing.
 	d.HandleEvent(ev)
 
-	// Release the first call and let it complete.
+	// Release the first call and wait for runSummary to completely
+	// finish via the WaitGroup — this gives us a happens-before edge
+	// that makes the subsequent d.summarizing read race-free.
 	close(release)
-	if !waitFor(t, 500*time.Millisecond, func() bool { return stub.callCount() == 1 }) {
+	<-d.summaryApplied
+
+	if stub.callCount() != 1 {
 		t.Fatalf("expected exactly 1 call, got %d", stub.callCount())
 	}
-
-	// Cleanly verify the in-flight flag cleared.
-	if !waitFor(t, 500*time.Millisecond, func() bool {
-		d.summaryMu.Lock()
-		defer d.summaryMu.Unlock()
-		return !d.summarizing
-	}) {
+	if d.summarizing {
 		t.Error("summarizing flag did not clear after completion")
 	}
 }
@@ -254,9 +273,7 @@ func TestClaudeDriver_PersistedStateIncludesSummary(t *testing.T) {
 // going blank until the next user prompt arrives.
 func TestClaudeDriver_SubtitleFallsBackToLastPrompt(t *testing.T) {
 	d := newClaude(t)
-	d.summaryMu.Lock()
 	d.summary = ""
-	d.summaryMu.Unlock()
 	d.lastPrompt = "make tests pass"
 	if got := d.View().Card.Subtitle; got != "make tests pass" {
 		t.Errorf("subtitle = %q, want fallback to lastPrompt", got)
@@ -265,9 +282,7 @@ func TestClaudeDriver_SubtitleFallsBackToLastPrompt(t *testing.T) {
 
 func TestClaudeDriver_SubtitleSummaryOverridesLastPrompt(t *testing.T) {
 	d := newClaude(t)
-	d.summaryMu.Lock()
 	d.summary = "fix flaky tests"
-	d.summaryMu.Unlock()
 	d.lastPrompt = "make tests pass"
 	if got := d.View().Card.Subtitle; got != "fix flaky tests" {
 		t.Errorf("subtitle = %q, want summary to win over lastPrompt", got)
@@ -281,8 +296,8 @@ func TestClaudeDriver_SubtitleSummaryOverridesLastPrompt(t *testing.T) {
 // before haiku has produced a summary.
 func TestClaudeDriver_HookPromptSeedsLastPrompt(t *testing.T) {
 	// Stub the summarizer so HandleEvent doesn't try to spawn a real
-	// claude subprocess. We don't care about the summary here — only that
-	// d.lastPrompt is populated synchronously inside HandleEvent.
+	// claude subprocess. We don't care about the summary here — only
+	// that d.lastPrompt is populated synchronously inside HandleEvent.
 	stub := &stubSummarizer{reply: ""}
 	withStubSummarizer(t, stub)
 
@@ -295,17 +310,14 @@ func TestClaudeDriver_HookPromptSeedsLastPrompt(t *testing.T) {
 			"hook_event_json": `{"session_id":"fresh","hook_event_name":"UserPromptSubmit","prompt":"hello world"}`,
 		},
 	})
+	// Wait for the background summarizer goroutine HandleEvent spawned
+	// so its apply() (which writes d.summarizing) has completed before
+	// we read any field from the test goroutine. Also prevents a leaked
+	// goroutine from racing with the t.Cleanup that restores summarizeFn.
+	<-d.summaryApplied
 	if got := d.View().Card.Subtitle; got != "hello world" {
 		t.Errorf("subtitle = %q, want hook prompt seeded into lastPrompt", got)
 	}
-	// Wait for the background summarizer goroutine HandleEvent kicked off
-	// to settle, otherwise it will race the t.Cleanup that restores
-	// summarizeFn.
-	waitFor(t, 500*time.Millisecond, func() bool {
-		d.summaryMu.Lock()
-		defer d.summaryMu.Unlock()
-		return !d.summarizing
-	})
 }
 
 // TestClaudeDriver_RefreshMetaPreservesSeededLastPrompt ensures that an
@@ -402,16 +414,15 @@ func TestClaudeDriver_SummaryFiresOnFirstPromptViaHookOnly(t *testing.T) {
 		t.Fatal("event should be consumed")
 	}
 
-	if !waitFor(t, 500*time.Millisecond, func() bool { return stub.callCount() == 1 }) {
+	<-d.summaryApplied
+	if stub.callCount() != 1 {
 		t.Fatalf("summarizer not called: calls=%d", stub.callCount())
 	}
 	if !strings.Contains(stub.lastCall(), "最初のプロンプト") {
 		t.Errorf("hook prompt missing from summarizer input: %q", stub.lastCall())
 	}
-	if !waitFor(t, 500*time.Millisecond, func() bool {
-		return d.View().Card.Subtitle == "新規セッション要約"
-	}) {
-		t.Errorf("subtitle = %q, want %q", d.View().Card.Subtitle, "新規セッション要約")
+	if got := d.View().Card.Subtitle; got != "新規セッション要約" {
+		t.Errorf("subtitle = %q, want %q", got, "新規セッション要約")
 	}
 }
 
