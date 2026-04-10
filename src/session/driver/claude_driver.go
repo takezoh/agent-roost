@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/take/agent-roost/lib/claude/cli"
+	"github.com/take/agent-roost/lib/claude/hookevent"
 	"github.com/take/agent-roost/lib/claude/transcript"
 	"github.com/take/agent-roost/lib/git"
 )
@@ -40,6 +41,10 @@ const (
 	claudeKeyBranchTag       = "branch_tag"
 	claudeKeyBranchTarget    = "branch_target"
 	claudeKeyBranchAt        = "branch_at"
+	// claudeKeyHookEventJSON carries the raw hook payload bytes from the
+	// hook bridge so the driver can inspect fields beyond the pre-derived
+	// Status (e.g. hook_event_name). Volatile — not persisted.
+	claudeKeyHookEventJSON = "hook_event_json"
 
 	// Refresh transcript metadata every N ticks (~5 seconds at 1 Hz).
 	claudeMetaRefreshTicks = 5
@@ -77,10 +82,23 @@ type claudeDriver struct {
 	subagentCounts map[string]int
 	tickCounter    int
 
+	// lastHookEvent is the most recent hook payload received from the
+	// bridge, parsed from claudeKeyHookEventJSON. Read-only after
+	// absorbDriverStateLocked. Volatile: cleared on parse failure, never
+	// persisted across restarts.
+	lastHookEvent hookevent.HookEvent
+
 	// Branch tag cache (see claude_branch.go)
 	branchTag    string
 	branchTarget string
 	branchAt     time.Time
+
+	// Summary state (see claude_summary.go). summary is the last haiku-
+	// generated session summary string shown as Card.Subtitle. summarizing
+	// is the in-flight guard so concurrent UserPromptSubmit hooks don't
+	// each spawn a duplicate summarizer.
+	summary     string
+	summarizing bool
 
 	// Event log writer state (see claude_eventlog.go)
 	eventLogMu sync.Mutex
@@ -182,11 +200,30 @@ func (d *claudeDriver) HandleEvent(ev AgentEvent) bool {
 		prev := d.status.Status
 		d.absorbDriverStateLocked(ev.DriverState)
 		d.status = StatusInfo{Status: status, ChangedAt: time.Now()}
+		// UserPromptSubmit is the only state-change that should trigger a
+		// new haiku summary refresh. PreToolUse / PostToolUse / Stop also
+		// arrive as state changes but we don't want to re-summarize on each
+		// tool tick — only when the user themselves has just spoken. Capture
+		// the hook prompt and the isUserPrompt flag while still holding the
+		// lock so a racing HandleEvent (separate goroutine per IPC client)
+		// can't overwrite lastHookEvent before we read it. Also seed
+		// d.lastPrompt from the hook now so subsequent View() calls see it
+		// without waiting for refreshMeta to fold the new turn into the
+		// JSONL — Claude often writes the prompt to the file *after* firing
+		// the hook.
+		isUserPrompt := d.lastHookEvent.HookEventName == "UserPromptSubmit"
+		hookPrompt := d.lastHookEvent.Prompt
+		if isUserPrompt && hookPrompt != "" {
+			d.lastPrompt = hookPrompt
+		}
 		d.mu.Unlock()
 		slog.Debug("claude driver: state change",
 			"session", d.sessionID, "from", prev.String(),
 			"to", status.String(), "log", ev.Log)
 		d.refreshMeta()
+		if isUserPrompt {
+			d.triggerSummaryAsync(hookPrompt)
+		}
 		logLine := ev.Log
 		if logLine == "" {
 			logLine = ev.State
@@ -210,6 +247,20 @@ func (d *claudeDriver) absorbDriverStateLocked(ds map[string]string) {
 	}
 	if v, ok := ds[claudeKeyTranscriptPath]; ok && v != "" {
 		d.transcriptPath = v
+	}
+	if v, ok := ds[claudeKeyHookEventJSON]; ok && v != "" {
+		ev, err := hookevent.ParseHookEvent([]byte(v))
+		if err != nil {
+			// Fail open: the bridge already pre-derived Status, so a
+			// malformed payload only loses the auxiliary inspection
+			// surface. Drop the previous parse so callers don't read
+			// stale data.
+			slog.Debug("claude driver: hook_event_json parse failed",
+				"session", d.sessionID, "err", err)
+			d.lastHookEvent = hookevent.HookEvent{}
+		} else {
+			d.lastHookEvent = ev
+		}
 	}
 }
 
@@ -259,6 +310,9 @@ func (d *claudeDriver) PersistedState() map[string]string {
 	if !d.branchAt.IsZero() {
 		out[claudeKeyBranchAt] = d.branchAt.UTC().Format(time.RFC3339)
 	}
+	if d.summary != "" {
+		out[claudeKeySummary] = d.summary
+	}
 	return out
 }
 
@@ -284,6 +338,9 @@ func (d *claudeDriver) RestorePersistedState(state map[string]string) {
 	d.branchTarget = state[claudeKeyBranchTarget]
 	if at, err := time.Parse(time.RFC3339, state[claudeKeyBranchAt]); err == nil {
 		d.branchAt = at
+	}
+	if s, ok := state[claudeKeySummary]; ok {
+		d.summary = s
 	}
 	d.mu.Unlock()
 	// Pre-populate transcript meta so the UI shows the prior title/insight
@@ -326,7 +383,13 @@ func (d *claudeDriver) refreshMeta() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.title = snap.Title
-	d.lastPrompt = snap.LastPrompt
+	// Only overwrite lastPrompt when the tracker actually found a user
+	// entry. snap.LastPrompt is "" briefly on a brand-new session before
+	// Claude has flushed the first prompt to JSONL — clobbering would
+	// erase the value we just seeded from the hook payload in HandleEvent.
+	if snap.LastPrompt != "" {
+		d.lastPrompt = snap.LastPrompt
+	}
 	d.currentTool = snap.Insight.CurrentTool
 	d.subagentCounts = snap.Insight.SubagentCounts
 	d.statusLine = line

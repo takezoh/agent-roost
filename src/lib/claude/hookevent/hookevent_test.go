@@ -1,4 +1,4 @@
-package claude
+package hookevent
 
 import "testing"
 
@@ -29,6 +29,17 @@ func TestParseHookEvent_Invalid(t *testing.T) {
 	_, err := ParseHookEvent([]byte("not json"))
 	if err == nil {
 		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestParseHookEvent_UserPromptSubmitCarriesPrompt(t *testing.T) {
+	input := `{"session_id":"abc","hook_event_name":"UserPromptSubmit","prompt":"テストプロンプト"}`
+	event, err := ParseHookEvent([]byte(input))
+	if err != nil {
+		t.Fatalf("ParseHookEvent: %v", err)
+	}
+	if event.Prompt != "テストプロンプト" {
+		t.Errorf("Prompt = %q, want %q", event.Prompt, "テストプロンプト")
 	}
 }
 

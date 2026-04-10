@@ -11,7 +11,12 @@ import (
 //
 // Card content:
 //   - Title    = transcript title (set by refreshMeta)
-//   - Subtitle = last user prompt (set by refreshMeta)
+//   - Subtitle = haiku-generated session summary, falling back to
+//                lastPrompt while haiku is still computing or hasn't run
+//                yet. lastPrompt is now seeded from the UserPromptSubmit
+//                hook payload directly (HandleEvent), so it is populated
+//                even on the first turn of a brand-new session before
+//                Claude has flushed anything to JSONL.
 //   - Tags     = [CommandTag("claude"), BranchTag(branch?)]
 //   - Indicators = derived from transcript insight
 //
@@ -52,7 +57,7 @@ func (d *claudeDriver) View() SessionView {
 	return SessionView{
 		Card: CardView{
 			Title:      d.title,
-			Subtitle:   d.lastPrompt,
+			Subtitle:   firstNonEmpty(d.summary, d.lastPrompt),
 			Tags:       tags,
 			Indicators: d.indicatorsLocked(),
 		},
@@ -92,8 +97,21 @@ func (d *claudeDriver) infoExtrasLocked() []InfoLine {
 		}
 	}
 	add("Title", d.title)
+	add("Summary", d.summary)
 	add("Last Prompt", d.lastPrompt)
 	add("Working Dir", d.workingDir)
 	add("Transcript", d.transcriptPath)
 	return lines
+}
+
+// firstNonEmpty returns the first non-empty string from its arguments,
+// or "" when none qualify. Used by View() to fall back through ordered
+// candidates (e.g. summary → lastPrompt) without nested ternaries.
+func firstNonEmpty(candidates ...string) string {
+	for _, s := range candidates {
+		if s != "" {
+			return s
+		}
+	}
+	return ""
 }

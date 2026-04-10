@@ -159,8 +159,17 @@ func sessionCardLines(s *core.SessionInfo, textWidth int) []string {
 
 	lines := []string{prefix + titleStr}
 
+	// Subtitle may carry an embedded newline-separated multi-line summary.
+	// Split and render each line independently so haiku-generated 2-3 line
+	// summaries get a row each instead of a literal "\n" rendered onto one
+	// line.
 	if subtitle := s.View.Card.Subtitle; subtitle != "" {
-		lines = append(lines, mutedStyle.Render(truncate(subtitle, textWidth)))
+		for _, sub := range strings.Split(subtitle, "\n") {
+			if sub == "" {
+				continue
+			}
+			lines = append(lines, mutedStyle.Render(truncate(sub, textWidth)))
+		}
 	}
 
 	if chips := renderIndicators(s); chips != "" {

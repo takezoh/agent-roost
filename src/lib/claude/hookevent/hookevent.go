@@ -1,4 +1,8 @@
-package claude
+// Package hookevent defines the wire-format types and helpers for Claude
+// Code hook payloads. It is intentionally a leaf package (no dependencies on
+// session/driver) so it can be imported by both the hook bridge in lib/claude
+// and the Claude driver in session/driver without creating an import cycle.
+package hookevent
 
 import (
 	"encoding/json"
@@ -16,6 +20,12 @@ type HookEvent struct {
 	NotificationType string         `json:"notification_type"`
 	ToolName         string         `json:"tool_name"`
 	ToolInput        map[string]any `json:"tool_input"`
+	// Prompt is set on UserPromptSubmit events and carries the raw text
+	// the user just submitted. Empty for every other hook type. Roost
+	// uses this so summarization can run on the FIRST prompt of a fresh
+	// session — at hook time the prompt has not yet been written to the
+	// JSONL transcript, so the tracker would otherwise see nothing.
+	Prompt string `json:"prompt"`
 }
 
 // FormatLog returns a human-readable log line for the event.

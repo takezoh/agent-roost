@@ -305,6 +305,103 @@ func TestTracker_HandlesFileTruncation(t *testing.T) {
 	}
 }
 
+func TestTracker_RecentRoundsWalksUserBoundaries(t *testing.T) {
+	// Two user prompts with assistant text + tool-use loop in between.
+	// userTurns=2 should return everything from u1 onwards. The synthetic
+	// tool_result user lines and the pure tool_use entries must NOT appear.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sess.jsonl")
+	writeJSONL(t, path, `{"type":"user","uuid":"u1","parentUuid":null,"message":{"content":"first prompt"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","message":{"content":[{"type":"text","text":"reading"},{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"/x"}}]}}
+{"type":"user","uuid":"r1","parentUuid":"a1","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"file body"}]}}
+{"type":"assistant","uuid":"a2","parentUuid":"r1","message":{"content":[{"type":"text","text":"found it"}]}}
+{"type":"user","uuid":"u2","parentUuid":"a2","message":{"content":"second prompt"}}
+`)
+	tr := NewTracker()
+	if _, err := tr.Update("sess", path); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	got := tr.RecentRounds("sess", 2)
+	want := []TurnText{
+		{Role: "user", Text: "first prompt"},
+		{Role: "assistant", Text: "reading"},
+		{Role: "assistant", Text: "found it"},
+		{Role: "user", Text: "second prompt"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("RecentRounds len = %d, want %d (%+v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("RecentRounds[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestTracker_RecentRoundsLimitsToK(t *testing.T) {
+	// Three real user turns. RecentRounds(2) should drop the first one.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sess.jsonl")
+	writeJSONL(t, path, `{"type":"user","uuid":"u1","parentUuid":null,"message":{"content":"one"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","message":{"content":[{"type":"text","text":"r1"}]}}
+{"type":"user","uuid":"u2","parentUuid":"a1","message":{"content":"two"}}
+{"type":"assistant","uuid":"a2","parentUuid":"u2","message":{"content":[{"type":"text","text":"r2"}]}}
+{"type":"user","uuid":"u3","parentUuid":"a2","message":{"content":"three"}}
+`)
+	tr := NewTracker()
+	if _, err := tr.Update("sess", path); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	got := tr.RecentRounds("sess", 2)
+	want := []TurnText{
+		{Role: "user", Text: "two"},
+		{Role: "assistant", Text: "r2"},
+		{Role: "user", Text: "three"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("RecentRounds len = %d, want %d (%+v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("RecentRounds[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestTracker_RecentRoundsEmptyOnUnknownSession(t *testing.T) {
+	tr := NewTracker()
+	if got := tr.RecentRounds("missing", 2); got != nil {
+		t.Errorf("expected nil for unknown session, got %+v", got)
+	}
+}
+
+func TestTracker_RecentRoundsResetOnTruncation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sess.jsonl")
+	writeJSONL(t, path, `{"type":"user","uuid":"u1","parentUuid":null,"message":{"content":"first"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","message":{"content":[{"type":"text","text":"reply"}]}}
+`)
+	tr := NewTracker()
+	if _, err := tr.Update("sess", path); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+	if got := tr.RecentRounds("sess", 1); len(got) != 2 {
+		t.Fatalf("setup: expected 2 entries before truncation, got %+v", got)
+	}
+	// Truncate (rewind via /resume).
+	writeJSONL(t, path, `{"type":"user","uuid":"u9","parentUuid":null,"message":{"content":"only"}}
+`)
+	if _, err := tr.Update("sess", path); err != nil {
+		t.Fatalf("re-update: %v", err)
+	}
+	got := tr.RecentRounds("sess", 1)
+	if len(got) != 1 || got[0].Text != "only" {
+		t.Errorf("post-truncation RecentRounds = %+v, want only the new entry", got)
+	}
+}
+
 func TestTracker_ForgetReleasesState(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "sess.jsonl")
