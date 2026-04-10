@@ -116,12 +116,24 @@ func (d ClaudeDriver) SpawnCommand(s state.DriverState, baseCommand string) stri
 	if !ok || cs.ClaudeSessionID == "" {
 		return baseCommand
 	}
-	// We assume baseCommand starts with "claude" — if it carries flags
-	// already, drop --resume so users don't get duplicate flags.
 	if strings.Contains(baseCommand, "--resume") {
 		return baseCommand
 	}
+	// Validate the session ID to prevent shell injection — Claude
+	// session IDs are UUIDs so only alphanumerics and hyphens.
+	if !isAlphanumHyphen(cs.ClaudeSessionID) {
+		return baseCommand
+	}
 	return baseCommand + " --resume " + cs.ClaudeSessionID
+}
+
+func isAlphanumHyphen(s string) bool {
+	for _, c := range s {
+		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return false
+		}
+	}
+	return len(s) > 0
 }
 
 // Step is the pure reducer for the Claude driver. The hook event

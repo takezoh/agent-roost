@@ -30,7 +30,7 @@ type FileRelay struct {
 	rt      *Runtime
 
 	stop    chan struct{}
-	stopped chan struct{}
+	wg      sync.WaitGroup
 }
 
 type relayFile struct {
@@ -54,8 +54,8 @@ func NewFileRelay(rt *Runtime) (*FileRelay, error) {
 		files:   map[string]*relayFile{},
 		rt:      rt,
 		stop:    make(chan struct{}),
-		stopped: make(chan struct{}),
 	}
+	fr.wg.Add(2)
 	go fr.watchLoop()
 	go fr.sweepLoop()
 	return fr, nil
@@ -86,10 +86,10 @@ func (fr *FileRelay) Unwatch(path string) {
 	}
 }
 
-// Close shuts down the relay.
+// Close shuts down the relay, waiting for both goroutines to exit.
 func (fr *FileRelay) Close() {
 	close(fr.stop)
-	<-fr.stopped
+	fr.wg.Wait()
 	fr.watcher.Close()
 }
 
@@ -121,6 +121,7 @@ func (fr *FileRelay) add(path string, sessionID state.SessionID, kind string) {
 
 // watchLoop listens for fsnotify events and marks files as dirty.
 func (fr *FileRelay) watchLoop() {
+	defer fr.wg.Done()
 	for {
 		select {
 		case <-fr.stop:
@@ -148,7 +149,7 @@ func (fr *FileRelay) watchLoop() {
 
 // sweepLoop runs every relaySweepInterval and reads all dirty files.
 func (fr *FileRelay) sweepLoop() {
-	defer close(fr.stopped)
+	defer fr.wg.Done()
 	ticker := time.NewTicker(relaySweepInterval)
 	defer ticker.Stop()
 	for {

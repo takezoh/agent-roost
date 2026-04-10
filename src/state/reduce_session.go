@@ -234,24 +234,11 @@ func reduceLaunchTool(s State, e EvCmdLaunchTool) (State, []Effect) {
 		EffDisplayPopup{
 			Width:  "60%",
 			Height: "50%",
-			Cmd:    formatPaletteCmd(e.Tool, e.Args),
+			Tool:   e.Tool,
+			Args:   e.Args,
 		},
 		okResp(e.ConnID, e.ReqID, nil),
 	}
-}
-
-// formatPaletteCmd builds the popup command string for a tool launch.
-// Format: "<exe-placeholder> --tui palette --tool=<name> --arg=k=v ..."
-// The runtime resolves the executable path placeholder.
-func formatPaletteCmd(tool string, args map[string]string) string {
-	cmd := "{roostExe} --tui palette --tool=" + tool
-	for k, v := range args {
-		if v == "" {
-			continue
-		}
-		cmd += " --arg=" + k + "=" + v
-	}
-	return cmd
 }
 
 // === Swap-chain builders ===

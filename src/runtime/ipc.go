@@ -58,6 +58,13 @@ func (r *Runtime) StartIPC(sockPath string) error {
 	if err != nil {
 		return fmt.Errorf("runtime: listen %s: %w", sockPath, err)
 	}
+	// Restrict socket to owner only — roost controls tmux session
+	// lifecycle, so unauthenticated local access = arbitrary command
+	// execution.
+	if err := os.Chmod(sockPath, 0o600); err != nil {
+		ln.Close()
+		return fmt.Errorf("runtime: chmod %s: %w", sockPath, err)
+	}
 	r.listener = ln
 	slog.Info("runtime: ipc listening", "sock", sockPath)
 	go r.acceptLoop()

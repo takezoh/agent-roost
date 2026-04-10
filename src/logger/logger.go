@@ -1,3 +1,7 @@
+// Package logger initializes the global slog handler. Init or
+// InitWithDataDir must be called exactly once at program startup
+// before any goroutines are spawned — the package globals are not
+// synchronized for concurrent access.
 package logger
 
 import (
@@ -8,9 +12,8 @@ import (
 )
 
 var (
-	logFile    *os.File
-	logPath    string
-	dataDir    string
+	logFile *os.File
+	logPath string
 )
 
 // LogFilePath returns the on-disk path of the global daemon log file.
@@ -39,7 +42,6 @@ func InitWithDataDir(level, dir string) error {
 		home, _ := os.UserHomeDir()
 		dir = filepath.Join(home, ".config", "roost")
 	}
-	dataDir = dir
 	logPath = filepath.Join(dir, "roost.log")
 	os.MkdirAll(dir, 0o755)
 

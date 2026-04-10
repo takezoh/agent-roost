@@ -118,7 +118,7 @@ func (c *Client) Detach() error {
 // Caller picks the timeout — hook bridges typically use a short bound
 // since they should not stall claude-side hook execution.
 func (c *Client) SendHook(driverName, eventName, sessionID string, payload map[string]any) error {
-	return c.SendNoWaitWithTimeout(CmdHook{
+	return c.SendWithTimeout(CmdHook{
 		Driver:    driverName,
 		Event:     eventName,
 		SessionID: sessionID,

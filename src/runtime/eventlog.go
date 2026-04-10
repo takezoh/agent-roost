@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,6 +43,9 @@ func NewFileEventLog(dataDir string) *FileEventLog {
 // prefixed with an RFC3339 timestamp. Lazy-opens the file on first
 // call.
 func (f *FileEventLog) Append(sessionID state.SessionID, line string) error {
+	if strings.ContainsAny(string(sessionID), `/\.`) {
+		return fmt.Errorf("eventlog: invalid session id: %q", sessionID)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 

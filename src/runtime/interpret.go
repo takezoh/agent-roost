@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -88,7 +89,7 @@ func (r *Runtime) execute(eff state.Effect) {
 		}
 
 	case state.EffDisplayPopup:
-		cmd := substitutePlaceholdersString(e.Cmd, r.cfg.SessionName, r.cfg.RoostExe)
+		cmd := buildPaletteCmd(r.cfg.RoostExe, e.Tool, e.Args)
 		if err := r.cfg.Tmux.DisplayPopup(e.Width, e.Height, cmd); err != nil {
 			slog.Error("runtime: display-popup failed", "err", err)
 		}
@@ -145,6 +146,9 @@ func (r *Runtime) execute(eff state.Effect) {
 			Kind:  e.Kind,
 			Input: e.Input,
 		})
+
+	default:
+		slog.Warn("runtime: unhandled effect type", "type", fmt.Sprintf("%T", eff))
 	}
 }
 
@@ -208,6 +212,28 @@ func substitutePlaceholdersString(s, sessionName, roostExe string) string {
 	s = strings.ReplaceAll(s, "{sessionName}", sessionName)
 	s = strings.ReplaceAll(s, "{roostExe}", roostExe)
 	return s
+}
+
+// buildPaletteCmd constructs the display-popup command string for a
+// palette tool invocation. Tool name and arg values are single-quoted
+// to prevent shell injection — the only way user input reaches a
+// shell is through this function.
+func buildPaletteCmd(roostExe, tool string, args map[string]string) string {
+	cmd := shellQuote(roostExe) + " --tui palette --tool=" + shellQuote(tool)
+	for k, v := range args {
+		if v == "" {
+			continue
+		}
+		cmd += " --arg=" + shellQuote(k+"="+v)
+	}
+	return cmd
+}
+
+// shellQuote wraps s in single quotes with internal single quotes
+// escaped as '\''. This is the POSIX-portable way to prevent shell
+// interpretation of any character in s.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // snapshotSessions converts the current state.Sessions map into the

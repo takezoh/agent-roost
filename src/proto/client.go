@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"sync"
 	"time"
@@ -142,11 +141,11 @@ func (c *Client) SendNoWait(cmd Command) error {
 	return c.writeFrame(wire)
 }
 
-// SendNoWaitWithTimeout is the bounded version — waits up to timeout
+// SendWithTimeout is the bounded version — waits up to timeout
 // for a response, but returns nil on success without parsing the
 // body. Used by `roost claude event` so the hook bridge knows the
 // daemon accepted the event.
-func (c *Client) SendNoWaitWithTimeout(cmd Command, timeout time.Duration) error {
+func (c *Client) SendWithTimeout(cmd Command, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	_, err := c.Send(ctx, cmd)
@@ -172,17 +171,8 @@ func (c *Client) read() {
 	defer close(c.events)
 	dec := json.NewDecoder(c.conn)
 	for {
-		select {
-		case <-c.closed:
-			return
-		default:
-		}
 		var env Envelope
 		if err := dec.Decode(&env); err != nil {
-			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
-				// Best effort: log via stderr if needed; we can't
-				// import slog here without coupling.
-			}
 			return
 		}
 		c.dispatch(env)
@@ -218,7 +208,11 @@ func (c *Client) dispatchResponse(env Envelope) {
 	}
 
 	if env.Status == StatusError {
-		ch <- inFlight{Err: env.Error}
+		errBody := env.Error
+		if errBody == nil {
+			errBody = &ErrorBody{Code: ErrUnknown, Message: "server returned error without body"}
+		}
+		ch <- inFlight{Err: errBody}
 		return
 	}
 

@@ -126,6 +126,16 @@ func runCoordinator() {
 	}
 	slog.Info("server started", "sock", sockPath)
 
+	// Start the FileRelay so log/transcript/event files are pushed
+	// to TUI subscribers instead of the TUI polling them.
+	relay, err := runtime.NewFileRelay(rt)
+	if err != nil {
+		slog.Warn("filerelay: start failed, TUI will show backfill only", "err", err)
+	} else {
+		defer relay.Close()
+		relay.WatchLog(logger.LogFilePath())
+	}
+
 	respawnSessionsPane(client, sessionName)
 	respawnLogPane(client, sessionName)
 
@@ -135,7 +145,7 @@ func runCoordinator() {
 	cancel()
 	<-rt.Done()
 
-	if rt.State().ShutdownReq {
+	if rt.ShutdownRequested() {
 		slog.Info("shutdown requested, killing tmux session")
 		client.KillSession()
 	} else {

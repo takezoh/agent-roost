@@ -180,7 +180,11 @@ func (m LogModel) handleLogEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 	case proto.EvtPaneFocused:
 		if e.Pane == mainPane {
 			if idx, ok := m.tabIndexByLabel("TRANSCRIPT"); ok {
-				m.switchToTab(idx)
+				cmd := m.switchToTabCmd(idx)
+				if m.client != nil {
+					return m, tea.Batch(m.listenEvents(), cmd)
+				}
+				return m, cmd
 			}
 		}
 	case proto.EvtLogLine:
@@ -225,7 +229,8 @@ func pickActiveSession(sessions []proto.SessionInfo, activeWID string) *proto.Se
 func (m LogModel) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
 	if mouse.Y == 0 && mouse.Button == tea.MouseLeft {
-		m.switchToTab(m.tabIndexAtX(mouse.X))
+		cmd := m.switchToTabCmd(m.tabIndexAtX(mouse.X))
+		return m, cmd
 	}
 	return m, nil
 }

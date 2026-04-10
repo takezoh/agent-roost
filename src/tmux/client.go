@@ -142,8 +142,8 @@ func (c *Client) RunChain(commands ...[]string) error {
 	return err
 }
 
-// BindKeyRaw passes a raw string to sh -c "tmux ...". Prefer BindKey
-// for new code — it avoids shell injection risks.
+// Deprecated: BindKeyRaw passes a raw string to sh -c "tmux ...".
+// Prefer BindKey for new code — it avoids shell injection risks.
 func (c *Client) BindKeyRaw(rawCmd string) error {
 	cmd := exec.Command("sh", "-c", "tmux "+rawCmd)
 	return cmd.Run()

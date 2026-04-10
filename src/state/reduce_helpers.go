@@ -108,8 +108,18 @@ func stepAllSessions(s State, makeEv func(sess Session, active bool) DriverEvent
 	if len(s.Sessions) == 0 {
 		return s, nil
 	}
+	// Sort session IDs for deterministic effect ordering — Go map
+	// iteration is randomized, and nondeterministic effect order
+	// makes debugging harder and could matter if two sessions emit
+	// conflicting tmux operations.
+	ids := make([]SessionID, 0, len(s.Sessions))
+	for id := range s.Sessions {
+		ids = append(ids, id)
+	}
+	sortSessionIDs(ids)
 	var effs []Effect
-	for sessID, sess := range s.Sessions {
+	for _, sessID := range ids {
+		sess := s.Sessions[sessID]
 		active := sess.WindowID != "" && sess.WindowID == s.Active
 		ev := makeEv(sess, active)
 		next, sessEffs, _, ok := stepDriver(s, sessID, ev)
@@ -120,6 +130,14 @@ func stepAllSessions(s State, makeEv func(sess Session, active bool) DriverEvent
 		effs = append(effs, sessEffs...)
 	}
 	return s, effs
+}
+
+func sortSessionIDs(ids []SessionID) {
+	for i := 1; i < len(ids); i++ {
+		for j := i; j > 0 && ids[j] < ids[j-1]; j-- {
+			ids[j], ids[j-1] = ids[j-1], ids[j]
+		}
+	}
 }
 
 // errResp wraps a typed error code + message into an EffSendError

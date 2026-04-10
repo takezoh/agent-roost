@@ -71,11 +71,14 @@ type EffRespawnPane struct {
 // EffDetachClient asks tmux to detach the current client.
 type EffDetachClient struct{}
 
-// EffDisplayPopup launches a tmux display-popup.
+// EffDisplayPopup launches a tmux display-popup for a named tool.
+// Tool and Args are structured values — the runtime builds the
+// shell command string with proper escaping, avoiding injection.
 type EffDisplayPopup struct {
 	Width  string
 	Height string
-	Cmd    string
+	Tool   string
+	Args   map[string]string
 }
 
 // EffKillSession destroys the entire roost tmux session (shutdown).
