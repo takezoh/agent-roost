@@ -3,19 +3,19 @@ package tui
 import (
 	"testing"
 
-	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/proto"
+	"github.com/take/agent-roost/state"
 )
 
 func TestBuildTabList_DriverProvidedTabsThenInfoThenLog(t *testing.T) {
-	current := &core.SessionInfo{
+	current := &proto.SessionInfo{
 		ID: "s1",
-		View: driver.SessionView{
-			LogTabs: []driver.LogTab{
-				{Label: "TRANSCRIPT", Path: "/tmp/x.jsonl", Kind: driver.TabKindTranscript},
-				{Label: "EVENTS", Path: "/tmp/x.log", Kind: driver.TabKindText},
+		View: state.View{
+			LogTabs: []state.LogTab{
+				{Label: "TRANSCRIPT", Path: "/tmp/x.jsonl", Kind: state.TabKindTranscript},
+				{Label: "EVENTS", Path: "/tmp/x.log", Kind: state.TabKindText},
 			},
-			InfoExtras: []driver.InfoLine{{Label: "k", Value: "v"}},
+			InfoExtras: []state.InfoLine{{Label: "k", Value: "v"}},
 		},
 	}
 	tabs := buildTabList(map[string]*tabState{}, current, "/var/log/roost.log")
@@ -29,8 +29,8 @@ func TestBuildTabList_DriverProvidedTabsThenInfoThenLog(t *testing.T) {
 			t.Errorf("tab[%d] = %q, want %q", i, tabs[i].label, want)
 		}
 	}
-	if tabs[0].kind != driver.TabKindTranscript {
-		t.Errorf("transcript kind = %q, want %q", tabs[0].kind, driver.TabKindTranscript)
+	if tabs[0].kind != state.TabKindTranscript {
+		t.Errorf("transcript kind = %q, want %q", tabs[0].kind, state.TabKindTranscript)
 	}
 	if tabs[2].kind != tabKindInfo {
 		t.Errorf("info kind = %q, want %q", tabs[2].kind, tabKindInfo)
@@ -41,7 +41,7 @@ func TestBuildTabList_DriverProvidedTabsThenInfoThenLog(t *testing.T) {
 }
 
 func TestBuildTabList_NoDriverTabsStillShowsInfoAndLog(t *testing.T) {
-	current := &core.SessionInfo{ID: "s1"} // empty View
+	current := &proto.SessionInfo{ID: "s1"} // empty View
 	tabs := buildTabList(map[string]*tabState{}, current, "/var/log/roost.log")
 
 	if len(tabs) != 2 {
@@ -53,9 +53,9 @@ func TestBuildTabList_NoDriverTabsStillShowsInfoAndLog(t *testing.T) {
 }
 
 func TestBuildTabList_SuppressInfoHidesInfoTab(t *testing.T) {
-	current := &core.SessionInfo{
+	current := &proto.SessionInfo{
 		ID: "s1",
-		View: driver.SessionView{
+		View: state.View{
 			SuppressInfo: true,
 		},
 	}
@@ -77,12 +77,12 @@ func TestBuildTabList_NoCurrentSessionShowsLogOnly(t *testing.T) {
 }
 
 func TestBuildTabList_ReusesTabStateOnSameLabelPathKind(t *testing.T) {
-	prev := &tabState{label: "EVENTS", logPath: "/tmp/x.log", kind: driver.TabKindText, offset: 100, buf: "partial"}
-	current := &core.SessionInfo{
+	prev := &tabState{label: "EVENTS", logPath: "/tmp/x.log", kind: state.TabKindText, offset: 100, buf: "partial"}
+	current := &proto.SessionInfo{
 		ID: "s1",
-		View: driver.SessionView{
-			LogTabs: []driver.LogTab{
-				{Label: "EVENTS", Path: "/tmp/x.log", Kind: driver.TabKindText},
+		View: state.View{
+			LogTabs: []state.LogTab{
+				{Label: "EVENTS", Path: "/tmp/x.log", Kind: state.TabKindText},
 			},
 		},
 	}

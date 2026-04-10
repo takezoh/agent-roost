@@ -1,20 +1,21 @@
 package tui
 
 import (
-	"log/slog"
 	"sort"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+
 	"github.com/take/agent-roost/config"
-	"github.com/take/agent-roost/core"
+	"github.com/take/agent-roost/proto"
+	"github.com/take/agent-roost/tools"
 )
 
 type listItem struct {
 	isProject   bool
 	project     string
 	projectPath string
-	session     *core.SessionInfo
+	session     *proto.SessionInfo
 	rows        int
 }
 
@@ -23,27 +24,27 @@ func (li *listItem) SetRows(rendered string) {
 }
 
 type Model struct {
-	client   *core.Client
+	client   *proto.Client
 	cfg      *config.Config
-	registry *core.ToolRegistry
+	registry *tools.Registry
 	keys     KeyMap
 
-	sessions []core.SessionInfo
-	items    []listItem // for rendering (project rows + session rows)
-	cursor   int        // index into items
-	folded   map[string]bool
-	filter   statusFilter
-	active   string
-	anchored string
-	mouseSeq int
-	hovering bool
+	sessions   []proto.SessionInfo
+	items      []listItem
+	cursor     int
+	folded     map[string]bool
+	filter     statusFilter
+	active     string
+	anchored   string
+	mouseSeq   int
+	hovering   bool
 	lastMouseX int
 	lastMouseY int
-	width    int
-	height   int
+	width      int
+	height     int
 }
 
-type serverEventMsg core.Message
+type serverEventMsg struct{ event proto.ServerEvent }
 type disconnectMsg struct{}
 
 type previewDoneMsg struct {
@@ -56,11 +57,11 @@ type switchDoneMsg struct {
 	err      error
 }
 
-func NewModel(client *core.Client, cfg *config.Config) Model {
+func NewModel(client *proto.Client, cfg *config.Config) Model {
 	return Model{
 		client:   client,
 		cfg:      cfg,
-		registry: core.DefaultToolRegistry(),
+		registry: tools.DefaultRegistry(),
 		keys:     DefaultKeyMap(),
 		folded:   make(map[string]bool),
 		filter:   allOnFilter(),
@@ -85,7 +86,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case serverEventMsg:
-		return m.handleServerEvent(core.Message(msg))
+		return m.handleServerEvent(msg.event)
 
 	case previewDoneMsg:
 		if msg.err == nil && msg.windowID != "" {
@@ -115,20 +116,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleServerEvent(msg core.Message) (tea.Model, tea.Cmd) {
-	switch msg.Event {
-	case "sessions-changed":
-		m.sessions = msg.Sessions
+func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
+	switch e := ev.(type) {
+	case proto.EvtSessionsChanged:
+		m.sessions = e.Sessions
 		m.rebuildItems()
-		if msg.ActiveWindowID != "" && msg.ActiveWindowID != m.active {
-			m.active = msg.ActiveWindowID
-			m.anchored = msg.ActiveWindowID
-			if sc := m.findSessionCursorByWindowID(msg.ActiveWindowID); sc >= 0 {
+		if e.ActiveWindowID != "" && e.ActiveWindowID != m.active {
+			m.active = e.ActiveWindowID
+			m.anchored = e.ActiveWindowID
+			if sc := m.findSessionCursorByWindowID(e.ActiveWindowID); sc >= 0 {
 				m.cursor = sc
 			}
 			return m, tea.Batch(m.listenEvents(), m.focusCmd(mainPane))
 		}
-		if msg.ActiveWindowID == "" && m.active == "" {
+		if e.ActiveWindowID == "" && m.active == "" {
 			m.cursor = m.firstSessionIndex()
 		}
 	}
@@ -141,34 +142,33 @@ func (m Model) requestSessions() tea.Cmd {
 	return func() tea.Msg {
 		sessions, activeWID, err := m.client.ListSessions()
 		if err != nil {
-			slog.Error("list-sessions failed", "err", err)
 			return nil
 		}
-		msg := core.NewEvent("sessions-changed")
-		msg.Sessions = sessions
-		msg.ActiveWindowID = activeWID
-		return serverEventMsg(msg)
+		return serverEventMsg{event: proto.EvtSessionsChanged{
+			Sessions:       sessions,
+			ActiveWindowID: activeWID,
+		}}
 	}
 }
 
 func (m Model) listenEvents() tea.Cmd {
 	return func() tea.Msg {
-		msg, ok := <-m.client.Events()
+		ev, ok := <-m.client.Events()
 		if !ok {
 			return disconnectMsg{}
 		}
-		return serverEventMsg(msg)
+		return serverEventMsg{event: ev}
 	}
 }
 
-func (m Model) previewCmd(sess *core.SessionInfo) tea.Cmd {
+func (m Model) previewCmd(sess *proto.SessionInfo) tea.Cmd {
 	return func() tea.Msg {
 		activeWID, err := m.client.PreviewSession(sess.ID)
 		return previewDoneMsg{windowID: activeWID, err: err}
 	}
 }
 
-func (m Model) switchCmd(sess *core.SessionInfo) tea.Cmd {
+func (m Model) switchCmd(sess *proto.SessionInfo) tea.Cmd {
 	return func() tea.Msg {
 		activeWID, err := m.client.SwitchSession(sess.ID)
 		return switchDoneMsg{windowID: activeWID, err: err}
@@ -192,14 +192,14 @@ func (m Model) anchoredPreviewCmd() tea.Cmd {
 
 func (m Model) launchToolCmd(toolName string, args map[string]string) tea.Cmd {
 	return func() tea.Msg {
-		m.client.LaunchTool(toolName, args)
+		_ = m.client.LaunchTool(toolName, args)
 		return nil
 	}
 }
 
 func (m Model) focusCmd(pane string) tea.Cmd {
 	return func() tea.Msg {
-		m.client.FocusPane(pane)
+		_ = m.client.FocusPane(pane)
 		return nil
 	}
 }
@@ -212,7 +212,7 @@ func (m *Model) rebuildItems() {
 		prev = m.items[m.cursor]
 	}
 
-	byProject := make(map[string][]core.SessionInfo)
+	byProject := make(map[string][]proto.SessionInfo)
 	allProjects := make(map[string]string)
 
 	for i := range m.sessions {
@@ -245,10 +245,6 @@ func (m *Model) rebuildItems() {
 	m.restoreCursor(prev)
 }
 
-// restoreCursor places m.cursor near where it was before rebuildItems ran.
-// Preference order: same WindowID -> same project name -> clamped to range.
-// The same-project fallback is what keeps the cursor sensible when a status
-// filter hides the session it was previously parked on.
 func (m *Model) restoreCursor(prev listItem) {
 	if prev.session != nil {
 		for i, item := range m.items {
@@ -282,9 +278,6 @@ func (m *Model) restoreCursor(prev listItem) {
 	}
 }
 
-// rowToItemIndex maps a terminal row Y (0-based) to an item index.
-// Row counts are cached per item by SetRows during View rendering.
-// Returns -1 if outside items.
 func (m Model) rowToItemIndex(y int) int {
 	row := sessionsHeaderRows
 	for i, item := range m.items {
@@ -301,7 +294,7 @@ func (m Model) rowToItemIndex(y int) int {
 
 // --- cursor helpers ---
 
-func (m Model) cursorSession() *core.SessionInfo {
+func (m Model) cursorSession() *proto.SessionInfo {
 	if m.cursor < 0 || m.cursor >= len(m.items) {
 		return nil
 	}

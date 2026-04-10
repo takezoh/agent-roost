@@ -8,10 +8,9 @@ import (
 	"path/filepath"
 
 	"github.com/take/agent-roost/config"
-	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/lib"
 	"github.com/take/agent-roost/lib/claude/hookevent"
-	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/proto"
 )
 
 func init() {
@@ -84,28 +83,18 @@ func runEvent() {
 		return
 	}
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
-	client, err := core.Dial(sockPath)
+	client, err := proto.Dial(sockPath)
 	if err != nil {
 		slog.Warn("claude hook: dial failed", "session", sessionID, "sock", sockPath, "err", err)
 		return
 	}
 	defer client.Close()
-	client.StartListening()
 
-	// Translate the Claude-specific hook payload (cwd, transcript_path, ...)
-	// into the driver-neutral AgentEvent the coordinator understands. The
-	// keys below are part of the Claude driver's contract — this is the only
-	// place outside session/driver/claude.go that knows them, and the
-	// coordinator forwards the bag to the driver without inspection.
-	state := claudeDriverState(event, input)
+	payload := claudeDriverState(event, input)
 
 	if event.HookEventName == "SessionStart" {
-		if err := client.SendAgentEvent(driver.AgentEvent{
-			Type:        driver.AgentEventSessionStart,
-			SessionID:   sessionID,
-			DriverState: state,
-		}); err != nil {
-			slog.Warn("claude hook: send SessionStart failed", "session", sessionID, "err", err)
+		if err := client.SendHook("claude", "session-start", sessionID, payload); err != nil {
+			slog.Warn("claude hook: send session-start failed", "session", sessionID, "err", err)
 		}
 	}
 
@@ -117,14 +106,10 @@ func runEvent() {
 			"notification_type", event.NotificationType)
 		return
 	}
-	if err := client.SendAgentEvent(driver.AgentEvent{
-		Type:        driver.AgentEventStateChange,
-		SessionID:   sessionID,
-		State:       hookState,
-		Log:         event.FormatLog(),
-		DriverState: state,
-	}); err != nil {
-		slog.Warn("claude hook: send StateChange failed",
+	payload["state"] = hookState
+	payload["log"] = event.FormatLog()
+	if err := client.SendHook("claude", "state-change", sessionID, payload); err != nil {
+		slog.Warn("claude hook: send state-change failed",
 			"session", sessionID, "hook_event", event.HookEventName,
 			"state", hookState, "err", err)
 	}
@@ -154,20 +139,20 @@ func currentRoostSessionID() (string, bool) {
 // alongside the parsed identity fields under the "hook_event_json" key so
 // the driver can inspect fields the bridge does not pre-extract (e.g.
 // hook_event_name to differentiate UserPromptSubmit from PreToolUse).
-func claudeDriverState(event hookevent.HookEvent, rawJSON []byte) map[string]string {
-	state := map[string]string{
+func claudeDriverState(event hookevent.HookEvent, rawJSON []byte) map[string]any {
+	m := map[string]any{
 		"session_id": event.SessionID,
 	}
 	if event.Cwd != "" {
-		state["working_dir"] = event.Cwd
+		m["working_dir"] = event.Cwd
 	}
 	if event.TranscriptPath != "" {
-		state["transcript_path"] = event.TranscriptPath
+		m["transcript_path"] = event.TranscriptPath
 	}
 	if len(rawJSON) > 0 {
-		state["hook_event_json"] = string(rawJSON)
+		m["hook_event_json"] = string(rawJSON)
 	}
-	return state
+	return m
 }
 
 func runSetup() {

@@ -3,7 +3,7 @@ package tui
 import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
-	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/state"
 )
 
 type KeyMap struct {
@@ -47,15 +47,15 @@ func DefaultKeyMap() KeyMap {
 func (m Model) handleFilterKey(msg tea.KeyPressMsg) (Model, bool) {
 	switch {
 	case key.Matches(msg, m.keys.Filter1):
-		m.filter.toggle(driver.StatusRunning)
+		m.filter.toggle(state.StatusRunning)
 	case key.Matches(msg, m.keys.Filter2):
-		m.filter.toggle(driver.StatusWaiting)
+		m.filter.toggle(state.StatusWaiting)
 	case key.Matches(msg, m.keys.Filter3):
-		m.filter.toggle(driver.StatusIdle)
+		m.filter.toggle(state.StatusIdle)
 	case key.Matches(msg, m.keys.Filter4):
-		m.filter.toggle(driver.StatusStopped)
+		m.filter.toggle(state.StatusStopped)
 	case key.Matches(msg, m.keys.Filter5):
-		m.filter.toggle(driver.StatusPending)
+		m.filter.toggle(state.StatusPending)
 	case key.Matches(msg, m.keys.FilterReset):
 		m.filter.toggleAll()
 	default:

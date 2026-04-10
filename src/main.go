@@ -13,27 +13,26 @@ import (
 	"golang.org/x/term"
 
 	"github.com/take/agent-roost/config"
-	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/lib"
 	_ "github.com/take/agent-roost/lib/claude" // registers the "claude" subcommand
 	"github.com/take/agent-roost/logger"
-	"github.com/take/agent-roost/session"
-	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/proto"
+	"github.com/take/agent-roost/runtime"
+	statedriver "github.com/take/agent-roost/state/driver"
 	"github.com/take/agent-roost/tmux"
+	"github.com/take/agent-roost/tools"
 	"github.com/take/agent-roost/tui"
 )
 
 func main() {
-	// Read config before initializing the logger so the slog level (which is
-	// fixed at handler construction) reflects the user's [log] level setting.
-	// All entry points — daemon, TUI subprocesses, and short-lived hook
-	// bridges like `roost claude event` — funnel through this single Init.
 	cfg, _ := config.Load()
 	level := "info"
+	dataDir := ""
 	if cfg != nil {
 		level = cfg.Log.Level
+		dataDir = cfg.ResolveDataDir()
 	}
-	logger.Init(level)
+	logger.InitWithDataDir(level, dataDir)
 	defer logger.Close()
 
 	if lib.Dispatch(os.Args[1:]) {
@@ -72,87 +71,73 @@ func runCoordinator() {
 
 	dataDir := cfg.ResolveDataDir()
 	os.MkdirAll(dataDir, 0o755)
-
 	home, _ := os.UserHomeDir()
-	driverRegistry := driver.DefaultRegistry()
-	eventLogDir := filepath.Join(dataDir, "events")
-	os.MkdirAll(eventLogDir, 0o755)
-	driverDeps := driver.Deps{
-		IdleThreshold: time.Duration(cfg.Monitor.IdleThresholdSec) * time.Second,
-		Home:          home,
-		EventLogDir:   eventLogDir,
-	}
-	drivers := driver.NewDriverService(driverRegistry, driverDeps)
-	sessions := session.NewSessionService(client, dataDir)
 
-	coord := core.NewCoordinator(sessions, drivers, client, client, sessionName, "")
+	idleThreshold := time.Duration(cfg.Monitor.IdleThresholdSec) * time.Second
+	statedriver.RegisterDefaults(home, idleThreshold)
+
+	tmuxBackend := runtime.NewRealTmuxBackend(client)
+	pollInterval := time.Duration(cfg.Monitor.PollIntervalMs) * time.Millisecond
+	sockPath := filepath.Join(dataDir, "roost.sock")
+
+	rt := runtime.New(runtime.Config{
+		SessionName:  sessionName,
+		RoostExe:     resolveExe(),
+		DataDir:      dataDir,
+		TickInterval: pollInterval,
+		Tmux:         tmuxBackend,
+		Persist:      runtime.NewFilePersist(dataDir),
+		EventLog:     runtime.NewFileEventLog(dataDir),
+	})
 
 	warmRestart := client.SessionExists()
 	if warmRestart {
 		slog.Info("session exists, restoring")
 		restoreSession(client, cfg, sessionName)
-		if err := coord.Refresh(); err != nil {
-			slog.Error("coordinator refresh failed", "err", err)
+		if err := rt.LoadSnapshot(); err != nil {
+			slog.Error("snapshot load failed", "err", err)
+		}
+		if err := rt.ReconcileWarm(); err != nil {
+			slog.Error("reconcile failed", "err", err)
 		}
 	} else {
 		slog.Info("creating new session")
 		setupNewSession(client, cfg, sessionName)
-		if err := coord.Recreate(); err != nil {
-			slog.Error("coordinator recreate failed", "err", err)
+		if err := rt.LoadSnapshot(); err != nil {
+			slog.Error("snapshot load failed", "err", err)
+		}
+		if err := rt.RecreateAll(); err != nil {
+			slog.Error("recreate failed", "err", err)
 		}
 	}
-	slog.Info("sessions loaded", "count", len(sessions.All()))
-
-	if wid := restoreActiveWindowID(client, sessions); wid != "" {
-		coord.SetActiveWindowID(wid)
-	}
-	coord.SetSyncActive(func(wid string) {
-		if wid != "" {
-			client.SetEnv("ROOST_ACTIVE_WINDOW", wid)
-		} else {
-			client.Run("set-environment", "-t", sessionName, "-u", "ROOST_ACTIVE_WINDOW")
-		}
-	})
-	coord.SetSyncStatus(func(line string) {
-		left := " "
-		if line != "" {
-			left += line + " "
-		}
-		client.SetOption(sessionName, "status-left", left)
-	})
-
-	sockPath := filepath.Join(dataDir, "roost.sock")
-	srv := core.NewServer(coord, client, sockPath)
-	srv.SetCommandAliases(cfg.Session.Aliases)
-	coord.SetSessionsChangedNotifier(srv.AsyncBroadcast)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	pollInterval := time.Duration(cfg.Monitor.PollIntervalMs) * time.Millisecond
-	coord.Start(ctx, pollInterval)
-	defer coord.Shutdown()
+	go func() {
+		if err := rt.Run(ctx); err != nil {
+			slog.Error("runtime exited", "err", err)
+		}
+	}()
 
-	if err := srv.Start(); err != nil {
-		fmt.Fprintf(os.Stderr, "roost: server: %v\n", err)
+	if err := rt.StartIPC(sockPath); err != nil {
+		fmt.Fprintf(os.Stderr, "roost: ipc: %v\n", err)
 		os.Exit(1)
 	}
 	slog.Info("server started", "sock", sockPath)
-	defer srv.Stop()
 
 	respawnSessionsPane(client, sessionName)
 	respawnLogPane(client, sessionName)
 
-	go healthMonitor(ctx, client, cfg, sessionName)
-
 	slog.Info("attaching to tmux session")
 	client.Attach()
 
-	if srv.ShutdownRequested() {
+	cancel()
+	<-rt.Done()
+
+	if rt.State().ShutdownReq {
 		slog.Info("shutdown requested, killing tmux session")
 		client.KillSession()
-		// Intentionally keep the on-disk snapshot so the next `roost`
-		// invocation can recreate the same sessions via Coordinator.Recreate().
 	} else {
 		slog.Info("detached, session kept alive")
 	}
@@ -222,28 +207,19 @@ func setupStatusBar(client *tmux.Client, sn string) {
 
 func setupKeyBindings(client *tmux.Client, sn string) {
 	exePath := resolveExe()
-	client.BindKeyRaw(`unbind-key -a -T prefix`)
-	client.BindKeyRaw(`bind-key -T prefix Space if-shell -F "#{==:#{pane_index},2}" "select-pane -t ` + sn + `:0.0" "select-pane -t ` + sn + `:0.2"`)
-	client.BindKeyRaw(`bind-key -T prefix d detach-client`)
-	client.BindKeyRaw(`bind-key -T prefix q display-popup -E -w 40% -h 20% "echo 'Shutting down...' && ` + exePath + ` --tui palette --tool=shutdown"`)
-	client.BindKeyRaw(`bind-key -T prefix p display-popup -E -w 60% -h 50% "` + exePath + ` --tui palette"`)
-}
-
-func healthMonitor(ctx context.Context, client *tmux.Client, cfg *config.Config, sn string) {
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			if !client.SessionExists() {
-				return
-			}
-			respawnSessionsPaneIfDead(client, sn)
-			respawnLogPaneIfDead(client, sn)
-		}
-	}
+	client.UnbindAllKeys("prefix")
+	// Space toggles focus between main pane (0.0) and sidebar (0.2).
+	client.BindKey("prefix", "Space",
+		"if-shell", "-F", `#{==:#{pane_index},2}`,
+		"select-pane -t "+sn+":0.0",
+		"select-pane -t "+sn+":0.2")
+	client.BindKey("prefix", "d", "detach-client")
+	client.BindKey("prefix", "q",
+		"display-popup", "-E", "-w", "40%", "-h", "20%",
+		"echo 'Shutting down...' && "+exePath+" --tui palette --tool=shutdown")
+	client.BindKey("prefix", "p",
+		"display-popup", "-E", "-w", "60%", "-h", "50%",
+		exePath+" --tui palette")
 }
 
 func respawnSessionsPane(client *tmux.Client, sn string) {
@@ -254,28 +230,12 @@ func respawnLogPane(client *tmux.Client, sn string) {
 	client.RespawnPane(sn+":0.1", resolveExe()+" --tui log")
 }
 
-func respawnLogPaneIfDead(client *tmux.Client, sn string) {
-	dead, _ := client.Run("display-message", "-t", sn+":0.1", "-p", "#{pane_dead}")
-	if dead == "1" {
-		slog.Info("respawning dead pane", "pane", sn+":0.1")
-		respawnLogPane(client, sn)
-	}
-}
-
-func respawnSessionsPaneIfDead(client *tmux.Client, sn string) {
-	dead, _ := client.Run("display-message", "-t", sn+":0.2", "-p", "#{pane_dead}")
-	if dead == "1" {
-		slog.Info("respawning dead pane", "pane", sn+":0.2")
-		respawnSessionsPane(client, sn)
-	}
-}
-
 func runMainTUI() {
 	cfg := loadConfig()
 	tui.ApplyTheme(cfg.Theme)
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
-	client, err := core.Dial(sockPath)
+	client, err := proto.Dial(sockPath)
 	if err != nil {
 		model := tui.NewMainModel(nil)
 		if _, err := tea.NewProgram(model).Run(); err != nil {
@@ -285,7 +245,6 @@ func runMainTUI() {
 		return
 	}
 	defer client.Close()
-	client.StartListening()
 	client.Subscribe()
 
 	model := tui.NewMainModel(client)
@@ -300,7 +259,7 @@ func runLogViewer() {
 	tui.ApplyTheme(cfg.Theme)
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
-	client, err := core.Dial(sockPath)
+	client, err := proto.Dial(sockPath)
 	if err != nil {
 		model := tui.NewLogModel(logger.LogFilePath(), nil, cfg.Transcript.ShowThinking)
 		if _, err := tea.NewProgram(model).Run(); err != nil {
@@ -310,7 +269,6 @@ func runLogViewer() {
 		return
 	}
 	defer client.Close()
-	client.StartListening()
 	client.Subscribe()
 
 	model := tui.NewLogModel(logger.LogFilePath(), client, cfg.Transcript.ShowThinking)
@@ -325,13 +283,12 @@ func runSessionList() {
 	tui.ApplyTheme(cfg.Theme)
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
-	client, err := core.Dial(sockPath)
+	client, err := proto.Dial(sockPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "roost: connect: %v\n", err)
 		os.Exit(1)
 	}
 	defer client.Close()
-	client.StartListening()
 	client.Subscribe()
 
 	model := tui.NewModel(client, cfg)
@@ -348,7 +305,7 @@ func runPalette(args []string) {
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	slog.Info("palette dial", "sock", sockPath)
 
-	client, err := core.Dial(sockPath)
+	client, err := proto.Dial(sockPath)
 	if err != nil {
 		slog.Error("palette connect failed", "err", err)
 		fmt.Fprintf(os.Stderr, "roost: connect: %v\n", err)
@@ -356,7 +313,6 @@ func runPalette(args []string) {
 	}
 	slog.Info("palette connected")
 	defer client.Close()
-	client.StartListening()
 
 	var toolName string
 	prefill := make(map[string]string)
@@ -371,14 +327,14 @@ func runPalette(args []string) {
 		}
 	}
 
-	tools := core.DefaultToolRegistry()
+	reg := tools.DefaultRegistry()
 	roots := make([]string, len(cfg.Projects.ProjectRoots))
 	for i, r := range cfg.Projects.ProjectRoots {
 		roots[i] = config.ExpandPath(r)
 	}
-	ctx := &core.ToolContext{
+	ctx := &tools.ToolContext{
 		Client: client,
-		Config: core.ToolConfig{
+		Config: tools.ToolConfig{
 			DefaultCommand: cfg.Session.DefaultCommand,
 			Commands:       cfg.Session.Commands,
 			Projects:       cfg.ListProjects(),
@@ -387,26 +343,11 @@ func runPalette(args []string) {
 		Args: prefill,
 	}
 
-	model := tui.NewPaletteModel(tools, ctx, toolName)
+	model := tui.NewPaletteModel(reg, ctx, toolName)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: palette: %v\n", err)
 		os.Exit(1)
 	}
-}
-
-func restoreActiveWindowID(client *tmux.Client, sessions *session.SessionService) string {
-	wid, _ := client.GetEnv("ROOST_ACTIVE_WINDOW")
-	if wid == "" {
-		return ""
-	}
-	for _, s := range sessions.All() {
-		if s.WindowID == wid {
-			slog.Info("restored active window", "window", wid)
-			return wid
-		}
-	}
-	slog.Info("stale active window, clearing", "window", wid)
-	return ""
 }
 
 func loadConfig() *config.Config {
@@ -417,7 +358,6 @@ func loadConfig() *config.Config {
 	}
 	return cfg
 }
-
 
 func printUsage() {
 	fmt.Println("roost - AI agent session manager on tmux")

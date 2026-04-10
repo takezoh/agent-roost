@@ -1,0 +1,66 @@
+package proto
+
+// ServerEvent is the closed sum type of broadcasts the daemon pushes
+// to subscribed clients. Each impl carries the typed payload + a
+// Name() string that matches the wire "name" field.
+type ServerEvent interface {
+	isEvent()
+	EventName() string
+}
+
+const (
+	EvtNameSessionsChanged = "sessions-changed"
+	EvtNameProjectSelected = "project-selected"
+	EvtNamePaneFocused     = "pane-focused"
+	EvtNameLogLine         = "log-line"
+	EvtNameTranscriptLine  = "transcript-line"
+)
+
+// EvtSessionsChanged carries the current session table. Sent on
+// every state change that affects what the TUI should render.
+type EvtSessionsChanged struct {
+	Sessions       []SessionInfo `json:"sessions"`
+	ActiveWindowID string        `json:"active_window_id,omitempty"`
+	IsPreview      bool          `json:"is_preview,omitempty"`
+}
+
+func (EvtSessionsChanged) isEvent()          {}
+func (EvtSessionsChanged) EventName() string { return EvtNameSessionsChanged }
+
+// EvtProjectSelected fires when the user picks a project from the
+// session list (preview-project IPC).
+type EvtProjectSelected struct {
+	Project string `json:"project"`
+}
+
+func (EvtProjectSelected) isEvent()          {}
+func (EvtProjectSelected) EventName() string { return EvtNameProjectSelected }
+
+// EvtPaneFocused fires after focus-pane changes the active control
+// pane.
+type EvtPaneFocused struct {
+	Pane string `json:"pane"`
+}
+
+func (EvtPaneFocused) isEvent()          {}
+func (EvtPaneFocused) EventName() string { return EvtNamePaneFocused }
+
+// EvtLogLine pushes one new line of the global daemon log to TUI
+// subscribers (Phase 7).
+type EvtLogLine struct {
+	Path string `json:"path"`
+	Line string `json:"line"`
+}
+
+func (EvtLogLine) isEvent()          {}
+func (EvtLogLine) EventName() string { return EvtNameLogLine }
+
+// EvtTranscriptLine pushes one new line from a session's transcript
+// file to TUI subscribers (Phase 7).
+type EvtTranscriptLine struct {
+	SessionID string `json:"session_id"`
+	Line      string `json:"line"`
+}
+
+func (EvtTranscriptLine) isEvent()          {}
+func (EvtTranscriptLine) EventName() string { return EvtNameTranscriptLine }

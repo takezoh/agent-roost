@@ -1,25 +1,24 @@
 package tui
 
 import (
-	"log/slog"
-
 	tea "charm.land/bubbletea/v2"
-	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session/driver"
+
+	"github.com/take/agent-roost/proto"
+	"github.com/take/agent-roost/state"
 )
 
 type MainModel struct {
-	client          *core.Client
-	sessions        []core.SessionInfo
+	client          *proto.Client
+	sessions        []proto.SessionInfo
 	selectedProject string
 	width           int
 	height          int
 }
 
-type mainEventMsg core.Message
+type mainEventMsg struct{ event proto.ServerEvent }
 type mainDisconnectMsg struct{}
 
-func NewMainModel(client *core.Client) MainModel {
+func NewMainModel(client *proto.Client) MainModel {
 	return MainModel{
 		client: client,
 	}
@@ -43,7 +42,7 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case mainEventMsg:
-		return m.handleEvent(core.Message(msg))
+		return m.handleEvent(msg.event)
 
 	case tea.KeyPressMsg:
 		return m, nil
@@ -51,12 +50,12 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m MainModel) handleEvent(msg core.Message) (tea.Model, tea.Cmd) {
-	switch msg.Event {
-	case "sessions-changed":
-		m.sessions = msg.Sessions
-	case "project-selected":
-		m.selectedProject = msg.SelectedProject
+func (m MainModel) handleEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
+	switch e := ev.(type) {
+	case proto.EvtSessionsChanged:
+		m.sessions = e.Sessions
+	case proto.EvtProjectSelected:
+		m.selectedProject = e.Project
 	}
 	return m, m.listenEvents()
 }
@@ -65,12 +64,9 @@ func (m MainModel) requestSessions() tea.Cmd {
 	return func() tea.Msg {
 		sessions, _, err := m.client.ListSessions()
 		if err != nil {
-			slog.Error("list-sessions failed", "err", err)
 			return nil
 		}
-		msg := core.NewEvent("sessions-changed")
-		msg.Sessions = sessions
-		return mainEventMsg(msg)
+		return mainEventMsg{event: proto.EvtSessionsChanged{Sessions: sessions}}
 	}
 }
 
@@ -79,19 +75,19 @@ func (m MainModel) listenEvents() tea.Cmd {
 		return nil
 	}
 	return func() tea.Msg {
-		msg, ok := <-m.client.Events()
+		ev, ok := <-m.client.Events()
 		if !ok {
 			return mainDisconnectMsg{}
 		}
-		return mainEventMsg(msg)
+		return mainEventMsg{event: ev}
 	}
 }
 
-func (m MainModel) projectSessions() []core.SessionInfo {
+func (m MainModel) projectSessions() []proto.SessionInfo {
 	if m.selectedProject == "" {
 		return nil
 	}
-	var result []core.SessionInfo
+	var result []proto.SessionInfo
 	for _, s := range m.sessions {
 		if s.Project == m.selectedProject {
 			result = append(result, s)
@@ -109,6 +105,6 @@ func (m MainModel) selectedProjectName() string {
 	return ""
 }
 
-func stateSymbol(s driver.Status) string {
+func stateSymbol(s state.Status) string {
 	return stateStyle(s).Render(s.Symbol())
 }

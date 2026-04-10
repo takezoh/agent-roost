@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/take/agent-roost/core"
+	"github.com/take/agent-roost/proto"
 )
 
 func (m MainModel) View() tea.View {
@@ -48,7 +48,7 @@ func renderKeybindingsBody() string {
 	return b.String()
 }
 
-func renderProjectSessionsBody(sessions []core.SessionInfo) string {
+func renderProjectSessionsBody(sessions []proto.SessionInfo) string {
 	if len(sessions) == 0 {
 		return mutedStyle.Render("No sessions")
 	}

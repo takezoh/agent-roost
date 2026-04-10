@@ -4,35 +4,35 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/take/agent-roost/core"
+	"github.com/take/agent-roost/tools"
 )
 
 func TestPaletteChainsToNextTool(t *testing.T) {
 	var ranA, ranB bool
-	registry := core.NewToolRegistry()
-	registry.Register(core.Tool{
+	registry := tools.NewRegistry()
+	registry.Register(tools.Tool{
 		Name: "tool-a",
-		Run: func(ctx *core.ToolContext, args map[string]string) (*core.ToolInvocation, error) {
+		Run: func(ctx *tools.ToolContext, args map[string]string) (*tools.ToolInvocation, error) {
 			ranA = true
-			return &core.ToolInvocation{
+			return &tools.ToolInvocation{
 				Name: "tool-b",
 				Args: map[string]string{"y": "from-a"},
 			}, nil
 		},
 	})
-	registry.Register(core.Tool{
+	registry.Register(tools.Tool{
 		Name: "tool-b",
-		Params: []core.Param{
-			{Name: "y", Options: func(ctx *core.ToolContext) []string { return nil }},
-			{Name: "z", Options: func(ctx *core.ToolContext) []string { return []string{"opt"} }},
+		Params: []tools.Param{
+			{Name: "y", Options: func(ctx *tools.ToolContext) []string { return nil }},
+			{Name: "z", Options: func(ctx *tools.ToolContext) []string { return []string{"opt"} }},
 		},
-		Run: func(ctx *core.ToolContext, args map[string]string) (*core.ToolInvocation, error) {
+		Run: func(ctx *tools.ToolContext, args map[string]string) (*tools.ToolInvocation, error) {
 			ranB = true
 			return nil, nil
 		},
 	})
 
-	ctx := &core.ToolContext{}
+	ctx := &tools.ToolContext{}
 	m := NewPaletteModel(registry, ctx, "tool-a")
 	model, cmd := m.startTool(registry.Get("tool-a"))
 
@@ -65,16 +65,16 @@ func TestPaletteChainsToNextTool(t *testing.T) {
 
 func TestPaletteQuitsWithoutChain(t *testing.T) {
 	var ran bool
-	registry := core.NewToolRegistry()
-	registry.Register(core.Tool{
+	registry := tools.NewRegistry()
+	registry.Register(tools.Tool{
 		Name: "solo",
-		Run: func(ctx *core.ToolContext, args map[string]string) (*core.ToolInvocation, error) {
+		Run: func(ctx *tools.ToolContext, args map[string]string) (*tools.ToolInvocation, error) {
 			ran = true
 			return nil, nil
 		},
 	})
 
-	ctx := &core.ToolContext{}
+	ctx := &tools.ToolContext{}
 	m := NewPaletteModel(registry, ctx, "solo")
 	_, cmd := m.startTool(registry.Get("solo"))
 
@@ -91,15 +91,15 @@ func TestPaletteQuitsWithoutChain(t *testing.T) {
 }
 
 func TestPaletteIgnoresUnknownChainTarget(t *testing.T) {
-	registry := core.NewToolRegistry()
-	registry.Register(core.Tool{
+	registry := tools.NewRegistry()
+	registry.Register(tools.Tool{
 		Name: "tool-a",
-		Run: func(ctx *core.ToolContext, args map[string]string) (*core.ToolInvocation, error) {
-			return &core.ToolInvocation{Name: "missing"}, nil
+		Run: func(ctx *tools.ToolContext, args map[string]string) (*tools.ToolInvocation, error) {
+			return &tools.ToolInvocation{Name: "missing"}, nil
 		},
 	})
 
-	ctx := &core.ToolContext{}
+	ctx := &tools.ToolContext{}
 	m := NewPaletteModel(registry, ctx, "tool-a")
 	_, cmd := m.startTool(registry.Get("tool-a"))
 

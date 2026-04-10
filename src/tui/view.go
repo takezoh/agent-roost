@@ -8,8 +8,8 @@ import (
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/proto"
+	"github.com/take/agent-roost/state"
 )
 
 // sessionsHeaderRows is the number of rendered rows before the first list
@@ -97,7 +97,7 @@ func renderProject(name string, folded, selected bool) string {
 	return projectStyle.Render(line)
 }
 
-func renderSession(s *core.SessionInfo, selected bool, width int) string {
+func renderSession(s *proto.SessionInfo, selected bool, width int) string {
 	if Active.Minimal {
 		return renderSessionMinimal(s, selected, width)
 	}
@@ -112,7 +112,7 @@ func renderSession(s *core.SessionInfo, selected bool, width int) string {
 // is selected and a blank cell otherwise (to keep alignment across all
 // cards). No background fill — adjacent sessions are separated by a
 // horizontal rule drawn in renderSessionsBody.
-func renderSessionMinimal(s *core.SessionInfo, selected bool, width int) string {
+func renderSessionMinimal(s *proto.SessionInfo, selected bool, width int) string {
 	cardOuter := width - 2     // 2-cell outer indent
 	textWidth := cardOuter - 3 // 1 border + 1 left padding + 1 right padding
 	lines := sessionCardLines(s, textWidth)
@@ -142,7 +142,7 @@ func renderSessionSeparator(innerWidth int) string {
 	return "  " + minimalSeparatorStyle.Render(strings.Repeat("─", n))
 }
 
-func sessionCardLines(s *core.SessionInfo, textWidth int) []string {
+func sessionCardLines(s *proto.SessionInfo, textWidth int) []string {
 	stateStr := stateStyle(s.State).Render(s.State.Symbol() + " " + s.State.String())
 	elapsed := mutedStyle.Render(formatElapsed(time.Since(s.StateChangedAtTime())))
 
@@ -184,7 +184,7 @@ func sessionCardLines(s *core.SessionInfo, textWidth int) []string {
 // renderTags walks the driver-provided Tags list and renders each one with
 // the color the driver chose. The TUI does no special-casing — every tag
 // (including the command tag) is identical from the renderer's POV.
-func renderTags(s *core.SessionInfo) string {
+func renderTags(s *proto.SessionInfo) string {
 	tags := s.View.Card.Tags
 	if len(tags) == 0 {
 		return ""
@@ -207,14 +207,14 @@ func renderTags(s *core.SessionInfo) string {
 	return strings.Join(parts, " ")
 }
 
-func renderIndicators(s *core.SessionInfo) string {
+func renderIndicators(s *proto.SessionInfo) string {
 	if len(s.View.Card.Indicators) == 0 {
 		return ""
 	}
 	return mutedStyle.Render(strings.Join(s.View.Card.Indicators, "  "))
 }
 
-func renderTag(tag driver.Tag) string {
+func renderTag(tag state.Tag) string {
 	style := tagStyle
 	if tag.Foreground != "" {
 		style = style.Foreground(lipgloss.Color(tag.Foreground))

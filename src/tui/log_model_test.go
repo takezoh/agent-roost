@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/take/agent-roost/core"
-	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/proto"
+	"github.com/take/agent-roost/state"
 )
 
 func writeTempFile(t *testing.T, content string) *os.File {
@@ -112,7 +112,7 @@ func TestSeekToLastNLines_ChunkBoundary(t *testing.T) {
 	}
 }
 
-func sessionWithTranscript(t *testing.T) core.SessionInfo {
+func sessionWithTranscript(t *testing.T) proto.SessionInfo {
 	t.Helper()
 	dir := t.TempDir()
 	transcriptPath := filepath.Join(dir, "transcript.jsonl")
@@ -123,13 +123,13 @@ func sessionWithTranscript(t *testing.T) core.SessionInfo {
 	if err := os.WriteFile(eventsPath, []byte(""), 0o644); err != nil {
 		t.Fatalf("write events: %v", err)
 	}
-	return core.SessionInfo{
+	return proto.SessionInfo{
 		ID:       "s1",
 		WindowID: "w1",
-		View: driver.SessionView{
-			LogTabs: []driver.LogTab{
-				{Label: "TRANSCRIPT", Path: transcriptPath, Kind: driver.TabKindTranscript},
-				{Label: "EVENTS", Path: eventsPath, Kind: driver.TabKindText},
+		View: state.View{
+			LogTabs: []state.LogTab{
+				{Label: "TRANSCRIPT", Path: transcriptPath, Kind: state.TabKindTranscript},
+				{Label: "EVENTS", Path: eventsPath, Kind: state.TabKindText},
 			},
 		},
 	}
@@ -139,9 +139,8 @@ func TestHandleLogEvent_PreviewActivatesInfoTab(t *testing.T) {
 	m := NewLogModel("/var/log/roost.log", nil, false)
 	sess := sessionWithTranscript(t)
 
-	model, _ := m.handleLogEvent(core.Message{
-		Event:          "sessions-changed",
-		Sessions:       []core.SessionInfo{sess},
+	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
+		Sessions:       []proto.SessionInfo{sess},
 		ActiveWindowID: sess.WindowID,
 		IsPreview:      true,
 	})
@@ -156,9 +155,8 @@ func TestHandleLogEvent_PaneFocusedActivatesTranscript(t *testing.T) {
 	sess := sessionWithTranscript(t)
 
 	// Step 1: preview → INFO becomes active.
-	model, _ := m.handleLogEvent(core.Message{
-		Event:          "sessions-changed",
-		Sessions:       []core.SessionInfo{sess},
+	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
+		Sessions:       []proto.SessionInfo{sess},
 		ActiveWindowID: sess.WindowID,
 		IsPreview:      true,
 	})
@@ -168,9 +166,8 @@ func TestHandleLogEvent_PaneFocusedActivatesTranscript(t *testing.T) {
 	}
 
 	// Step 2: focus the main pane → should switch to TRANSCRIPT.
-	model, _ = lm.handleLogEvent(core.Message{
-		Event: "pane-focused",
-		Pane:  mainPane,
+	model, _ = lm.handleLogEvent(proto.EvtPaneFocused{
+		Pane: mainPane,
 	})
 	lm = model.(LogModel)
 	if !lm.activeTabIs("TRANSCRIPT") {
@@ -181,12 +178,11 @@ func TestHandleLogEvent_PaneFocusedActivatesTranscript(t *testing.T) {
 func TestHandleLogEvent_PaneFocusedWithoutTranscriptKeepsInfo(t *testing.T) {
 	m := NewLogModel("/var/log/roost.log", nil, false)
 	// Session with no driver-provided log tabs (only INFO + LOG will be built).
-	sess := core.SessionInfo{ID: "s1", WindowID: "w1"}
+	sess := proto.SessionInfo{ID: "s1", WindowID: "w1"}
 
 	// First preview to land on INFO.
-	model, _ := m.handleLogEvent(core.Message{
-		Event:          "sessions-changed",
-		Sessions:       []core.SessionInfo{sess},
+	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
+		Sessions:       []proto.SessionInfo{sess},
 		ActiveWindowID: sess.WindowID,
 		IsPreview:      true,
 	})
@@ -196,9 +192,8 @@ func TestHandleLogEvent_PaneFocusedWithoutTranscriptKeepsInfo(t *testing.T) {
 	}
 
 	// Focus the main pane — no TRANSCRIPT tab exists, so INFO should be retained.
-	model, _ = lm.handleLogEvent(core.Message{
-		Event: "pane-focused",
-		Pane:  mainPane,
+	model, _ = lm.handleLogEvent(proto.EvtPaneFocused{
+		Pane: mainPane,
 	})
 	lm = model.(LogModel)
 	if !lm.activeTabIs("INFO") {
@@ -214,9 +209,8 @@ func TestHandleLogEvent_NonPreviewSessionsChangedKeepsCurrentTab(t *testing.T) {
 	sess := sessionWithTranscript(t)
 
 	// Preview → INFO is active.
-	model, _ := m.handleLogEvent(core.Message{
-		Event:          "sessions-changed",
-		Sessions:       []core.SessionInfo{sess},
+	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
+		Sessions:       []proto.SessionInfo{sess},
 		ActiveWindowID: sess.WindowID,
 		IsPreview:      true,
 	})
@@ -226,9 +220,8 @@ func TestHandleLogEvent_NonPreviewSessionsChangedKeepsCurrentTab(t *testing.T) {
 	}
 
 	// Simulate a Tick-driven broadcast (IsPreview=false) for the same session.
-	model, _ = lm.handleLogEvent(core.Message{
-		Event:          "sessions-changed",
-		Sessions:       []core.SessionInfo{sess},
+	model, _ = lm.handleLogEvent(proto.EvtSessionsChanged{
+		Sessions:       []proto.SessionInfo{sess},
 		ActiveWindowID: sess.WindowID,
 		IsPreview:      false,
 	})
@@ -243,9 +236,8 @@ func TestHandleLogEvent_PaneFocusedNonMainPaneIgnored(t *testing.T) {
 	sess := sessionWithTranscript(t)
 
 	// Preview → INFO active.
-	model, _ := m.handleLogEvent(core.Message{
-		Event:          "sessions-changed",
-		Sessions:       []core.SessionInfo{sess},
+	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
+		Sessions:       []proto.SessionInfo{sess},
 		ActiveWindowID: sess.WindowID,
 		IsPreview:      true,
 	})
@@ -255,9 +247,8 @@ func TestHandleLogEvent_PaneFocusedNonMainPaneIgnored(t *testing.T) {
 	}
 
 	// Focusing the sidebar (non-main pane) must not switch tabs.
-	model, _ = lm.handleLogEvent(core.Message{
-		Event: "pane-focused",
-		Pane:  sidebarPane,
+	model, _ = lm.handleLogEvent(proto.EvtPaneFocused{
+		Pane: sidebarPane,
 	})
 	lm = model.(LogModel)
 	if !lm.activeTabIs("INFO") {

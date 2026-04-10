@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/take/agent-roost/core"
+	"github.com/take/agent-roost/proto"
 )
 
 // renderInfoContent builds the INFO tab body. The TUI prepends a generic
@@ -14,7 +14,7 @@ import (
 // chips for at-a-glance debugging. Driver-side rendering is
 // intentionally minimal: the TUI controls layout and ordering of the
 // generic block so every session shows the same header in the same order.
-func renderInfoContent(s *core.SessionInfo) string {
+func renderInfoContent(s *proto.SessionInfo) string {
 	if s == nil {
 		return ""
 	}

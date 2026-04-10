@@ -5,9 +5,22 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-
-	"github.com/take/agent-roost/session"
 )
+
+// RoostWindow is a raw snapshot of a roost-managed tmux window's user
+// options. All fields are still in their tmux string form; the
+// runtime decodes them into state.Session values. Defined in the
+// tmux package so callers can read the raw layout without importing
+// any business-logic packages.
+type RoostWindow struct {
+	WindowID       string
+	ID             string
+	Project        string
+	Command        string
+	CreatedAt      string
+	AgentPaneID    string
+	PersistedState string // JSON-encoded map[string]string
+}
 
 type Client struct {
 	SessionName string
@@ -129,9 +142,27 @@ func (c *Client) RunChain(commands ...[]string) error {
 	return err
 }
 
+// BindKeyRaw passes a raw string to sh -c "tmux ...". Prefer BindKey
+// for new code — it avoids shell injection risks.
 func (c *Client) BindKeyRaw(rawCmd string) error {
 	cmd := exec.Command("sh", "-c", "tmux "+rawCmd)
 	return cmd.Run()
+}
+
+// BindKey executes a tmux bind-key command with typed arguments.
+// table is the key table (e.g. "prefix"), key is the key name,
+// and args are the bind-key arguments (the command to run on press).
+func (c *Client) BindKey(table, key string, args ...string) error {
+	a := []string{"bind-key", "-T", table, key}
+	a = append(a, args...)
+	_, err := c.Run(a...)
+	return err
+}
+
+// UnbindAllKeys removes all key bindings from the given table.
+func (c *Client) UnbindAllKeys(table string) error {
+	_, err := c.Run("unbind-key", "-a", "-T", table)
+	return err
 }
 
 func (c *Client) SetOption(target, key, value string) error {
@@ -142,6 +173,12 @@ func (c *Client) SetOption(target, key, value string) error {
 // SetWindowUserOption sets a window-scoped user option (key must start with '@').
 func (c *Client) SetWindowUserOption(windowID, key, value string) error {
 	_, err := c.Run("set-option", "-w", "-t", windowID, key, value)
+	return err
+}
+
+// UnsetWindowUserOption removes a window-scoped user option.
+func (c *Client) UnsetWindowUserOption(windowID, key string) error {
+	_, err := c.Run("set-option", "-w", "-u", "-t", windowID, key)
 	return err
 }
 
@@ -162,7 +199,7 @@ func (c *Client) SetWindowUserOptions(windowID string, kv map[string]string) err
 // @roost_persisted_state user option so this layer never has to know about
 // individual driver keys. Tags are no longer stored as a top-level user
 // option — drivers cache them inside their own PersistedState bag.
-func (c *Client) ListRoostWindows() ([]session.RoostWindow, error) {
+func (c *Client) ListRoostWindows() ([]RoostWindow, error) {
 	fmtStr := strings.Join([]string{
 		"#{window_id}",
 		"#{@roost_id}",
@@ -190,8 +227,8 @@ func (c *Client) ListRoostWindows() ([]session.RoostWindow, error) {
 // and evict them from the cache on the next polling tick.
 const roostWindowFields = 7
 
-func parseRoostWindows(out string) []session.RoostWindow {
-	var windows []session.RoostWindow
+func parseRoostWindows(out string) []RoostWindow {
+	var windows []RoostWindow
 	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
 			continue
@@ -203,7 +240,7 @@ func parseRoostWindows(out string) []session.RoostWindow {
 		if parts[1] == "" {
 			continue
 		}
-		windows = append(windows, session.RoostWindow{
+		windows = append(windows, RoostWindow{
 			WindowID:       parts[0],
 			ID:             parts[1],
 			Project:        parts[2],

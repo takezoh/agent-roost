@@ -7,7 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
-	"github.com/take/agent-roost/core"
+	"github.com/take/agent-roost/tools"
 )
 
 type palettePhase int
@@ -18,16 +18,16 @@ const (
 )
 
 type PaletteModel struct {
-	registry    *core.ToolRegistry
-	ctx         *core.ToolContext
+	registry    *tools.Registry
+	ctx         *tools.ToolContext
 	initialTool string
 	phase       palettePhase
 	input       string
-	filtered    []core.Tool
+	filtered    []tools.Tool
 	cursor      int
 
 	// parameter input
-	selectedTool *core.Tool
+	selectedTool *tools.Tool
 	paramIndex   int
 	paramArgs    map[string]string
 	paramOptions []string
@@ -38,7 +38,7 @@ type PaletteModel struct {
 	err    error
 }
 
-func NewPaletteModel(registry *core.ToolRegistry, ctx *core.ToolContext, initialTool string) PaletteModel {
+func NewPaletteModel(registry *tools.Registry, ctx *tools.ToolContext, initialTool string) PaletteModel {
 	m := PaletteModel{
 		registry:    registry,
 		ctx:         ctx,
@@ -120,7 +120,7 @@ func (m PaletteModel) handleToolSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 	return m, nil
 }
 
-func (m PaletteModel) startTool(tool *core.Tool) (tea.Model, tea.Cmd) {
+func (m PaletteModel) startTool(tool *tools.Tool) (tea.Model, tea.Cmd) {
 	m.selectedTool = tool
 	m.paramArgs = make(map[string]string)
 
@@ -240,7 +240,7 @@ func (m PaletteModel) filterParamOptions() []string {
 	var matched []string
 	for _, o := range m.paramOptions {
 		if strings.Contains(strings.ToLower(o), q) ||
-			strings.Contains(strings.ToLower(core.ProjectDisplayName(o)), q) {
+			strings.Contains(strings.ToLower(tools.ProjectDisplayName(o)), q) {
 			matched = append(matched, o)
 		}
 	}
@@ -311,7 +311,7 @@ func renderPaletteParam(m PaletteModel) string {
 	}
 	filtered := m.filterParamOptions()
 	for i, o := range filtered {
-		display := core.ProjectDisplayName(o)
+		display := tools.ProjectDisplayName(o)
 		if i == m.paramCursor {
 			b.WriteString(selItemStyle.Render(fmt.Sprintf("▸ %s", display)))
 		} else {

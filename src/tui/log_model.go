@@ -1,22 +1,20 @@
 package tui
 
 import (
+	"io"
 	"os"
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/viewport"
-	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/lib/claude/transcript"
-	"github.com/take/agent-roost/session/driver"
+	"github.com/take/agent-roost/proto"
+	"github.com/take/agent-roost/state"
 )
 
 const (
-	tailPollInterval = 200 * time.Millisecond
 	// initialBackfillLines bounds how much past content is shown when a
-	// session becomes active (or a tab is first opened). The unit matches
-	// maxLogLines below so the cap and the backfill speak the same units.
+	// session becomes active (or a tab is first opened).
 	initialBackfillLines = 2000
 	// tailReadChunk is the chunk size used when scanning backwards from
 	// EOF looking for the Nth-from-last newline.
@@ -24,25 +22,24 @@ const (
 	maxLogLines   = 5000
 )
 
-type tickMsg time.Time
 type logTab int
 
 
-type logEventMsg core.Message
+type logEventMsg struct{ event proto.ServerEvent }
 type logDisconnectMsg struct{}
 
 // tabKindLog and tabKindInfo are LogModel-internal kinds used by tabs the
 // TUI manages itself (the always-on LOG tab and the synthesized INFO
-// tab). Driver-provided tabs carry one of driver.TabKind* values.
+// tab). Driver-provided tabs carry one of state.TabKind* values.
 const (
-	tabKindLog  driver.TabKind = "_log"
-	tabKindInfo driver.TabKind = "_info"
+	tabKindLog  state.TabKind = "_log"
+	tabKindInfo state.TabKind = "_info"
 )
 
 type tabState struct {
 	label   string
 	logPath string
-	kind    driver.TabKind
+	kind    state.TabKind
 	file    *os.File
 	offset  int64
 	buf     string
@@ -57,13 +54,13 @@ type LogModel struct {
 	following      bool
 	width          int
 	height         int
-	client         *core.Client
+	client         *proto.Client
 	parser         *transcript.Parser
 	showThinking   bool
-	currentSession *core.SessionInfo
+	currentSession *proto.SessionInfo
 }
 
-func NewLogModel(appLogPath string, client *core.Client, showThinking bool) LogModel {
+func NewLogModel(appLogPath string, client *proto.Client, showThinking bool) LogModel {
 	return LogModel{
 		appLogPath: appLogPath,
 		tabs: []*tabState{
@@ -78,22 +75,24 @@ func NewLogModel(appLogPath string, client *core.Client, showThinking bool) LogM
 }
 
 func (m LogModel) Init() tea.Cmd {
-	cmds := []tea.Cmd{
-		func() tea.Msg { return tickMsg(time.Now()) },
-	}
+	var cmds []tea.Cmd
 	if m.client != nil {
 		cmds = append(cmds, m.listenEvents())
 	}
+	// Initial backfill: read the tail of the app log file so the LOG
+	// tab is not blank at startup. Subsequent content arrives via
+	// push events from the daemon's FileRelay.
+	cmds = append(cmds, m.backfillActiveTab())
 	return tea.Batch(cmds...)
 }
 
 func (m LogModel) listenEvents() tea.Cmd {
 	return func() tea.Msg {
-		msg, ok := <-m.client.Events()
+		ev, ok := <-m.client.Events()
 		if !ok {
 			return logDisconnectMsg{}
 		}
-		return logEventMsg(msg)
+		return logEventMsg{event: ev}
 	}
 }
 
@@ -101,18 +100,24 @@ func (m LogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		return m.handleResize(msg)
-	case tickMsg:
-		return m.handleTick()
 	case tea.KeyPressMsg:
 		return m.handleKey(msg)
 	case logEventMsg:
-		return m.handleLogEvent(core.Message(msg))
+		return m.handleLogEvent(msg.event)
+	case backfillDoneMsg:
+		return m.handleBackfillDone(msg)
 	case logDisconnectMsg:
 		return m, tea.Quit
 	case tea.MouseClickMsg:
 		return m.handleMouseClick(msg)
 	}
 	return m, nil
+}
+
+// backfillDoneMsg delivers the initial tail content of a file to the
+// log model. Fired by backfillActiveTab when a tab is activated.
+type backfillDoneMsg struct {
+	content string
 }
 
 func (m LogModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
@@ -124,18 +129,14 @@ func (m LogModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m LogModel) handleTick() (tea.Model, tea.Cmd) {
-	tab := m.activeTabState()
-	if tab != nil && tab.logPath != "" {
-		newContent, err := readNewLines(tab)
-		if err == nil && newContent != "" {
-			m.appendContent(newContent)
-		}
+func (m LogModel) handleBackfillDone(msg backfillDoneMsg) (tea.Model, tea.Cmd) {
+	if msg.content != "" {
+		m.appendContent(msg.content)
 	}
 	if m.following {
 		m.viewport.GotoBottom()
 	}
-	return m, tickCmd()
+	return m, nil
 }
 
 func (m LogModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -162,12 +163,12 @@ func (m LogModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m LogModel) handleLogEvent(msg core.Message) (tea.Model, tea.Cmd) {
-	switch msg.Event {
-	case "sessions-changed":
-		m.currentSession = pickActiveSession(msg.Sessions, msg.ActiveWindowID)
+func (m LogModel) handleLogEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
+	switch e := ev.(type) {
+	case proto.EvtSessionsChanged:
+		m.currentSession = pickActiveSession(e.Sessions, e.ActiveWindowID)
 		m.rebuildTabs(m.currentSession)
-		if msg.IsPreview {
+		if e.IsPreview {
 			if idx, ok := m.tabIndexByLabel("INFO"); ok {
 				m.activeTab = idx
 				m.renderInfoTab()
@@ -176,10 +177,29 @@ func (m LogModel) handleLogEvent(msg core.Message) (tea.Model, tea.Cmd) {
 		} else if m.activeTabIs("INFO") {
 			m.renderInfoTab()
 		}
-	case "pane-focused":
-		if msg.Pane == mainPane {
+	case proto.EvtPaneFocused:
+		if e.Pane == mainPane {
 			if idx, ok := m.tabIndexByLabel("TRANSCRIPT"); ok {
 				m.switchToTab(idx)
+			}
+		}
+	case proto.EvtLogLine:
+		// Push content from the daemon's FileRelay. Match by path
+		// against the active tab. Content may be multi-line.
+		tab := m.activeTabState()
+		if tab != nil && tab.logPath == e.Path && e.Line != "" {
+			m.appendContent(strings.TrimRight(e.Line, "\n"))
+			if m.following {
+				m.viewport.GotoBottom()
+			}
+		}
+	case proto.EvtTranscriptLine:
+		// Push transcript content. Match by session id (the
+		// transcript tab is the first tab with TabKindTranscript).
+		if m.currentSession != nil && m.currentSession.ID == e.SessionID && m.isTranscriptTab() && e.Line != "" {
+			m.appendContent(strings.TrimRight(e.Line, "\n"))
+			if m.following {
+				m.viewport.GotoBottom()
 			}
 		}
 	}
@@ -189,13 +209,14 @@ func (m LogModel) handleLogEvent(msg core.Message) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func pickActiveSession(sessions []core.SessionInfo, activeWID string) *core.SessionInfo {
+func pickActiveSession(sessions []proto.SessionInfo, activeWID string) *proto.SessionInfo {
 	if activeWID == "" {
 		return nil
 	}
 	for i := range sessions {
 		if sessions[i].WindowID == activeWID {
-			return &sessions[i]
+			s := sessions[i]
+			return &s
 		}
 	}
 	return nil
@@ -209,7 +230,7 @@ func (m LogModel) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *LogModel) rebuildTabs(current *core.SessionInfo) {
+func (m *LogModel) rebuildTabs(current *proto.SessionInfo) {
 	prev := make(map[string]*tabState, len(m.tabs))
 	for _, t := range m.tabs {
 		prev[t.label] = t
@@ -240,12 +261,12 @@ func (m *LogModel) rebuildTabs(current *core.SessionInfo) {
 
 // transcriptPathFromView returns the path of the first TRANSCRIPT-kind
 // tab the driver declared, or "" when no transcript tab exists.
-func transcriptPathFromView(current *core.SessionInfo) string {
+func transcriptPathFromView(current *proto.SessionInfo) string {
 	if current == nil {
 		return ""
 	}
 	for _, lt := range current.View.LogTabs {
-		if lt.Kind == driver.TabKindTranscript {
+		if lt.Kind == state.TabKindTranscript {
 			return lt.Path
 		}
 	}
@@ -256,8 +277,8 @@ func transcriptPathFromView(current *core.SessionInfo) string {
 // (and removing each reused entry from the map) when label, path and kind
 // all match. Order: driver-declared LogTabs (in driver's order) → INFO →
 // LOG. The driver opts-out of INFO via SessionView.SuppressInfo.
-func buildTabList(prev map[string]*tabState, current *core.SessionInfo, appLogPath string) []*tabState {
-	reuseOrNew := func(label, path string, kind driver.TabKind) *tabState {
+func buildTabList(prev map[string]*tabState, current *proto.SessionInfo, appLogPath string) []*tabState {
+	reuseOrNew := func(label, path string, kind state.TabKind) *tabState {
 		if t, ok := prev[label]; ok && t.logPath == path && t.kind == kind {
 			delete(prev, label)
 			return t
@@ -312,7 +333,7 @@ func (m *LogModel) isLogTab() bool {
 
 func (m *LogModel) isTranscriptTab() bool {
 	tab := m.activeTabState()
-	return tab != nil && tab.kind == driver.TabKindTranscript
+	return tab != nil && tab.kind == state.TabKindTranscript
 }
 
 func (m *LogModel) activeTabIs(label string) bool {
@@ -364,6 +385,13 @@ func (m *LogModel) toggleThinking() {
 	m.following = true
 }
 
+// switchToTabCmd switches to a new tab and returns a backfill command.
+// Use this from Update handlers that need to return a tea.Cmd.
+func (m *LogModel) switchToTabCmd(tab logTab) tea.Cmd {
+	m.switchToTab(tab)
+	return m.backfillActiveTab()
+}
+
 func (m *LogModel) switchToTab(tab logTab) {
 	if tab == m.activeTab {
 		return
@@ -380,13 +408,6 @@ func (m *LogModel) switchToTab(tab logTab) {
 		return
 	}
 
-	// Reset reader to tail from end of file
-	if t.file != nil {
-		t.file.Close()
-		t.file = nil
-	}
-	t.offset = 0
-	t.buf = ""
 	m.viewport.SetContent("")
 	m.following = true
 	m.parser.Reset()
@@ -425,6 +446,43 @@ func (m *LogModel) appendContent(newContent string) {
 	m.viewport.SetContent(content)
 }
 
-// File I/O helpers (readNewLines / openTabFile / seekToLastNLines /
-// splitTrailingPartial / trimLines / tickCmd) live in log_io.go.
+// backfillActiveTab reads the tail of the currently active tab's file
+// and delivers it as a backfillDoneMsg. Used on startup and tab switch
+// to populate the viewport before push events start flowing.
+func (m LogModel) backfillActiveTab() tea.Cmd {
+	tab := m.activeTabState()
+	if tab == nil || tab.logPath == "" || tab.kind == tabKindInfo {
+		return nil
+	}
+	path := tab.logPath
+	return func() tea.Msg {
+		content, _ := readTailLines(path, initialBackfillLines)
+		return backfillDoneMsg{content: content}
+	}
+}
+
+// readTailLines reads the last n lines from a file, for initial
+// backfill. Returns the content as a single string. Does not maintain
+// any state — each call opens, reads, and closes the file.
+func readTailLines(path string, n int) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	off, err := seekToLastNLines(f, n)
+	if err != nil {
+		return "", err
+	}
+	if _, err := f.Seek(off, 0); err != nil {
+		return "", err
+	}
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(data), "\n"), nil
+}
+
+// File I/O helpers (seekToLastNLines / trimLines) live in log_io.go.
 
