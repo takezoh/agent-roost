@@ -108,8 +108,7 @@ func (m LogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logEventMsg:
 		return m.handleLogEvent(core.Message(msg))
 	case logDisconnectMsg:
-		m.client = nil
-		return m, nil
+		return m, tea.Quit
 	case tea.MouseClickMsg:
 		return m.handleMouseClick(msg)
 	}

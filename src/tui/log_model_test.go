@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/session/driver"
 )
@@ -261,6 +262,20 @@ func TestHandleLogEvent_PaneFocusedNonMainPaneIgnored(t *testing.T) {
 	lm = model.(LogModel)
 	if !lm.activeTabIs("INFO") {
 		t.Errorf("active tab after sidebar focus = %q, want INFO", lm.activeTabState().label)
+	}
+}
+
+// Regression: when the server socket closes (e.g. coordinator detached),
+// the LogModel must terminate so the tmux pane process exits instead of
+// lingering as a zombie. main_model and sessions model already do this.
+func TestHandleLogDisconnect_ReturnsQuit(t *testing.T) {
+	m := NewLogModel("/var/log/roost.log", nil, false)
+	_, cmd := m.Update(logDisconnectMsg{})
+	if cmd == nil {
+		t.Fatal("expected tea.Quit cmd, got nil")
+	}
+	if _, ok := cmd().(tea.QuitMsg); !ok {
+		t.Errorf("expected QuitMsg, got %T", cmd())
 	}
 }
 
