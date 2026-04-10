@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/take/agent-roost/state"
-	"github.com/take/agent-roost/state/driver"
+	"github.com/take/agent-roost/driver"
 )
 
 func testExec() *Executor {

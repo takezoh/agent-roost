@@ -18,7 +18,7 @@ import (
 	"github.com/take/agent-roost/lib/claude/cli"
 	"github.com/take/agent-roost/lib/claude/transcript"
 	"github.com/take/agent-roost/lib/git"
-	"github.com/take/agent-roost/state/driver"
+	"github.com/take/agent-roost/driver"
 )
 
 // CapturePane runs tmux capture-pane and returns content + hash.

@@ -21,7 +21,7 @@ import (
 	"github.com/take/agent-roost/proto"
 	"github.com/take/agent-roost/runtime"
 	"github.com/take/agent-roost/runtime/worker"
-	statedriver "github.com/take/agent-roost/state/driver"
+	statedriver "github.com/take/agent-roost/driver"
 	"github.com/take/agent-roost/tmux"
 	"github.com/take/agent-roost/tools"
 	"github.com/take/agent-roost/tui"

@@ -2,7 +2,7 @@ package runtime
 
 import (
 	"github.com/take/agent-roost/state"
-	"github.com/take/agent-roost/state/driver"
+	"github.com/take/agent-roost/driver"
 )
 
 // Backend interfaces. The runtime depends on these abstractions, not
