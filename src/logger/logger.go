@@ -19,17 +19,17 @@ var (
 // LogFilePath returns the on-disk path of the global daemon log file.
 // After Init(level) or InitWithDataDir(level, dataDir) has been called,
 // this returns the resolved path. Before Init it returns the default
-// (~/.config/roost/roost.log).
+// (~/.roost/roost.log).
 func LogFilePath() string {
 	if logPath != "" {
 		return logPath
 	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "roost", "roost.log")
+	return filepath.Join(home, ".roost", "roost.log")
 }
 
 // Init opens the log file under the default data directory
-// (~/.config/roost/) and installs a slog text handler at the given level.
+// (~/.roost/) and installs a slog text handler at the given level.
 func Init(level string) error {
 	return InitWithDataDir(level, "")
 }
@@ -40,7 +40,7 @@ func Init(level string) error {
 func InitWithDataDir(level, dir string) error {
 	if dir == "" {
 		home, _ := os.UserHomeDir()
-		dir = filepath.Join(home, ".config", "roost")
+		dir = filepath.Join(home, ".roost")
 	}
 	logPath = filepath.Join(dir, "roost.log")
 	os.MkdirAll(dir, 0o755)

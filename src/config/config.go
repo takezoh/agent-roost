@@ -77,7 +77,7 @@ func LoadFrom(path string) (*Config, error) {
 }
 
 func Load() (*Config, error) {
-	return LoadFrom(filepath.Join(EnsureConfigDir(), "config.toml"))
+	return LoadFrom(filepath.Join(EnsureConfigDir(), "settings.toml"))
 }
 
 func DefaultConfig() *Config {
@@ -106,7 +106,7 @@ func DefaultConfig() *Config {
 }
 
 func ConfigDirPath() string {
-	return filepath.Join(ExpandPath("~"), ".config", "roost")
+	return filepath.Join(ExpandPath("~"), ".roost")
 }
 
 func EnsureConfigDir() string {

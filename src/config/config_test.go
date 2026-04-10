@@ -27,7 +27,7 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestLoadFrom_LogLevel(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
+	path := filepath.Join(dir, "settings.toml")
 	os.WriteFile(path, []byte(`[log]
 level = "debug"
 `), 0o644)
@@ -122,7 +122,7 @@ func TestResolveDataDir_Fallback(t *testing.T) {
 }
 
 func TestLoadFrom_Missing(t *testing.T) {
-	cfg, err := LoadFrom("/nonexistent/path/config.toml")
+	cfg, err := LoadFrom("/nonexistent/path/settings.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestLoadFrom_Missing(t *testing.T) {
 
 func TestLoadFrom_Valid(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
+	path := filepath.Join(dir, "settings.toml")
 	os.WriteFile(path, []byte(`[tmux]
 session_name = "custom"
 `), 0o644)
@@ -152,7 +152,7 @@ session_name = "custom"
 
 func TestSessionAliases_LoadAndResolve(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "config.toml")
+	path := filepath.Join(dir, "settings.toml")
 	os.WriteFile(path, []byte(`[session.aliases]
 clw = "claude --worktree"
 cw = "codex --workspace"
