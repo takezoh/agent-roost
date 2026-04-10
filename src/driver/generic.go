@@ -71,6 +71,7 @@ func NewGenericDriver(name string, threshold time.Duration) GenericDriver {
 
 func (d GenericDriver) Name() string        { return d.name }
 func (d GenericDriver) DisplayName() string { return d.displayName }
+func (GenericDriver) Status(s state.DriverState) state.Status { return s.(GenericState).Status }
 
 // View returns the cached View for the given GenericState. Pure
 // getter — same as the View Step returns, but callable from the

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/take/agent-roost/driver"
 	"github.com/take/agent-roost/runtime/worker"
 	"github.com/take/agent-roost/state"
 )
@@ -162,10 +163,7 @@ func (r *Runtime) execute(eff state.Effect) {
 	// === Async work ===
 
 	case state.EffStartJob:
-		r.workers.Submit(worker.Job{
-			ID:    e.JobID,
-			Input: e.Input,
-		})
+		r.submitJob(e)
 
 	default:
 		slog.Warn("runtime: unhandled effect type", "type", fmt.Sprintf("%T", eff))
@@ -254,6 +252,36 @@ func buildPaletteCmd(roostExe, tool string, args map[string]string) string {
 // interpretation of any character in s.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// submitJob dispatches an EffStartJob to the worker pool using the
+// typed Submit[In, Out] generic function. The type switch here
+// replaces the old reflect.Type-based Executor registry.
+func (r *Runtime) submitJob(e state.EffStartJob) {
+	switch input := e.Input.(type) {
+	case driver.CapturePaneInput:
+		if r.runners.CapturePane == nil {
+			return
+		}
+		worker.Submit(r.workers, e.JobID, input, r.runners.CapturePane)
+	case driver.TranscriptParseInput:
+		if r.runners.TranscriptParse == nil {
+			return
+		}
+		worker.Submit(r.workers, e.JobID, input, r.runners.TranscriptParse)
+	case driver.HaikuSummaryInput:
+		if r.runners.HaikuSummary == nil {
+			return
+		}
+		worker.Submit(r.workers, e.JobID, input, r.runners.HaikuSummary)
+	case driver.GitBranchInput:
+		if r.runners.GitBranch == nil {
+			return
+		}
+		worker.Submit(r.workers, e.JobID, input, r.runners.GitBranch)
+	default:
+		slog.Warn("runtime: unknown job input type", "type", fmt.Sprintf("%T", e.Input))
+	}
 }
 
 // snapshotSessions converts the current state.Sessions map into the

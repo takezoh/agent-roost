@@ -6,34 +6,35 @@ import (
 	"testing"
 	"time"
 
-	"github.com/take/agent-roost/state"
 	"github.com/take/agent-roost/driver"
+	"github.com/take/agent-roost/state"
 )
 
-func testExec() *Executor {
-	exec := NewExecutor()
-	exec.Register(driver.CapturePaneInput{}, func(input any) (any, error) {
-		content := "$ "
-		h := sha256.Sum256([]byte(content))
-		return driver.CapturePaneResult{Content: content, Hash: hex.EncodeToString(h[:])}, nil
-	})
-	exec.Register(driver.HaikuSummaryInput{}, func(input any) (any, error) {
-		return driver.HaikuSummaryResult{Summary: "short summary"}, nil
-	})
-	exec.Register(driver.GitBranchInput{}, func(input any) (any, error) {
-		return driver.GitBranchResult{Branch: "feature/x"}, nil
-	})
-	return exec
+func testRunners() Runners {
+	return Runners{
+		CapturePane: func(in driver.CapturePaneInput) (driver.CapturePaneResult, error) {
+			content := "$ "
+			h := sha256.Sum256([]byte(content))
+			return driver.CapturePaneResult{Content: content, Hash: hex.EncodeToString(h[:])}, nil
+		},
+		HaikuSummary: func(in driver.HaikuSummaryInput) (driver.HaikuSummaryResult, error) {
+			return driver.HaikuSummaryResult{Summary: "short summary"}, nil
+		},
+		GitBranch: func(in driver.GitBranchInput) (driver.GitBranchResult, error) {
+			return driver.GitBranchResult{Branch: "feature/x"}, nil
+		},
+		TranscriptParse: func(in driver.TranscriptParseInput) (driver.TranscriptParseResult, error) {
+			return driver.TranscriptParseResult{Title: "test"}, nil
+		},
+	}
 }
 
 func TestPoolCapturePaneRoundTrip(t *testing.T) {
-	pool := NewPool(2, testExec())
+	pool := NewPool(2)
 	defer pool.Stop()
+	runners := testRunners()
 
-	pool.Submit(Job{
-		ID:    1,
-		Input: driver.CapturePaneInput{WindowID: "@5", NLines: 5},
-	})
+	Submit(pool, 1, driver.CapturePaneInput{WindowID: "@5", NLines: 5}, runners.CapturePane)
 
 	select {
 	case ev := <-pool.Results():
@@ -57,13 +58,11 @@ func TestPoolCapturePaneRoundTrip(t *testing.T) {
 }
 
 func TestPoolHaikuRoundTrip(t *testing.T) {
-	pool := NewPool(2, testExec())
+	pool := NewPool(2)
 	defer pool.Stop()
+	runners := testRunners()
 
-	pool.Submit(Job{
-		ID:    2,
-		Input: driver.HaikuSummaryInput{CurrentPrompt: "test"},
-	})
+	Submit(pool, 2, driver.HaikuSummaryInput{CurrentPrompt: "test"}, runners.HaikuSummary)
 
 	select {
 	case ev := <-pool.Results():
@@ -78,13 +77,11 @@ func TestPoolHaikuRoundTrip(t *testing.T) {
 }
 
 func TestPoolGitBranch(t *testing.T) {
-	pool := NewPool(1, testExec())
+	pool := NewPool(1)
 	defer pool.Stop()
+	runners := testRunners()
 
-	pool.Submit(Job{
-		ID:    4,
-		Input: driver.GitBranchInput{WorkingDir: "/tmp"},
-	})
+	Submit(pool, 4, driver.GitBranchInput{WorkingDir: "/tmp"}, runners.GitBranch)
 
 	select {
 	case ev := <-pool.Results():
@@ -101,31 +98,15 @@ func TestPoolGitBranch(t *testing.T) {
 	}
 }
 
-func TestPoolUnknownInputReturnsError(t *testing.T) {
-	pool := NewPool(1, testExec())
-	defer pool.Stop()
-
-	pool.Submit(Job{ID: 5, Input: 42})
-
-	select {
-	case ev := <-pool.Results():
-		res := ev.(state.EvJobResult)
-		if res.Err == nil {
-			t.Error("expected error for unknown input type")
-		}
-	case <-time.After(2 * time.Second):
-		t.Fatal("timeout")
-	}
-}
-
 func TestPoolStopIsIdempotent(t *testing.T) {
-	pool := NewPool(2, testExec())
+	pool := NewPool(2)
 	pool.Stop()
 	pool.Stop()
 }
 
 func TestPoolSubmitAfterStopDrops(t *testing.T) {
-	pool := NewPool(1, testExec())
+	pool := NewPool(1)
 	pool.Stop()
-	pool.Submit(Job{ID: 99, Input: "test"})
+	runners := testRunners()
+	Submit(pool, 99, driver.CapturePaneInput{}, runners.CapturePane)
 }

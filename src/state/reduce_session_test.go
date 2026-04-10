@@ -14,13 +14,15 @@ import (
 
 type stubDriverState struct {
 	DriverStateBase
-	calls []string
+	calls  []string
+	status Status
 }
 
 type stubDriver struct{}
 
 func (stubDriver) Name() string                                                  { return "stub" }
 func (stubDriver) DisplayName() string                                           { return "stub" }
+func (stubDriver) Status(s DriverState) Status                                   { return s.(stubDriverState).status }
 func (stubDriver) NewState(now time.Time) DriverState                            { return stubDriverState{} }
 func (stubDriver) SpawnCommand(s DriverState, baseCommand string) string         { return baseCommand }
 func (stubDriver) Persist(s DriverState) map[string]string                       { return nil }

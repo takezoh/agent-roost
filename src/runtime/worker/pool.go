@@ -3,53 +3,18 @@ package worker
 import (
 	"fmt"
 	"log/slog"
-	"reflect"
 	"sync"
 
 	"github.com/take/agent-roost/state"
 )
 
-// Executor is a type-based runner registry. Each runner is registered
-// by the reflect.Type of its input value. Run dispatches by looking
-// up the input's concrete type — no switch required.
-type Executor struct {
-	runners map[reflect.Type]func(any) (any, error)
-}
-
-// NewExecutor returns an empty Executor. Populate it with Register
-// before passing to NewPool.
-func NewExecutor() *Executor {
-	return &Executor{runners: make(map[reflect.Type]func(any) (any, error))}
-}
-
-// Register maps the concrete type of inputSample to runner. Panics
-// on duplicate registrations to fail fast at startup.
-func (e *Executor) Register(inputSample any, runner func(any) (any, error)) {
-	t := reflect.TypeOf(inputSample)
-	if _, exists := e.runners[t]; exists {
-		panic(fmt.Sprintf("worker: duplicate runner for %v", t))
-	}
-	e.runners[t] = runner
-}
-
-// Run dispatches input to the registered runner by its concrete type.
-func (e *Executor) Run(input any) (any, error) {
-	t := reflect.TypeOf(input)
-	runner, ok := e.runners[t]
-	if !ok {
-		return nil, fmt.Errorf("worker: no runner for %v", t)
-	}
-	return runner(input)
-}
-
-type Job struct {
-	ID    state.JobID
-	Input any
+type job struct {
+	id  state.JobID
+	run func() (any, error)
 }
 
 type Pool struct {
-	exec    *Executor
-	jobs    chan Job
+	jobs    chan job
 	results chan state.Event
 	stop    chan struct{}
 	stopped chan struct{}
@@ -57,10 +22,9 @@ type Pool struct {
 	mu      sync.Mutex
 }
 
-func NewPool(size int, exec *Executor) *Pool {
+func NewPool(size int) *Pool {
 	p := &Pool{
-		exec:    exec,
-		jobs:    make(chan Job, 64),
+		jobs:    make(chan job, 64),
 		results: make(chan state.Event, 64),
 		stop:    make(chan struct{}),
 		stopped: make(chan struct{}),
@@ -80,18 +44,24 @@ func NewPool(size int, exec *Executor) *Pool {
 	return p
 }
 
-func (p *Pool) Submit(j Job) {
+// Submit enqueues a typed job. The runner closure is bound at the call
+// site with concrete In/Out types, so no reflect dispatch is needed.
+func Submit[In, Out any](p *Pool, id state.JobID, input In, runner func(In) (Out, error)) {
 	p.mu.Lock()
 	closed := p.closed
 	p.mu.Unlock()
 	if closed {
 		return
 	}
+	j := job{
+		id:  id,
+		run: func() (any, error) { return runner(input) },
+	}
 	select {
 	case p.jobs <- j:
 	default:
 		slog.Warn("worker: job queue full, dropping",
-			"job_id", j.ID, "input", fmt.Sprintf("%T", j.Input))
+			"job_id", id, "input", fmt.Sprintf("%T", input))
 	}
 }
 
@@ -127,10 +97,10 @@ func (p *Pool) run() {
 	}
 }
 
-func (p *Pool) runJob(j Job) {
-	result, err := p.exec.Run(j.Input)
+func (p *Pool) runJob(j job) {
+	result, err := j.run()
 	ev := state.EvJobResult{
-		JobID:  j.ID,
+		JobID:  j.id,
 		Result: result,
 		Err:    err,
 	}

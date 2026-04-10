@@ -90,6 +90,7 @@ func NewClaudeDriver(home string) ClaudeDriver {
 
 func (ClaudeDriver) Name() string        { return "claude" }
 func (ClaudeDriver) DisplayName() string { return "claude" }
+func (ClaudeDriver) Status(s state.DriverState) state.Status { return s.(ClaudeState).Status }
 
 // View returns the cached View for the given ClaudeState. Pure
 // getter — same payload Step would return, but callable from the

@@ -83,9 +83,8 @@ func runCoordinator() {
 	pollInterval := time.Duration(cfg.Monitor.PollIntervalMs) * time.Millisecond
 	sockPath := filepath.Join(dataDir, "roost.sock")
 
-	exec := worker.NewExecutor()
-	worker.RegisterDefaults(exec, tmuxBackend.CapturePane)
-	pool := worker.NewPool(4, exec)
+	runners := worker.NewRunners(tmuxBackend.CapturePane)
+	pool := worker.NewPool(4)
 
 	rt := runtime.New(runtime.Config{
 		SessionName:  sessionName,
@@ -96,6 +95,7 @@ func runCoordinator() {
 		Persist:      runtime.NewFilePersist(dataDir),
 		EventLog:     runtime.NewFileEventLog(dataDir),
 		Pool:         pool,
+		Runners:      &runners,
 	})
 
 	rt.SetAliases(cfg.Session.Aliases)

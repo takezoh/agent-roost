@@ -6,7 +6,7 @@ package state
 func reduceTick(s State, e EvTick) (State, []Effect) {
 	s.Now = e.Now
 
-	s, effs := stepAllSessions(s, func(sess Session, active bool) DriverEvent {
+	s, effs, changed := stepActiveSessions(s, func(sess Session, active bool) DriverEvent {
 		return DEvTick{
 			Now:      e.Now,
 			Active:   active,
@@ -28,7 +28,9 @@ func reduceTick(s State, e EvTick) (State, []Effect) {
 		EffCheckPaneAlive{Pane: "{sessionName}:0.2"},
 	)
 
-	effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
+	if changed {
+		effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
+	}
 	return s, effs
 }
 

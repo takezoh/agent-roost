@@ -1,0 +1,87 @@
+package state
+
+import (
+	"testing"
+	"time"
+)
+
+func TestTickSkipsIdleSessions(t *testing.T) {
+	now := time.Now()
+	s := New()
+	s.Sessions["idle1"] = Session{
+		ID:      "idle1",
+		Command: "stub",
+		Driver:  stubDriverState{status: StatusIdle},
+	}
+	_, effs := Reduce(s, EvTick{Now: now})
+
+	for _, e := range effs {
+		if _, ok := e.(EffStartJob); ok {
+			t.Error("should not emit EffStartJob for idle session")
+		}
+	}
+}
+
+func TestTickSkipsStoppedSessions(t *testing.T) {
+	now := time.Now()
+	s := New()
+	s.Sessions["stopped1"] = Session{
+		ID:      "stopped1",
+		Command: "stub",
+		Driver:  stubDriverState{status: StatusStopped},
+	}
+	_, effs := Reduce(s, EvTick{Now: now})
+
+	for _, e := range effs {
+		if _, ok := e.(EffStartJob); ok {
+			t.Error("should not emit EffStartJob for stopped session")
+		}
+	}
+}
+
+func TestTickProcessesRunningSessions(t *testing.T) {
+	now := time.Now()
+	s := New()
+	s.Sessions["run1"] = Session{
+		ID:       "run1",
+		Command:  "stub",
+		WindowID: "@1",
+		Driver:   stubDriverState{status: StatusRunning},
+	}
+	s.Active = "@1"
+
+	_, effs := Reduce(s, EvTick{Now: now})
+
+	// Should have reconcile + health checks at minimum
+	var reconcile int
+	for _, e := range effs {
+		if _, ok := e.(EffReconcileWindows); ok {
+			reconcile++
+		}
+	}
+	if reconcile != 1 {
+		t.Errorf("EffReconcileWindows count = %d, want 1", reconcile)
+	}
+}
+
+func TestTickNoBroadcastWhenNoChange(t *testing.T) {
+	now := time.Now()
+	s := New()
+	// Running session but stubDriver.Step returns same state + no effects
+	s.Sessions["s1"] = Session{
+		ID:      "s1",
+		Command: "stub",
+		Driver:  stubDriverState{status: StatusRunning},
+	}
+
+	_, effs := Reduce(s, EvTick{Now: now})
+
+	for _, e := range effs {
+		if _, ok := e.(EffBroadcastSessionsChanged); ok {
+			t.Error("should not broadcast when no driver state changed")
+		}
+		if _, ok := e.(EffPersistSnapshot); ok {
+			t.Error("should not persist when no driver state changed")
+		}
+	}
+}

@@ -1,6 +1,6 @@
-// Composed job runners. Each function constructs a Runner closure
-// that composes lib functions into a complete job. The Pool dispatches
-// to these via the Executor injected at construction.
+// Composed job runners. Each function returns a typed runner closure
+// that the effect interpreter passes to Submit[In, Out]. No reflect
+// dispatch — the type switch lives in interpret.go.
 //
 // lib packages export raw functions (git.DetectBranch,
 // cli.SummarizeWithHaiku, transcript.Tracker). This file combines
@@ -15,20 +15,38 @@ import (
 	"sync"
 	"time"
 
+	"github.com/take/agent-roost/driver"
 	"github.com/take/agent-roost/lib/claude/cli"
 	"github.com/take/agent-roost/lib/claude/transcript"
 	"github.com/take/agent-roost/lib/git"
-	"github.com/take/agent-roost/driver"
 )
 
-// CapturePane runs tmux capture-pane and returns content + hash.
-// captureFunc is typically tmuxBackend.CapturePane.
-func CapturePane(captureFunc func(string, int) (string, error)) func(any) (any, error) {
-	return func(input any) (any, error) {
-		in := input.(driver.CapturePaneInput)
+// Runners holds all runner functions used by the effect interpreter.
+type Runners struct {
+	CapturePane    func(driver.CapturePaneInput) (driver.CapturePaneResult, error)
+	GitBranch      func(driver.GitBranchInput) (driver.GitBranchResult, error)
+	TranscriptParse func(driver.TranscriptParseInput) (driver.TranscriptParseResult, error)
+	HaikuSummary   func(driver.HaikuSummaryInput) (driver.HaikuSummaryResult, error)
+}
+
+// NewRunners constructs all runners. capturePaneFn is the tmux backend
+// dependency for capture-pane. The TranscriptParse and HaikuSummary
+// runners share a Tracker.
+func NewRunners(capturePaneFn func(string, int) (string, error)) Runners {
+	tp, hs := newClaudeRunners()
+	return Runners{
+		CapturePane:     newCapturePane(capturePaneFn),
+		GitBranch:       newGitBranch(),
+		TranscriptParse: tp,
+		HaikuSummary:    hs,
+	}
+}
+
+func newCapturePane(captureFunc func(string, int) (string, error)) func(driver.CapturePaneInput) (driver.CapturePaneResult, error) {
+	return func(in driver.CapturePaneInput) (driver.CapturePaneResult, error) {
 		content, err := captureFunc(string(in.WindowID), in.NLines)
 		if err != nil {
-			return nil, err
+			return driver.CapturePaneResult{}, err
 		}
 		h := sha256.Sum256([]byte(content))
 		return driver.CapturePaneResult{
@@ -38,27 +56,36 @@ func CapturePane(captureFunc func(string, int) (string, error)) func(any) (any, 
 	}
 }
 
-// GitBranch detects the current git branch for a directory.
-func GitBranch() func(any) (any, error) {
-	return func(input any) (any, error) {
-		in := input.(driver.GitBranchInput)
+func newGitBranch() func(driver.GitBranchInput) (driver.GitBranchResult, error) {
+	return func(in driver.GitBranchInput) (driver.GitBranchResult, error) {
 		return driver.GitBranchResult{Branch: git.DetectBranch(in.WorkingDir)}, nil
 	}
 }
 
+func newClaudeRunners() (
+	func(driver.TranscriptParseInput) (driver.TranscriptParseResult, error),
+	func(driver.HaikuSummaryInput) (driver.HaikuSummaryResult, error),
+) {
+	tracker := transcript.NewTracker()
+	var mu sync.Mutex
 
-// HaikuSummary composes transcript.Tracker (for recent conversation
-// rounds) + cli.SummarizeWithHaiku (haiku subprocess) into a rolling
-// session summary. Shares a Tracker with the TranscriptParse runner
-// via the trackerRef parameter.
-//
-// Call NewHaikuSummary to get a matched pair of (TranscriptParse,
-// HaikuSummary) runners that share the same Tracker.
-func HaikuSummary(tracker *transcript.Tracker, mu *sync.Mutex) func(any) (any, error) {
-	return func(input any) (any, error) {
-		in := input.(driver.HaikuSummaryInput)
+	tp := func(in driver.TranscriptParseInput) (driver.TranscriptParseResult, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if _, err := tracker.Update(in.ClaudeUUID, in.Path); err != nil {
+			return driver.TranscriptParseResult{}, err
+		}
+		snap := tracker.Snapshot(in.ClaudeUUID)
+		return driver.TranscriptParseResult{
+			Title:       snap.Title,
+			LastPrompt:  snap.LastPrompt,
+			StatusLine:  tracker.StatusLine(in.ClaudeUUID),
+			CurrentTool: snap.Insight.CurrentTool,
+			Subagents:   snap.Insight.SubagentCounts,
+		}, nil
+	}
 
-		// Pull recent conversation rounds from the shared tracker.
+	hs := func(in driver.HaikuSummaryInput) (driver.HaikuSummaryResult, error) {
 		mu.Lock()
 		turns := tracker.RecentRounds(in.ClaudeUUID, 2)
 		mu.Unlock()
@@ -73,40 +100,12 @@ func HaikuSummary(tracker *transcript.Tracker, mu *sync.Mutex) func(any) (any, e
 		defer cancel()
 		result, err := cli.SummarizeWithHaiku(ctx, prompt)
 		if err != nil {
-			return nil, err
+			return driver.HaikuSummaryResult{}, err
 		}
 		return driver.HaikuSummaryResult{Summary: strings.TrimSpace(result)}, nil
 	}
-}
 
-// NewClaudeRunners returns a matched pair of TranscriptParse and
-// HaikuSummary runners that share the same Tracker. Use this from
-// main.go when constructing the pool executor.
-func NewClaudeRunners() (transcriptParse, haikuSummary func(any) (any, error)) {
-	tracker := transcript.NewTracker()
-	var mu sync.Mutex
-	return TranscriptParseWithTracker(tracker, &mu), HaikuSummary(tracker, &mu)
-}
-
-// TranscriptParseWithTracker is like TranscriptParse but uses a
-// provided tracker + mutex (for sharing with HaikuSummary).
-func TranscriptParseWithTracker(tracker *transcript.Tracker, mu *sync.Mutex) func(any) (any, error) {
-	return func(input any) (any, error) {
-		in := input.(driver.TranscriptParseInput)
-		mu.Lock()
-		defer mu.Unlock()
-		if _, err := tracker.Update(in.ClaudeUUID, in.Path); err != nil {
-			return nil, err
-		}
-		snap := tracker.Snapshot(in.ClaudeUUID)
-		return driver.TranscriptParseResult{
-			Title:       snap.Title,
-			LastPrompt:  snap.LastPrompt,
-			StatusLine:  tracker.StatusLine(in.ClaudeUUID),
-			CurrentTool: snap.Insight.CurrentTool,
-			Subagents:   snap.Insight.SubagentCounts,
-		}, nil
-	}
+	return tp, hs
 }
 
 // === Prompt assembly helpers (ported from old claude_summary.go) ===
@@ -188,15 +187,4 @@ func tailClip(s string, max int) string {
 		return s
 	}
 	return "…" + string(r[len(r)-max:])
-}
-
-// RegisterDefaults populates the executor with all built-in runners.
-// capturePaneFn is the only external dependency (tmux backend).
-// Adding a new job type = one Register call here, no switch anywhere.
-func RegisterDefaults(exec *Executor, capturePaneFn func(string, int) (string, error)) {
-	transcriptParse, haikuSummary := NewClaudeRunners()
-	exec.Register(driver.TranscriptParseInput{}, transcriptParse)
-	exec.Register(driver.HaikuSummaryInput{}, haikuSummary)
-	exec.Register(driver.GitBranchInput{}, GitBranch())
-	exec.Register(driver.CapturePaneInput{}, CapturePane(capturePaneFn))
 }

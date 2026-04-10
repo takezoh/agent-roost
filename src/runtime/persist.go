@@ -5,59 +5,96 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
-// FilePersist is the production PersistBackend. It writes the session
-// snapshot atomically (write-temp + rename) to <dataDir>/sessions.json
-// and reads it back via Load.
+// FilePersist is the production PersistBackend. It writes each session
+// to an individual file under <dataDir>/sessions/<id>.json with atomic
+// temp+rename. Sessions that are no longer present are deleted.
 type FilePersist struct {
-	path string
+	dir string
 }
 
 // NewFilePersist constructs a FilePersist anchored at the given data
-// directory. The caller is expected to have already created the
-// directory (cmd/main does this at startup).
+// directory. The sessions subdirectory is created lazily on first Save.
 func NewFilePersist(dataDir string) *FilePersist {
-	return &FilePersist{path: filepath.Join(dataDir, "sessions.json")}
+	return &FilePersist{dir: filepath.Join(dataDir, "sessions")}
 }
 
-// Path returns the on-disk file path.
-func (p *FilePersist) Path() string { return p.path }
-
-// Save writes the snapshot to a temp file in the same directory and
-// renames it over the target. The two-step write means a crash
-// mid-save leaves the previous snapshot intact.
+// Save writes each session to its own file and removes files for
+// sessions that are no longer in the list.
 func (p *FilePersist) Save(sessions []SessionSnapshot) error {
-	if sessions == nil {
-		sessions = []SessionSnapshot{}
+	if err := os.MkdirAll(p.dir, 0o755); err != nil {
+		return fmt.Errorf("persist: mkdir: %w", err)
 	}
-	data, err := json.MarshalIndent(sessions, "", "  ")
+
+	want := make(map[string]struct{}, len(sessions))
+	for _, sess := range sessions {
+		want[sess.ID] = struct{}{}
+		if err := p.writeOne(sess); err != nil {
+			return err
+		}
+	}
+
+	entries, err := os.ReadDir(p.dir)
 	if err != nil {
-		return fmt.Errorf("persist: marshal: %w", err)
+		return fmt.Errorf("persist: readdir: %w", err)
 	}
-	tmp := p.path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("persist: write temp: %w", err)
-	}
-	if err := os.Rename(tmp, p.path); err != nil {
-		return fmt.Errorf("persist: rename: %w", err)
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".tmp") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".json")
+		if _, ok := want[id]; !ok {
+			os.Remove(filepath.Join(p.dir, name))
+		}
 	}
 	return nil
 }
 
-// Load reads the snapshot back. Returns (nil, nil) when the file does
-// not exist (fresh install / no prior sessions).
+func (p *FilePersist) writeOne(sess SessionSnapshot) error {
+	data, err := json.MarshalIndent(sess, "", "  ")
+	if err != nil {
+		return fmt.Errorf("persist: marshal %s: %w", sess.ID, err)
+	}
+	target := filepath.Join(p.dir, sess.ID+".json")
+	tmp := target + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("persist: write %s: %w", sess.ID, err)
+	}
+	if err := os.Rename(tmp, target); err != nil {
+		return fmt.Errorf("persist: rename %s: %w", sess.ID, err)
+	}
+	return nil
+}
+
+// Load reads all session files from the directory. Returns (nil, nil)
+// when the directory does not exist (fresh install).
 func (p *FilePersist) Load() ([]SessionSnapshot, error) {
-	data, err := os.ReadFile(p.path)
+	entries, err := os.ReadDir(p.dir)
 	if os.IsNotExist(err) {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("persist: read: %w", err)
+		return nil, fmt.Errorf("persist: readdir: %w", err)
 	}
+
 	var out []SessionSnapshot
-	if err := json.Unmarshal(data, &out); err != nil {
-		return nil, fmt.Errorf("persist: unmarshal: %w", err)
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".tmp") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(p.dir, name))
+		if err != nil {
+			return nil, fmt.Errorf("persist: read %s: %w", name, err)
+		}
+		var snap SessionSnapshot
+		if err := json.Unmarshal(data, &snap); err != nil {
+			return nil, fmt.Errorf("persist: unmarshal %s: %w", name, err)
+		}
+		out = append(out, snap)
 	}
 	return out, nil
 }

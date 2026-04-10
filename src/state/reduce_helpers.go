@@ -100,25 +100,32 @@ func postProcessEffect(s State, sessID SessionID, eff Effect) (Effect, State) {
 	}
 }
 
-// stepAllSessions runs Step against every session in the state with
-// the same DriverEvent (typically a DEvTick). Used by reduceTick to
-// fan out a single tick to N drivers in one reducer call.
-func stepAllSessions(s State, makeEv func(sess Session, active bool) DriverEvent) (State, []Effect) {
+// stepActiveSessions runs Step against sessions that need ticking.
+// Idle and Stopped sessions are skipped (hook events will wake them).
+// Returns whether any session emitted effects, so the caller can
+// decide whether to broadcast/persist.
+func stepActiveSessions(s State, makeEv func(sess Session, active bool) DriverEvent) (State, []Effect, bool) {
 	if len(s.Sessions) == 0 {
-		return s, nil
+		return s, nil, false
 	}
-	// Sort session IDs for deterministic effect ordering — Go map
-	// iteration is randomized, and nondeterministic effect order
-	// makes debugging harder and could matter if two sessions emit
-	// conflicting tmux operations.
+	// Sort session IDs for deterministic effect ordering.
 	ids := make([]SessionID, 0, len(s.Sessions))
 	for id := range s.Sessions {
 		ids = append(ids, id)
 	}
 	sortSessionIDs(ids)
 	var effs []Effect
+	changed := false
 	for _, sessID := range ids {
 		sess := s.Sessions[sessID]
+		drv := GetDriver(sess.Command)
+		if drv == nil {
+			continue
+		}
+		status := drv.Status(sess.Driver)
+		if status == StatusIdle || status == StatusStopped {
+			continue
+		}
 		active := sess.WindowID != "" && sess.WindowID == s.Active
 		ev := makeEv(sess, active)
 		next, sessEffs, _, ok := stepDriver(s, sessID, ev)
@@ -126,9 +133,12 @@ func stepAllSessions(s State, makeEv func(sess Session, active bool) DriverEvent
 			continue
 		}
 		s = next
-		effs = append(effs, sessEffs...)
+		if len(sessEffs) > 0 {
+			changed = true
+			effs = append(effs, sessEffs...)
+		}
 	}
-	return s, effs
+	return s, effs, changed
 }
 
 func sortSessionIDs(ids []SessionID) {

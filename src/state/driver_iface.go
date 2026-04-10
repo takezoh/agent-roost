@@ -100,6 +100,10 @@ type Driver interface {
 	// side effects are returned as []Effect for the runtime to execute.
 	Step(prev DriverState, ev DriverEvent) (DriverState, []Effect, View)
 
+	// Status returns the current driver status without building the
+	// full View. Used by the tick reducer to skip idle/stopped sessions.
+	Status(s DriverState) Status
+
 	// View is a pure getter for the current TUI payload. Same View
 	// that Step returns, but callable without an event — used by the
 	// runtime when serializing SessionInfo for broadcasts and when
