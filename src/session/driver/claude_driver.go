@@ -204,16 +204,25 @@ func (d *claudeDriver) HandleEvent(ev AgentEvent) bool {
 		// new haiku summary refresh. PreToolUse / PostToolUse / Stop also
 		// arrive as state changes but we don't want to re-summarize on each
 		// tool tick — only when the user themselves has just spoken. Capture
-		// the decision while still holding the lock so a racing HandleEvent
-		// can't overwrite lastHookEvent before we read it.
+		// the hook prompt and the isUserPrompt flag while still holding the
+		// lock so a racing HandleEvent (separate goroutine per IPC client)
+		// can't overwrite lastHookEvent before we read it. Also seed
+		// d.lastPrompt from the hook now so subsequent View() calls see it
+		// without waiting for refreshMeta to fold the new turn into the
+		// JSONL — Claude often writes the prompt to the file *after* firing
+		// the hook.
 		isUserPrompt := d.lastHookEvent.HookEventName == "UserPromptSubmit"
+		hookPrompt := d.lastHookEvent.Prompt
+		if isUserPrompt && hookPrompt != "" {
+			d.lastPrompt = hookPrompt
+		}
 		d.mu.Unlock()
 		slog.Debug("claude driver: state change",
 			"session", d.sessionID, "from", prev.String(),
 			"to", status.String(), "log", ev.Log)
 		d.refreshMeta()
 		if isUserPrompt {
-			d.triggerSummaryAsync()
+			d.triggerSummaryAsync(hookPrompt)
 		}
 		logLine := ev.Log
 		if logLine == "" {
@@ -374,7 +383,13 @@ func (d *claudeDriver) refreshMeta() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.title = snap.Title
-	d.lastPrompt = snap.LastPrompt
+	// Only overwrite lastPrompt when the tracker actually found a user
+	// entry. snap.LastPrompt is "" briefly on a brand-new session before
+	// Claude has flushed the first prompt to JSONL — clobbering would
+	// erase the value we just seeded from the hook payload in HandleEvent.
+	if snap.LastPrompt != "" {
+		d.lastPrompt = snap.LastPrompt
+	}
 	d.currentTool = snap.Insight.CurrentTool
 	d.subagentCounts = snap.Insight.SubagentCounts
 	d.statusLine = line

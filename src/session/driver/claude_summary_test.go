@@ -247,6 +247,178 @@ func TestClaudeDriver_PersistedStateIncludesSummary(t *testing.T) {
 	}
 }
 
+// TestClaudeDriver_SubtitleFallsBackToLastPrompt covers the warm-restart
+// regression: a session whose persisted state predates the summary
+// feature has d.summary == "" but a non-empty d.lastPrompt picked up by
+// refreshMeta. The card subtitle must show the lastPrompt instead of
+// going blank until the next user prompt arrives.
+func TestClaudeDriver_SubtitleFallsBackToLastPrompt(t *testing.T) {
+	d := newClaude(t)
+	d.mu.Lock()
+	d.summary = ""
+	d.lastPrompt = "make tests pass"
+	d.mu.Unlock()
+	if got := d.View().Card.Subtitle; got != "make tests pass" {
+		t.Errorf("subtitle = %q, want fallback to lastPrompt", got)
+	}
+}
+
+func TestClaudeDriver_SubtitleSummaryOverridesLastPrompt(t *testing.T) {
+	d := newClaude(t)
+	d.mu.Lock()
+	d.summary = "fix flaky tests"
+	d.lastPrompt = "make tests pass"
+	d.mu.Unlock()
+	if got := d.View().Card.Subtitle; got != "fix flaky tests" {
+		t.Errorf("subtitle = %q, want summary to win over lastPrompt", got)
+	}
+}
+
+// TestClaudeDriver_HookPromptSeedsLastPrompt covers the brand-new session
+// case: no summary, transcript file empty, but a UserPromptSubmit hook has
+// just landed. HandleEvent must seed d.lastPrompt from the hook payload so
+// the next View() call shows the user's fresh input immediately, even
+// before haiku has produced a summary.
+func TestClaudeDriver_HookPromptSeedsLastPrompt(t *testing.T) {
+	// Stub the summarizer so HandleEvent doesn't try to spawn a real
+	// claude subprocess. We don't care about the summary here — only that
+	// d.lastPrompt is populated synchronously inside HandleEvent.
+	stub := &stubSummarizer{reply: ""}
+	withStubSummarizer(t, stub)
+
+	d := newClaude(t)
+	d.HandleEvent(AgentEvent{
+		Type:  AgentEventStateChange,
+		State: "running",
+		DriverState: map[string]string{
+			"session_id":      "fresh",
+			"hook_event_json": `{"session_id":"fresh","hook_event_name":"UserPromptSubmit","prompt":"hello world"}`,
+		},
+	})
+	if got := d.View().Card.Subtitle; got != "hello world" {
+		t.Errorf("subtitle = %q, want hook prompt seeded into lastPrompt", got)
+	}
+	// Wait for the background summarizer goroutine HandleEvent kicked off
+	// to settle, otherwise it will race the t.Cleanup that restores
+	// summarizeFn.
+	waitFor(t, 500*time.Millisecond, func() bool {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		return !d.summarizing
+	})
+}
+
+// TestClaudeDriver_RefreshMetaPreservesSeededLastPrompt ensures that an
+// empty snap.LastPrompt from refreshMeta does NOT clobber a lastPrompt
+// already seeded by an earlier UserPromptSubmit. This is the warm path of
+// the same race: PreToolUse arrives, refreshMeta runs but the JSONL
+// hasn't been flushed yet, snap.LastPrompt is "" — we must keep what we
+// already have.
+func TestClaudeDriver_RefreshMetaPreservesSeededLastPrompt(t *testing.T) {
+	// Write a transcript that contains only a custom-title entry, no
+	// user entries at all. The tracker will parse it successfully and
+	// produce snap.LastPrompt == "" — exactly the condition refreshMeta
+	// must NOT clobber on.
+	dir := t.TempDir()
+	sid := "csid"
+	path := filepath.Join(dir, sid+".jsonl")
+	if err := os.WriteFile(path, []byte(`{"type":"custom-title","customTitle":"only title"}`+"\n"), 0o644); err != nil {
+		t.Fatalf("write transcript: %v", err)
+	}
+
+	d := newClaude(t)
+	d.mu.Lock()
+	d.lastPrompt = "seeded from hook"
+	d.claudeSessionID = sid
+	d.transcriptPath = path
+	d.mu.Unlock()
+
+	d.refreshMeta()
+
+	if got := d.View().Card.Subtitle; got != "seeded from hook" {
+		t.Errorf("refreshMeta clobbered seeded lastPrompt, got %q", got)
+	}
+	// Sanity: title was picked up, so the parser actually ran.
+	if got := d.View().Card.Title; got != "only title" {
+		t.Errorf("refreshMeta failed to pick up title, got %q", got)
+	}
+}
+
+func TestAppendHookPromptTurnNoOpWhenEmpty(t *testing.T) {
+	turns := []transcript.TurnText{{Role: "user", Text: "first"}}
+	got := appendHookPromptTurn(turns, "")
+	if len(got) != 1 {
+		t.Errorf("empty hook prompt should not append: %+v", got)
+	}
+}
+
+func TestAppendHookPromptTurnAppendsWhenNonEmpty(t *testing.T) {
+	turns := []transcript.TurnText{
+		{Role: "user", Text: "first"},
+		{Role: "assistant", Text: "reply"},
+	}
+	got := appendHookPromptTurn(turns, "second")
+	if len(got) != 3 || got[2].Role != "user" || got[2].Text != "second" {
+		t.Errorf("expected appended user turn, got %+v", got)
+	}
+}
+
+func TestAppendHookPromptTurnDedupTrailingMatch(t *testing.T) {
+	// Defensive: if Claude has already flushed the prompt to JSONL by
+	// the time refreshMeta runs, the tracker would have it as the last
+	// turn. Don't double it up.
+	turns := []transcript.TurnText{
+		{Role: "user", Text: "first"},
+		{Role: "assistant", Text: "reply"},
+		{Role: "user", Text: "duplicate"},
+	}
+	got := appendHookPromptTurn(turns, "duplicate")
+	if len(got) != 3 {
+		t.Errorf("dedup failed, got %+v", got)
+	}
+}
+
+// TestClaudeDriver_SummaryFiresOnFirstPromptViaHookOnly covers the bug
+// the user reported: brand-new session, transcript file does not yet
+// contain the user prompt at hook time. tracker.RecentRounds returns
+// nothing, but we still want a summary. The hook prompt must drive the
+// summarizer single-handedly.
+func TestClaudeDriver_SummaryFiresOnFirstPromptViaHookOnly(t *testing.T) {
+	stub := &stubSummarizer{reply: "新規セッション要約"}
+	withStubSummarizer(t, stub)
+
+	d := newClaude(t)
+	// Seed only the identity bits; do NOT write a transcript file so
+	// tracker.RecentRounds returns empty — exactly the brand-new state.
+	d.mu.Lock()
+	d.claudeSessionID = "fresh"
+	d.mu.Unlock()
+
+	consumed := d.HandleEvent(AgentEvent{
+		Type:  AgentEventStateChange,
+		State: "running",
+		DriverState: map[string]string{
+			"session_id":      "fresh",
+			"hook_event_json": `{"session_id":"fresh","hook_event_name":"UserPromptSubmit","prompt":"最初のプロンプト"}`,
+		},
+	})
+	if !consumed {
+		t.Fatal("event should be consumed")
+	}
+
+	if !waitFor(t, 500*time.Millisecond, func() bool { return stub.callCount() == 1 }) {
+		t.Fatalf("summarizer not called: calls=%d", stub.callCount())
+	}
+	if !strings.Contains(stub.lastCall(), "最初のプロンプト") {
+		t.Errorf("hook prompt missing from summarizer input: %q", stub.lastCall())
+	}
+	if !waitFor(t, 500*time.Millisecond, func() bool {
+		return d.View().Card.Subtitle == "新規セッション要約"
+	}) {
+		t.Errorf("subtitle = %q, want %q", d.View().Card.Subtitle, "新規セッション要約")
+	}
+}
+
 // waitFor polls predicate every 5ms up to d, returning true on success.
 // Used to wait on the goroutine-driven summarizer settling.
 func waitFor(t *testing.T, d time.Duration, predicate func() bool) bool {

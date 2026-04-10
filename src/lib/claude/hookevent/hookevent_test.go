@@ -32,6 +32,17 @@ func TestParseHookEvent_Invalid(t *testing.T) {
 	}
 }
 
+func TestParseHookEvent_UserPromptSubmitCarriesPrompt(t *testing.T) {
+	input := `{"session_id":"abc","hook_event_name":"UserPromptSubmit","prompt":"テストプロンプト"}`
+	event, err := ParseHookEvent([]byte(input))
+	if err != nil {
+		t.Fatalf("ParseHookEvent: %v", err)
+	}
+	if event.Prompt != "テストプロンプト" {
+		t.Errorf("Prompt = %q, want %q", event.Prompt, "テストプロンプト")
+	}
+}
+
 func TestFormatLog(t *testing.T) {
 	tests := []struct {
 		event HookEvent

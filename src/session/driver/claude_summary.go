@@ -53,13 +53,23 @@ var summarizeFn = cli.SummarizeWithHaiku
 
 // triggerSummaryAsync kicks off a background haiku summarization for the
 // current session. Drops the call if another summarization is already in
-// flight or if the transcript hasn't produced any usable rounds yet.
+// flight or if there is nothing at all to feed haiku.
+//
+// hookPrompt is the freshly-arrived UserPromptSubmit prompt text. The
+// caller (HandleEvent) MUST capture it inside the same locked region as
+// absorbDriverStateLocked so a racing PreToolUse/PostToolUse cannot
+// overwrite lastHookEvent before we read it. The captured value is
+// appended as the latest user turn — at hook time the prompt has not yet
+// been written to the JSONL transcript, so relying on
+// tracker.RecentRounds alone would (a) miss the brand-new prompt entirely
+// on the first turn of a session and (b) lag one round behind on every
+// subsequent turn.
 //
 // Lock discipline: never holds d.mu across the d.tracker.RecentRounds call
 // — same convention as refreshMeta. The in-flight check is re-confirmed
 // after the (mu-free) tracker call so two near-simultaneous prompts still
 // produce at most one summarizer goroutine.
-func (d *claudeDriver) triggerSummaryAsync() {
+func (d *claudeDriver) triggerSummaryAsync(hookPrompt string) {
 	d.mu.Lock()
 	if d.summarizing {
 		d.mu.Unlock()
@@ -73,6 +83,7 @@ func (d *claudeDriver) triggerSummaryAsync() {
 	}
 
 	turns := d.tracker.RecentRounds(csid, summaryUserRoundLim)
+	turns = appendHookPromptTurn(turns, hookPrompt)
 	if len(turns) == 0 {
 		return
 	}
@@ -90,6 +101,22 @@ func (d *claudeDriver) triggerSummaryAsync() {
 	d.mu.Unlock()
 
 	go d.runSummary(sessionID, prompt)
+}
+
+// appendHookPromptTurn folds the freshly-arrived user prompt into the
+// turns slice as a synthetic last user entry. No-op when the hook prompt
+// is empty (non-UserPromptSubmit events) or when the tail of the slice
+// already carries the same text (defensive dedup against the rare case
+// where Claude has already flushed the prompt to JSONL by the time
+// refreshMeta runs).
+func appendHookPromptTurn(turns []transcript.TurnText, hookPrompt string) []transcript.TurnText {
+	if hookPrompt == "" {
+		return turns
+	}
+	if n := len(turns); n > 0 && turns[n-1].Role == "user" && turns[n-1].Text == hookPrompt {
+		return turns
+	}
+	return append(turns, transcript.TurnText{Role: "user", Text: hookPrompt})
 }
 
 // runSummary executes the bounded haiku call and folds the result back into
@@ -133,8 +160,10 @@ func formatSummaryPrompt(prev string, turns []transcript.TurnText) string {
 	var b strings.Builder
 	b.WriteString("あなたはセッション要約器です。以下の会話履歴と前回要約から、")
 	b.WriteString("この AI コーディングセッションで現在ユーザーが何をしようとしているかを")
-	b.WriteString("日本語で1行・40文字以内で要約してください。")
-	b.WriteString("返答は要約文のみ、装飾・前置き・引用符なし。\n\n")
+	b.WriteString("日本語で 2〜3 行の説明的なメッセージにまとめてください。")
+	b.WriteString("各行は別の観点（目的 / 直近の進捗 / 次の行動）を簡潔に述べ、")
+	b.WriteString("各行 30 文字以内を目安にする。")
+	b.WriteString("返答は本文のみ、見出し・装飾・前置き・引用符なし。\n\n")
 
 	if prev != "" {
 		b.WriteString("<previous_summary>\n")
