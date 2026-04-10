@@ -184,9 +184,13 @@ func (r *Runtime) RecreateAll() error {
 			}
 		}
 		windowName := buildWindowName(sess.Project, string(id))
+		tmuxCmd := "exec " + spawnCmd
+		if isShellCommand(sess.Command) {
+			tmuxCmd = ""
+		}
 		wid, paneID, err := r.cfg.Tmux.SpawnWindow(
 			windowName,
-			"exec "+spawnCmd,
+			tmuxCmd,
 			startDir,
 			map[string]string{"ROOST_SESSION_ID": string(id)},
 		)

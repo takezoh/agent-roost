@@ -20,6 +20,7 @@ func RegisterDefaults(home string, idleThreshold time.Duration) {
 		state.Register(NewGenericDriver("bash", idleThreshold))
 		state.Register(NewGenericDriver("codex", idleThreshold))
 		state.Register(NewGenericDriver("gemini", idleThreshold))
+		state.Register(NewGenericDriver("shell", idleThreshold))
 		// Fallback driver under the empty name. Sessions whose
 		// command isn't a registered key will route here.
 		state.Register(NewGenericDriver("", idleThreshold))

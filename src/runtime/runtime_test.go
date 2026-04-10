@@ -13,11 +13,11 @@ import (
 )
 
 func TestMain(m *testing.M) {
-	// Register a fallback driver under "" so reducers that expect a
-	// driver for unknown commands can resolve one. The runtime tests
-	// don't exercise driver-specific behaviour — they just need
+	// Register drivers so reducers can resolve commands. The runtime
+	// tests don't exercise driver-specific behaviour — they just need
 	// SOMETHING in the registry.
 	state.Register(driver.NewGenericDriver("", 0))
+	state.Register(driver.NewGenericDriver("shell", 0))
 	os.Exit(m.Run())
 }
 
@@ -26,6 +26,7 @@ func TestMain(m *testing.M) {
 type fakeTmuxBackend struct {
 	mu          sync.Mutex
 	spawnCalls  int
+	spawnCmds   []string
 	killCalls   int
 	swapCalls   int
 	respawnCmds []string
@@ -52,6 +53,7 @@ func (f *fakeTmuxBackend) SpawnWindow(name, command, startDir string, env map[st
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.spawnCalls++
+	f.spawnCmds = append(f.spawnCmds, command)
 	if f.spawnErr != nil {
 		return "", "", f.spawnErr
 	}
@@ -348,6 +350,58 @@ func TestRuntimeStopSession(t *testing.T) {
 	defer tmux.mu.Unlock()
 	if tmux.killCalls != 1 {
 		t.Errorf("killCalls = %d, want 1", tmux.killCalls)
+	}
+}
+
+func TestIsShellCommand(t *testing.T) {
+	if !isShellCommand("shell") {
+		t.Error("expected true for 'shell'")
+	}
+	if isShellCommand("claude") {
+		t.Error("expected false for 'claude'")
+	}
+	if isShellCommand("") {
+		t.Error("expected false for empty")
+	}
+}
+
+func TestRuntimeShellSessionSpawnsWithoutCommand(t *testing.T) {
+	tmux := newFakeTmux()
+	persist := &recordingPersist{}
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         tmux,
+		Persist:      persist,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = r.Run(ctx) }()
+
+	r.Enqueue(state.EvCmdCreateSession{
+		ConnID: 1, ReqID: "r1", Project: "/tmp/test", Command: "shell",
+	})
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		tmux.mu.Lock()
+		spawned := tmux.spawnCalls
+		tmux.mu.Unlock()
+		if spawned >= 1 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-r.Done()
+
+	tmux.mu.Lock()
+	defer tmux.mu.Unlock()
+	if tmux.spawnCalls != 1 {
+		t.Fatalf("spawnCalls = %d, want 1", tmux.spawnCalls)
+	}
+	if tmux.spawnCmds[0] != "" {
+		t.Errorf("spawn command = %q, want empty (login shell)", tmux.spawnCmds[0])
 	}
 }
 

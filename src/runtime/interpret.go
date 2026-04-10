@@ -175,7 +175,11 @@ func (r *Runtime) execute(eff state.Effect) {
 // EvTmuxWindowSpawned / EvTmuxSpawnFailed.
 func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	name := windowName(e.Project, string(e.SessionID))
-	wid, paneID, err := r.cfg.Tmux.SpawnWindow(name, "exec "+e.Command, e.StartDir, e.Env)
+	spawnCmd := "exec " + e.Command
+	if isShellCommand(e.Command) {
+		spawnCmd = ""
+	}
+	wid, paneID, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, e.StartDir, e.Env)
 	if err != nil {
 		r.Enqueue(state.EvTmuxSpawnFailed{
 			SessionID:  e.SessionID,
@@ -245,6 +249,12 @@ func buildPaletteCmd(roostExe, tool string, args map[string]string) string {
 		cmd += " --arg=" + shellQuote(k+"="+v)
 	}
 	return cmd
+}
+
+// isShellCommand returns true if the command should be spawned as a
+// login shell (i.e. tmux new-window with no command argument).
+func isShellCommand(command string) bool {
+	return command == "shell"
 }
 
 // shellQuote wraps s in single quotes with internal single quotes
