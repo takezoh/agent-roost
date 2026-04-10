@@ -446,7 +446,9 @@ flowchart LR
 
 ### 並行性モデル — 階層型アクター
 
-agent-roost のサーバ側は **3 階層のアクター** で構成される。各アクターは自身の goroutine + inbox channel を持ち、内部状態はその goroutine しか触らない。`sync.Mutex` / `sync.RWMutex` はサーバ側コードからは消えており、状態の所有権が型 (= goroutine) で表現されている。
+agent-roost のサーバ側は **3 階層のアクター** で構成される。各アクターは自身の goroutine + inbox channel (`chan func()`) を持ち、内部状態はその goroutine しか触らない。`sync.Mutex` / `sync.RWMutex` はサーバ側コードからは消えており、状態の所有権が型 (= goroutine) で表現されている。
+
+#### 階層と所有する状態
 
 ```
 Server actor (1)
@@ -455,60 +457,186 @@ Server actor (1)
 ├── 各 clientConn は writer goroutine + buffered outbox channel (size 64)
 └── slow client は他の client や actor を一切ブロックしない
 
-         ↑ AsyncBroadcast(msg) — 非ブロッキング、Coordinator → Server の片方向のみ
-
 Coordinator actor (1)
 ├── 状態: SessionService (sessions[]) + DriverService (drivers map[id]Driver)
 │         + activeWindowID + sync callbacks
 ├── inbox: Create / Stop / Switch / Preview / HandleHookEvent / Tick / ...
-├── 周期 tick は Run の select loop に統合 (time.Ticker)
-└── handleTick は reap → Driver fan-out → fireSessionsChanged の順
-
-         ↑ drv.Tick(now, win) — Driver actor への同期 RPC
+├── 周期 tick は run() の select loop に統合 (time.Ticker)
+└── handleTickInternal は reap → Driver fan-out (off-actor) → fireSessionsChanged の順
 
 Driver actor (N, 1 per session)
 ├── 状態: claudeDriver / genericDriver の全フィールド (status, title, branch,
-│         tracker, eventLog, ...)
-├── inbox: Tick / HandleEvent / View / PersistedState / Close / ...
-├── 重い I/O (transcript.Update, git, capture-pane) は actor goroutine 内で
+│         tracker, eventLog, summary, ...)
+├── inbox: Tick / HandleEvent / View / PersistedState / Close / Atomic / ...
+├── 重い I/O (transcript.Update, git, capture-pane, haiku 要約) は actor goroutine 内で
 │   同期実行 → 自分のセッションだけ詰まる
 └── WindowInfo.Active() は Coordinator が tick 時に snapshot して push する
     → Driver actor は Coordinator にコールバックしない (デッドロック回避)
 ```
 
-#### アクター間通信の方向
+#### アクター間通信のトポロジ
 
-- Server actor → Coordinator: なし。Server の dispatch handler (= handleConn goroutine) が Coordinator メソッドを直接呼ぶ (Coordinator actor の inbox 経由)。Server actor 自身は Coordinator を呼ばない
-- Coordinator actor → Server actor: `AsyncBroadcast(msg)` のみ (非ブロッキング)
-- Coordinator actor → Driver actor: 同期 RPC (Tick / HandleEvent / View / PersistedState)
-- Driver actor → Coordinator actor: なし。WindowInfo.Active() は Tick command に snapshot として埋め込まれる
+cross-actor 呼び出しは **片方向のみ**。サイクルが無いのでデッドロックは型レベルで排除される:
 
-このサイクル無し構造によりデッドロックは型レベルで排除されている。
+```mermaid
+flowchart LR
+    classDef actor fill:#e8f0ff,stroke:#4060a0,stroke-width:2px
+    classDef worker fill:#f0f0f0,stroke:#888,stroke-dasharray:3 3
+
+    handleConn["handleConn goroutine<br/>(per IPC connection)"]:::worker
+    Server["Server actor<br/>inbox: chan func()"]:::actor
+    Coord["Coordinator actor<br/>inbox: chan func()"]:::actor
+    FanOut["fanOutTicks worker<br/>(off-actor, per tick)"]:::worker
+    Drv["Driver actor × N<br/>inbox: chan func()"]:::actor
+    Writer["clientConn writer × M<br/>(per client)"]:::worker
+
+    handleConn -->|"exec: dispatch + clients 操作"| Server
+    handleConn -->|"exec: Create/Switch/<br/>HandleHookEvent/..."| Coord
+    Coord -.->|"AsyncBroadcast<br/>(non-blocking)"| Server
+    Coord -->|"snapshotEntries<br/>(同期 exec)"| Coord
+    Coord -->|"go fanOutTicks<br/>(per tick)"| FanOut
+    FanOut -->|"Atomic / Tick / View<br/>(同期, 並列)"| Drv
+    FanOut -.->|"exec: apply persisted +<br/>fireSessionsChanged"| Coord
+    Server -->|"sendTo: outbox <- msg<br/>(non-blocking)"| Writer
+```
+
+凡例:
+- **実線** = 同期 RPC (送り手は応答までブロック、ただし actor 内部は単 goroutine なので逆向きの呼び出しが無ければ deadlock しない)
+- **点線** = 非ブロッキング送信 (`AsyncBroadcast` / `sendTo` / `outbox <- msg`)
+- **破線枠** = 短命 worker goroutine (handleConn / fanOutTicks / writer)
+
+通信ルールの要約:
+
+| 送信元 | 送信先 | 形態 | 備考 |
+|--------|--------|------|------|
+| handleConn goroutine | Server actor | 同期 `exec` | clients リストの参照・更新 |
+| handleConn goroutine | Coordinator actor | 同期 `exec` | dispatch handler が Coordinator メソッドを呼ぶ |
+| Coordinator actor | Server actor | **非同期** `AsyncBroadcast` | sessions-changed の通知。inbox 経由で fire-and-forget |
+| Coordinator actor | Driver actor | 同期 `Atomic` / `Tick` 等 | **off-actor の fanOutTicks worker から**呼ぶ。Coordinator inbox 上では呼ばない |
+| Driver actor | Coordinator actor | **なし** | WindowInfo.Active() は Tick payload に snapshot 同梱 |
+| Server actor | Coordinator actor | **なし** | Server actor 自身は Coordinator を呼ばない |
+
+Server → Coordinator のエッジが存在しない (handleConn 経由のみ) ことで、Coordinator → Server の `AsyncBroadcast` が逆方向 deadlock を作らない。
+
+#### Tick fan-out (周期 polling のシーケンス)
+
+各 tick で全 Driver を **並列に** 駆動する。Coordinator actor 上で Driver メソッドを呼ぶと「最も遅い Driver の処理時間」分 Coordinator inbox が詰まるので、`fanOutTicks` を別 goroutine に切り出し、Coordinator inbox は snapshot 取得と最終 apply のみで開放する:
+
+```mermaid
+sequenceDiagram
+    participant Tk as ticker.C
+    participant Co as Coordinator actor<br/>(run loop)
+    participant Fan as fanOutTicks worker<br/>(off-actor)
+    participant D1 as Driver actor 1
+    participant D2 as Driver actor 2
+    participant Sv as Server actor
+
+    Tk->>Co: tick
+    Co->>Co: handleTickInternal:<br/>reap → snapshot jobs
+    Note over Co: tickInFlight.CAS(false→true)<br/>失敗時は drop (idempotent)
+    Co->>Fan: go fanOutTicks(now, jobs)
+    Co-->>Tk: 即座に inbox を解放<br/>(他の exec を処理可能)
+
+    par 並列 fan-out
+        Fan->>D1: Atomic(Tick + PersistedState)
+        D1-->>Fan: persisted_1
+    and
+        Fan->>D2: Atomic(Tick + PersistedState)
+        D2-->>Fan: persisted_2
+    end
+
+    Fan->>Co: exec(apply persisted +<br/>fireSessionsChanged)
+    Co->>Co: UpdatePersistedState × N
+    Co-)Sv: AsyncBroadcast(sessions-changed)
+    Note over Co: defer tickInFlight.Store(false)
+```
+
+ポイント:
+- **Coordinator inbox は短時間しかブロックしない**: snapshot 取得 (~µs) と最終 apply (~ms) のみ。重い `Tick` は完全に off-actor。
+- **Driver 同士は互いをブロックしない**: fan-out goroutine が各 Driver 並列に走るので、1 Driver が遅くても他の Driver は止まらない。
+- **重複 tick の防止**: `tickInFlight atomic.Bool` で前回の fan-out が走っている間は次の tick を drop する (周期 polling は冪等)。
+
+#### Hook event ルーティング (3-phase pattern)
+
+`Coordinator.HandleHookEvent` は **lookup on actor → Atomic off-actor → apply on actor** の 3 段階に分かれる。Driver の重い処理 (Claude なら haiku summary 起動含む) を Coordinator inbox から外す:
+
+```mermaid
+sequenceDiagram
+    participant HC as handleConn goroutine
+    participant Co as Coordinator actor
+    participant D as Driver actor (sessID)
+    participant Sv as Server actor
+
+    HC->>Co: HandleHookEvent(ev)
+
+    rect rgb(232, 240, 255)
+    Note over Co: Phase 1: lookup (on actor)
+    Co->>Co: exec: FindByID + Drivers.Get
+    Co-->>HC: (sessID, drv) 取得
+    end
+
+    rect rgb(255, 245, 230)
+    Note over D: Phase 2: Atomic (off actor)
+    HC->>D: drv.Atomic(HandleEvent +<br/>PersistedState + View().StatusLine)
+    Note over D: HandleEvent → state 更新<br/>refreshMeta → Tracker.Update<br/>UserPromptSubmit なら<br/>go runSummary (haiku)
+    D-->>HC: (consumed, persisted, statusLine)
+    end
+
+    rect rgb(232, 255, 232)
+    Note over Co: Phase 3: apply (on actor)
+    HC->>Co: exec: UpdatePersistedState +<br/>SyncStatusLine (active なら) +<br/>fireSessionsChanged
+    Co-)Sv: AsyncBroadcast(sessions-changed)
+    end
+
+    Co-->>HC: return (sessID, consumed)
+```
+
+3 つのフェーズ間では **handleConn goroutine だけが状態を持ち越す**。Phase 2 中は Coordinator inbox が空くので、他の TUI コマンドや並行 hook event が遅延しない。これが「Server actor → Coordinator actor の直エッジを作らない」設計の実質的な利点。
+
+#### Driver actor 内部の特例: actorSubmit による back-injection
+
+Claude driver の haiku summarizer (`runSummary`) は **actor 外** で動く非同期 worker。`summarizeFn` が数秒かかってもよいが、結果を適用するときは Driver 内部状態 (`d.summary` / `d.summarizing`) を触るので actor goroutine に戻らねばならない。これを `claudeDriver.actorSubmit func(fn func())` という単一 hook で実現する:
+
+- production: `newDriverActor` が `cd.actorSubmit = a.submit` を仕込む。`runSummary` の apply closure は `submit` 経由で driver inbox に積まれ、actor goroutine で実行される
+- test: `testClaudeDriver` (test wrapper) が `actorSubmit` に signaling channel を install し、apply 完了を `<-d.summaryApplied` で待てるようにする
+
+これにより `claudeDriver` 自身は **mutex を 1 つも持たない**。状態同期は actor + actorSubmit の組み合わせだけで完結する。
 
 #### 残存する同期プリミティブ
 
-- **Driver actor 内部**: `sync.Once` (Close 冪等性) のみ。状態フィールドは無防備 (actor goroutine 単独所有)
-- **Server actor 内部**: `sync.Once` (Stop 冪等性), `atomic.Bool` (shutdownRequested) のみ
-- **Coordinator actor 内部**: `sync.Once` (Shutdown 冪等性) のみ
-- **Client (TUI 側)**: `sync.Mutex` で encoder を保護。TUI プロセスは 1 接続なので局所的影響のみ。サーバ側のアクターモデルとは別レイヤー
+production server-side コードに残る sync primitive は **冪等性ガードのみ**:
+
+| 場所 | プリミティブ | 用途 |
+|------|------------|------|
+| Driver actor | `sync.Once` | Close 冪等性 (二重 close で `close(stop)` panic 防止) |
+| Server actor | `sync.Once` + `atomic.Bool` | Stop 冪等性 + shutdownRequested フラグ |
+| Coordinator actor | `sync.Once` + `atomic.Bool` | Shutdown 冪等性 + tickInFlight ガード |
+| clientConn | `sync.Once` | shut() 冪等性 (close(done) の二重実行防止) |
+
+状態フィールドはすべて actor goroutine 単独所有で、`sync.Mutex` / `sync.RWMutex` / `sync.WaitGroup` は production には存在しない。例外は `core/client.go` (TUI プロセス側の encoder mutex) のみで、これは TUI 1 接続内のローカル synchronization なのでサーバ側アクターモデルとは別レイヤー。
 
 #### 常駐 goroutine
 
-- `acceptLoop` (Server): unix socket からの新規接続を受け付ける
-- Server actor `run`: clients の追加削除と broadcast を直列化
-- Coordinator actor `run`: state mutation + 周期 tick を直列化
-- Driver actor `run` × N: 各セッションごとに 1 本
-- 各 clientConn の writer goroutine: outbox を drain して socket に書き出す
-- `healthMonitor` (main goroutine から spawn): tmux pane 0.1/0.2 の死活監視。Coordinator や Server には触れず tmux client のみを使う
+| goroutine | 数 | 役割 |
+|-----------|----|------|
+| `Server.acceptLoop` | 1 | unix socket からの新規接続を受け付ける |
+| `Server.run` (actor) | 1 | clients の追加削除と broadcast を直列化 |
+| `Coordinator.run` (actor) | 1 | state mutation + 周期 tick を直列化 |
+| `driverActor.run` | N (1 / session) | Driver impl を単独所有 |
+| `Server.writeLoop` | M (1 / client) | clientConn outbox を drain して socket 書き出し |
+| `healthMonitor` | 1 | tmux pane 0.1/0.2 の死活監視 (Coordinator/Server を触らない) |
+| `Server.handleConn` | 短命 (per request) | dispatch handler。`exec` で actor に submit |
+| `fanOutTicks` worker | 短命 (per tick) | Driver を並列駆動 |
 
-10 セッション運用時の合計 goroutine 数は概ね 25-30 で、Go ランタイム上の負荷は無視できる。
+10 セッション運用時の常駐 goroutine 数は概ね 25-30 で、Go ランタイム上の負荷は無視できる。
 
 #### 設計上の利点
 
 - **データ競合不在**: race detector で `go test -race ./...` がすべてパスする (goroutine 越しのフィールドアクセスが無いため)
-- **デッドロック不在**: cross-actor 呼び出しが片方向のみ
-- **slow client 隔離**: 各 client の writer が独立しており、1 client が遅くても broadcast pipeline 全体が止まらない
-- **Driver の真の並列化**: 異なる Driver 同士は互いをブロックしない。重い transcript parse や git 検出が他のセッションに影響しない
+- **デッドロック不在**: cross-actor 呼び出しが片方向のみ。Coordinator → Server は `AsyncBroadcast` で非ブロッキング、Server → Coordinator のエッジは存在しない
+- **slow client 隔離**: 各 client の writer が独立しており、1 client が遅くても broadcast pipeline 全体が止まらない (outbox 満杯時は drop して次の tick で resync)
+- **Driver の真の並列化**: 異なる Driver 同士は互いをブロックしない。重い transcript parse / git 検出 / haiku 要約が他のセッションに影響しない
+- **Coordinator inbox の高速さ**: Driver 呼び出しは off-actor の `fanOutTicks` / `handleConn` から行うので、Coordinator inbox は短時間しかブロックしない (snapshot + apply のみ)
 - **状態所有が型で表現される**: 「この状態は誰が触るか」は「この actor の goroutine だけ」と一文で言える
 
 ## ツールシステム
