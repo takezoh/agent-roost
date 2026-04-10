@@ -131,9 +131,16 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, payload map[string]any) (ClaudeState, []state.Effect) {
 	cs = absorbIdentityFromHP(cs, hp)
 	now := payloadTime(payload)
-	if !now.IsZero() {
-		cs.StatusChangedAt = now
+	if now.IsZero() {
+		now = cs.StatusChangedAt
 	}
+	// Reset to Idle. A SessionStart fires on fresh launch, --resume,
+	// /resume, and /clear. In every case the session is freshly
+	// initialized. This also clears the Stopped that a preceding
+	// SessionEnd wrote — without it a resumed session would stick at
+	// Stopped until the user typed something.
+	cs.Status = state.StatusIdle
+	cs.StatusChangedAt = now
 
 	var effs []state.Effect
 	if path := d.resolveTranscriptPath(cs); path != "" && cs.WatchedTranscript != path {
