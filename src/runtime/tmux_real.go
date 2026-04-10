@@ -36,7 +36,9 @@ func (b *RealTmuxBackend) SpawnWindow(name, command, startDir string, env map[st
 	for k, v := range env {
 		args = append(args, "-e", k+"="+v)
 	}
-	args = append(args, command)
+	if command != "" {
+		args = append(args, command)
+	}
 	wid, err := b.client.Run(args...)
 	if err != nil {
 		return "", "", err
