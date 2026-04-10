@@ -150,11 +150,25 @@ func (m PaletteModel) advanceParam() (tea.Model, tea.Cmd) {
 	}
 
 	// all params filled, execute
-	err := m.selectedTool.Run(m.ctx, m.paramArgs)
+	next, err := m.selectedTool.Run(m.ctx, m.paramArgs)
 	if err != nil {
 		slog.Error("tool execution failed", "tool", m.selectedTool.Name, "args", m.paramArgs, "err", err)
-	} else {
-		slog.Info("tool executed", "tool", m.selectedTool.Name, "args", m.paramArgs)
+		return m, tea.Quit
+	}
+	slog.Info("tool executed", "tool", m.selectedTool.Name, "args", m.paramArgs)
+	if next != nil && next.Name != "" {
+		if t := m.registry.Get(next.Name); t != nil {
+			m.selectedTool = t
+			m.paramIndex = 0
+			m.paramArgs = make(map[string]string, len(next.Args))
+			for k, v := range next.Args {
+				m.paramArgs[k] = v
+			}
+			m.input = ""
+			m.paramCursor = 0
+			return m.advanceParam()
+		}
+		slog.Error("chained tool not found", "tool", next.Name)
 	}
 	return m, tea.Quit
 }
@@ -172,13 +186,28 @@ func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		m.refilter()
 		return m, nil
 	case key.Matches(msg, enterBinding):
-		filtered := m.filterParamOptions()
-		if len(filtered) > 0 && m.paramCursor < len(filtered) {
-			p := m.selectedTool.Params[m.paramIndex]
-			m.paramArgs[p.Name] = filtered[m.paramCursor]
-			m.paramIndex++
-			return m.advanceParam()
+		p := m.selectedTool.Params[m.paramIndex]
+		var value string
+		if len(m.paramOptions) == 0 {
+			// Free-form text input mode: triggered when a Param's Options
+			// returns nil/empty. Used by tools like create-project (`name`)
+			// and stop-session (`session_id`). Note: it also kicks in as a
+			// fallback for tools like new-session when their Options happens
+			// to be empty (e.g. no projects configured) — by design.
+			value = strings.TrimSpace(m.input)
+			if value == "" {
+				return m, nil
+			}
+		} else {
+			filtered := m.filterParamOptions()
+			if len(filtered) == 0 || m.paramCursor >= len(filtered) {
+				return m, nil
+			}
+			value = filtered[m.paramCursor]
 		}
+		m.paramArgs[p.Name] = value
+		m.paramIndex++
+		return m.advanceParam()
 	case key.Matches(msg, upBinding):
 		if m.paramCursor > 0 {
 			m.paramCursor--
@@ -276,6 +305,10 @@ func renderPaletteParam(m PaletteModel) string {
 	b.WriteString(inputStyle.Render(m.input))
 	b.WriteString("█\n\n")
 
+	if len(m.paramOptions) == 0 {
+		b.WriteString(descStyle.Render("(type value, enter to confirm)"))
+		return b.String()
+	}
 	filtered := m.filterParamOptions()
 	for i, o := range filtered {
 		display := core.ProjectDisplayName(o)

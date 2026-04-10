@@ -10,6 +10,7 @@ import (
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/core"
 	"github.com/take/agent-roost/lib"
+	"github.com/take/agent-roost/lib/claude/hookevent"
 	"github.com/take/agent-roost/session/driver"
 )
 
@@ -61,7 +62,7 @@ func runEvent() {
 	}
 
 	input, _ := io.ReadAll(os.Stdin)
-	event, err := ParseHookEvent(input)
+	event, err := hookevent.ParseHookEvent(input)
 	if err != nil {
 		slog.Warn("claude hook: parse failed", "session", sessionID, "err", err)
 		return
@@ -96,7 +97,7 @@ func runEvent() {
 	// keys below are part of the Claude driver's contract — this is the only
 	// place outside session/driver/claude.go that knows them, and the
 	// coordinator forwards the bag to the driver without inspection.
-	state := claudeDriverState(event)
+	state := claudeDriverState(event, input)
 
 	if event.HookEventName == "SessionStart" {
 		if err := client.SendAgentEvent(driver.AgentEvent{
@@ -148,7 +149,12 @@ func currentRoostSessionID() (string, bool) {
 // driver-state bag the coordinator persists onto the session. Empty fields
 // are omitted so MergeDriverState's "empty value deletes the key" semantics
 // don't accidentally clear previously-set entries.
-func claudeDriverState(event HookEvent) map[string]string {
+//
+// rawJSON is the unparsed hook payload as received on stdin. It is shipped
+// alongside the parsed identity fields under the "hook_event_json" key so
+// the driver can inspect fields the bridge does not pre-extract (e.g.
+// hook_event_name to differentiate UserPromptSubmit from PreToolUse).
+func claudeDriverState(event hookevent.HookEvent, rawJSON []byte) map[string]string {
 	state := map[string]string{
 		"session_id": event.SessionID,
 	}
@@ -157,6 +163,9 @@ func claudeDriverState(event HookEvent) map[string]string {
 	}
 	if event.TranscriptPath != "" {
 		state["transcript_path"] = event.TranscriptPath
+	}
+	if len(rawJSON) > 0 {
+		state["hook_event_json"] = string(rawJSON)
 	}
 	return state
 }

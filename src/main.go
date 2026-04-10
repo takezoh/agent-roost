@@ -372,12 +372,17 @@ func runPalette(args []string) {
 	}
 
 	tools := core.DefaultToolRegistry()
+	roots := make([]string, len(cfg.Projects.ProjectRoots))
+	for i, r := range cfg.Projects.ProjectRoots {
+		roots[i] = config.ExpandPath(r)
+	}
 	ctx := &core.ToolContext{
 		Client: client,
 		Config: core.ToolConfig{
 			DefaultCommand: cfg.Session.DefaultCommand,
 			Commands:       cfg.Session.Commands,
 			Projects:       cfg.ListProjects(),
+			ProjectRoots:   roots,
 		},
 		Args: prefill,
 	}

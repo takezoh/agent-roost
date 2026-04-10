@@ -30,12 +30,20 @@ type driverActor struct {
 // newDriverActor wraps impl in an actor and starts its run loop. The
 // returned *driverActor takes ownership of impl — callers must not access
 // impl directly after this point.
+//
+// If the impl carries a hook for back-submitting closures (currently only
+// claudeDriver, for the haiku summarizer worker), wire it now so the
+// off-actor goroutine can apply its result inside the actor without
+// taking any per-field mutex.
 func newDriverActor(impl Driver) *driverActor {
 	a := &driverActor{
 		impl:    impl,
 		inbox:   make(chan func(), 16),
 		stop:    make(chan struct{}),
 		stopped: make(chan struct{}),
+	}
+	if cd, ok := impl.(*claudeDriver); ok {
+		cd.actorSubmit = a.submit
 	}
 	go a.run()
 	return a

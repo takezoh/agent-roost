@@ -24,6 +24,9 @@ type Message struct {
 	// (cursor hover) rather than Switch. The log pane uses this to
 	// activate the INFO tab on preview only.
 	IsPreview bool `json:"is_preview,omitempty"`
+	// Pane is set on "pane-focused" events. Identifies which tmux pane
+	// (e.g. "0.0" for the main pane) just gained focus.
+	Pane string `json:"pane,omitempty"`
 }
 
 // SessionInfo is the wire form of one roost session shipped to the TUI.

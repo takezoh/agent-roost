@@ -145,7 +145,11 @@ func (s *Server) handlePreviewProject(cc *clientConn, args map[string]string) {
 }
 
 func (s *Server) handleFocusPane(cc *clientConn, args map[string]string) {
-	s.coord.FocusPane(args["pane"])
+	pane := args["pane"]
+	s.coord.FocusPane(pane)
+	msg := NewEvent("pane-focused")
+	msg.Pane = pane
+	s.broadcast(msg)
 	s.sendResponse(cc, Message{})
 }
 
