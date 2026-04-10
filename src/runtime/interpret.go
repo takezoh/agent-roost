@@ -97,6 +97,9 @@ func (r *Runtime) execute(eff state.Effect) {
 		}
 
 	case state.EffDetachClient:
+		// Delay so the preceding response has time to reach the client
+		// before the tmux detach severs the connection.
+		time.Sleep(50 * time.Millisecond)
 		if err := r.cfg.Tmux.DetachClient(); err != nil {
 			slog.Error("runtime: detach failed", "err", err)
 		}
