@@ -221,10 +221,10 @@ func TestClaudeTickActiveSchedulesBranchJob(t *testing.T) {
 	if !ok {
 		t.Fatal("expected EffStartJob")
 	}
-	if _, ok := job.Input.(GitBranchInput); !ok {
-		t.Errorf("job input type = %T, want GitBranchInput", job.Input)
+	if _, ok := job.Input.(BranchDetectInput); !ok {
+		t.Errorf("job input type = %T, want BranchDetectInput", job.Input)
 	}
-	in, ok := job.Input.(GitBranchInput)
+	in, ok := job.Input.(BranchDetectInput)
 	if !ok || in.WorkingDir != "/work" {
 		t.Errorf("input = %v, want {WorkingDir: /work}", job.Input)
 	}
@@ -380,13 +380,16 @@ func TestClaudeBranchResultMerges(t *testing.T) {
 	now := time.Now()
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
 		Now:    now,
-		Result: GitBranchResult{Branch: "main"},
+		Result: BranchDetectResult{Branch: "main", VCS: "git"},
 	})
 	if next.BranchInFlight {
 		t.Error("BranchInFlight should be false")
 	}
 	if next.BranchTag != "main" {
 		t.Errorf("BranchTag = %q", next.BranchTag)
+	}
+	if next.BranchVCS != "git" {
+		t.Errorf("BranchVCS = %q, want %q", next.BranchVCS, "git")
 	}
 	if !next.BranchAt.Equal(now) {
 		t.Error("BranchAt not stamped")
@@ -405,6 +408,7 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 		Status:          state.StatusRunning,
 		StatusChangedAt: now,
 		BranchTag:       "main",
+		BranchVCS:       "git",
 		BranchTarget:    "/work",
 		BranchAt:        now,
 		Summary:         "summary",
@@ -430,6 +434,9 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 	}
 	if restored.BranchTag != "main" {
 		t.Errorf("restored BranchTag = %q", restored.BranchTag)
+	}
+	if restored.BranchVCS != "git" {
+		t.Errorf("restored BranchVCS = %q", restored.BranchVCS)
 	}
 	if restored.Summary != "summary" {
 		t.Errorf("restored Summary = %q", restored.Summary)
