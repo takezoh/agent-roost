@@ -63,55 +63,35 @@ func runEvent() {
 	input, _ := io.ReadAll(os.Stdin)
 	event, err := hookevent.ParseHookEvent(input)
 	if err != nil {
-		slog.Warn("claude hook: parse failed", "session", sessionID, "err", err)
 		return
 	}
 	if event.SessionID == "" {
-		slog.Debug("claude hook: missing claude session_id", "session", sessionID, "hook_event", event.HookEventName)
 		return
 	}
 	slog.Debug("claude hook received",
 		"session", sessionID,
 		"hook_event", event.HookEventName,
-		"notification_type", event.NotificationType,
-		"tool", event.ToolName,
 		"claude_session", event.SessionID,
 	)
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Warn("claude hook: config load failed", "session", sessionID, "err", err)
 		return
 	}
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	client, err := proto.Dial(sockPath)
 	if err != nil {
-		slog.Warn("claude hook: dial failed", "session", sessionID, "sock", sockPath, "err", err)
+		slog.Debug("claude hook: dial failed", "session", sessionID, "sock", sockPath, "err", err)
 		return
 	}
 	defer client.Close()
 
-	payload := claudeDriverState(event, input)
-
-	if event.HookEventName == "SessionStart" {
-		if err := client.SendHook("claude", "session-start", sessionID, payload); err != nil {
-			slog.Warn("claude hook: send session-start failed", "session", sessionID, "err", err)
-		}
-	}
-
-	hookState := event.DeriveState()
-	if hookState == "" {
-		slog.Debug("claude hook: no state mapping",
-			"session", sessionID,
-			"hook_event", event.HookEventName,
-			"notification_type", event.NotificationType)
-		return
-	}
-	payload["state"] = hookState
-	payload["log"] = event.FormatLog()
-	if err := client.SendHook("claude", "state-change", sessionID, payload); err != nil {
-		slog.Warn("claude hook: send state-change failed",
-			"session", sessionID, "hook_event", event.HookEventName,
-			"state", hookState, "err", err)
+	// Send the raw hook JSON to the driver. The driver owns all
+	// field extraction (prompt, cwd, transcript_path, DeriveState).
+	// The bridge only does minimal parsing for routing (SessionID,
+	// HookEventName).
+	payload := map[string]any{"raw": string(input)}
+	if err := client.SendHook("claude", event.HookEventName, sessionID, payload); err != nil {
+		slog.Debug("claude hook: send failed", "session", sessionID, "err", err)
 	}
 }
 
@@ -128,31 +108,6 @@ func currentRoostSessionID() (string, bool) {
 		return "", false
 	}
 	return id, true
-}
-
-// claudeDriverState packs the relevant Claude hook fields into the
-// driver-state bag the coordinator persists onto the session. Empty fields
-// are omitted so MergeDriverState's "empty value deletes the key" semantics
-// don't accidentally clear previously-set entries.
-//
-// rawJSON is the unparsed hook payload as received on stdin. It is shipped
-// alongside the parsed identity fields under the "hook_event_json" key so
-// the driver can inspect fields the bridge does not pre-extract (e.g.
-// hook_event_name to differentiate UserPromptSubmit from PreToolUse).
-func claudeDriverState(event hookevent.HookEvent, rawJSON []byte) map[string]any {
-	m := map[string]any{
-		"session_id": event.SessionID,
-	}
-	if event.Cwd != "" {
-		m["working_dir"] = event.Cwd
-	}
-	if event.TranscriptPath != "" {
-		m["transcript_path"] = event.TranscriptPath
-	}
-	if len(rawJSON) > 0 {
-		m["hook_event_json"] = string(rawJSON)
-	}
-	return m
 }
 
 func runSetup() {

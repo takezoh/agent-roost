@@ -1,66 +1,147 @@
 package driver
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/take/agent-roost/state"
 )
 
-// Hook event handling for the Claude driver. The hook bridge
-// (`roost claude event`) parses the raw Claude hook payload, the
-// reducer wraps it in a state.DEvHook, and this file dispatches on
-// the Event field.
-//
-// Recognized event names — these are the hook_event_name values from
-// Claude Code's hooks JSON, lowercased and translated to the roost
-// shape: "session-start", "user-prompt-submit", "state-change",
-// "pre-tool-use", "post-tool-use", "stop", "subagent-stop".
+// Hook event handling for the Claude driver. The hook bridge sends the
+// raw JSON payload via DEvHook{Event: hookEventName, Payload: {"raw": ...}}.
+// This file parses the raw JSON into a hookPayload struct and dispatches
+// by hook_event_name. All field extraction lives here — the bridge is
+// a thin relay.
 
-const (
-	hookSessionStart     = "session-start"
-	hookStateChange      = "state-change"
-	hookUserPromptSubmit = "user-prompt-submit"
-)
+// hookPayload is the minimal subset of the Claude hook JSON the driver
+// needs. Parsed from the "raw" key in DEvHook.Payload. Defined here
+// (not in lib/claude/hookevent) so state/driver stays a leaf package.
+type hookPayload struct {
+	SessionID      string `json:"session_id"`
+	HookEventName  string `json:"hook_event_name"`
+	Prompt         string `json:"prompt"`
+	Cwd            string `json:"cwd"`
+	TranscriptPath string `json:"transcript_path"`
 
-// handleHook routes a DEvHook to the right per-event handler. The
-// payload is a typed map[string]any owned by the reducer; this file
-// is the only place that touches the payload key set.
-func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, []state.Effect) {
-	switch e.Event {
-	case hookSessionStart:
-		return d.handleSessionStart(cs, e.Payload)
-	case hookStateChange:
-		return d.handleStateChange(cs, e.Payload)
-	case hookUserPromptSubmit:
-		return d.handleUserPromptSubmit(cs, e.Payload)
-	}
-	return cs, nil
+	NotificationType string         `json:"notification_type"`
+	ToolName         string         `json:"tool_name"`
+	ToolInput        map[string]any `json:"tool_input"`
+	Source           string         `json:"source"`
 }
 
-// handleSessionStart absorbs identity keys (claude session id, working
-// dir, transcript path) and emits the initial transcript watch +
-// parse + event log line.
-func (d ClaudeDriver) handleSessionStart(cs ClaudeState, payload map[string]any) (ClaudeState, []state.Effect) {
-	cs = absorbIdentity(cs, payload)
+func (hp hookPayload) toolInputString(key string) string {
+	if hp.ToolInput == nil {
+		return ""
+	}
+	v, _ := hp.ToolInput[key].(string)
+	return v
+}
+
+// deriveState maps the hook_event_name to a roost status string.
+// Must stay in sync with lib/claude/hookevent.HookEvent.DeriveState.
+func (hp hookPayload) deriveState() string {
+	switch hp.HookEventName {
+	case "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart":
+		return "running"
+	case "Stop", "StopFailure":
+		return "waiting"
+	case "SessionEnd":
+		return "stopped"
+	case "SessionStart":
+		return "idle"
+	case "Notification":
+		switch hp.NotificationType {
+		case "permission_prompt":
+			return "pending"
+		case "idle_prompt", "elicitation_dialog":
+			return "waiting"
+		}
+	}
+	return ""
+}
+
+// formatLog mirrors lib/claude/hookevent.HookEvent.FormatLog.
+func (hp hookPayload) formatLog() string {
+	s := hp.HookEventName
+	switch hp.HookEventName {
+	case "PreToolUse", "PostToolUse", "PostToolUseFailure":
+		s += " " + hp.ToolName
+		if hp.ToolName == "Bash" {
+			if cmd := hp.toolInputString("command"); cmd != "" {
+				if len(cmd) > 80 {
+					cmd = cmd[:77] + "..."
+				}
+				s += " " + cmd
+			}
+		} else if hp.ToolName == "Read" || hp.ToolName == "Write" || hp.ToolName == "Edit" || hp.ToolName == "Glob" {
+			if fp := hp.toolInputString("file_path"); fp != "" {
+				s += " " + fp
+			} else if p := hp.toolInputString("pattern"); p != "" {
+				s += " " + p
+			}
+		}
+	case "Notification":
+		if hp.NotificationType != "" {
+			s += " " + hp.NotificationType
+		}
+	case "SessionStart":
+		if hp.Source != "" {
+			s += " " + hp.Source
+		}
+	}
+	return s
+}
+
+func parseHookPayload(payload map[string]any) hookPayload {
+	raw, _ := payload["raw"].(string)
+	if raw == "" {
+		return hookPayload{}
+	}
+	var hp hookPayload
+	json.Unmarshal([]byte(raw), &hp)
+	return hp
+}
+
+// handleHook parses the raw JSON from the bridge and dispatches by
+// hook_event_name.
+func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, []state.Effect) {
+	hp := parseHookPayload(e.Payload)
+	if hp.SessionID == "" {
+		return cs, nil
+	}
+
+	switch hp.HookEventName {
+	case "SessionStart":
+		return d.handleSessionStart(cs, hp, e.Payload)
+	case "UserPromptSubmit":
+		return d.handleUserPromptSubmit(cs, hp, e.Payload)
+	default:
+		// All other hook events (PreToolUse, PostToolUse, Stop, etc.)
+		// go through the state-change path if they map to a status.
+		status := hp.deriveState()
+		if status == "" {
+			return cs, nil
+		}
+		return d.handleStateChange(cs, hp, status, e.Payload)
+	}
+}
+
+// handleSessionStart absorbs identity and kicks initial transcript
+// watch + parse + event log.
+func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, payload map[string]any) (ClaudeState, []state.Effect) {
+	cs = absorbIdentityFromHP(cs, hp)
 	now := payloadTime(payload)
 	if !now.IsZero() {
 		cs.StatusChangedAt = now
 	}
 
 	var effs []state.Effect
-
-	// Watch the transcript file (if known) so future writes feed
-	// DEvTranscriptChanged.
 	if path := d.resolveTranscriptPath(cs); path != "" && cs.WatchedTranscript != path {
 		cs.WatchedTranscript = path
 		effs = append(effs, state.EffWatchTranscript{Path: path})
-
-		// Kick off an initial parse so the title shows up before the
-		// next file change.
 		if !cs.TranscriptInFlight {
 			cs.TranscriptInFlight = true
 			effs = append(effs, state.EffStartJob{
-				Kind: state.JobTranscriptParse,
 				Input: TranscriptParseInput{
 					ClaudeUUID: cs.ClaudeSessionID,
 					Path:       path,
@@ -68,20 +149,13 @@ func (d ClaudeDriver) handleSessionStart(cs ClaudeState, payload map[string]any)
 			})
 		}
 	}
-
-	// Append a SessionStart marker to the event log.
 	effs = append(effs, state.EffEventLogAppend{Line: "SessionStart"})
-
 	return cs, effs
 }
 
-// handleStateChange parses the status from the payload, advances the
-// status machine, and emits an event log line.
-func (d ClaudeDriver) handleStateChange(cs ClaudeState, payload map[string]any) (ClaudeState, []state.Effect) {
-	cs = absorbIdentity(cs, payload)
-
-	statusStr, _ := payload["state"].(string)
-	logLine, _ := payload["log"].(string)
+// handleStateChange advances the status machine and emits an event log.
+func (d ClaudeDriver) handleStateChange(cs ClaudeState, hp hookPayload, statusStr string, payload map[string]any) (ClaudeState, []state.Effect) {
+	cs = absorbIdentityFromHP(cs, hp)
 	now := payloadTime(payload)
 	if now.IsZero() {
 		now = cs.StatusChangedAt
@@ -92,23 +166,16 @@ func (d ClaudeDriver) handleStateChange(cs ClaudeState, payload map[string]any) 
 		cs.StatusChangedAt = now
 	}
 
-	if logLine == "" {
-		logLine = statusStr
-	}
-
 	var effs []state.Effect
+	logLine := hp.formatLog()
 	if logLine != "" {
 		effs = append(effs, state.EffEventLogAppend{Line: logLine})
 	}
 
-	// Trigger a transcript reparse since the new state usually means
-	// new content was just written. The fsnotify watcher will also
-	// fire, but kicking it here removes one tick of latency.
 	if !cs.TranscriptInFlight {
 		if path := d.resolveTranscriptPath(cs); path != "" {
 			cs.TranscriptInFlight = true
 			effs = append(effs, state.EffStartJob{
-				Kind: state.JobTranscriptParse,
 				Input: TranscriptParseInput{
 					ClaudeUUID: cs.ClaudeSessionID,
 					Path:       path,
@@ -120,58 +187,65 @@ func (d ClaudeDriver) handleStateChange(cs ClaudeState, payload map[string]any) 
 	return cs, effs
 }
 
-// handleUserPromptSubmit captures the freshly submitted user prompt,
-// updates LastPrompt without waiting for the JSONL flush, and (if
-// no summary is in flight) kicks a haiku summarizer job.
-func (d ClaudeDriver) handleUserPromptSubmit(cs ClaudeState, payload map[string]any) (ClaudeState, []state.Effect) {
-	cs = absorbIdentity(cs, payload)
+// handleUserPromptSubmit seeds LastPrompt, triggers haiku summary,
+// and also runs the state-change logic (UserPromptSubmit → "running").
+func (d ClaudeDriver) handleUserPromptSubmit(cs ClaudeState, hp hookPayload, payload map[string]any) (ClaudeState, []state.Effect) {
+	cs = absorbIdentityFromHP(cs, hp)
 	now := payloadTime(payload)
 	if !now.IsZero() {
 		cs.StatusChangedAt = now
 	}
+	if status, ok := state.ParseStatus("running"); ok {
+		cs.Status = status
+		cs.StatusChangedAt = now
+	}
 
-	prompt, _ := payload["prompt"].(string)
-	if prompt != "" {
-		cs.LastPrompt = prompt
+	if hp.Prompt != "" {
+		cs.LastPrompt = hp.Prompt
 	}
 
 	var effs []state.Effect
 	effs = append(effs, state.EffEventLogAppend{Line: "UserPromptSubmit"})
 
-	// Kick a haiku summary refresh unless one is in flight. The
-	// reducer fills in JobID + SessionID; we just declare the request.
-	if !cs.SummaryInFlight && prompt != "" {
+	if !cs.SummaryInFlight && hp.Prompt != "" {
 		cs.SummaryInFlight = true
 		effs = append(effs, state.EffStartJob{
-			Kind: state.JobHaikuSummary,
 			Input: HaikuSummaryInput{
-				Prompt: prompt, // worker assembles the full body
+				ClaudeUUID:    cs.ClaudeSessionID,
+				PrevSummary:   cs.Summary,
+				CurrentPrompt: hp.Prompt,
 			},
 		})
+	}
+
+	if !cs.TranscriptInFlight {
+		if path := d.resolveTranscriptPath(cs); path != "" {
+			cs.TranscriptInFlight = true
+			effs = append(effs, state.EffStartJob{
+				Input: TranscriptParseInput{
+					ClaudeUUID: cs.ClaudeSessionID,
+					Path:       path,
+				},
+			})
+		}
 	}
 
 	return cs, effs
 }
 
-// absorbIdentity copies session_id / working_dir / transcript_path
-// from the hook payload into the ClaudeState. Used by every hook
-// handler since any of them may be the first to learn an identity.
-func absorbIdentity(cs ClaudeState, payload map[string]any) ClaudeState {
-	if v, ok := payload["session_id"].(string); ok && v != "" {
-		cs.ClaudeSessionID = v
+func absorbIdentityFromHP(cs ClaudeState, hp hookPayload) ClaudeState {
+	if hp.SessionID != "" {
+		cs.ClaudeSessionID = hp.SessionID
 	}
-	if v, ok := payload["working_dir"].(string); ok && v != "" {
-		cs.WorkingDir = v
+	if hp.Cwd != "" {
+		cs.WorkingDir = hp.Cwd
 	}
-	if v, ok := payload["transcript_path"].(string); ok && v != "" {
-		cs.TranscriptPath = v
+	if hp.TranscriptPath != "" {
+		cs.TranscriptPath = hp.TranscriptPath
 	}
 	return cs
 }
 
-// payloadTime extracts an optional "now" timestamp from the payload.
-// The reducer typically attaches state.Now under the key "now" so the
-// driver doesn't have to read wall-clock from inside Step.
 func payloadTime(payload map[string]any) time.Time {
 	if v, ok := payload["now"].(time.Time); ok {
 		return v

@@ -52,22 +52,28 @@ func reduceCreateSession(s State, e EvCmdCreateSession) (State, []Effect) {
 }
 
 // reduceTmuxWindowSpawned is the second half of CreateSession. It
-// fills in the WindowID/AgentPaneID, persists the snapshot, sends the
-// response, and broadcasts the new session list.
+// fills in the WindowID/PaneID, switches to the new session
+// (swap-pane + focus), persists the snapshot, sends the response,
+// and broadcasts the new session list.
 func reduceTmuxWindowSpawned(s State, e EvTmuxWindowSpawned) (State, []Effect) {
 	sess, ok := s.Sessions[e.SessionID]
 	if !ok {
-		// Session was stopped before the spawn callback fired. Bail
-		// silently — the half-created window is the runtime's
-		// responsibility to kill.
 		return s, nil
 	}
 	s.Sessions = cloneSessions(s.Sessions)
 	sess.WindowID = e.WindowID
-	sess.AgentPaneID = e.AgentPaneID
+	sess.PaneID = e.PaneID
 	s.Sessions[e.SessionID] = sess
 
+	// Switch to the newly created session (same as reduceSwitchSession).
+	chain := buildSwapChain(s.Active, e.WindowID)
+	s.Active = e.WindowID
+
 	effs := []Effect{
+		EffSwapPane{ChainOps: chain},
+		EffSelectPane{Target: "{sessionName}:0.0"},
+		EffSetTmuxEnv{Key: "ROOST_ACTIVE_WINDOW", Value: string(e.WindowID)},
+		EffSyncStatusLine{Line: ""},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
 	}

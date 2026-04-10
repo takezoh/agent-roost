@@ -33,6 +33,7 @@ type Config struct {
 	Persist  PersistBackend
 	EventLog EventLogBackend
 	Watcher  FSWatcher
+	Pool     *worker.Pool
 }
 
 // Runtime owns the event loop goroutine and the side-effect backends.
@@ -86,9 +87,11 @@ func New(cfg Config) *Runtime {
 		conns:      map[state.ConnID]*ipcConn{},
 		done:       make(chan struct{}),
 	}
-	r.workers = worker.NewPool(cfg.Workers, worker.Deps{
-		Tmux: tmuxAdapterForWorker{cfg.Tmux},
-	})
+	if cfg.Pool != nil {
+		r.workers = cfg.Pool
+	} else {
+		r.workers = worker.NewPool(cfg.Workers, worker.NewExecutor())
+	}
 	return r
 }
 

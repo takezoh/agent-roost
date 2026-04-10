@@ -15,8 +15,8 @@ import (
 // follow-up event).
 type TmuxBackend interface {
 	// SpawnWindow creates a new tmux window for a session. Returns the
-	// fresh window id and the agent pane id.
-	SpawnWindow(name, command, startDir string, env map[string]string) (windowID, agentPaneID string, err error)
+	// fresh window id and the pane id.
+	SpawnWindow(name, command, startDir string, env map[string]string) (windowID, paneID string, err error)
 
 	// KillWindow destroys a tmux window.
 	KillWindow(windowID string) error
@@ -73,7 +73,7 @@ type SessionSnapshot struct {
 	Project     string            `json:"project"`
 	Command     string            `json:"command"`
 	WindowID    string            `json:"window_id"`
-	AgentPaneID string            `json:"agent_pane_id"`
+	PaneID string            `json:"pane_id"`
 	CreatedAt   string            `json:"created_at"`
 	Driver      string            `json:"driver"`
 	DriverState map[string]string `json:"driver_state"`
@@ -176,18 +176,7 @@ func eventTypeName(ev state.Event) string {
 	}
 }
 
-// tmuxAdapterForWorker bridges the runtime's TmuxBackend to the
-// worker package's narrower TmuxOps interface, so workers don't need
-// to import runtime.
-type tmuxAdapterForWorker struct {
-	tmux TmuxBackend
-}
-
-func (a tmuxAdapterForWorker) CapturePane(windowID string, nLines int) (string, error) {
-	return a.tmux.CapturePane(windowID, nLines)
-}
-
 // Compile-time interface assertions.
 var (
-	_ state.DriverState = driver.GenericState{} // sanity check the embed-marker pattern
+	_ state.DriverState = driver.GenericState{}
 )

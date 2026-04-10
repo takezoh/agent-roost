@@ -8,6 +8,7 @@ package state
 func reduceShutdown(s State, e EvCmdShutdown) (State, []Effect) {
 	s.ShutdownReq = true
 	return s, []Effect{
+		EffPersistSnapshot{},
 		okResp(e.ConnID, e.ReqID, nil),
 		EffDetachClient{},
 	}
@@ -15,6 +16,7 @@ func reduceShutdown(s State, e EvCmdShutdown) (State, []Effect) {
 
 func reduceDetach(s State, e EvCmdDetach) (State, []Effect) {
 	return s, []Effect{
+		EffPersistSnapshot{},
 		okResp(e.ConnID, e.ReqID, nil),
 		EffDetachClient{},
 	}

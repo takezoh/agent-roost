@@ -21,8 +21,10 @@ func reduceTick(s State, e EvTick) (State, []Effect) {
 		EffCheckPaneAlive{Pane: "{sessionName}:0.2"},
 	)
 
-	// Periodic broadcast so subscribers see any state changes.
-	effs = append(effs, EffBroadcastSessionsChanged{})
+	// Persist + broadcast so sessions.json always reflects the latest
+	// driver state. The runtime's persist backend is cheap for small
+	// files; if it ever becomes a bottleneck, add a dirty-flag check.
+	effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
 	return s, effs
 }
 

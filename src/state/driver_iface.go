@@ -60,14 +60,11 @@ type DEvTick struct {
 func (DEvTick) isDriverEvent() {}
 
 // DEvJobResult delivers an async worker pool result back to the driver
-// that requested it. Kind disambiguates which job kind this result
-// belongs to (haiku summary, transcript parse, git branch, capture
-// pane). Result is typed by the worker (the driver casts it back) and
-// Err is non-nil when the job failed. Now is the time the result is
-// being applied; drivers use it to stamp StatusInfo / Activity rather
-// than reading wall-clock from inside Step.
+// that requested it. Result is typed by the worker (the driver dispatches
+// on its concrete type) and Err is non-nil when the job failed. Now is
+// the time the result is being applied; drivers use it to stamp
+// StatusInfo / Activity rather than reading wall-clock from inside Step.
 type DEvJobResult struct {
-	Kind   JobKind
 	Result any
 	Err    error
 	Now    time.Time

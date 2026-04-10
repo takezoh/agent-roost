@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"log/slog"
+	"sort"
 
 	"github.com/take/agent-roost/proto"
 	"github.com/take/agent-roost/state"
@@ -165,8 +166,18 @@ func (r *Runtime) closeConn(id state.ConnID) {
 // the proto.SessionInfo wire format. Calls each driver's View() pure
 // getter to fill the View payload.
 func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
-	infos := make([]proto.SessionInfo, 0, len(r.state.Sessions))
+	// Sort by CreatedAt for stable card ordering — Go map iteration
+	// is randomized, so without sorting the TUI cards would shuffle
+	// on every broadcast.
+	sorted := make([]state.Session, 0, len(r.state.Sessions))
 	for _, sess := range r.state.Sessions {
+		sorted = append(sorted, sess)
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].CreatedAt.Before(sorted[j].CreatedAt)
+	})
+	infos := make([]proto.SessionInfo, 0, len(sorted))
+	for _, sess := range sorted {
 		drv := state.GetDriver(sess.Command)
 		var view state.View
 		if drv != nil {
@@ -181,7 +192,7 @@ func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
 			Project:     sess.Project,
 			Command:     sess.Command,
 			WindowID:    string(sess.WindowID),
-			AgentPaneID: sess.AgentPaneID,
+			PaneID: sess.PaneID,
 			CreatedAt:   sess.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			State:       view.Status,
 			View:        view,

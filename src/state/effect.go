@@ -158,35 +158,7 @@ type EffEventLogAppend struct {
 // the EvJobResult callback can be routed back to the right session.
 type EffStartJob struct {
 	JobID JobID
-	Kind  JobKind
 	Input any
-}
-
-// JobKind disambiguates worker pool jobs. Kept in state pkg so
-// reducers can reference it without importing the runtime.
-type JobKind int
-
-const (
-	JobUnknown JobKind = iota
-	JobHaikuSummary
-	JobTranscriptParse
-	JobGitBranch
-	JobCapturePane
-)
-
-func (k JobKind) String() string {
-	switch k {
-	case JobHaikuSummary:
-		return "haiku-summary"
-	case JobTranscriptParse:
-		return "transcript-parse"
-	case JobGitBranch:
-		return "git-branch"
-	case JobCapturePane:
-		return "capture-pane"
-	default:
-		return "unknown"
-	}
 }
 
 // === isEffect markers ===

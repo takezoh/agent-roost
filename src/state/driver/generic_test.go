@@ -45,8 +45,8 @@ func TestGenericTickEmitsCapturePaneJob(t *testing.T) {
 	if !ok {
 		t.Fatalf("effect type = %T, want EffStartJob", effs[0])
 	}
-	if job.Kind != state.JobCapturePane {
-		t.Errorf("Kind = %v, want JobCapturePane", job.Kind)
+	if _, ok := job.Input.(CapturePaneInput); !ok {
+		t.Errorf("input type = %T, want CapturePaneInput", job.Input)
 	}
 	in, ok := job.Input.(CapturePaneInput)
 	if !ok {
@@ -69,7 +69,7 @@ func TestGenericFirstCaptureEstablishesBaseline(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
 	result := CapturePaneResult{Content: "$ ", Hash: "h1"}
 	next, _, _ := d.Step(s, state.DEvJobResult{
-		Kind: state.JobCapturePane, Result: result, Now: now,
+		Result: result, Now: now,
 	})
 	gs := next.(GenericState)
 	if !gs.Primed {

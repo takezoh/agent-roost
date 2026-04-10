@@ -26,12 +26,15 @@ type CapturePaneResult struct {
 	Hash    string
 }
 
-// HaikuSummaryInput is the prompt body the haiku worker sends to the
-// `claude -p --model=haiku` subprocess. The driver assembles it from
-// the previous summary plus the recent turns; the worker just runs
-// the subprocess and returns the trimmed output.
+// HaikuSummaryInput carries everything the haiku worker needs to
+// assemble and run the summary prompt. The worker uses ClaudeUUID
+// to pull recent conversation rounds from its shared transcript
+// Tracker, combines them with PrevSummary + CurrentPrompt, and
+// sends the result to `claude -p --model=haiku`.
 type HaikuSummaryInput struct {
-	Prompt string
+	ClaudeUUID    string
+	PrevSummary   string
+	CurrentPrompt string
 }
 
 // HaikuSummaryResult is the trimmed summary string the haiku worker

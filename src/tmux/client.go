@@ -7,19 +7,12 @@ import (
 	"strings"
 )
 
-// RoostWindow is a raw snapshot of a roost-managed tmux window's user
-// options. All fields are still in their tmux string form; the
-// runtime decodes them into state.Session values. Defined in the
-// tmux package so callers can read the raw layout without importing
-// any business-logic packages.
+// RoostWindow is a minimal snapshot of a roost-managed tmux window.
+// Only WindowID and ID are populated by ListRoostWindows. All other
+// session state lives in sessions.json.
 type RoostWindow struct {
-	WindowID       string
-	ID             string
-	Project        string
-	Command        string
-	CreatedAt      string
-	AgentPaneID    string
-	PersistedState string // JSON-encoded map[string]string
+	WindowID string // tmux window id, e.g. "@5"
+	ID       string // roost session id (from @roost_id user option)
 }
 
 type Client struct {
@@ -195,20 +188,11 @@ func (c *Client) SetWindowUserOptions(windowID string, kv map[string]string) err
 }
 
 // ListRoostWindows returns all windows that carry the @roost_id user option.
-// Driver-defined persistent state is packed into a single JSON-encoded
-// @roost_persisted_state user option so this layer never has to know about
-// individual driver keys. Tags are no longer stored as a top-level user
-// option — drivers cache them inside their own PersistedState bag.
+// After Phase 8, @roost_id is the ONLY roost user option — all other state
+// lives in sessions.json. The returned RoostWindow only has WindowID and ID
+// populated; other fields are empty.
 func (c *Client) ListRoostWindows() ([]RoostWindow, error) {
-	fmtStr := strings.Join([]string{
-		"#{window_id}",
-		"#{@roost_id}",
-		"#{@roost_project}",
-		"#{@roost_command}",
-		"#{@roost_created_at}",
-		"#{@roost_agent_pane}",
-		"#{@roost_persisted_state}",
-	}, "\t")
+	fmtStr := "#{window_id}\t#{@roost_id}"
 	out, err := c.Run("list-windows", "-t", c.SessionName, "-F", fmtStr)
 	if err != nil {
 		return nil, err
@@ -216,38 +200,19 @@ func (c *Client) ListRoostWindows() ([]RoostWindow, error) {
 	return parseRoostWindows(out), nil
 }
 
-// parseRoostWindows parses the tab-separated output of list-windows into
-// roost window snapshots. Lines whose @roost_id field is empty are skipped.
-//
-// The output is right-padded to roostWindowFields columns before parsing
-// because Client.Run trims trailing whitespace from the tmux output, which
-// silently drops empty trailing fields (e.g. an empty @roost_persisted_state
-// on the last line). Without this padding, ReconcileWindows would treat
-// freshly created sessions whose persisted state is still empty as "missing"
-// and evict them from the cache on the next polling tick.
-const roostWindowFields = 7
-
 func parseRoostWindows(out string) []RoostWindow {
 	var windows []RoostWindow
 	for _, line := range strings.Split(out, "\n") {
 		if line == "" {
 			continue
 		}
-		parts := strings.Split(line, "\t")
-		for len(parts) < roostWindowFields {
-			parts = append(parts, "")
-		}
-		if parts[1] == "" {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) < 2 || parts[1] == "" {
 			continue
 		}
 		windows = append(windows, RoostWindow{
-			WindowID:       parts[0],
-			ID:             parts[1],
-			Project:        parts[2],
-			Command:        parts[3],
-			CreatedAt:      parts[4],
-			AgentPaneID:    parts[5],
-			PersistedState: parts[6],
+			WindowID: parts[0],
+			ID:       parts[1],
 		})
 	}
 	return windows

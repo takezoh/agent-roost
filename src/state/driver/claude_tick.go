@@ -30,7 +30,6 @@ func (d ClaudeDriver) handleTick(cs ClaudeState, e state.DEvTick) (ClaudeState, 
 	cs.BranchTarget = target // record what we asked about so the result can be matched
 	return cs, []state.Effect{
 		state.EffStartJob{
-			Kind:  state.JobGitBranch,
 			Input: GitBranchInput{WorkingDir: target},
 		},
 	}
@@ -53,7 +52,6 @@ func (d ClaudeDriver) handleTranscriptChanged(cs ClaudeState, e state.DEvTranscr
 	cs.TranscriptInFlight = true
 	return cs, []state.Effect{
 		state.EffStartJob{
-			Kind: state.JobTranscriptParse,
 			Input: TranscriptParseInput{
 				ClaudeUUID: cs.ClaudeSessionID,
 				Path:       path,
@@ -65,54 +63,39 @@ func (d ClaudeDriver) handleTranscriptChanged(cs ClaudeState, e state.DEvTranscr
 // handleJobResult routes a finished worker pool result back to the
 // matching field on ClaudeState.
 func (d ClaudeDriver) handleJobResult(cs ClaudeState, e state.DEvJobResult) (ClaudeState, []state.Effect) {
-	switch e.Kind {
-	case state.JobTranscriptParse:
+	switch r := e.Result.(type) {
+	case TranscriptParseResult:
 		cs.TranscriptInFlight = false
 		if e.Err != nil {
 			return cs, nil
 		}
-		result, ok := e.Result.(TranscriptParseResult)
-		if !ok {
-			return cs, nil
+		if r.Title != "" {
+			cs.Title = r.Title
 		}
-		// Only overwrite LastPrompt when the parser actually found a
-		// user entry — otherwise we'd erase a prompt seeded from
-		// UserPromptSubmit before the JSONL flush.
-		if result.Title != "" {
-			cs.Title = result.Title
+		if r.LastPrompt != "" {
+			cs.LastPrompt = r.LastPrompt
 		}
-		if result.LastPrompt != "" {
-			cs.LastPrompt = result.LastPrompt
-		}
-		cs.StatusLine = result.StatusLine
-		cs.CurrentTool = result.CurrentTool
-		cs.SubagentCounts = result.Subagents
+		cs.StatusLine = r.StatusLine
+		cs.CurrentTool = r.CurrentTool
+		cs.SubagentCounts = r.Subagents
 		return cs, nil
 
-	case state.JobHaikuSummary:
+	case HaikuSummaryResult:
 		cs.SummaryInFlight = false
 		if e.Err != nil {
 			return cs, nil
 		}
-		result, ok := e.Result.(HaikuSummaryResult)
-		if !ok {
-			return cs, nil
-		}
-		if result.Summary != "" {
-			cs.Summary = result.Summary
+		if r.Summary != "" {
+			cs.Summary = r.Summary
 		}
 		return cs, nil
 
-	case state.JobGitBranch:
+	case GitBranchResult:
 		cs.BranchInFlight = false
 		if e.Err != nil {
 			return cs, nil
 		}
-		result, ok := e.Result.(GitBranchResult)
-		if !ok {
-			return cs, nil
-		}
-		cs.BranchTag = result.Branch
+		cs.BranchTag = r.Branch
 		cs.BranchAt = e.Now
 		return cs, nil
 	}

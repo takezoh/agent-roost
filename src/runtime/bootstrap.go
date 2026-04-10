@@ -44,7 +44,7 @@ func (r *Runtime) LoadSnapshot() error {
 			Project:     snap.Project,
 			Command:     snap.Command,
 			WindowID:    state.WindowID(snap.WindowID),
-			AgentPaneID: snap.AgentPaneID,
+			PaneID: snap.PaneID,
 			CreatedAt:   createdAt,
 			Driver:      drv.Restore(snap.DriverState, now),
 		}
@@ -54,7 +54,7 @@ func (r *Runtime) LoadSnapshot() error {
 }
 
 // ReconcileWarm reads the live tmux window list and:
-//   - Updates known sessions' WindowID/AgentPaneID from the live tmux state
+//   - Updates known sessions' WindowID/PaneID from the live tmux state
 //     (tmux reissues window ids after server restart, so JSON values may be
 //     stale).
 //   - Drops orphan windows (in tmux but not in JSON).
@@ -83,13 +83,13 @@ func (r *Runtime) ReconcileWarm() error {
 			continue
 		}
 		sess.WindowID = state.WindowID(w.WindowID)
-		if w.AgentPaneID != "" {
-			sess.AgentPaneID = w.AgentPaneID
+		// Re-query the pane ID since tmux may have reissued it
+		// after a server restart (warm-restart within the same tmux
+		// server keeps the same pane IDs, but we re-query anyway for
+		// robustness).
+		if paneID := r.queryPaneID(w.WindowID); paneID != "" {
+			sess.PaneID = paneID
 		}
-		// Driver state comes from sessions.json (loaded by
-		// LoadSnapshot), NOT from tmux user options. @roost_id is
-		// the only user option — everything else was migrated in
-		// Phase 8.
 		r.state.Sessions[id] = sess
 	}
 	for _, id := range dropped {
@@ -118,7 +118,7 @@ func (r *Runtime) cleanupLegacyUserOptions(windows []tmux.RoostWindow) {
 		"@roost_project",
 		"@roost_command",
 		"@roost_created_at",
-		"@roost_agent_pane",
+		"@roost_pane",
 		"@roost_persisted_state",
 	}
 	for _, w := range windows {
@@ -126,6 +126,39 @@ func (r *Runtime) cleanupLegacyUserOptions(windows []tmux.RoostWindow) {
 			u.UnsetWindowUserOption(w.WindowID, key)
 		}
 	}
+}
+
+// RestoreActiveWindow reads ROOST_ACTIVE_WINDOW from the tmux env
+// and sets state.Active if the window still belongs to a known
+// session. Must be called after ReconcileWarm (so WindowIDs are
+// up to date). Without this, warm start doesn't know which session
+// is currently swapped into pane 0.0.
+func (r *Runtime) RestoreActiveWindow(tmuxClient interface{ GetEnv(string) (string, error) }) {
+	wid, _ := tmuxClient.GetEnv("ROOST_ACTIVE_WINDOW")
+	if wid == "" {
+		return
+	}
+	for _, sess := range r.state.Sessions {
+		if string(sess.WindowID) == wid {
+			r.state.Active = state.WindowID(wid)
+			slog.Info("bootstrap: restored active window", "window", wid)
+			return
+		}
+	}
+	slog.Info("bootstrap: stale active window, clearing", "window", wid)
+}
+
+// ClearStaleWindowIDs zeroes out WindowID and PaneID on every
+// session. Called on cold start before RecreateAll so that stale
+// IDs from the previous run's snapshot don't leak into the new
+// tmux session (the old windows no longer exist).
+func (r *Runtime) ClearStaleWindowIDs() {
+	for id, sess := range r.state.Sessions {
+		sess.WindowID = ""
+		sess.PaneID = ""
+		r.state.Sessions[id] = sess
+	}
+	r.state.Active = ""
 }
 
 // RecreateAll spawns fresh tmux windows for every session in
@@ -138,11 +171,17 @@ func (r *Runtime) RecreateAll() error {
 			continue
 		}
 		spawnCmd := drv.SpawnCommand(sess.Driver, sess.Command)
+		startDir := sess.Project
+		if bag := drv.Persist(sess.Driver); bag != nil {
+			if wd := bag["working_dir"]; wd != "" {
+				startDir = wd
+			}
+		}
 		windowName := buildWindowName(sess.Project, string(id))
 		wid, paneID, err := r.cfg.Tmux.SpawnWindow(
 			windowName,
 			"exec "+spawnCmd,
-			sess.Project,
+			startDir,
 			map[string]string{"ROOST_SESSION_ID": string(id)},
 		)
 		if err != nil {
@@ -151,10 +190,45 @@ func (r *Runtime) RecreateAll() error {
 			continue
 		}
 		sess.WindowID = state.WindowID(wid)
-		sess.AgentPaneID = paneID
+		sess.PaneID = paneID
 		r.state.Sessions[id] = sess
 	}
+
+	// Give spawned processes a moment to start (or fail), then
+	// reconcile to evict sessions whose windows died immediately
+	// (e.g. claude --resume fails because the session no longer
+	// exists). Without this, the TUI would show dead sessions until
+	// the first periodic tick fires the reaper.
+	time.Sleep(500 * time.Millisecond)
+	r.reconcileAfterRecreate()
 	return nil
+}
+
+// reconcileAfterRecreate checks each session's window and evicts any
+// that died during RecreateAll. Uses the same ListRoostWindows path
+// as ReconcileWarm.
+func (r *Runtime) reconcileAfterRecreate() {
+	list, err := r.listRoostWindows()
+	if err != nil {
+		return
+	}
+	live := make(map[string]struct{}, len(list))
+	for _, w := range list {
+		live[w.WindowID] = struct{}{}
+	}
+	var dead []state.SessionID
+	for id, sess := range r.state.Sessions {
+		if sess.WindowID == "" {
+			continue
+		}
+		if _, ok := live[string(sess.WindowID)]; !ok {
+			dead = append(dead, id)
+		}
+	}
+	for _, id := range dead {
+		slog.Info("bootstrap: evicting session with dead window", "id", id)
+		delete(r.state.Sessions, id)
+	}
 }
 
 // SetSyncCallbacks installs the optional tmux sync callbacks
@@ -176,6 +250,22 @@ func (r *Runtime) listRoostWindows() ([]tmux.RoostWindow, error) {
 		return l.ListRoostWindows()
 	}
 	return nil, nil
+}
+
+// queryPaneID asks tmux for the pane ID of a window's primary pane.
+func (r *Runtime) queryPaneID(windowID string) string {
+	type displayer interface {
+		DisplayMessage(target, format string) (string, error)
+	}
+	d, ok := r.cfg.Tmux.(displayer)
+	if !ok {
+		return ""
+	}
+	out, err := d.DisplayMessage(windowID+".0", "#{pane_id}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // decodePersistedState parses the JSON-encoded @roost_persisted_state

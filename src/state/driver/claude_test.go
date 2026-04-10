@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -9,6 +10,19 @@ import (
 )
 
 const testHome = "/home/test"
+
+// hookPayloadRaw builds a DEvHook payload with a "raw" JSON key from
+// the given fields. Extra kv pairs can be added via the extras map.
+// The "now" key is passed outside "raw" since it's a time.Time that
+// the reducer injects, not part of the Claude hook JSON.
+func hookPayloadRaw(fields map[string]string, now time.Time) map[string]any {
+	raw, _ := json.Marshal(fields)
+	m := map[string]any{"raw": string(raw)}
+	if !now.IsZero() {
+		m["now"] = now
+	}
+	return m
+}
 
 func newClaude(t *testing.T) (ClaudeDriver, ClaudeState, time.Time) {
 	t.Helper()
@@ -33,13 +47,13 @@ func findEffect[T state.Effect](effs []state.Effect) (T, bool) {
 func TestClaudeSessionStartAbsorbsIdentityAndWatches(t *testing.T) {
 	d, cs, now := newClaude(t)
 	next, effs := d.handleHook(cs, state.DEvHook{
-		Event: hookSessionStart,
-		Payload: map[string]any{
+		Event: "SessionStart",
+		Payload: hookPayloadRaw(map[string]string{
 			"session_id":      "claude-uuid",
-			"working_dir":     "/work",
+			"cwd":             "/work",
 			"transcript_path": "/tmp/x.jsonl",
-			"now":             now,
-		},
+			"hook_event_name": "SessionStart",
+		}, now),
 	})
 	if next.ClaudeSessionID != "claude-uuid" {
 		t.Errorf("ClaudeSessionID = %q, want claude-uuid", next.ClaudeSessionID)
@@ -63,28 +77,27 @@ func TestClaudeSessionStartAbsorbsIdentityAndWatches(t *testing.T) {
 	if !ok {
 		t.Fatal("expected EffStartJob")
 	}
-	if job.Kind != state.JobTranscriptParse {
-		t.Errorf("job kind = %v, want JobTranscriptParse", job.Kind)
+	if _, ok := job.Input.(TranscriptParseInput); !ok {
+		t.Errorf("job input type = %T, want TranscriptParseInput", job.Input)
 	}
 	if _, ok := findEffect[state.EffEventLogAppend](effs); !ok {
 		t.Error("expected EffEventLogAppend")
 	}
 }
 
-func TestClaudeStateChangeRunningSetsStatus(t *testing.T) {
+func TestClaudeStateChangeStopSetsWaiting(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
 	cs.TranscriptPath = "/tmp/t.jsonl"
 	next, effs := d.handleHook(cs, state.DEvHook{
-		Event: hookStateChange,
-		Payload: map[string]any{
-			"state": "running",
-			"log":   "Stop",
-			"now":   now.Add(time.Second),
-		},
+		Event: "Stop",
+		Payload: hookPayloadRaw(map[string]string{
+			"session_id":      "uuid",
+			"hook_event_name": "Stop",
+		}, now.Add(time.Second)),
 	})
-	if next.Status != state.StatusRunning {
-		t.Errorf("Status = %v, want Running", next.Status)
+	if next.Status != state.StatusWaiting {
+		t.Errorf("Status = %v, want Waiting (Stop → waiting)", next.Status)
 	}
 	if !next.StatusChangedAt.Equal(now.Add(time.Second)) {
 		t.Errorf("StatusChangedAt not updated")
@@ -96,18 +109,21 @@ func TestClaudeStateChangeRunningSetsStatus(t *testing.T) {
 	if logEff.Line != "Stop" {
 		t.Errorf("log line = %q, want Stop", logEff.Line)
 	}
-	// Should also schedule a transcript reparse
 	if !next.TranscriptInFlight {
 		t.Error("TranscriptInFlight should be true after state-change")
 	}
 }
 
-func TestClaudeStateChangeUnknownStatusKeepsPrev(t *testing.T) {
+func TestClaudeUnknownHookEventIsNoop(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.Status = state.StatusWaiting
 	next, _ := d.handleHook(cs, state.DEvHook{
-		Event:   hookStateChange,
-		Payload: map[string]any{"state": "garbage"},
+		Event:   "Notification",
+		Payload: hookPayloadRaw(map[string]string{
+			"session_id":        "uuid",
+			"hook_event_name":   "Notification",
+			"notification_type": "something_else",
+		}, time.Time{}),
 	})
 	if next.Status != state.StatusWaiting {
 		t.Errorf("Status = %v, want Waiting (unchanged)", next.Status)
@@ -118,11 +134,12 @@ func TestClaudeUserPromptSubmitTriggersHaiku(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
 	next, effs := d.handleHook(cs, state.DEvHook{
-		Event: hookUserPromptSubmit,
-		Payload: map[string]any{
-			"prompt": "do the thing",
-			"now":    now,
-		},
+		Event: "UserPromptSubmit",
+		Payload: hookPayloadRaw(map[string]string{
+			"session_id":      "uuid",
+			"hook_event_name": "UserPromptSubmit",
+			"prompt":          "do the thing",
+		}, now),
 	})
 	if next.LastPrompt != "do the thing" {
 		t.Errorf("LastPrompt = %q, want %q", next.LastPrompt, "do the thing")
@@ -134,27 +151,29 @@ func TestClaudeUserPromptSubmitTriggersHaiku(t *testing.T) {
 	if !ok {
 		t.Fatal("expected EffStartJob")
 	}
-	if job.Kind != state.JobHaikuSummary {
-		t.Errorf("job kind = %v, want JobHaikuSummary", job.Kind)
-	}
 	in, ok := job.Input.(HaikuSummaryInput)
 	if !ok {
-		t.Fatal("input not HaikuSummaryInput")
+		t.Fatalf("job input type = %T, want HaikuSummaryInput", job.Input)
 	}
-	if in.Prompt != "do the thing" {
-		t.Errorf("haiku input = %q, want %q", in.Prompt, "do the thing")
+	if in.CurrentPrompt != "do the thing" {
+		t.Errorf("haiku CurrentPrompt = %q, want %q", in.CurrentPrompt, "do the thing")
+	}
+	if in.ClaudeUUID != "uuid" {
+		t.Errorf("haiku ClaudeUUID = %q, want uuid", in.ClaudeUUID)
 	}
 }
 
 func TestClaudeUserPromptSubmitDedupesWhileInFlight(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.SummaryInFlight = true
+	cs.ClaudeSessionID = "uuid"
 	next, effs := d.handleHook(cs, state.DEvHook{
-		Event: hookUserPromptSubmit,
-		Payload: map[string]any{
-			"prompt": "another",
-			"now":    now,
-		},
+		Event: "UserPromptSubmit",
+		Payload: hookPayloadRaw(map[string]string{
+			"session_id":      "uuid",
+			"hook_event_name": "UserPromptSubmit",
+			"prompt":          "another",
+		}, now),
 	})
 	if !next.SummaryInFlight {
 		t.Error("SummaryInFlight should remain true")
@@ -202,8 +221,8 @@ func TestClaudeTickActiveSchedulesBranchJob(t *testing.T) {
 	if !ok {
 		t.Fatal("expected EffStartJob")
 	}
-	if job.Kind != state.JobGitBranch {
-		t.Errorf("kind = %v, want JobGitBranch", job.Kind)
+	if _, ok := job.Input.(GitBranchInput); !ok {
+		t.Errorf("job input type = %T, want GitBranchInput", job.Input)
 	}
 	in, ok := job.Input.(GitBranchInput)
 	if !ok || in.WorkingDir != "/work" {
@@ -254,8 +273,11 @@ func TestClaudeTranscriptChangedSchedulesParse(t *testing.T) {
 		t.Error("TranscriptInFlight should be true")
 	}
 	job, ok := findEffect[state.EffStartJob](effs)
-	if !ok || job.Kind != state.JobTranscriptParse {
-		t.Errorf("expected JobTranscriptParse, got %v", job.Kind)
+	if !ok {
+		t.Fatal("expected EffStartJob")
+	}
+	if _, ok := job.Input.(TranscriptParseInput); !ok {
+		t.Errorf("job input type = %T, want TranscriptParseInput", job.Input)
 	}
 }
 
@@ -276,8 +298,7 @@ func TestClaudeTranscriptParseResultMergesFields(t *testing.T) {
 	cs.TranscriptInFlight = true
 	now := time.Now()
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
-		Kind: state.JobTranscriptParse,
-		Now:  now,
+		Now: now,
 		Result: TranscriptParseResult{
 			Title:       "Refactor X",
 			LastPrompt:  "please refactor",
@@ -308,8 +329,7 @@ func TestClaudeTranscriptParseEmptyLastPromptDoesNotErase(t *testing.T) {
 	cs.LastPrompt = "seed from hook"
 	cs.TranscriptInFlight = true
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
-		Kind:   state.JobTranscriptParse,
-		Result: TranscriptParseResult{LastPrompt: ""}, // not yet flushed
+		Result: TranscriptParseResult{LastPrompt: ""},
 	})
 	if next.LastPrompt != "seed from hook" {
 		t.Errorf("empty parse erased seed: %q", next.LastPrompt)
@@ -320,8 +340,8 @@ func TestClaudeTranscriptParseErrorClearsFlag(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.TranscriptInFlight = true
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
-		Kind: state.JobTranscriptParse,
-		Err:  errors.New("read error"),
+		Err:    errors.New("read error"),
+		Result: TranscriptParseResult{},
 	})
 	if next.TranscriptInFlight {
 		t.Error("error should still clear in-flight flag")
@@ -332,7 +352,6 @@ func TestClaudeHaikuResultMerges(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.SummaryInFlight = true
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
-		Kind:   state.JobHaikuSummary,
 		Result: HaikuSummaryResult{Summary: "短い要約"},
 	})
 	if next.SummaryInFlight {
@@ -348,7 +367,6 @@ func TestClaudeHaikuEmptyResultKeepsPrev(t *testing.T) {
 	cs.Summary = "前の要約"
 	cs.SummaryInFlight = true
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
-		Kind:   state.JobHaikuSummary,
 		Result: HaikuSummaryResult{Summary: ""},
 	})
 	if next.Summary != "前の要約" {
@@ -361,7 +379,6 @@ func TestClaudeBranchResultMerges(t *testing.T) {
 	cs.BranchInFlight = true
 	now := time.Now()
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
-		Kind:   state.JobGitBranch,
 		Now:    now,
 		Result: GitBranchResult{Branch: "main"},
 	})
@@ -391,6 +408,8 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 		BranchTarget:    "/work",
 		BranchAt:        now,
 		Summary:         "summary",
+		Title:           "Refactor X",
+		LastPrompt:      "do the thing",
 	}
 	bag := d.Persist(cs)
 	if bag[claudeKeyClaudeSessionID] != "uuid-1" {
@@ -414,6 +433,12 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 	}
 	if restored.Summary != "summary" {
 		t.Errorf("restored Summary = %q", restored.Summary)
+	}
+	if restored.Title != "Refactor X" {
+		t.Errorf("restored Title = %q", restored.Title)
+	}
+	if restored.LastPrompt != "do the thing" {
+		t.Errorf("restored LastPrompt = %q", restored.LastPrompt)
 	}
 }
 
@@ -447,6 +472,36 @@ func TestClaudeSpawnCommandNoSession(t *testing.T) {
 	got := d.SpawnCommand(cs, "claude --foo")
 	if got != "claude --foo" {
 		t.Errorf("SpawnCommand = %q, want passthrough", got)
+	}
+}
+
+func TestClaudeSpawnCommandStripsWorktree(t *testing.T) {
+	d := NewClaudeDriver(testHome)
+	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
+	got := d.SpawnCommand(cs, "claude --worktree")
+	want := "claude --resume uuid-W"
+	if got != want {
+		t.Errorf("SpawnCommand = %q, want %q", got, want)
+	}
+}
+
+func TestClaudeSpawnCommandStripsWorktreeWithName(t *testing.T) {
+	d := NewClaudeDriver(testHome)
+	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
+	got := d.SpawnCommand(cs, "claude --worktree my-branch")
+	want := "claude --resume uuid-W"
+	if got != want {
+		t.Errorf("SpawnCommand = %q, want %q", got, want)
+	}
+}
+
+func TestClaudeSpawnCommandStripsWorktreeEquals(t *testing.T) {
+	d := NewClaudeDriver(testHome)
+	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
+	got := d.SpawnCommand(cs, "claude --worktree=my-branch")
+	want := "claude --resume uuid-W"
+	if got != want {
+		t.Errorf("SpawnCommand = %q, want %q", got, want)
 	}
 }
 
@@ -550,13 +605,13 @@ func TestClaudeViewInfoExtras(t *testing.T) {
 func TestClaudeStepRoundTripSessionStartThenView(t *testing.T) {
 	d, cs, now := newClaude(t)
 	next, effs, view := d.Step(cs, state.DEvHook{
-		Event: hookSessionStart,
-		Payload: map[string]any{
+		Event: "SessionStart",
+		Payload: hookPayloadRaw(map[string]string{
 			"session_id":      "uuid",
-			"working_dir":     "/work",
+			"cwd":             "/work",
 			"transcript_path": "/tmp/x.jsonl",
-			"now":             now,
-		},
+			"hook_event_name": "SessionStart",
+		}, now),
 	})
 	cs2 := next.(ClaudeState)
 	if cs2.ClaudeSessionID != "uuid" {

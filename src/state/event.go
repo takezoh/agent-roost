@@ -144,13 +144,13 @@ type EvTmuxWindowVanished struct {
 
 // EvTmuxWindowSpawned is the async result of a tmux new-window call
 // initiated by EffSpawnTmuxWindow. It carries the freshly assigned
-// window id and agent pane id back to the reducer, plus the original
+// window id and pane id back to the reducer, plus the original
 // caller's reply context so the reducer can finish the create-session
 // round trip.
 type EvTmuxWindowSpawned struct {
 	SessionID   SessionID
 	WindowID    WindowID
-	AgentPaneID string
+	PaneID string
 	ReplyConn   ConnID
 	ReplyReqID  string
 }

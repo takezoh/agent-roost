@@ -43,7 +43,7 @@ type Session struct {
 	Project     string
 	Command     string
 	WindowID    WindowID
-	AgentPaneID string
+	PaneID string
 	CreatedAt   time.Time
 	Driver      DriverState // sum type implemented by driver impls
 }
@@ -61,7 +61,6 @@ type Subscriber struct {
 // looks up here to find which session the result belongs to.
 type JobMeta struct {
 	SessionID SessionID
-	Kind      JobKind
 	StartedAt time.Time
 }
 

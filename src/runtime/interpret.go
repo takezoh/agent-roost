@@ -31,8 +31,15 @@ func (r *Runtime) execute(eff state.Effect) {
 
 	case state.EffSwapPane:
 		ops := substitutePlaceholders(e.ChainOps, r.cfg.SessionName, r.cfg.RoostExe)
-		if err := r.cfg.Tmux.RunChain(ops...); err != nil {
-			slog.Error("runtime: swap-pane failed", "err", err)
+		// Execute each swap-pane independently. The old active may be
+		// a dead window (agent exited, remain-on-exit off); if the
+		// first swap (return old active) fails, the second swap
+		// (bring in target) must still run. RunChain uses ";" which
+		// aborts the entire chain on the first failure.
+		for _, op := range ops {
+			if err := r.cfg.Tmux.RunChain(op); err != nil {
+				slog.Warn("runtime: swap-pane step failed", "op", op, "err", err)
+			}
 		}
 
 	case state.EffSelectPane:
@@ -143,7 +150,6 @@ func (r *Runtime) execute(eff state.Effect) {
 	case state.EffStartJob:
 		r.workers.Submit(worker.Job{
 			ID:    e.JobID,
-			Kind:  e.Kind,
 			Input: e.Input,
 		})
 
@@ -170,7 +176,7 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	r.Enqueue(state.EvTmuxWindowSpawned{
 		SessionID:   e.SessionID,
 		WindowID:    state.WindowID(wid),
-		AgentPaneID: paneID,
+		PaneID: paneID,
 		ReplyConn:   e.ReplyConn,
 		ReplyReqID:  e.ReplyReqID,
 	})
@@ -256,7 +262,7 @@ func (r *Runtime) snapshotSessions() []SessionSnapshot {
 			Project:     sess.Project,
 			Command:     sess.Command,
 			WindowID:    string(sess.WindowID),
-			AgentPaneID: sess.AgentPaneID,
+			PaneID: sess.PaneID,
 			CreatedAt:   sess.CreatedAt.UTC().Format(time.RFC3339),
 			Driver:      driverName,
 			DriverState: bag,

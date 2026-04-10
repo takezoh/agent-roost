@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
 
 	tea "charm.land/bubbletea/v2"
 	"golang.org/x/term"
@@ -18,6 +20,7 @@ import (
 	"github.com/take/agent-roost/logger"
 	"github.com/take/agent-roost/proto"
 	"github.com/take/agent-roost/runtime"
+	"github.com/take/agent-roost/runtime/worker"
 	statedriver "github.com/take/agent-roost/state/driver"
 	"github.com/take/agent-roost/tmux"
 	"github.com/take/agent-roost/tools"
@@ -80,6 +83,10 @@ func runCoordinator() {
 	pollInterval := time.Duration(cfg.Monitor.PollIntervalMs) * time.Millisecond
 	sockPath := filepath.Join(dataDir, "roost.sock")
 
+	exec := worker.NewExecutor()
+	worker.RegisterDefaults(exec, tmuxBackend.CapturePane)
+	pool := worker.NewPool(4, exec)
+
 	rt := runtime.New(runtime.Config{
 		SessionName:  sessionName,
 		RoostExe:     resolveExe(),
@@ -88,6 +95,7 @@ func runCoordinator() {
 		Tmux:         tmuxBackend,
 		Persist:      runtime.NewFilePersist(dataDir),
 		EventLog:     runtime.NewFileEventLog(dataDir),
+		Pool:         pool,
 	})
 
 	warmRestart := client.SessionExists()
@@ -100,12 +108,14 @@ func runCoordinator() {
 		if err := rt.ReconcileWarm(); err != nil {
 			slog.Error("reconcile failed", "err", err)
 		}
+		rt.RestoreActiveWindow(client)
 	} else {
 		slog.Info("creating new session")
 		setupNewSession(client, cfg, sessionName)
 		if err := rt.LoadSnapshot(); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
+		rt.ClearStaleWindowIDs()
 		if err := rt.RecreateAll(); err != nil {
 			slog.Error("recreate failed", "err", err)
 		}
@@ -115,7 +125,7 @@ func runCoordinator() {
 	defer cancel()
 
 	go func() {
-		if err := rt.Run(ctx); err != nil {
+		if err := rt.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
 			slog.Error("runtime exited", "err", err)
 		}
 	}()

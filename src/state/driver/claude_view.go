@@ -34,10 +34,10 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 	}
 
 	var logTabs []state.LogTab
-	if cs.TranscriptPath != "" {
+	if transcriptPath := d.resolveTranscriptPath(cs); transcriptPath != "" {
 		logTabs = append(logTabs, state.LogTab{
 			Label: "TRANSCRIPT",
-			Path:  cs.TranscriptPath,
+			Path:  transcriptPath,
 			Kind:  state.TabKindTranscript,
 		})
 	}

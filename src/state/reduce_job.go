@@ -18,7 +18,6 @@ func reduceJobResult(s State, e EvJobResult) (State, []Effect) {
 	delete(s.Jobs, e.JobID)
 
 	next, effs, _, ok := stepDriver(s, meta.SessionID, DEvJobResult{
-		Kind:   meta.Kind,
 		Result: e.Result,
 		Err:    e.Err,
 		Now:    s.Now,

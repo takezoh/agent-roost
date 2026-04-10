@@ -153,7 +153,6 @@ func (d GenericDriver) Step(prev state.DriverState, ev state.DriverEvent) (state
 			return gs, nil, d.view(gs)
 		}
 		eff := state.EffStartJob{
-			Kind: state.JobCapturePane,
 			Input: CapturePaneInput{
 				WindowID: e.WindowID,
 				NLines:   5,
@@ -162,12 +161,7 @@ func (d GenericDriver) Step(prev state.DriverState, ev state.DriverEvent) (state
 		return gs, []state.Effect{eff}, d.view(gs)
 
 	case state.DEvJobResult:
-		if e.Kind != state.JobCapturePane {
-			return gs, nil, d.view(gs)
-		}
 		if e.Err != nil {
-			// capture-pane failure does not mean the session is dead;
-			// liveness is reconciled elsewhere. Skip this tick.
 			return gs, nil, d.view(gs)
 		}
 		result, ok := e.Result.(CapturePaneResult)

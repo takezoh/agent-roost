@@ -42,6 +42,12 @@ func (ClaudeDriver) Persist(s state.DriverState) map[string]string {
 	if cs.Summary != "" {
 		out[claudeKeySummary] = cs.Summary
 	}
+	if cs.Title != "" {
+		out[claudeKeyTitle] = cs.Title
+	}
+	if cs.LastPrompt != "" {
+		out[claudeKeyLastPrompt] = cs.LastPrompt
+	}
 	return out
 }
 
@@ -76,5 +82,7 @@ func (d ClaudeDriver) Restore(bag map[string]string, now time.Time) state.Driver
 		}
 	}
 	cs.Summary = bag[claudeKeySummary]
+	cs.Title = bag[claudeKeyTitle]
+	cs.LastPrompt = bag[claudeKeyLastPrompt]
 	return cs
 }

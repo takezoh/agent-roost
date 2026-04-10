@@ -60,7 +60,7 @@ type SessionInfo struct {
 	Project        string       `json:"project"`
 	Command        string       `json:"command"`
 	WindowID       string       `json:"window_id"`
-	AgentPaneID    string       `json:"agent_pane_id,omitempty"`
+	PaneID    string       `json:"pane_id,omitempty"`
 	CreatedAt      string       `json:"created_at"`
 	State          state.Status `json:"state,omitempty"`
 	StateChangedAt string       `json:"state_changed_at,omitempty"`

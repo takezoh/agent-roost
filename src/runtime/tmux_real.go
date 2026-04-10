@@ -26,7 +26,7 @@ func NewRealTmuxBackend(client *tmux.Client) *RealTmuxBackend {
 }
 
 // SpawnWindow creates a new tmux window for a session and returns
-// the freshly assigned window id and agent pane id. The agent pane
+// the freshly assigned window id and pane id. The pane
 // id is queried separately because tmux assigns it after new-window.
 func (b *RealTmuxBackend) SpawnWindow(name, command, startDir string, env map[string]string) (string, string, error) {
 	args := []string{"new-window", "-d", "-t", b.sessionName + ":", "-n", name, "-P", "-F", "#{window_id}"}
@@ -48,9 +48,15 @@ func (b *RealTmuxBackend) SpawnWindow(name, command, startDir string, env map[st
 	if err != nil {
 		return wid, "", err
 	}
-	// Stamp the window with @roost_id so future warm-restart
-	// reconciliation can find it.
-	if err := b.client.SetWindowUserOption(wid, "@roost_id", name); err != nil {
+	// Stamp the window with @roost_id = session ID so warm-restart
+	// reconciliation can map tmux windows back to sessions.json entries.
+	// The session ID comes from the ROOST_SESSION_ID env var injected
+	// by the reducer.
+	roostID := env["ROOST_SESSION_ID"]
+	if roostID == "" {
+		roostID = name // fallback for non-roost windows (shouldn't happen)
+	}
+	if err := b.client.SetWindowUserOption(wid, "@roost_id", roostID); err != nil {
 		return wid, paneID, err
 	}
 	return wid, paneID, nil
@@ -128,6 +134,13 @@ func (b *RealTmuxBackend) DisplayPopup(width, height, cmd string) error {
 // reducer doesn't need it) — only the bootstrap path calls it.
 func (b *RealTmuxBackend) ListRoostWindows() ([]tmux.RoostWindow, error) {
 	return b.client.ListRoostWindows()
+}
+
+// DisplayMessage runs tmux display-message for the given target and
+// format string. Used by bootstrap's queryPaneID to re-query
+// pane IDs after warm restart.
+func (b *RealTmuxBackend) DisplayMessage(target, format string) (string, error) {
+	return b.client.Run("display-message", "-t", target, "-p", format)
 }
 
 // UnsetWindowUserOption removes a window-scoped user option. Used by

@@ -30,6 +30,8 @@ const (
 	claudeKeyBranchTarget    = "branch_target"
 	claudeKeyBranchAt        = "branch_at"
 	claudeKeySummary         = "summary"
+	claudeKeyTitle           = "title"
+	claudeKeyLastPrompt      = "last_prompt"
 
 	// Re-detect branch at most every N seconds (only when active).
 	claudeBranchRefreshInterval = 30 * time.Second
@@ -119,12 +121,37 @@ func (d ClaudeDriver) SpawnCommand(s state.DriverState, baseCommand string) stri
 	if strings.Contains(baseCommand, "--resume") {
 		return baseCommand
 	}
-	// Validate the session ID to prevent shell injection — Claude
-	// session IDs are UUIDs so only alphanumerics and hyphens.
 	if !isAlphanumHyphen(cs.ClaudeSessionID) {
 		return baseCommand
 	}
-	return baseCommand + " --resume " + cs.ClaudeSessionID
+	// Strip --worktree before adding --resume. Claude treats
+	// --worktree as "create a new worktree" which is incompatible
+	// with --resume. The caller (RecreateAll) starts the process
+	// inside the existing worktree directory instead.
+	return stripWorktreeFlag(baseCommand) + " --resume " + cs.ClaudeSessionID
+}
+
+// stripWorktreeFlag removes --worktree (and its optional name
+// argument) from a command string. Mirrors the logic in
+// lib/claude/cli.StripWorktreeFlag but duplicated here so
+// state/driver stays a leaf package.
+func stripWorktreeFlag(command string) string {
+	parts := strings.Fields(command)
+	out := make([]string, 0, len(parts))
+	for i := 0; i < len(parts); i++ {
+		p := parts[i]
+		if p == "--worktree" {
+			if i+1 < len(parts) && !strings.HasPrefix(parts[i+1], "-") {
+				i++ // drop the worktree name
+			}
+			continue
+		}
+		if strings.HasPrefix(p, "--worktree=") {
+			continue
+		}
+		out = append(out, p)
+	}
+	return strings.Join(out, " ")
 }
 
 func isAlphanumHyphen(s string) bool {

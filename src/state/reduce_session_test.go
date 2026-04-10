@@ -157,12 +157,12 @@ func TestTmuxSpawnedFillsWindow(t *testing.T) {
 	next, effs := Reduce(s, EvTmuxWindowSpawned{
 		SessionID:   id,
 		WindowID:    "@5",
-		AgentPaneID: "%10",
+		PaneID: "%10",
 		ReplyConn:   1,
 		ReplyReqID:  "r",
 	})
 	sess := next.Sessions[id]
-	if sess.WindowID != "@5" || sess.AgentPaneID != "%10" {
+	if sess.WindowID != "@5" || sess.PaneID != "%10" {
 		t.Errorf("session not updated: %+v", sess)
 	}
 	if _, ok := findEff[EffPersistSnapshot](effs); !ok {
@@ -466,7 +466,7 @@ func TestJobResultRoutesToDriver(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
-	s.Jobs[1] = JobMeta{SessionID: id, Kind: JobHaikuSummary}
+	s.Jobs[1] = JobMeta{SessionID: id}
 	next, effs := Reduce(s, EvJobResult{JobID: 1, Result: "irrelevant"})
 	if _, ok := next.Jobs[1]; ok {
 		t.Error("job should be removed")
@@ -534,7 +534,7 @@ func TestReduceHookRoutes(t *testing.T) {
 func TestPostProcessAssignsJobID(t *testing.T) {
 	s := New()
 	s.Now = time.Now()
-	patched, next := postProcessEffect(s, "abc", EffStartJob{Kind: JobHaikuSummary})
+	patched, next := postProcessEffect(s, "abc", EffStartJob{Input: "test"})
 	job := patched.(EffStartJob)
 	if job.JobID == 0 {
 		t.Error("JobID should be assigned")
@@ -546,8 +546,8 @@ func TestPostProcessAssignsJobID(t *testing.T) {
 	if !ok {
 		t.Fatal("JobMeta not registered")
 	}
-	if meta.SessionID != "abc" || meta.Kind != JobHaikuSummary {
-		t.Errorf("meta = %+v", meta)
+	if meta.SessionID != "abc" {
+		t.Errorf("meta.SessionID = %q, want abc", meta.SessionID)
 	}
 }
 

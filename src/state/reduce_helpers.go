@@ -76,7 +76,6 @@ func postProcessEffect(s State, sessID SessionID, eff Effect) (Effect, State) {
 		s.Jobs = cloneJobs(s.Jobs)
 		s.Jobs[jobID] = JobMeta{
 			SessionID: sessID,
-			Kind:      e.Kind,
 			StartedAt: s.Now,
 		}
 		e.JobID = jobID
