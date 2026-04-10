@@ -53,6 +53,12 @@ func (r *Runtime) LoadSnapshot() error {
 	return nil
 }
 
+// SetAliases sets the command alias map on state. Called once at
+// startup from main.go with the config's [session] aliases.
+func (r *Runtime) SetAliases(aliases map[string]string) {
+	r.state.Aliases = aliases
+}
+
 // ReconcileWarm reads the live tmux window list and:
 //   - Updates known sessions' WindowID/PaneID from the live tmux state
 //     (tmux reissues window ids after server restart, so JSON values may be

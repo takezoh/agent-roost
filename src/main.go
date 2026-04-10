@@ -98,6 +98,8 @@ func runCoordinator() {
 		Pool:         pool,
 	})
 
+	rt.SetAliases(cfg.Session.Aliases)
+
 	warmRestart := client.SessionExists()
 	if warmRestart {
 		slog.Info("session exists, restoring")

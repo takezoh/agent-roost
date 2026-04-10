@@ -19,6 +19,10 @@ func reduceCreateSession(s State, e EvCmdCreateSession) (State, []Effect) {
 	if command == "" {
 		command = "claude"
 	}
+	// Expand command aliases (e.g. "clw" → "claude --worktree")
+	if expanded, ok := s.Aliases[command]; ok {
+		command = expanded
+	}
 
 	// Allocate session id and stub a session record. WindowID stays
 	// empty until EvTmuxWindowSpawned arrives. The driver state is

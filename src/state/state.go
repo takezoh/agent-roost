@@ -33,6 +33,7 @@ type State struct {
 	NextConnID  ConnID
 	Now         time.Time // last tick timestamp; deterministic in tests
 	ShutdownReq bool
+	Aliases     map[string]string // command alias expansion (e.g. "clw" → "claude --worktree")
 }
 
 // Session is the static metadata + driver state of one roost session.
