@@ -11,7 +11,7 @@ import (
 //
 // Card content:
 //   - Title    = transcript title (set by refreshMeta)
-//   - Subtitle = last user prompt (set by refreshMeta)
+//   - Subtitle = haiku-generated session summary (set by triggerSummaryAsync)
 //   - Tags     = [CommandTag("claude"), BranchTag(branch?)]
 //   - Indicators = derived from transcript insight
 //
@@ -52,7 +52,7 @@ func (d *claudeDriver) View() SessionView {
 	return SessionView{
 		Card: CardView{
 			Title:      d.title,
-			Subtitle:   d.lastPrompt,
+			Subtitle:   d.summary,
 			Tags:       tags,
 			Indicators: d.indicatorsLocked(),
 		},
@@ -92,6 +92,7 @@ func (d *claudeDriver) infoExtrasLocked() []InfoLine {
 		}
 	}
 	add("Title", d.title)
+	add("Summary", d.summary)
 	add("Last Prompt", d.lastPrompt)
 	add("Working Dir", d.workingDir)
 	add("Transcript", d.transcriptPath)

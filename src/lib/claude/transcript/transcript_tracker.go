@@ -40,6 +40,13 @@ type trackerState struct {
 	userPrompts map[string]string
 	tailUUID    string
 
+	// recentTurns is a rolling window of text-bearing user/assistant entries
+	// in arrival order, used by RecentRounds for the haiku summarizer. Real
+	// user prompts and assistant text blocks are recorded; synthetic user
+	// blocks (tool_result, skill bootstrap, ...) and pure tool_use entries
+	// are skipped. Capped at recentTurnsCap to bound memory.
+	recentTurns []TurnText
+
 	// insight accumulates tool/subagent/error counts incrementally.
 	insight SessionInsight
 
@@ -88,6 +95,55 @@ func (t *Tracker) StatusLine(agentSessionID string) string {
 		return ""
 	}
 	return st.formattedLine
+}
+
+// TurnText is one text-bearing conversation entry in the rolling window
+// returned by RecentRounds. Role is "user" (real user prompts only) or
+// "assistant" (text-bearing assistant blocks).
+type TurnText struct {
+	Role string
+	Text string
+}
+
+// recentTurnsCap bounds the per-session recent-turns ring. The summarizer
+// only ever asks for the last few user-prompt boundaries, so 64 entries
+// comfortably covers several tool-use loops without unbounded growth.
+const recentTurnsCap = 64
+
+// RecentRounds returns the last `userTurns` user/assistant rounds for the
+// session as a chronologically ordered slice. A "round" boundary is a
+// real user prompt: walking back from the tail, the slice grows until
+// `userTurns` user entries have been collected (and then includes any
+// assistant entries that follow the oldest such user entry). Used by the
+// claude driver to feed haiku a coherent conversation tail.
+//
+// Returns nil for unknown sessions or when userTurns <= 0.
+func (t *Tracker) RecentRounds(agentSessionID string, userTurns int) []TurnText {
+	if userTurns <= 0 {
+		return nil
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	st, ok := t.sessions[agentSessionID]
+	if !ok || len(st.recentTurns) == 0 {
+		return nil
+	}
+	// Walk backwards counting user entries; once we've seen userTurns of
+	// them, the start index is set and we copy from there to the end.
+	start := 0
+	seen := 0
+	for i := len(st.recentTurns) - 1; i >= 0; i-- {
+		if st.recentTurns[i].Role == "user" {
+			seen++
+			if seen >= userTurns {
+				start = i
+				break
+			}
+		}
+	}
+	out := make([]TurnText, len(st.recentTurns)-start)
+	copy(out, st.recentTurns[start:])
+	return out
 }
 
 // Snapshot returns the current cached MetaSnapshot for the session. The
@@ -205,6 +261,7 @@ func (st *trackerState) resetForRescan() {
 		delete(st.userPrompts, k)
 	}
 	st.tailUUID = ""
+	st.recentTurns = st.recentTurns[:0]
 }
 
 func (st *trackerState) applyLine(line []byte) {
@@ -245,8 +302,24 @@ func (st *trackerState) applyChainEntry(e Entry) {
 	st.parentOf[e.UUID] = e.ParentUUID
 	if e.Kind == KindUser && e.Text != "" && !e.Synthetic {
 		st.userPrompts[e.UUID] = e.Text
+		st.appendRecentTurn(TurnText{Role: "user", Text: e.Text})
+	} else if e.Kind == KindAssistantText && e.Text != "" {
+		st.appendRecentTurn(TurnText{Role: "assistant", Text: e.Text})
 	}
 	st.tailUUID = e.UUID
+}
+
+// appendRecentTurn pushes a new entry into the rolling ring, dropping the
+// oldest element when the cap is reached. The caller has already filtered
+// out empty / synthetic entries.
+func (st *trackerState) appendRecentTurn(t TurnText) {
+	if len(st.recentTurns) >= recentTurnsCap {
+		// Slide left by one to drop the oldest entry. Reuses the underlying
+		// array — bounded growth means this is cheap.
+		copy(st.recentTurns, st.recentTurns[1:])
+		st.recentTurns = st.recentTurns[:len(st.recentTurns)-1]
+	}
+	st.recentTurns = append(st.recentTurns, t)
 }
 
 func (st *trackerState) snapshot() StatusSnapshot {

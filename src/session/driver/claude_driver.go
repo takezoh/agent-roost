@@ -93,6 +93,13 @@ type claudeDriver struct {
 	branchTarget string
 	branchAt     time.Time
 
+	// Summary state (see claude_summary.go). summary is the last haiku-
+	// generated session summary string shown as Card.Subtitle. summarizing
+	// is the in-flight guard so concurrent UserPromptSubmit hooks don't
+	// each spawn a duplicate summarizer.
+	summary     string
+	summarizing bool
+
 	// Event log writer state (see claude_eventlog.go)
 	eventLogMu sync.Mutex
 	eventLogF  *os.File
@@ -193,11 +200,21 @@ func (d *claudeDriver) HandleEvent(ev AgentEvent) bool {
 		prev := d.status.Status
 		d.absorbDriverStateLocked(ev.DriverState)
 		d.status = StatusInfo{Status: status, ChangedAt: time.Now()}
+		// UserPromptSubmit is the only state-change that should trigger a
+		// new haiku summary refresh. PreToolUse / PostToolUse / Stop also
+		// arrive as state changes but we don't want to re-summarize on each
+		// tool tick — only when the user themselves has just spoken. Capture
+		// the decision while still holding the lock so a racing HandleEvent
+		// can't overwrite lastHookEvent before we read it.
+		isUserPrompt := d.lastHookEvent.HookEventName == "UserPromptSubmit"
 		d.mu.Unlock()
 		slog.Debug("claude driver: state change",
 			"session", d.sessionID, "from", prev.String(),
 			"to", status.String(), "log", ev.Log)
 		d.refreshMeta()
+		if isUserPrompt {
+			d.triggerSummaryAsync()
+		}
 		logLine := ev.Log
 		if logLine == "" {
 			logLine = ev.State
@@ -284,6 +301,9 @@ func (d *claudeDriver) PersistedState() map[string]string {
 	if !d.branchAt.IsZero() {
 		out[claudeKeyBranchAt] = d.branchAt.UTC().Format(time.RFC3339)
 	}
+	if d.summary != "" {
+		out[claudeKeySummary] = d.summary
+	}
 	return out
 }
 
@@ -309,6 +329,9 @@ func (d *claudeDriver) RestorePersistedState(state map[string]string) {
 	d.branchTarget = state[claudeKeyBranchTarget]
 	if at, err := time.Parse(time.RFC3339, state[claudeKeyBranchAt]); err == nil {
 		d.branchAt = at
+	}
+	if s, ok := state[claudeKeySummary]; ok {
+		d.summary = s
 	}
 	d.mu.Unlock()
 	// Pre-populate transcript meta so the UI shows the prior title/insight
