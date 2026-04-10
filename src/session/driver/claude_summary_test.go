@@ -192,9 +192,10 @@ func TestClaudeDriver_SummaryDropsOverlappingCalls(t *testing.T) {
 	// this test, so no race on d.summarizing.
 	d.HandleEvent(ev)
 
-	// Release the first call and wait for runSummary to completely
-	// finish via the WaitGroup — this gives us a happens-before edge
-	// that makes the subsequent d.summarizing read race-free.
+	// Release the first call and wait for runSummary's apply() to
+	// complete via the test-only summaryApplied channel — this gives
+	// us a happens-before edge that makes the subsequent d.summarizing
+	// read race-free.
 	close(release)
 	<-d.summaryApplied
 
@@ -424,18 +425,4 @@ func TestClaudeDriver_SummaryFiresOnFirstPromptViaHookOnly(t *testing.T) {
 	if got := d.View().Card.Subtitle; got != "新規セッション要約" {
 		t.Errorf("subtitle = %q, want %q", got, "新規セッション要約")
 	}
-}
-
-// waitFor polls predicate every 5ms up to d, returning true on success.
-// Used to wait on the goroutine-driven summarizer settling.
-func waitFor(t *testing.T, d time.Duration, predicate func() bool) bool {
-	t.Helper()
-	deadline := time.Now().Add(d)
-	for time.Now().Before(deadline) {
-		if predicate() {
-			return true
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	return predicate()
 }
