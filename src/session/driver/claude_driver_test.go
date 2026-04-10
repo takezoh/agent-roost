@@ -7,31 +7,77 @@ import (
 	"time"
 )
 
-// fakeSessionContext lets tests flip the active flag at will.
-type fakeSessionContext struct {
-	active bool
-	id     string
+// activeWindow is a minimal WindowInfo used by claudeDriver tests to
+// flip the active flag without spinning up the real adapter.
+type activeWindow struct {
+	active  bool
+	project string
 }
 
-func (f *fakeSessionContext) Active() bool { return f.active }
-func (f *fakeSessionContext) ID() string   { return f.id }
+func (a *activeWindow) WindowID() string                   { return "" }
+func (a *activeWindow) AgentPaneID() string                { return "" }
+func (a *activeWindow) Project() string                    { return a.project }
+func (a *activeWindow) Active() bool                       { return a.active }
+func (a *activeWindow) RecentLines(_ int) (string, error)  { return "", nil }
 
-func newClaude(t *testing.T) *claudeDriver {
-	t.Helper()
-	d := newClaudeFactory()(Deps{Session: inactiveSessionContext{}}).(*claudeDriver)
-	return d
+// testClaudeDriver is a test-only wrapper around *claudeDriver that
+// installs a signaling actorSubmit. The production struct has no
+// test-facing sync primitives; this wrapper hosts them instead so
+// tests can deterministically wait for runSummary's apply() to have
+// completed before reading driver fields from the test goroutine.
+//
+// Go struct embedding promotes every claudeDriver method and field,
+// so tests can keep writing `d.HandleEvent(...)`, `d.View()`,
+// `d.title = "..."`, etc. exactly as before.
+type testClaudeDriver struct {
+	*claudeDriver
+	// summaryApplied receives one token every time runSummary's apply
+	// closure finishes. Buffered so fast stubs don't block the runSummary
+	// goroutine; only tests that actually exercise the summary path need
+	// to drain it.
+	summaryApplied chan struct{}
 }
 
-func newClaudeWithCtx(t *testing.T, ctx SessionContext) *claudeDriver {
+func newClaude(t *testing.T) *testClaudeDriver {
 	t.Helper()
-	d := newClaudeFactory()(Deps{Session: ctx}).(*claudeDriver)
-	return d
+	return wrapClaude(t, newClaudeImpl(Deps{}))
+}
+
+func newClaudeWithSessionID(t *testing.T, sessionID string) *testClaudeDriver {
+	t.Helper()
+	return wrapClaude(t, newClaudeImpl(Deps{SessionID: sessionID}))
+}
+
+// wrapClaude installs the test-only actorSubmit on the impl and wires
+// up a cleanup that drains any undrained apply signals — protecting
+// against a summary goroutine that outlived the test racing the
+// t.Cleanup that restores summarizeFn.
+func wrapClaude(t *testing.T, impl *claudeDriver) *testClaudeDriver {
+	t.Helper()
+	applied := make(chan struct{}, 16)
+	impl.actorSubmit = func(fn func()) {
+		fn()
+		select {
+		case applied <- struct{}{}:
+		default:
+		}
+	}
+	t.Cleanup(func() {
+		for {
+			select {
+			case <-applied:
+			default:
+				return
+			}
+		}
+	})
+	return &testClaudeDriver{claudeDriver: impl, summaryApplied: applied}
 }
 
 // claudeTitle returns the driver's currently cached transcript title.
 // Tests use this in place of the removed Title() reader so the assertion
-// code stays terse without bypassing locking.
-func claudeTitle(d *claudeDriver) string {
+// code stays terse.
+func claudeTitle(d *testClaudeDriver) string {
 	return d.View().Card.Title
 }
 
@@ -248,6 +294,7 @@ func TestClaudeDriver_SpawnCommandUsesResume(t *testing.T) {
 func TestClaudeDriver_TickIsNoop(t *testing.T) {
 	d := newClaude(t)
 	d.RestorePersistedState(map[string]string{"status": "running"})
+	// Tick with a nil window (no active state) should be a no-op.
 	d.Tick(time.Now(), nil)
 	if got, _ := d.Status(); got.Status != StatusRunning {
 		t.Errorf("Tick changed status from running to %v", got.Status)
@@ -269,33 +316,32 @@ func writeClaudeTranscript(t *testing.T, title string) (path, sessionID string) 
 }
 
 func TestClaudeDriver_TickGatedByActiveContext(t *testing.T) {
-	ctx := &fakeSessionContext{active: false}
-	d := newClaudeWithCtx(t, ctx)
+	d := newClaude(t)
 	path, sid := writeClaudeTranscript(t, "first")
-	// Seed identity so resolveTranscriptPathLocked() returns a real path.
+	// Seed identity so resolveTranscriptPath() returns a real path.
 	d.RestorePersistedState(map[string]string{
 		"session_id":      sid,
 		"transcript_path": path,
 	})
 	// Reset title set during the Restore-time refreshMeta so we can verify
 	// subsequent Ticks really did or didn't run.
-	d.mu.Lock()
 	d.title = ""
 	d.tickCounter = 0
-	d.mu.Unlock()
+
+	inactive := &activeWindow{active: false}
+	active := &activeWindow{active: true}
 
 	// Inactive: drive Tick claudeMetaRefreshTicks times. Should be a no-op.
 	for i := 0; i < claudeMetaRefreshTicks; i++ {
-		d.Tick(time.Now(), nil)
+		d.Tick(time.Now(), inactive)
 	}
 	if got := claudeTitle(d); got != "" {
 		t.Errorf("inactive Tick should not refresh title, got %q", got)
 	}
 
-	// Become active: next 5 ticks should trigger one refreshMeta.
-	ctx.active = true
+	// Active: next 5 ticks should trigger one refreshMeta.
 	for i := 0; i < claudeMetaRefreshTicks; i++ {
-		d.Tick(time.Now(), nil)
+		d.Tick(time.Now(), active)
 	}
 	if got := claudeTitle(d); got != "first" {
 		t.Errorf("active Tick should refresh title to %q, got %q", "first", got)
@@ -303,8 +349,7 @@ func TestClaudeDriver_TickGatedByActiveContext(t *testing.T) {
 }
 
 func TestClaudeDriver_HandleEventRefreshesRegardlessOfActive(t *testing.T) {
-	ctx := &fakeSessionContext{active: false}
-	d := newClaudeWithCtx(t, ctx)
+	d := newClaude(t)
 	path, sid := writeClaudeTranscript(t, "from event")
 
 	consumed := d.HandleEvent(AgentEvent{
@@ -324,8 +369,7 @@ func TestClaudeDriver_HandleEventRefreshesRegardlessOfActive(t *testing.T) {
 }
 
 func TestClaudeDriver_CloseForgetsTrackerState(t *testing.T) {
-	ctx := &fakeSessionContext{active: true}
-	d := newClaudeWithCtx(t, ctx)
+	d := newClaude(t)
 	path, sid := writeClaudeTranscript(t, "x")
 	d.RestorePersistedState(map[string]string{
 		"session_id":      sid,

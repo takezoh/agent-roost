@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 )
 
 // Tracker incrementally parses Claude transcript files for one or more
@@ -14,8 +13,12 @@ import (
 // piece of cached state (title / lastPrompt / insight / token counters)
 // is folded in via the offset-based scanner, so the same JSONL file is
 // never re-parsed from scratch on every tick.
+//
+// Tracker is NOT thread-safe. Each Driver owns its own Tracker instance
+// and accesses it from a single goroutine (the driverActor run loop in
+// production, the test goroutine in unit tests). Concurrent use across
+// goroutines will race.
 type Tracker struct {
-	mu       sync.Mutex
 	sessions map[string]*trackerState
 }
 
@@ -72,9 +75,6 @@ func (t *Tracker) Update(agentSessionID, transcriptPath string) (changed bool, e
 	if transcriptPath == "" || agentSessionID == "" {
 		return false, nil
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
 	st := t.stateFor(agentSessionID)
 	if err := st.scanNewLines(transcriptPath); err != nil {
 		return false, err
@@ -88,8 +88,6 @@ func (t *Tracker) Update(agentSessionID, transcriptPath string) (changed bool, e
 // StatusLine returns the cached formatted status line for the given
 // session. Empty string for unknown sessions or before the first Update.
 func (t *Tracker) StatusLine(agentSessionID string) string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	st, ok := t.sessions[agentSessionID]
 	if !ok {
 		return ""
@@ -122,8 +120,6 @@ func (t *Tracker) RecentRounds(agentSessionID string, userTurns int) []TurnText 
 	if userTurns <= 0 {
 		return nil
 	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	st, ok := t.sessions[agentSessionID]
 	if !ok || len(st.recentTurns) == 0 {
 		return nil
@@ -149,8 +145,6 @@ func (t *Tracker) RecentRounds(agentSessionID string, userTurns int) []TurnText 
 // Snapshot returns the current cached MetaSnapshot for the session. The
 // returned slices are copies — callers may mutate them freely.
 func (t *Tracker) Snapshot(agentSessionID string) MetaSnapshot {
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	st, ok := t.sessions[agentSessionID]
 	if !ok {
 		return MetaSnapshot{}
@@ -185,8 +179,6 @@ func (st *trackerState) activeLastPrompt() string {
 // Forget releases all per-session state. Drivers must call this from
 // Close() so the Tracker doesn't grow unbounded over the process lifetime.
 func (t *Tracker) Forget(agentSessionID string) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
 	delete(t.sessions, agentSessionID)
 }
 

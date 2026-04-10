@@ -41,36 +41,28 @@ type Driver interface {
 	// process during cold-boot recovery. Drivers that support resume augment
 	// the base command using their own keys recovered from PersistedState.
 	SpawnCommand(baseCommand string) string
+
+	// Atomic runs fn with the underlying driver in a single critical
+	// section. In production this collapses to one driverActor inbox
+	// round-trip even when fn invokes several Driver methods, so callers
+	// can read multiple fields (e.g. PersistedState + View().StatusLine
+	// after a HandleEvent) without paying for one round-trip per call.
+	//
+	// fn must NOT call back into the Coordinator or any other actor that
+	// could be waiting on this Driver — doing so would deadlock the
+	// driverActor goroutine. The contract is "pure read/write of this
+	// driver's own state".
+	Atomic(fn func(d Driver))
 }
 
 // AgentEvent is defined in event.go. HandleEvent receives this driver-neutral
 // payload and is responsible for picking out the keys (in DriverState) that
 // matter to it.
 
-// SessionContext lets a Driver query lightweight, time-varying facts about
-// its owning session without taking a back-reference to core/. Implemented
-// by Coordinator (via a per-session adapter) and injected into Drivers at
-// construction time through Deps.Session.
-//
-// The "active" state lives exclusively in Coordinator.activeWindowID — the
-// Driver pulls instead of caching, so there is no notification ordering
-// problem to coordinate between push and poll paths.
-type SessionContext interface {
-	// Active reports whether the session's tmux window is currently
-	// swapped into the main pane (0.0). Drivers use this to gate
-	// expensive polling work (e.g. Tick refreshing transcript meta).
-	Active() bool
-	// ID returns the immutable session id this context belongs to.
-	// Drivers cache this once at construction and use it for any
-	// per-session resources they manage themselves (e.g. event log
-	// file names) without taking a back-reference to core/.
-	ID() string
-}
-
-// inactiveSessionContext is the zero value used when no SessionContext was
-// injected. Always reports inactive — drivers that gate on Active() then
-// behave as if they are not the focused session, which is the safe default.
-type inactiveSessionContext struct{}
-
-func (inactiveSessionContext) Active() bool { return false }
-func (inactiveSessionContext) ID() string   { return "" }
+// Driver-side per-session state (session id, active flag) is delivered
+// without any back-reference to core/ — the session id is captured at
+// construction via Deps.SessionID, and the active flag is pushed at
+// dispatch time via WindowInfo.Active(). The Coordinator actor builds
+// the WindowInfo snapshot before fanning Tick out, so a Driver actor
+// never needs to call back into the Coordinator (which would deadlock
+// against the actor model).

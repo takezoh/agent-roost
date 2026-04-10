@@ -1,18 +1,19 @@
 package driver
 
-import (
-	"sync"
-)
-
 // DriverService owns the per-session Driver instance map and the Factory
 // Registry that builds them. SessionService and DriverService are siblings
 // — the only place that knows about both is core.Coordinator, which
 // correlates them by sessionID.
+//
+// DriverService is NOT thread-safe. All methods are called from the
+// Coordinator actor goroutine (see core/coordinator.go), which serializes
+// access to the drivers map. Each driver value is itself a *driverActor
+// that owns its own goroutine — the actor wrapper is the only place
+// where per-driver concurrency control matters.
 type DriverService struct {
 	registry *Registry
 	deps     Deps
 
-	mu      sync.RWMutex
 	drivers map[string]Driver // sessionID → Driver
 }
 
@@ -26,14 +27,15 @@ func NewDriverService(registry *Registry, deps Deps) *DriverService {
 
 // Create constructs a new Driver instance for a fresh session and
 // immediately calls MarkSpawned. Used by Coordinator.Create after
-// SessionService.Create has set up the tmux window. The sessionCtx is
-// merged into the per-instance Deps so Drivers can pull active state.
-func (s *DriverService) Create(sessionID, command string, sessionCtx SessionContext) Driver {
-	drv := s.registry.Resolve(command)(s.depsFor(sessionCtx))
+// SessionService.Create has set up the tmux window.
+//
+// The freshly built impl is wrapped in a driverActor so all subsequent
+// calls are serialized through a per-driver goroutine.
+func (s *DriverService) Create(sessionID, command string) Driver {
+	impl := s.registry.Resolve(command)(s.depsFor(sessionID))
+	drv := newDriverActor(impl)
 	drv.MarkSpawned()
-	s.mu.Lock()
 	s.drivers[sessionID] = drv
-	s.mu.Unlock()
 	return drv
 }
 
@@ -41,31 +43,23 @@ func (s *DriverService) Create(sessionID, command string, sessionCtx SessionCont
 // (warm or cold restart) and seeds it from a persisted state bag. The bag
 // is opaque to DriverService — only the driver knows what its keys mean.
 // Restore does NOT call MarkSpawned: status is restored from the bag.
-func (s *DriverService) Restore(sessionID, command string, persisted map[string]string, sessionCtx SessionContext) Driver {
-	drv := s.registry.Resolve(command)(s.depsFor(sessionCtx))
+func (s *DriverService) Restore(sessionID, command string, persisted map[string]string) Driver {
+	impl := s.registry.Resolve(command)(s.depsFor(sessionID))
+	drv := newDriverActor(impl)
 	drv.RestorePersistedState(persisted)
-	s.mu.Lock()
 	s.drivers[sessionID] = drv
-	s.mu.Unlock()
 	return drv
 }
 
-// depsFor returns a copy of the base Deps with Session populated. A nil
-// sessionCtx falls back to inactiveSessionContext{} so Drivers always have
-// a non-nil interface to call.
-func (s *DriverService) depsFor(sessionCtx SessionContext) Deps {
+// depsFor returns a copy of the base Deps with SessionID populated. The
+// per-instance bag is what individual driver factories see.
+func (s *DriverService) depsFor(sessionID string) Deps {
 	deps := s.deps
-	if sessionCtx == nil {
-		deps.Session = inactiveSessionContext{}
-	} else {
-		deps.Session = sessionCtx
-	}
+	deps.SessionID = sessionID
 	return deps
 }
 
 func (s *DriverService) Get(sessionID string) (Driver, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
 	drv, ok := s.drivers[sessionID]
 	return drv, ok
 }
@@ -73,26 +67,18 @@ func (s *DriverService) Get(sessionID string) (Driver, bool) {
 // Close drops the Driver for sessionID and calls its Close method.
 // Idempotent — closing an unknown sessionID is a no-op.
 func (s *DriverService) Close(sessionID string) {
-	s.mu.Lock()
 	drv := s.drivers[sessionID]
 	delete(s.drivers, sessionID)
-	s.mu.Unlock()
 	if drv != nil {
 		drv.Close()
 	}
 }
 
-// ForEach invokes fn with a stable snapshot of the current sessionID →
-// Driver mapping. The lock is released before fn runs so callbacks can call
-// other DriverService methods without deadlock.
+// ForEach invokes fn with the current sessionID → Driver mapping.
+// Single-threaded by contract — the caller (Coordinator actor) is the
+// only goroutine touching the map, so no snapshot is needed.
 func (s *DriverService) ForEach(fn func(sessionID string, drv Driver)) {
-	s.mu.RLock()
-	snapshot := make(map[string]Driver, len(s.drivers))
-	for k, v := range s.drivers {
-		snapshot[k] = v
-	}
-	s.mu.RUnlock()
-	for sid, drv := range snapshot {
+	for sid, drv := range s.drivers {
 		fn(sid, drv)
 	}
 }

@@ -10,7 +10,7 @@ func newTestDriverService() *DriverService {
 
 func TestDriverService_CreateThenGet(t *testing.T) {
 	svc := newTestDriverService()
-	drv := svc.Create("sid-1", "claude", nil)
+	drv := svc.Create("sid-1", "claude")
 	if drv == nil {
 		t.Fatal("Create returned nil")
 	}
@@ -25,7 +25,7 @@ func TestDriverService_RestoreFillsState(t *testing.T) {
 	drv := svc.Restore("sid-2", "claude", map[string]string{
 		"session_id": "abc",
 		"status":     "waiting",
-	}, nil)
+	})
 	if got, _ := drv.Status(); got.Status != StatusWaiting {
 		t.Errorf("status after restore = %v, want waiting", got.Status)
 	}
@@ -36,7 +36,7 @@ func TestDriverService_RestoreFillsState(t *testing.T) {
 
 func TestDriverService_Close(t *testing.T) {
 	svc := newTestDriverService()
-	svc.Create("sid-3", "bash", nil)
+	svc.Create("sid-3", "bash")
 	svc.Close("sid-3")
 	if _, ok := svc.Get("sid-3"); ok {
 		t.Error("Close did not remove driver")
@@ -47,7 +47,7 @@ func TestDriverService_Close(t *testing.T) {
 
 func TestDriverService_FallbackForUnknownCommand(t *testing.T) {
 	svc := newTestDriverService()
-	drv := svc.Create("sid-4", "unknown-tool", nil)
+	drv := svc.Create("sid-4", "unknown-tool")
 	if drv == nil {
 		t.Fatal("fallback driver should never be nil")
 	}
@@ -57,25 +57,22 @@ func TestDriverService_FallbackForUnknownCommand(t *testing.T) {
 	}
 }
 
-func TestDriverService_NilSessionContextDefaultsToInactive(t *testing.T) {
+func TestDriverService_PropagatesSessionID(t *testing.T) {
 	svc := newTestDriverService()
-	drv := svc.Create("sid-5", "claude", nil)
-	cd, ok := drv.(*claudeDriver)
+	drv := svc.Create("sid-5", "claude")
+	cd, ok := unwrapDriver(drv).(*claudeDriver)
 	if !ok {
-		t.Fatalf("expected *claudeDriver, got %T", drv)
+		t.Fatalf("expected wrapped *claudeDriver, got %T", drv)
 	}
-	if cd.sessionCtx == nil {
-		t.Fatal("sessionCtx must be non-nil after Create with nil ctx")
-	}
-	if cd.sessionCtx.Active() {
-		t.Error("inactive default SessionContext.Active() must be false")
+	if cd.sessionID != "sid-5" {
+		t.Errorf("sessionID = %q, want sid-5", cd.sessionID)
 	}
 }
 
 func TestRegistry_DefaultRegistryRegistersClaude(t *testing.T) {
 	r := DefaultRegistry()
 	f := r.Resolve("claude")
-	d := f(Deps{Session: inactiveSessionContext{}})
+	d := f(Deps{})
 	if d.Name() != "claude" {
 		t.Errorf("Resolve(claude) returned driver name = %q", d.Name())
 	}

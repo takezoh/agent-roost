@@ -16,12 +16,13 @@ import (
 // The driver owns the file handle for its entire lifetime; Close
 // flushes and releases it. Failures are logged but never propagated —
 // event logging is best-effort and must not block driver state updates.
+//
+// Single-threaded: the driverActor wrapper serializes calls so the file
+// handle is touched by exactly one goroutine.
 func (d *claudeDriver) appendEventLog(line string) {
 	if d.eventLogDir == "" || d.sessionID == "" {
 		return
 	}
-	d.eventLogMu.Lock()
-	defer d.eventLogMu.Unlock()
 	if d.eventLogF == nil {
 		path := filepath.Join(d.eventLogDir, d.sessionID+".log")
 		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
@@ -39,8 +40,6 @@ func (d *claudeDriver) appendEventLog(line string) {
 // closeEventLog flushes and closes the event log file. Idempotent.
 // Called from claudeDriver.Close().
 func (d *claudeDriver) closeEventLog() {
-	d.eventLogMu.Lock()
-	defer d.eventLogMu.Unlock()
 	if d.eventLogF == nil {
 		return
 	}

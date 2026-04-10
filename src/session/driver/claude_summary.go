@@ -55,32 +55,30 @@ var summarizeFn = cli.SummarizeWithHaiku
 // current session. Drops the call if another summarization is already in
 // flight or if there is nothing at all to feed haiku.
 //
-// hookPrompt is the freshly-arrived UserPromptSubmit prompt text. The
-// caller (HandleEvent) MUST capture it inside the same locked region as
-// absorbDriverStateLocked so a racing PreToolUse/PostToolUse cannot
-// overwrite lastHookEvent before we read it. The captured value is
-// appended as the latest user turn — at hook time the prompt has not yet
-// been written to the JSONL transcript, so relying on
-// tracker.RecentRounds alone would (a) miss the brand-new prompt entirely
-// on the first turn of a session and (b) lag one round behind on every
-// subsequent turn.
+// hookPrompt is the freshly-arrived UserPromptSubmit prompt text. At hook
+// time the prompt has not yet been written to the JSONL transcript, so
+// relying on tracker.RecentRounds alone would (a) miss the brand-new
+// prompt entirely on the first turn of a session and (b) lag one round
+// behind on every subsequent turn — appendHookPromptTurn folds it in
+// as the synthetic latest entry.
 //
-// Lock discipline: never holds d.mu across the d.tracker.RecentRounds call
-// — same convention as refreshMeta. The in-flight check is re-confirmed
-// after the (mu-free) tracker call so two near-simultaneous prompts still
-// produce at most one summarizer goroutine.
+// Concurrency: triggerSummaryAsync is invoked from HandleEvent which
+// runs on the driverActor goroutine. All reads and writes of
+// d.summarizing / d.summary happen on that single goroutine, so the
+// in-flight guard is a plain boolean check with no mutex. The only
+// cross-goroutine access to these fields is runSummary's final apply,
+// which routes back through d.actorSubmit — in production that lands
+// on the driverActor goroutine, and in tests the installed wrapper
+// signals a channel the test waits on before reading the fields.
 func (d *claudeDriver) triggerSummaryAsync(hookPrompt string) {
-	d.mu.Lock()
 	if d.summarizing {
-		d.mu.Unlock()
 		return
 	}
 	csid := d.claudeSessionID
-	prev := d.summary
-	d.mu.Unlock()
 	if csid == "" {
 		return
 	}
+	prev := d.summary
 
 	turns := d.tracker.RecentRounds(csid, summaryUserRoundLim)
 	turns = appendHookPromptTurn(turns, hookPrompt)
@@ -89,17 +87,8 @@ func (d *claudeDriver) triggerSummaryAsync(hookPrompt string) {
 	}
 	prompt := formatSummaryPrompt(prev, turns)
 
-	d.mu.Lock()
-	if d.summarizing {
-		// A racing call won the slot while we were assembling the prompt.
-		// Drop ours — the in-flight one is fresher than nothing.
-		d.mu.Unlock()
-		return
-	}
 	d.summarizing = true
 	sessionID := d.sessionID
-	d.mu.Unlock()
-
 	go d.runSummary(sessionID, prompt)
 }
 
@@ -119,26 +108,47 @@ func appendHookPromptTurn(turns []transcript.TurnText, hookPrompt string) []tran
 	return append(turns, transcript.TurnText{Role: "user", Text: hookPrompt})
 }
 
-// runSummary executes the bounded haiku call and folds the result back into
-// driver state. Errors are logged at debug level and leave the previous
-// summary intact — the next user prompt will try again.
+// runSummary executes the bounded haiku call and folds the result back
+// into driver state. Errors are logged at debug level and leave the
+// previous summary intact — the next user prompt will try again.
+//
+// runSummary runs OFF the driverActor goroutine (it was launched via
+// `go` from triggerSummaryAsync). The haiku call is allowed to take
+// seconds; only the final state apply needs to land back where the
+// driver fields are serialized, which is accomplished via
+// d.actorSubmit. In production newDriverActor sets actorSubmit to the
+// actor's submit method so apply lands on the actor goroutine. Tests
+// install their own wrapper on *testClaudeDriver that signals an
+// apply-done channel; no mutex or WaitGroup is needed on this
+// production struct.
 func (d *claudeDriver) runSummary(sessionID, prompt string) {
 	ctx, cancel := context.WithTimeout(context.Background(), summaryTimeout)
 	defer cancel()
 	result, err := summarizeFn(ctx, prompt)
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.summarizing = false
-	if err != nil {
-		slog.Debug("claude driver: summary failed",
-			"session", sessionID, "err", err)
-		return
+	apply := func() {
+		d.summarizing = false
+		if err != nil {
+			slog.Debug("claude driver: summary failed",
+				"session", sessionID, "err", err)
+			return
+		}
+		if result == "" {
+			return
+		}
+		d.summary = result
 	}
-	if result == "" {
-		return
+	// actorSubmit is always set by newDriverActor in production and by
+	// testClaudeDriver in tests that exercise the summary path. The nil
+	// branch is a defensive fallback for impl-direct tests that
+	// accidentally trip this code path — it runs apply inline (races
+	// with the test goroutine, which is why such tests should not
+	// exist).
+	if d.actorSubmit != nil {
+		d.actorSubmit(apply)
+	} else {
+		apply()
 	}
-	d.summary = result
 }
 
 // formatSummaryPrompt builds the haiku-bound prompt body. The output shape:

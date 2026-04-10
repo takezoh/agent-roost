@@ -11,18 +11,26 @@ import (
 // SessionService that touches both Session and tmux at once. Drivers
 // receive this through Coordinator.Tick — they never see Session or
 // tmux.Client directly.
+//
+// The adapter snapshots `active` at construction time (which always
+// happens on the Coordinator actor goroutine) so the Driver actor never
+// has to call back into the Coordinator. The static fields (WindowID,
+// AgentPaneID, Project) are also snapshots — Session is not modified
+// from inside the actor while a Tick fan-out is in progress.
 type windowInfoAdapter struct {
-	sess *session.Session
-	tmux *tmux.Client
+	sess   *session.Session
+	tmux   *tmux.Client
+	active bool
 }
 
-func newWindowInfoAdapter(sess *session.Session, t *tmux.Client) driver.WindowInfo {
-	return &windowInfoAdapter{sess: sess, tmux: t}
+func newWindowInfoAdapter(sess *session.Session, t *tmux.Client, active bool) driver.WindowInfo {
+	return &windowInfoAdapter{sess: sess, tmux: t, active: active}
 }
 
 func (a *windowInfoAdapter) WindowID() string    { return a.sess.WindowID }
 func (a *windowInfoAdapter) AgentPaneID() string { return a.sess.AgentPaneID }
 func (a *windowInfoAdapter) Project() string     { return a.sess.Project }
+func (a *windowInfoAdapter) Active() bool        { return a.active }
 
 func (a *windowInfoAdapter) RecentLines(n int) (string, error) {
 	target := a.sess.WindowID + ".0"

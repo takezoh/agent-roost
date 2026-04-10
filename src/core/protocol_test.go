@@ -8,7 +8,7 @@ import (
 	"github.com/take/agent-roost/session/driver"
 )
 
-func TestBuildSessionInfos_PullsViewFromDriver(t *testing.T) {
+func TestBuildSessionInfosFromEntries_PullsViewFromDriver(t *testing.T) {
 	// Build a real DriverService with a fake driver registered under "fake".
 	registry := driver.NewRegistry(newFakeDriverFactory("missing"))
 	registry.Register("fake", newFakeDriverFactory("hello"))
@@ -21,9 +21,9 @@ func TestBuildSessionInfos_PullsViewFromDriver(t *testing.T) {
 		WindowID:  "@1",
 		CreatedAt: time.Date(2026, 4, 9, 12, 0, 0, 0, time.UTC),
 	}
-	drivers.Create(sess.ID, sess.Command, fakeSessionContextWithID("s1"))
+	drv := drivers.Create(sess.ID, sess.Command)
 
-	infos := BuildSessionInfos([]*session.Session{sess}, drivers)
+	infos := buildSessionInfosFromEntries([]sessionEntry{{sess: sess, drv: drv}})
 	if len(infos) != 1 {
 		t.Fatalf("infos = %d, want 1", len(infos))
 	}
@@ -64,16 +64,7 @@ func (d *fakeDriver) View() driver.SessionView {
 		Card: driver.CardView{Title: d.title},
 	}
 }
-func (d *fakeDriver) PersistedState() map[string]string         { return nil }
-func (d *fakeDriver) RestorePersistedState(map[string]string)   {}
-func (d *fakeDriver) SpawnCommand(base string) string           { return base }
-
-// fakeSessionContextWithID is a minimal SessionContext for tests.
-type fakeSessionContextStub struct{ id string }
-
-func (f fakeSessionContextStub) Active() bool { return false }
-func (f fakeSessionContextStub) ID() string   { return f.id }
-
-func fakeSessionContextWithID(id string) driver.SessionContext {
-	return fakeSessionContextStub{id: id}
-}
+func (d *fakeDriver) PersistedState() map[string]string       { return nil }
+func (d *fakeDriver) RestorePersistedState(map[string]string) {}
+func (d *fakeDriver) SpawnCommand(base string) string         { return base }
+func (d *fakeDriver) Atomic(fn func(driver.Driver))           { fn(d) }

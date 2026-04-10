@@ -4,7 +4,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/take/agent-roost/session"
 	"github.com/take/agent-roost/session/driver"
 )
 
@@ -77,29 +76,8 @@ func NewEvent(event string) Message {
 	return Message{Type: "event", Event: event}
 }
 
-// BuildSessionInfos pulls static metadata from SessionService and dynamic
-// state from each session's Driver. There is no resolution / fallback layer
-// — fields the Driver doesn't expose via View() are simply absent.
-func BuildSessionInfos(sessions []*session.Session, drivers *driver.DriverService) []SessionInfo {
-	infos := make([]SessionInfo, len(sessions))
-	for i, s := range sessions {
-		info := SessionInfo{
-			ID:        s.ID,
-			Project:   s.Project,
-			Command:   s.Command,
-			WindowID:  s.WindowID,
-			CreatedAt: s.CreatedAt.Format(time.RFC3339),
-		}
-		if drv, ok := drivers.Get(s.ID); ok {
-			if st, has := drv.Status(); has {
-				info.State = st.Status
-				if !st.ChangedAt.IsZero() {
-					info.StateChangedAt = st.ChangedAt.Format(time.RFC3339)
-				}
-			}
-			info.View = drv.View()
-		}
-		infos[i] = info
-	}
-	return infos
-}
+// SessionInfo materialization is intentionally implemented as
+// buildSessionInfosFromEntries in coordinator.go: that variant runs
+// off the Coordinator actor goroutine so a slow Driver cannot block
+// snapshot reads. The Coordinator's snapshotEntries / AllSessionInfos /
+// SnapshotSessionsAndActive helpers are the only supported entry points.

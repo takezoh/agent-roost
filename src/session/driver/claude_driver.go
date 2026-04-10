@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/take/agent-roost/lib/claude/cli"
@@ -26,6 +25,11 @@ import (
 //   - claude_view.go      — View() construction (Card / InfoExtras / LogTabs / StatusLine)
 //   - claude_branch.go    — branch detection + cache
 //   - claude_eventlog.go  — event log writer (lazy file open + append)
+//
+// claudeDriver itself is NOT thread-safe. In production it is wrapped by a
+// driverActor (see driver_actor.go) which serializes every method call
+// through a single goroutine. Tests that touch claudeDriver directly run on
+// one goroutine and so do not need any synchronization either.
 
 const (
 	claudeNamePromptPattern = `(?m)(^>|❯\s*$)`
@@ -54,14 +58,11 @@ const (
 )
 
 type claudeDriver struct {
-	mu sync.Mutex
-
 	// Static deps
 	home        string // for ~/.claude/projects/... resolution
 	tracker     *transcript.Tracker
-	sessionCtx  SessionContext // pull-based active-state query (never nil)
-	sessionID   string         // cached from sessionCtx.ID() at construction
-	eventLogDir string         // base dir; the per-session file path is derived from sessionID
+	sessionID   string // captured from Deps.SessionID at construction
+	eventLogDir string // base dir; the per-session file path is derived from sessionID
 
 	// detectBranch defaults to git.DetectBranch but is a field so tests
 	// (in-package) can stub it without forking real git. Production
@@ -94,33 +95,53 @@ type claudeDriver struct {
 	branchAt     time.Time
 
 	// Summary state (see claude_summary.go). summary is the last haiku-
-	// generated session summary string shown as Card.Subtitle. summarizing
-	// is the in-flight guard so concurrent UserPromptSubmit hooks don't
-	// each spawn a duplicate summarizer.
+	// generated session summary string shown as Card.Subtitle.
+	// summarizing is the in-flight guard so concurrent UserPromptSubmit
+	// hooks don't each spawn a duplicate summarizer.
+	//
+	// No mutex: the haiku worker in runSummary calls summarizeFn (which
+	// touches neither field) and then forwards its result through
+	// actorSubmit. In production actorSubmit routes to the driverActor
+	// goroutine, so all reads and writes of summary / summarizing happen
+	// on a single goroutine. Tests install their own actorSubmit wrapper
+	// in testClaudeDriver (see claude_summary_test.go) that signals an
+	// apply-done channel; the test waits on that channel before reading
+	// the fields, which establishes the happens-before relation without
+	// any sync primitive on this production struct.
 	summary     string
 	summarizing bool
 
-	// Event log writer state (see claude_eventlog.go)
-	eventLogMu sync.Mutex
-	eventLogF  *os.File
+	// actorSubmit is set by newDriverActor in production so runSummary's
+	// result lands on the actor goroutine. Tests install a signaling
+	// wrapper from *testClaudeDriver. It must be non-nil before any
+	// summary path runs; the assumption is that anyone exercising the
+	// summary flow wraps the impl appropriately.
+	actorSubmit func(fn func())
+
+	// Event log writer state (see claude_eventlog.go). Lazy file open;
+	// closed via Close(). Serialization is provided by the driverActor
+	// wrapper — no per-field mutex here.
+	eventLogF *os.File
+}
+
+// newClaudeImpl constructs a bare claudeDriver impl with no actor wrapper.
+// Used both by the public factory (which then wraps in an actor) and by
+// in-package tests that need direct field access.
+func newClaudeImpl(deps Deps) *claudeDriver {
+	now := time.Now()
+	return &claudeDriver{
+		home:         deps.Home,
+		tracker:      transcript.NewTracker(),
+		sessionID:    deps.SessionID,
+		eventLogDir:  deps.EventLogDir,
+		detectBranch: git.DetectBranch,
+		status:       StatusInfo{Status: StatusIdle, ChangedAt: now},
+	}
 }
 
 func newClaudeFactory() Factory {
 	return func(deps Deps) Driver {
-		now := time.Now()
-		ctx := deps.Session
-		if ctx == nil {
-			ctx = inactiveSessionContext{}
-		}
-		return &claudeDriver{
-			home:         deps.Home,
-			tracker:      transcript.NewTracker(),
-			sessionCtx:   ctx,
-			sessionID:    ctx.ID(),
-			eventLogDir:  deps.EventLogDir,
-			detectBranch: git.DetectBranch,
-			status:       StatusInfo{Status: StatusIdle, ChangedAt: now},
-		}
+		return newClaudeImpl(deps)
 	}
 }
 
@@ -131,8 +152,6 @@ func (d *claudeDriver) DisplayName() string { return "claude" }
 // next hook event will report the actual state). Identity is preserved if a
 // prior session was restored — Claude resumes via --resume <id>.
 func (d *claudeDriver) MarkSpawned() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.status = StatusInfo{Status: StatusIdle, ChangedAt: time.Now()}
 }
 
@@ -146,17 +165,14 @@ func (d *claudeDriver) MarkSpawned() {
 // early return below means inactive Drivers cost only one interface
 // dispatch + one Active() lookup per tick (negligible).
 func (d *claudeDriver) Tick(now time.Time, win WindowInfo) {
-	if !d.sessionCtx.Active() {
+	if win == nil || !win.Active() {
 		return
 	}
 	d.refreshBranch(now, projectFromWindow(win))
-	d.mu.Lock()
 	d.tickCounter++
 	if d.tickCounter%claudeMetaRefreshTicks != 0 {
-		d.mu.Unlock()
 		return
 	}
-	d.mu.Unlock()
 	d.refreshMeta()
 }
 
@@ -178,9 +194,7 @@ func projectFromWindow(win WindowInfo) string {
 func (d *claudeDriver) HandleEvent(ev AgentEvent) bool {
 	switch ev.Type {
 	case AgentEventSessionStart:
-		d.mu.Lock()
-		d.absorbDriverStateLocked(ev.DriverState)
-		d.mu.Unlock()
+		d.absorbDriverState(ev.DriverState)
 		slog.Debug("claude driver: session start",
 			"session", d.sessionID, "claude_session", d.claudeSessionID)
 		// Trigger an immediate meta refresh: SessionStart often arrives
@@ -196,27 +210,23 @@ func (d *claudeDriver) HandleEvent(ev AgentEvent) bool {
 				"session", d.sessionID, "state", ev.State, "log", ev.Log)
 			return false
 		}
-		d.mu.Lock()
 		prev := d.status.Status
-		d.absorbDriverStateLocked(ev.DriverState)
+		d.absorbDriverState(ev.DriverState)
 		d.status = StatusInfo{Status: status, ChangedAt: time.Now()}
 		// UserPromptSubmit is the only state-change that should trigger a
 		// new haiku summary refresh. PreToolUse / PostToolUse / Stop also
 		// arrive as state changes but we don't want to re-summarize on each
-		// tool tick — only when the user themselves has just spoken. Capture
-		// the hook prompt and the isUserPrompt flag while still holding the
-		// lock so a racing HandleEvent (separate goroutine per IPC client)
-		// can't overwrite lastHookEvent before we read it. Also seed
-		// d.lastPrompt from the hook now so subsequent View() calls see it
-		// without waiting for refreshMeta to fold the new turn into the
-		// JSONL — Claude often writes the prompt to the file *after* firing
-		// the hook.
+		// tool tick — only when the user themselves has just spoken. Also
+		// seed d.lastPrompt from the hook now so subsequent View() calls
+		// see it without waiting for refreshMeta to fold the new turn into
+		// the JSONL — Claude often writes the prompt to the file *after*
+		// firing the hook. The driverActor wrapper guarantees no concurrent
+		// HandleEvent can race here.
 		isUserPrompt := d.lastHookEvent.HookEventName == "UserPromptSubmit"
 		hookPrompt := d.lastHookEvent.Prompt
 		if isUserPrompt && hookPrompt != "" {
 			d.lastPrompt = hookPrompt
 		}
-		d.mu.Unlock()
 		slog.Debug("claude driver: state change",
 			"session", d.sessionID, "from", prev.String(),
 			"to", status.String(), "log", ev.Log)
@@ -235,7 +245,7 @@ func (d *claudeDriver) HandleEvent(ev AgentEvent) bool {
 	return false
 }
 
-func (d *claudeDriver) absorbDriverStateLocked(ds map[string]string) {
+func (d *claudeDriver) absorbDriverState(ds map[string]string) {
 	if ds == nil {
 		return
 	}
@@ -265,18 +275,13 @@ func (d *claudeDriver) absorbDriverStateLocked(ds map[string]string) {
 }
 
 func (d *claudeDriver) Close() {
-	d.mu.Lock()
-	csid := d.claudeSessionID
-	d.mu.Unlock()
-	if d.tracker != nil && csid != "" {
-		d.tracker.Forget(csid)
+	if d.tracker != nil && d.claudeSessionID != "" {
+		d.tracker.Forget(d.claudeSessionID)
 	}
 	d.closeEventLog()
 }
 
 func (d *claudeDriver) Status() (StatusInfo, bool) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	return d.status, true
 }
 
@@ -285,8 +290,6 @@ func (d *claudeDriver) Status() (StatusInfo, bool) {
 // restores the prior status without resetting to Idle, plus the cached
 // branch tag so the user sees the prior branch immediately on restart.
 func (d *claudeDriver) PersistedState() map[string]string {
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	out := make(map[string]string, 8)
 	if d.claudeSessionID != "" {
 		out[claudeKeySessionID] = d.claudeSessionID
@@ -323,8 +326,7 @@ func (d *claudeDriver) RestorePersistedState(state map[string]string) {
 	if len(state) == 0 {
 		return
 	}
-	d.mu.Lock()
-	d.absorbDriverStateLocked(state)
+	d.absorbDriverState(state)
 	if s, ok := state[claudeKeyStatus]; ok && s != "" {
 		if status, ok := ParseStatus(s); ok {
 			changedAt, _ := time.Parse(time.RFC3339, state[claudeKeyStatusChangedAt])
@@ -342,7 +344,6 @@ func (d *claudeDriver) RestorePersistedState(state map[string]string) {
 	if s, ok := state[claudeKeySummary]; ok {
 		d.summary = s
 	}
-	d.mu.Unlock()
 	// Pre-populate transcript meta so the UI shows the prior title/insight
 	// immediately on restart, without waiting for the first periodic tick.
 	d.refreshMeta()
@@ -351,11 +352,13 @@ func (d *claudeDriver) RestorePersistedState(state map[string]string) {
 // SpawnCommand returns "claude --resume <id>" when an agent session ID is
 // known so cold-boot recovery picks up the prior conversation.
 func (d *claudeDriver) SpawnCommand(baseCommand string) string {
-	d.mu.Lock()
-	sid := d.claudeSessionID
-	d.mu.Unlock()
-	return cli.ResumeCommand(baseCommand, sid)
+	return cli.ResumeCommand(baseCommand, d.claudeSessionID)
 }
+
+// Atomic on the impl is a direct call — the impl is already protected
+// by whichever goroutine is invoking it (the driverActor in production,
+// the test goroutine in unit tests).
+func (d *claudeDriver) Atomic(fn func(Driver)) { fn(d) }
 
 // refreshMeta folds any new transcript content into the Tracker (the
 // single window through which the driver consumes JSONL) and copies the
@@ -366,10 +369,8 @@ func (d *claudeDriver) SpawnCommand(baseCommand string) string {
 // and the value is consumed by the active-session sync path; gating it
 // here would just complicate the read path for no benefit.
 func (d *claudeDriver) refreshMeta() {
-	d.mu.Lock()
-	path := d.resolveTranscriptPathLocked()
+	path := d.resolveTranscriptPath()
 	csid := d.claudeSessionID
-	d.mu.Unlock()
 	if path == "" || csid == "" {
 		return
 	}
@@ -380,8 +381,6 @@ func (d *claudeDriver) refreshMeta() {
 	snap := d.tracker.Snapshot(csid)
 	line := d.tracker.StatusLine(csid)
 
-	d.mu.Lock()
-	defer d.mu.Unlock()
 	d.title = snap.Title
 	// Only overwrite lastPrompt when the tracker actually found a user
 	// entry. snap.LastPrompt is "" briefly on a brand-new session before
@@ -395,12 +394,11 @@ func (d *claudeDriver) refreshMeta() {
 	d.statusLine = line
 }
 
-// resolveTranscriptPathLocked picks the best known transcript path. Caller
-// must hold d.mu. Priority:
+// resolveTranscriptPath picks the best known transcript path. Priority:
 //  1. Agent-reported path (canonical, handles --worktree)
 //  2. Computed path from working_dir + claudeSessionID
 //  3. "" if neither is available
-func (d *claudeDriver) resolveTranscriptPathLocked() string {
+func (d *claudeDriver) resolveTranscriptPath() string {
 	if d.transcriptPath != "" {
 		return d.transcriptPath
 	}
