@@ -131,9 +131,14 @@ type EvJobResult struct {
 }
 
 // EvPaneDied is fired when the runtime detects via tmux display-message
-// that one of the control panes (0.1 / 0.2) is dead and needs respawn.
+// that a pane is dead. For control panes (0.1 / 0.2) the reducer
+// respawns them. For pane 0.0 (active agent), the reducer evicts the
+// owning session. OwnerSessionID is set by the runtime when checking
+// pane 0.0 — it maps the dead pane's pane_id back to a session via
+// state.Session.PaneID.
 type EvPaneDied struct {
-	Pane string
+	Pane           string
+	OwnerSessionID SessionID // set for pane 0.0 dead detection
 }
 
 // EvTmuxWindowVanished is fired by ReconcileWindows when a session

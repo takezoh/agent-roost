@@ -151,6 +151,13 @@ type EffEventLogAppend struct {
 	Line      string
 }
 
+// === Reconciliation ===
+
+// EffReconcileWindows asks the runtime to compare the live tmux
+// window list against state.Sessions and emit EvTmuxWindowVanished
+// for any session whose window has disappeared.
+type EffReconcileWindows struct{}
+
 // === Async work ===
 
 // EffStartJob enqueues a job on the worker pool. JobID is allocated
@@ -184,4 +191,5 @@ func (EffPersistSnapshot) isEffect()          {}
 func (EffWatchTranscript) isEffect()          {}
 func (EffUnwatchTranscript) isEffect()        {}
 func (EffEventLogAppend) isEffect()           {}
+func (EffReconcileWindows) isEffect()         {}
 func (EffStartJob) isEffect()                 {}

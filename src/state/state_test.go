@@ -89,8 +89,8 @@ func TestReduceEmptyTickEmitsHealthChecks(t *testing.T) {
 	if !next.Now.Equal(now) {
 		t.Errorf("Now = %v, want %v", next.Now, now)
 	}
-	// Even with no sessions we expect 2 EffCheckPaneAlive +
-	// 1 EffBroadcastSessionsChanged.
+	// 3 EffCheckPaneAlive (0.0 + 0.1 + 0.2) +
+	// 1 EffReconcileWindows + 1 EffBroadcastSessionsChanged.
 	var checks, broadcasts int
 	for _, e := range effs {
 		switch e.(type) {
@@ -100,8 +100,8 @@ func TestReduceEmptyTickEmitsHealthChecks(t *testing.T) {
 			broadcasts++
 		}
 	}
-	if checks != 2 {
-		t.Errorf("EffCheckPaneAlive count = %d, want 2", checks)
+	if checks != 3 {
+		t.Errorf("EffCheckPaneAlive count = %d, want 3", checks)
 	}
 	if broadcasts != 1 {
 		t.Errorf("EffBroadcastSessionsChanged count = %d, want 1", broadcasts)

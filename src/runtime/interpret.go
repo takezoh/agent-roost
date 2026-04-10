@@ -80,7 +80,13 @@ func (r *Runtime) execute(eff state.Effect) {
 			return
 		}
 		if !alive {
-			r.Enqueue(state.EvPaneDied{Pane: e.Pane}) // raw form for reducer
+			ev := state.EvPaneDied{Pane: e.Pane}
+			// For pane 0.0: identify which session owns the dead pane
+			// by querying its pane_id and matching against state.
+			if e.Pane == "{sessionName}:0.0" {
+				ev.OwnerSessionID = r.findPaneOwner(target)
+			}
+			r.Enqueue(ev)
 		}
 
 	case state.EffRespawnPane:
@@ -125,6 +131,11 @@ func (r *Runtime) execute(eff state.Effect) {
 		if err := r.cfg.Persist.Save(r.snapshotSessions()); err != nil {
 			slog.Error("runtime: persist failed", "err", err)
 		}
+
+	// === Reconciliation ===
+
+	case state.EffReconcileWindows:
+		r.reconcileWindows()
 
 	// === fsnotify ===
 
@@ -287,6 +298,56 @@ func (r *Runtime) activeStatusLine() string {
 			return ""
 		}
 		return drv.View(sess.Driver).StatusLine
+	}
+	return ""
+}
+
+// reconcileWindows compares live tmux windows with state sessions.
+// Sessions whose windows have vanished are reported via
+// EvTmuxWindowVanished so the reducer evicts them.
+func (r *Runtime) reconcileWindows() {
+	list, err := r.listRoostWindows()
+	if err != nil {
+		slog.Debug("runtime: reconcile list-windows failed", "err", err)
+		return
+	}
+	live := make(map[string]struct{}, len(list))
+	for _, w := range list {
+		live[w.WindowID] = struct{}{}
+	}
+	for _, sess := range r.state.Sessions {
+		if sess.WindowID == "" {
+			continue
+		}
+		if _, ok := live[string(sess.WindowID)]; !ok {
+			r.Enqueue(state.EvTmuxWindowVanished{WindowID: sess.WindowID})
+		}
+	}
+}
+
+// findPaneOwner queries the pane_id of a tmux pane and maps it back
+// to the owning session via PaneID. Used when pane 0.0 is dead to
+// find which session's agent process exited.
+func (r *Runtime) findPaneOwner(paneTarget string) state.SessionID {
+	type displayer interface {
+		DisplayMessage(target, format string) (string, error)
+	}
+	d, ok := r.cfg.Tmux.(displayer)
+	if !ok {
+		return ""
+	}
+	out, err := d.DisplayMessage(paneTarget, "#{pane_id}")
+	if err != nil {
+		return ""
+	}
+	paneID := strings.TrimSpace(out)
+	if paneID == "" {
+		return ""
+	}
+	for _, sess := range r.state.Sessions {
+		if sess.PaneID == paneID {
+			return sess.ID
+		}
 	}
 	return ""
 }
