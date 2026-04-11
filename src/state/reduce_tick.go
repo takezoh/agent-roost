@@ -46,9 +46,22 @@ func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 		}
 	}
 
-	// Pane 0.0 dead: evict the owning session
+	// Pane 0.0 dead: evict the owning session.
+	// Fallback: if the runtime couldn't identify the owner via pane_id
+	// (e.g. display-message failed on the dead pane), use s.Active —
+	// pane 0.0 always holds the active session's pane.
 	if e.OwnerSessionID == "" {
-		return s, nil
+		if e.Pane == "{sessionName}:0.0" && s.Active != "" {
+			for id, sess := range s.Sessions {
+				if sess.WindowID == s.Active {
+					e.OwnerSessionID = id
+					break
+				}
+			}
+		}
+		if e.OwnerSessionID == "" {
+			return s, nil
+		}
 	}
 	sess, ok := s.Sessions[e.OwnerSessionID]
 	if !ok {

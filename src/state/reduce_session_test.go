@@ -454,6 +454,69 @@ func TestPaneDiedUnknownPaneIsNoop(t *testing.T) {
 	}
 }
 
+func TestPaneDiedEvictsSessionByOwnerID(t *testing.T) {
+	s := New()
+	s.Sessions = map[SessionID]Session{
+		"s1": {ID: "s1", WindowID: "@5", PaneID: "%10", Command: "stub-x"},
+	}
+	s.Active = "@5"
+
+	next, effs := Reduce(s, EvPaneDied{
+		Pane:           "{sessionName}:0.0",
+		OwnerSessionID: "s1",
+	})
+	if _, ok := next.Sessions["s1"]; ok {
+		t.Fatal("session should be deleted")
+	}
+	if next.Active != "" {
+		t.Errorf("Active = %q, want empty", next.Active)
+	}
+	if _, ok := findEff[EffSwapPane](effs); !ok {
+		t.Error("expected EffSwapPane")
+	}
+	if _, ok := findEff[EffKillTmuxWindow](effs); !ok {
+		t.Error("expected EffKillTmuxWindow")
+	}
+	if _, ok := findEff[EffBroadcastSessionsChanged](effs); !ok {
+		t.Error("expected EffBroadcastSessionsChanged")
+	}
+}
+
+func TestPaneDiedFallbackViaActive(t *testing.T) {
+	s := New()
+	s.Sessions = map[SessionID]Session{
+		"s1": {ID: "s1", WindowID: "@5", PaneID: "%10", Command: "stub-x"},
+	}
+	s.Active = "@5"
+
+	next, effs := Reduce(s, EvPaneDied{
+		Pane:           "{sessionName}:0.0",
+		OwnerSessionID: "", // runtime couldn't identify owner
+	})
+	if _, ok := next.Sessions["s1"]; ok {
+		t.Fatal("session should be deleted via Active fallback")
+	}
+	if _, ok := findEff[EffKillTmuxWindow](effs); !ok {
+		t.Error("expected EffKillTmuxWindow")
+	}
+}
+
+func TestPaneDiedNoActiveIsNoop(t *testing.T) {
+	s := New()
+	s.Sessions = map[SessionID]Session{
+		"s1": {ID: "s1", WindowID: "@5", PaneID: "%10", Command: "stub-x"},
+	}
+	// Active is empty — no session swapped into 0.0
+
+	_, effs := Reduce(s, EvPaneDied{
+		Pane:           "{sessionName}:0.0",
+		OwnerSessionID: "",
+	})
+	if len(effs) != 0 {
+		t.Errorf("expected 0 effects, got %d", len(effs))
+	}
+}
+
 // === reduceJobResult ===
 
 func TestJobResultUnknownDropsSilently(t *testing.T) {
