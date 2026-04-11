@@ -258,6 +258,8 @@ func (m PaletteModel) View() tea.View {
 		outerWidth = 60
 	}
 
+	innerWidth := outerWidth - 4 // border(2) + padding(2)
+
 	var body string
 	var title, badge string
 
@@ -265,19 +267,19 @@ func (m PaletteModel) View() tea.View {
 	case phaseToolSelect:
 		title = "PALETTE"
 		badge = fmt.Sprintf("%d tools", len(m.filtered))
-		body = renderPaletteTool(m)
+		body = renderPaletteTool(m, innerWidth)
 
 	case phaseParamSelect:
 		p := m.selectedTool.Params[m.paramIndex]
 		title = m.selectedTool.Name
 		badge = p.Name
-		body = renderPaletteParam(m)
+		body = renderPaletteParam(m, innerWidth)
 	}
 
 	return tea.NewView(Panel(title, badge, body, outerWidth))
 }
 
-func renderPaletteTool(m PaletteModel) string {
+func renderPaletteTool(m PaletteModel, innerWidth int) string {
 	var b strings.Builder
 	b.WriteString(promptStyle.Render("> "))
 	b.WriteString(inputStyle.Render(m.input))
@@ -285,9 +287,9 @@ func renderPaletteTool(m PaletteModel) string {
 	for i, t := range m.filtered {
 		desc := descStyle.Render("  " + t.Description)
 		if i == m.cursor {
-			b.WriteString(selItemStyle.Render(fmt.Sprintf("▸ %s", t.Name)) + desc)
+			b.WriteString(selItemStyle.Width(innerWidth).Render(fmt.Sprintf("▸ %s", t.Name)+desc))
 		} else {
-			b.WriteString(itemStyle.Render(fmt.Sprintf("  %s", t.Name)) + desc)
+			b.WriteString(itemStyle.Width(innerWidth).Render(fmt.Sprintf("  %s", t.Name)+desc))
 		}
 		if i < len(m.filtered)-1 {
 			b.WriteString("\n")
@@ -299,7 +301,7 @@ func renderPaletteTool(m PaletteModel) string {
 	return b.String()
 }
 
-func renderPaletteParam(m PaletteModel) string {
+func renderPaletteParam(m PaletteModel, innerWidth int) string {
 	var b strings.Builder
 	b.WriteString(promptStyle.Render("> "))
 	b.WriteString(inputStyle.Render(m.input))
@@ -313,9 +315,9 @@ func renderPaletteParam(m PaletteModel) string {
 	for i, o := range filtered {
 		display := tools.ProjectDisplayName(o)
 		if i == m.paramCursor {
-			b.WriteString(selItemStyle.Render(fmt.Sprintf("▸ %s", display)))
+			b.WriteString(selItemStyle.Width(innerWidth).Render(fmt.Sprintf("▸ %s", display)))
 		} else {
-			b.WriteString(itemStyle.Render(fmt.Sprintf("  %s", display)))
+			b.WriteString(itemStyle.Width(innerWidth).Render(fmt.Sprintf("  %s", display)))
 		}
 		if i < len(filtered)-1 {
 			b.WriteString("\n")
