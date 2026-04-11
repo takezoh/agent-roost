@@ -287,6 +287,69 @@ func TestHandleLogDisconnect_ReturnsQuit(t *testing.T) {
 	}
 }
 
+func TestSwitchToTab_RebuildRendererOnTabChange(t *testing.T) {
+	m := NewLogModel("/var/log/roost.log", nil)
+	sess := sessionWithTranscript(t)
+
+	// Set the active session → TRANSCRIPT tab active, renderer is set.
+	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
+		Sessions:       []proto.SessionInfo{sess},
+		ActiveWindowID: sess.WindowID,
+	})
+	lm := model.(LogModel)
+	if lm.renderer == nil {
+		t.Fatal("renderer should be non-nil for TRANSCRIPT tab")
+	}
+
+	// Switch to EVENTS tab → renderer should become nil (TabKindText has no renderer).
+	eventsIdx, ok := lm.tabIndexByLabel("EVENTS")
+	if !ok {
+		t.Fatal("EVENTS tab not found")
+	}
+	lm.switchToTab(eventsIdx)
+	if lm.renderer != nil {
+		t.Error("renderer should be nil for EVENTS tab (TabKindText has no registered renderer)")
+	}
+
+	// Switch back to TRANSCRIPT → renderer should be restored.
+	transcriptIdx, ok := lm.tabIndexByLabel("TRANSCRIPT")
+	if !ok {
+		t.Fatal("TRANSCRIPT tab not found")
+	}
+	lm.switchToTab(transcriptIdx)
+	if lm.renderer == nil {
+		t.Error("renderer should be non-nil after switching back to TRANSCRIPT tab")
+	}
+}
+
+func TestAppendContent_PlainTextWhenNoRenderer(t *testing.T) {
+	m := NewLogModel("/var/log/roost.log", nil)
+	sess := sessionWithTranscript(t)
+
+	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
+		Sessions:       []proto.SessionInfo{sess},
+		ActiveWindowID: sess.WindowID,
+	})
+	lm := model.(LogModel)
+
+	// Switch to EVENTS (plain text tab)
+	eventsIdx, ok := lm.tabIndexByLabel("EVENTS")
+	if !ok {
+		t.Fatal("EVENTS tab not found")
+	}
+	lm.switchToTab(eventsIdx)
+
+	// Append plain text — should pass through unmodified.
+	lm.appendContent("2026-04-11T03:48:01Z PreToolUse Read /tmp/foo.go")
+	content := lm.viewport.GetContent()
+	if content == "" {
+		t.Fatal("viewport content is empty after appendContent")
+	}
+	if !strings.Contains(content, "PreToolUse") {
+		t.Errorf("content = %q, expected to contain PreToolUse", content)
+	}
+}
+
 func fixedWidth5(n int) string {
 	s := ""
 	for i := 0; i < 5; i++ {

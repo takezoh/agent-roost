@@ -66,6 +66,9 @@ func (hp hookPayload) formatLog() string {
 	s := hp.HookEventName
 	switch hp.HookEventName {
 	case "PreToolUse", "PostToolUse", "PostToolUseFailure":
+		if hp.ToolName == "" {
+			break
+		}
 		s += " " + hp.ToolName
 		if hp.ToolName == "Bash" {
 			if cmd := hp.toolInputString("command"); cmd != "" {
@@ -143,7 +146,11 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 	// go through the state-change path if they map to a status.
 	status := hp.deriveState()
 	if status == "" {
-		return cs, nil
+		var effs []state.Effect
+		if line := hp.formatLog(); line != "" {
+			effs = append(effs, state.EffEventLogAppend{Line: line})
+		}
+		return cs, effs
 	}
 	return d.handleStateChange(cs, hp, status, e.Payload)
 }

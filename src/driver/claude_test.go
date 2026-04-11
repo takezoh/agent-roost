@@ -889,6 +889,34 @@ func TestResolveTranscriptPathFallback(t *testing.T) {
 	}
 }
 
+func TestClaudeNoStateChangeEventsStillLog(t *testing.T) {
+	events := []string{"SubagentStop", "PostToolUseFailure", "PreCompact", "PostCompact", "TaskCreated", "TaskCompleted"}
+	for _, name := range events {
+		t.Run(name, func(t *testing.T) {
+			d, cs, now := newClaude(t)
+			cs.ClaudeSessionID = "uuid"
+			prevStatus := cs.Status
+			next, effs := d.handleHook(cs, state.DEvHook{
+				Event: name,
+				Payload: hookPayloadRaw(map[string]string{
+					"session_id":      "uuid",
+					"hook_event_name": name,
+				}, now),
+			})
+			if next.Status != prevStatus {
+				t.Errorf("Status changed to %v, want %v (unchanged)", next.Status, prevStatus)
+			}
+			logEff, ok := findEffect[state.EffEventLogAppend](effs)
+			if !ok {
+				t.Fatalf("expected EffEventLogAppend for %s", name)
+			}
+			if logEff.Line != name {
+				t.Errorf("log line = %q, want %q", logEff.Line, name)
+			}
+		})
+	}
+}
+
 func TestResolveTranscriptPathPrefersExplicit(t *testing.T) {
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{
