@@ -65,6 +65,9 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.hitTestConnectorSummary(mouse.Y) {
+		if m.active != "" {
+			return m, m.deactivateCmd()
+		}
 		return m, m.focusCmd(mainPane)
 	}
 	idx := m.rowToItemIndex(mouse.Y)

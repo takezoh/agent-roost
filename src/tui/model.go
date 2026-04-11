@@ -59,6 +59,10 @@ type switchDoneMsg struct {
 	err      error
 }
 
+type deactivateDoneMsg struct {
+	err error
+}
+
 func NewModel(client *proto.Client, cfg *config.Config) Model {
 	return Model{
 		client:   client,
@@ -100,6 +104,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil && msg.windowID != "" {
 			m.active = msg.windowID
 			m.anchored = msg.windowID
+		}
+		return m, m.focusCmd(mainPane)
+
+	case deactivateDoneMsg:
+		if msg.err == nil {
+			m.active = ""
+			m.anchored = ""
 		}
 		return m, m.focusCmd(mainPane)
 
@@ -200,6 +211,13 @@ func (m Model) launchToolCmd(toolName string, args map[string]string) tea.Cmd {
 	return func() tea.Msg {
 		_ = m.client.LaunchTool(toolName, args)
 		return nil
+	}
+}
+
+func (m Model) deactivateCmd() tea.Cmd {
+	return func() tea.Msg {
+		err := m.client.PreviewProject("")
+		return deactivateDoneMsg{err: err}
 	}
 }
 
