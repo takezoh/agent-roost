@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 
-	"github.com/takezoh/agent-roost/tmux"
+	"github.com/takezoh/agent-roost/lib/tmux"
 )
 
 // RealTmuxBackend wraps a *tmux.Client into the runtime's TmuxBackend
