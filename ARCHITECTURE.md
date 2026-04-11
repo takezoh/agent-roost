@@ -29,8 +29,8 @@ roost is a session lifecycle manager — not an agent orchestrator. It does not 
 | **Control Session** | The tmux session that houses all of roost | tmux **session** (`roost`) |
 | **Pane** | Control panes within Window 0 | tmux **pane** (`0.0`, `0.1`, `0.2`) |
 | **Connector** | A per-daemon external service integration plugin. Fetches data from external services like GitHub/Linear/Jira and displays it in the TUI. While Drivers are per-session, Connectors have one instance per daemon | None (holds no tmux resources) |
-| **Warm start** | Runtime startup while a tmux session is alive. Restores state from sessions.json + tmux `@roost_id` | Reuses existing tmux session/window/pane |
-| **Cold start** | Runtime startup when the tmux session is gone (PC reboot / tmux server death). Recreates tmux session/window from `sessions.json` | Creates new tmux session/window |
+| **Warm start** | Runtime startup while a tmux session is alive. `LoadSnapshot()` → `LoadWindowMap()` (reads `ROOST_W_*` env vars via `tmux show-environment`) → `ReconcileOrphans()` (drops sessions without windows, cleans stale env vars) | Reuses existing tmux session/window/pane |
+| **Cold start** | Runtime startup when the tmux session is gone (PC reboot / tmux server death). `LoadSnapshot()` → `RecreateAll()` (spawns windows, populates `windowMap` + `ROOST_W_*` env vars) | Creates new tmux session/window |
 
 Hereafter, "session" refers to a roost session. tmux sessions are explicitly noted as "tmux session."
 

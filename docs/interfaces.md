@@ -8,7 +8,7 @@ All state, runtime, and driver layers are defined as interfaces for testability.
 // state/state.go — All domain state (plain data, no methods)
 type State struct {
     Sessions    map[SessionID]Session
-    Active      WindowID
+    ActiveSession SessionID
     Subscribers map[ConnID]Subscriber
     Jobs        map[JobID]JobMeta
     NextJobID   JobID
@@ -22,8 +22,6 @@ type Session struct {
     ID        SessionID
     Project   string
     Command   string
-    WindowID  WindowID
-    PaneID    string
     CreatedAt time.Time
     Driver    DriverState   // sum type: concrete state per driver impl
 }
@@ -90,8 +88,10 @@ func (r *Runtime) Enqueue(ev state.Event)          // goroutine-safe
 ```go
 // runtime/backends.go — Backend interfaces swappable for testing
 type TmuxBackend interface {
-    SpawnWindow(name, cmd, startDir string, env map[string]string) (windowID, paneID string, err error)
+    SpawnWindow(name, cmd, startDir string, env map[string]string) (windowIndex, paneID string, err error)
     KillWindow(windowID string) error
+    ListWindowIndexes() ([]string, error)
+    ShowEnvironment() (string, error)
     RunChain(args ...string) error
     SelectPane(target string) error
     SetStatusLine(line string) error
@@ -181,7 +181,7 @@ src/
 │   ├── state.go         State, Session, Subscriber, JobMeta — plain value types
 │   ├── event.go         Event closed sum type (EvEvent, EvDriverEvent, EvTick, EvJobResult, ...)
 │   ├── event_dispatch.go  RegisterEvent[T] registry + dispatch lookup
-│   ├── effect.go        Effect closed sum type (EffSpawnTmuxWindow, EffStartJob, EffBroadcast, ...)
+│   ├── effect.go        Effect closed sum type (EffSpawnTmuxWindow, EffKillSessionWindow, EffRegisterWindow, EffUnregisterWindow, EffActivateSession, EffDeactivateSession, EffStartJob, EffBroadcast, ...)
 │   ├── reduce.go        Reduce(State, Event) → (State, []Effect) — pure state transition function
 │   ├── reduce_event.go  EvEvent → registered handler dispatch, EvDriverEvent → Driver.Step routing
 │   ├── reduce_session.go  session lifecycle reducers (registered via RegisterEvent)

@@ -22,7 +22,7 @@ The driver returns `View(DriverState) state.View`. It is a pure function that pe
 
 The TUI acts as a driver-agnostic generic renderer.
 
-- Rendering of `SessionInfo` generic fields (ID / Project / Command / WindowID / CreatedAt / State / StateChangedAt)
+- Rendering of `SessionInfo` generic fields (ID / Project / Command / CreatedAt / State / StateChangedAt)
 - Color selection from `State` enum values (`tui/theme.go`) — universal state colors are consistent across all drivers
 - Elapsed time formatting (relative notation like `5m ago`)
 - Card layout (ordering of each slot / margins / wrap / truncate)
@@ -112,21 +112,21 @@ runDaemon()
 │   ├── Exists (Warm start)
 │   │   ├── restoreSession (rebuild tmux pane layout)
 │   │   ├── rt.LoadSnapshot() — restore State.Sessions from sessions.json
-│   │   ├── rt.ReconcileWarm() — match by tmux @roost_id, evict sessions for disappeared windows
-│   │   └── rt.RestoreActiveWindow() — restore State.Active from ROOST_ACTIVE_WINDOW env
+│   │   ├── rt.LoadWindowMap() — read ROOST_W_* env vars from show-environment, rebuild windowMap
+│   │   └── rt.ReconcileOrphans() — evict sessions whose windows have disappeared
 │   └── Does not exist (Cold start)
 │       ├── setupNewSession (create new tmux session)
 │       ├── rt.LoadSnapshot() — restore State.Sessions from sessions.json
-│       ├── rt.ClearStaleWindowIDs() — clear old WindowIDs
 │       └── rt.RecreateAll() — for each session:
 │           ├── Driver.SpawnCommand(driverState, command) to build resume command
-│           └── tmux new-window to spawn → obtain WindowID/PaneID
+│           └── tmux new-window to spawn → populate windowMap + ROOST_W_* env vars
 ├── rt.Run(ctx) — start event loop goroutine (select: eventCh / ticker / workers / fsnotify)
 ├── rt.StartIPC() — start Unix socket server
 ├── FileRelay startup — push monitoring for log/transcript files
 ├── tmux attach (blocking)
 └── On attach exit
     ├── Shutdown received → KillSession()
+    ├── DeactivateBeforeExit() — deactivate active session before coordinator exits
     └── Normal detach → exit (tmux session survives)
 ```
 
@@ -192,9 +192,9 @@ runTUI("palette")
 
 - **TUI socket disconnection**: The TUI process exits. The daemon detects this and recovers via `respawn-pane`
 - **External kill of session window / agent process exit**: Session windows have `remain-on-exit off`, so tmux automatically destroys the pane; windows with only 1 pane also auto-disappear. `reduceTick` emits `EffReconcileWindows`, and runtime reconciles the tmux window list with `state.State`, removes disappeared windows from State, updates the snapshot, and broadcasts `sessions-changed`
-- **Active session agent process exit (e.g., C-c)**: The active session's agent pane is brought into `roost:0.0` via swap-pane. Window 0 has `remain-on-exit on`, so when the agent exits, the pane remains as `[exited]`; the session window side has the main TUI pane swapped in and alive, so normal reconcile does not clean it up. `reduceTick` emits `EffCheckPaneAlive{0.0}` every tick, and runtime executes `display-message -t roost:0.0 -p '#{pane_dead} #{pane_id}'`. If dead, it looks up the pane id (`%N`, invariant across swap-pane) via `runtime.findPaneOwner` to identify the **original owner session** of the dead pane. Relying on State's activeWindowID to determine the reap target would cause an unrelated window to be killed when activeWindowID diverges from the actual owner of pane 0.0 during concurrent Preview operations (= cards for other sessions disappear while the actually dead session remains displayed as `stopped` — a false positive). Therefore, the pane id is the sole source of truth for the reap target. Once the owner is identified, the dead pane is swapped back to the owner window via swap-pane, and the window is destroyed. The subsequent `runtime.reconcileWindows` pass finally cleans up State. If the owner cannot be found (e.g., main TUI itself died), nothing is done (that is `respawn-pane`'s responsibility). PaneID is obtained at spawn time via `display-message -t <wid>:0.0 -p '#{pane_id}'` and persisted in `sessions.json`
+- **Active session agent process exit (e.g., C-c)**: The active session's agent pane is brought into `roost:0.0` via swap-pane. Window 0 has `remain-on-exit on`, so when the agent exits, the pane remains as `[exited]`; the session window side has the main TUI pane swapped in and alive, so normal reconcile does not clean it up. `reduceTick` emits `EffCheckPaneAlive{0.0}` every tick, and runtime executes `display-message -t roost:0.0 -p '#{pane_dead}'`. If dead, the owner session is identified by `runtime.activeSession` (the SessionID of the currently active session). Once identified, the dead pane is swapped back to the owner window via swap-pane, and the window is destroyed. The subsequent `runtime.reconcileWindows` pass finally cleans up State. PaneID is no longer persisted
 - **Consecutive `respawn-pane` failures**: respawn-pane normally does not fail since tmux recreates the pane (however, startup may fail in cases of environmental anomalies such as binary deletion or permission changes). When the tmux session is destroyed, the daemon's attach also exits, so everything shuts down
-- **Startup consistency**: Since tmux window user options are the single source of truth, orphan checking is unnecessary. tmux windows with `@roost_id` directly constitute the roost session list
+- **Startup consistency**: `sessions.json` and tmux session-level `ROOST_W_*` env vars are the two sources of truth. `reconcileWindows` uses `ListWindowIndexes` + `windowMap` to match windows to sessions and evict orphans
 - **IPC errors**: When an IPC command returns an error on the TUI side, it logs to slog and does not change UI state. No timeout is configured (local communication over Unix socket). If the server deadlocks, the client risks blocking indefinitely. Recovery means externally running `tmux kill-session -t roost` or killing the daemon process
 
 ## tmux Layout
@@ -238,7 +238,7 @@ Runtime executes individual `swap-pane -d` operations sequentially (no rollback 
 
 ```
 Preview(sess):
-  1. swap-pane -d  main pane ↔ old session (return old, if activeWindowID exists)
+  1. swap-pane -d  main pane ↔ old session (return old, if activeSession exists)
   2. swap-pane -d  main pane ↔ new session (display new)
   → Focus is not changed
 

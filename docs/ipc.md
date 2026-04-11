@@ -144,7 +144,7 @@ flowchart LR
     Reduce -->|"[]Effect"| Interp
 
     Interp -->|EffSpawnTmuxWindow| Tmux["tmux backend<br/>(go async spawn)"]:::async
-    Interp -->|EffKillTmuxWindow<br/>EffSwapPane<br/>EffSelectPane<br/>EffSyncStatusLine| TmuxSync["tmux backend<br/>(inline sync)"]:::sync
+    Interp -->|EffKillSessionWindow<br/>EffActivateSession<br/>EffDeactivateSession<br/>EffSelectPane<br/>EffSyncStatusLine<br/>EffRegisterWindow<br/>EffUnregisterWindow| TmuxSync["tmux backend<br/>(inline sync)"]:::sync
     Interp -->|EffSendResponse<br/>EffBroadcastSessionsChanged| IPC["IPC conn writer"]:::sync
     Interp -->|EffPersistSnapshot| Persist["sessions.json writer"]:::sync
     Interp -->|EffStartJob| Pool["Worker pool<br/>(4 goroutine)"]:::async
@@ -211,7 +211,7 @@ sequenceDiagram
     D1-->>Red: (driverState1', [EffStartJob{TranscriptParse}], view1)
     Red->>D2: Driver.Step(driverState2, DEvTick{Active: false})
     D2-->>Red: (driverState2', [EffStartJob{CapturePane}], view2)
-    Red-->>EL: (state', [EffReconcileWindows, EffCheckPaneAlive,<br/>EffStartJob×2, EffBroadcastSessionsChanged,<br/>EffPersistSnapshot])
+    Red-->>EL: (state', [EffStartJob×N, EffBroadcastSessionsChanged,<br/>EffPersistSnapshot, EffSyncStatusLine])
     EL->>Interp: execute(effects...)
     Note over Interp: Interprets each Effect in order<br/>EffStartJob → worker pool submit<br/>EffBroadcast → IPC send<br/>EffPersist → write sessions.json
 ```
