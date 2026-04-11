@@ -92,8 +92,8 @@ func (d ClaudeDriver) handleJobResult(cs ClaudeState, e state.DEvJobResult) (Cla
 
 	case BranchDetectResult:
 		cs.BranchInFlight = false
-		if e.Err != nil {
-			return cs, nil
+		if e.Err != nil || r.Branch == "" {
+			return cs, nil // preserve existing tag; retry on next tick
 		}
 		cs.BranchTag = r.Branch
 		cs.BranchBG = r.Background
