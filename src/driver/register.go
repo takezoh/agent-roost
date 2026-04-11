@@ -3,6 +3,8 @@ package driver
 import (
 	"encoding/json"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -29,7 +31,11 @@ func RegisterDefaults(opts RegisterOptions) {
 		state.Register(NewGenericDriver("bash", opts.IdleThreshold))
 		state.Register(NewGenericDriver("codex", opts.IdleThreshold))
 		state.Register(NewGenericDriver("gemini", opts.IdleThreshold))
-		state.Register(NewGenericDriver("shell", opts.IdleThreshold))
+		shellDisplay := filepath.Base(os.Getenv("SHELL"))
+		if shellDisplay == "" || shellDisplay == "." {
+			shellDisplay = "shell"
+		}
+		state.Register(NewGenericDriver("shell", opts.IdleThreshold).WithDisplayName(shellDisplay))
 		state.Register(NewGenericDriver("", opts.IdleThreshold))
 	})
 }

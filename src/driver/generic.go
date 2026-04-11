@@ -69,6 +69,12 @@ func NewGenericDriver(name string, threshold time.Duration) GenericDriver {
 	}
 }
 
+// WithDisplayName returns a copy with an overridden display name.
+func (d GenericDriver) WithDisplayName(name string) GenericDriver {
+	d.displayName = name
+	return d
+}
+
 func (d GenericDriver) Name() string        { return d.name }
 func (d GenericDriver) DisplayName() string { return d.displayName }
 func (GenericDriver) Status(s state.DriverState) state.Status { return s.(GenericState).Status }
