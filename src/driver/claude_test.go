@@ -566,6 +566,37 @@ func TestClaudeBranchResultMerges(t *testing.T) {
 	}
 }
 
+func TestClaudeBranchEmptyResultPreservesExisting(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	past := time.Now().Add(-time.Minute)
+	cs.BranchTag = "feature-x"
+	cs.BranchBG = "#F05032"
+	cs.BranchFG = "#FFFFFF"
+	cs.BranchAt = past
+	cs.BranchInFlight = true
+
+	now := time.Now()
+	next, _ := d.handleJobResult(cs, state.DEvJobResult{
+		Now:    now,
+		Result: BranchDetectResult{Branch: "", Background: "", Foreground: ""},
+	})
+	if next.BranchInFlight {
+		t.Error("BranchInFlight should be false")
+	}
+	if next.BranchTag != "feature-x" {
+		t.Errorf("BranchTag cleared: %q", next.BranchTag)
+	}
+	if next.BranchBG != "#F05032" {
+		t.Errorf("BranchBG cleared: %q", next.BranchBG)
+	}
+	if next.BranchFG != "#FFFFFF" {
+		t.Errorf("BranchFG cleared: %q", next.BranchFG)
+	}
+	if !next.BranchAt.Equal(past) {
+		t.Error("BranchAt should not be updated on empty result")
+	}
+}
+
 // === Persistence ===
 
 func TestClaudePersistRoundTrip(t *testing.T) {
