@@ -10,6 +10,7 @@ import (
 )
 
 const testHome = "/home/test"
+const testEventLogDir = "/data/events"
 
 // hookPayloadRaw builds a DEvHook payload with a "raw" JSON key from
 // the given fields. Extra kv pairs can be added via the extras map.
@@ -27,7 +28,7 @@ func hookPayloadRaw(fields map[string]string, now time.Time) map[string]any {
 func newClaude(t *testing.T) (ClaudeDriver, ClaudeState, time.Time) {
 	t.Helper()
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := d.NewState(now).(ClaudeState)
 	return d, cs, now
 }
@@ -82,6 +83,77 @@ func TestClaudeSessionStartAbsorbsIdentityAndWatches(t *testing.T) {
 	}
 	if _, ok := findEffect[state.EffEventLogAppend](effs); !ok {
 		t.Error("expected EffEventLogAppend")
+	}
+	// Branch detection should be dispatched immediately on SessionStart.
+	if !next.BranchInFlight {
+		t.Error("BranchInFlight should be true after SessionStart with cwd")
+	}
+	if next.BranchTarget != "/work" {
+		t.Errorf("BranchTarget = %q, want /work", next.BranchTarget)
+	}
+	foundBranch := false
+	for _, e := range effs {
+		if j, ok := e.(state.EffStartJob); ok {
+			if _, ok := j.Input.(BranchDetectInput); ok {
+				foundBranch = true
+			}
+		}
+	}
+	if !foundBranch {
+		t.Error("expected BranchDetectInput job in SessionStart effects")
+	}
+}
+
+func TestClaudeSessionStartSkipsBranchDetectWhenInFlight(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.BranchInFlight = true
+	next, effs := d.handleHook(cs, state.DEvHook{
+		Event: "SessionStart",
+		Payload: hookPayloadRaw(map[string]string{
+			"session_id":      "uuid",
+			"cwd":             "/work",
+			"hook_event_name": "SessionStart",
+		}, now),
+	})
+	if !next.BranchInFlight {
+		t.Error("BranchInFlight should remain true")
+	}
+	for _, e := range effs {
+		if j, ok := e.(state.EffStartJob); ok {
+			if _, ok := j.Input.(BranchDetectInput); ok {
+				t.Error("should not dispatch BranchDetect while in-flight")
+			}
+		}
+	}
+}
+
+func TestClaudeSessionStartNoCwdSkipsBranchDetect(t *testing.T) {
+	d, cs, now := newClaude(t)
+	next, _ := d.handleHook(cs, state.DEvHook{
+		Event: "SessionStart",
+		Payload: hookPayloadRaw(map[string]string{
+			"session_id":      "uuid",
+			"hook_event_name": "SessionStart",
+		}, now),
+	})
+	if next.BranchInFlight {
+		t.Error("BranchInFlight should be false when cwd is empty")
+	}
+}
+
+func TestClaudeSessionStartAbsorbsRoostSessionID(t *testing.T) {
+	d, cs, now := newClaude(t)
+	payload := hookPayloadRaw(map[string]string{
+		"session_id":      "claude-uuid",
+		"hook_event_name": "SessionStart",
+	}, now)
+	payload["roost_session_id"] = "roost-abc"
+	next, _ := d.handleHook(cs, state.DEvHook{
+		Event:   "SessionStart",
+		Payload: payload,
+	})
+	if next.RoostSessionID != "roost-abc" {
+		t.Errorf("RoostSessionID = %q, want roost-abc", next.RoostSessionID)
 	}
 }
 
@@ -196,6 +268,101 @@ func TestClaudeUnknownHookIsNoop(t *testing.T) {
 	}
 }
 
+// === Hook ordering ===
+
+func TestClaudeHookDropsStaleEvent(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.TranscriptPath = "/tmp/t.jsonl"
+
+	// First event at bridge_ts=200
+	p1 := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "Stop",
+	}, now)
+	p1["bridge_ts"] = int64(200)
+	next, _ := d.handleHook(cs, state.DEvHook{Event: "Stop", Payload: p1})
+	if next.LastBridgeTS != 200 {
+		t.Fatalf("LastBridgeTS = %d, want 200", next.LastBridgeTS)
+	}
+	if next.Status != state.StatusWaiting {
+		t.Fatalf("Status = %v, want Waiting", next.Status)
+	}
+
+	// Second event at bridge_ts=100 (stale) — must be dropped
+	p2 := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "UserPromptSubmit",
+		"prompt": "stale",
+	}, now)
+	p2["bridge_ts"] = int64(100)
+	next2, effs := d.handleHook(next, state.DEvHook{Event: "UserPromptSubmit", Payload: p2})
+	if next2.Status != state.StatusWaiting {
+		t.Errorf("stale event changed status to %v", next2.Status)
+	}
+	if next2.LastPrompt == "stale" {
+		t.Error("stale event should not set LastPrompt")
+	}
+	if len(effs) != 0 {
+		t.Errorf("stale event produced %d effects, want 0", len(effs))
+	}
+}
+
+func TestClaudeHookAcceptsMissingBridgeTS(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.LastBridgeTS = 500
+
+	p := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "Stop",
+	}, now)
+	// No bridge_ts key — should be accepted for backward compat
+	next, _ := d.handleHook(cs, state.DEvHook{Event: "Stop", Payload: p})
+	if next.Status != state.StatusWaiting {
+		t.Errorf("missing bridge_ts should be accepted, got status %v", next.Status)
+	}
+	if next.LastBridgeTS != 500 {
+		t.Errorf("LastBridgeTS changed to %d, should stay 500", next.LastBridgeTS)
+	}
+}
+
+func TestClaudeSessionStartBypassesOrdering(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.LastBridgeTS = 9000 // high watermark from previous session
+
+	// SessionStart with a lower bridge_ts (e.g. clock skew after NTP)
+	p := hookPayloadRaw(map[string]string{
+		"session_id":      "uuid",
+		"cwd":             "/work",
+		"transcript_path": "/tmp/x.jsonl",
+		"hook_event_name": "SessionStart",
+	}, now)
+	p["bridge_ts"] = int64(100)
+	next, effs := d.handleHook(cs, state.DEvHook{Event: "SessionStart", Payload: p})
+	if next.Status != state.StatusIdle {
+		t.Errorf("SessionStart should always be accepted, got status %v", next.Status)
+	}
+	if next.LastBridgeTS != 100 {
+		t.Errorf("LastBridgeTS = %d, want 100 (reset by SessionStart)", next.LastBridgeTS)
+	}
+	if len(effs) == 0 {
+		t.Error("SessionStart should produce effects")
+	}
+}
+
+func TestClaudeHookAcceptsFloat64BridgeTS(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+
+	p := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "Stop",
+	}, now)
+	p["bridge_ts"] = float64(300)
+	next, _ := d.handleHook(cs, state.DEvHook{Event: "Stop", Payload: p})
+	if next.LastBridgeTS != 300 {
+		t.Errorf("LastBridgeTS = %d, want 300 (from float64)", next.LastBridgeTS)
+	}
+}
+
 // === Tick handling (branch detection) ===
 
 func TestClaudeTickInactiveDoesNothing(t *testing.T) {
@@ -221,10 +388,10 @@ func TestClaudeTickActiveSchedulesBranchJob(t *testing.T) {
 	if !ok {
 		t.Fatal("expected EffStartJob")
 	}
-	if _, ok := job.Input.(GitBranchInput); !ok {
-		t.Errorf("job input type = %T, want GitBranchInput", job.Input)
+	if _, ok := job.Input.(BranchDetectInput); !ok {
+		t.Errorf("job input type = %T, want BranchDetectInput", job.Input)
 	}
-	in, ok := job.Input.(GitBranchInput)
+	in, ok := job.Input.(BranchDetectInput)
 	if !ok || in.WorkingDir != "/work" {
 		t.Errorf("input = %v, want {WorkingDir: /work}", job.Input)
 	}
@@ -380,13 +547,19 @@ func TestClaudeBranchResultMerges(t *testing.T) {
 	now := time.Now()
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
 		Now:    now,
-		Result: GitBranchResult{Branch: "main"},
+		Result: BranchDetectResult{Branch: "main", Background: "#F05032", Foreground: "#FFFFFF"},
 	})
 	if next.BranchInFlight {
 		t.Error("BranchInFlight should be false")
 	}
 	if next.BranchTag != "main" {
 		t.Errorf("BranchTag = %q", next.BranchTag)
+	}
+	if next.BranchBG != "#F05032" {
+		t.Errorf("BranchBG = %q", next.BranchBG)
+	}
+	if next.BranchFG != "#FFFFFF" {
+		t.Errorf("BranchFG = %q", next.BranchFG)
 	}
 	if !next.BranchAt.Equal(now) {
 		t.Error("BranchAt not stamped")
@@ -396,15 +569,18 @@ func TestClaudeBranchResultMerges(t *testing.T) {
 // === Persistence ===
 
 func TestClaudePersistRoundTrip(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	cs := ClaudeState{
+		RoostSessionID:  "roost-1",
 		ClaudeSessionID: "uuid-1",
 		WorkingDir:      "/work",
 		TranscriptPath:  "/tmp/x.jsonl",
 		Status:          state.StatusRunning,
 		StatusChangedAt: now,
 		BranchTag:       "main",
+		BranchBG:        "#F05032",
+		BranchFG:        "#FFFFFF",
 		BranchTarget:    "/work",
 		BranchAt:        now,
 		Summary:         "summary",
@@ -412,6 +588,9 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 		LastPrompt:      "do the thing",
 	}
 	bag := d.Persist(cs)
+	if bag[claudeKeyRoostSessionID] != "roost-1" {
+		t.Errorf("persist roost_session_id = %q", bag[claudeKeyRoostSessionID])
+	}
 	if bag[claudeKeyClaudeSessionID] != "uuid-1" {
 		t.Errorf("persist session_id = %q", bag[claudeKeyClaudeSessionID])
 	}
@@ -419,6 +598,9 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 		t.Errorf("persist status = %q", bag[claudeKeyStatus])
 	}
 	restored := d.Restore(bag, time.Now()).(ClaudeState)
+	if restored.RoostSessionID != "roost-1" {
+		t.Errorf("restored RoostSessionID = %q", restored.RoostSessionID)
+	}
 	if restored.ClaudeSessionID != cs.ClaudeSessionID {
 		t.Errorf("restored ClaudeSessionID = %q", restored.ClaudeSessionID)
 	}
@@ -430,6 +612,12 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 	}
 	if restored.BranchTag != "main" {
 		t.Errorf("restored BranchTag = %q", restored.BranchTag)
+	}
+	if restored.BranchBG != "#F05032" {
+		t.Errorf("restored BranchBG = %q", restored.BranchBG)
+	}
+	if restored.BranchFG != "#FFFFFF" {
+		t.Errorf("restored BranchFG = %q", restored.BranchFG)
 	}
 	if restored.Summary != "summary" {
 		t.Errorf("restored Summary = %q", restored.Summary)
@@ -443,7 +631,7 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 }
 
 func TestClaudeRestoreEmpty(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	cs := d.Restore(nil, now).(ClaudeState)
 	if cs.Status != state.StatusIdle {
@@ -457,7 +645,7 @@ func TestClaudeRestoreEmpty(t *testing.T) {
 // === SpawnCommand ===
 
 func TestClaudeSpawnCommandResume(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{ClaudeSessionID: "uuid-X"}
 	got := d.SpawnCommand(cs, "claude")
 	want := "claude --resume uuid-X"
@@ -467,7 +655,7 @@ func TestClaudeSpawnCommandResume(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandNoSession(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{}
 	got := d.SpawnCommand(cs, "claude --foo")
 	if got != "claude --foo" {
@@ -476,7 +664,7 @@ func TestClaudeSpawnCommandNoSession(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandStripsWorktree(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
 	got := d.SpawnCommand(cs, "claude --worktree")
 	want := "claude --resume uuid-W"
@@ -486,7 +674,7 @@ func TestClaudeSpawnCommandStripsWorktree(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandStripsWorktreeWithName(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
 	got := d.SpawnCommand(cs, "claude --worktree my-branch")
 	want := "claude --resume uuid-W"
@@ -496,7 +684,7 @@ func TestClaudeSpawnCommandStripsWorktreeWithName(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandStripsWorktreeEquals(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
 	got := d.SpawnCommand(cs, "claude --worktree=my-branch")
 	want := "claude --resume uuid-W"
@@ -506,7 +694,7 @@ func TestClaudeSpawnCommandStripsWorktreeEquals(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandAlreadyHasResume(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{ClaudeSessionID: "uuid-Y"}
 	got := d.SpawnCommand(cs, "claude --resume preset")
 	if got != "claude --resume preset" {
@@ -583,6 +771,37 @@ func TestClaudeViewLogTabsTranscript(t *testing.T) {
 	}
 }
 
+func TestClaudeViewEventsTab(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.TranscriptPath = "/tmp/x.jsonl"
+	cs.RoostSessionID = "sess-1"
+	v := d.view(cs)
+	if len(v.LogTabs) < 2 {
+		t.Fatalf("expected TRANSCRIPT + EVENTS tabs, got %d", len(v.LogTabs))
+	}
+	ev := v.LogTabs[1]
+	if ev.Label != "EVENTS" {
+		t.Errorf("LogTab[1].Label = %q, want EVENTS", ev.Label)
+	}
+	if ev.Path != "/data/events/sess-1.log" {
+		t.Errorf("LogTab[1].Path = %q, want /data/events/sess-1.log", ev.Path)
+	}
+	if ev.Kind != state.TabKindText {
+		t.Errorf("LogTab[1].Kind = %q, want text", ev.Kind)
+	}
+}
+
+func TestClaudeViewEventsTabOmittedWithoutRoostSessionID(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.TranscriptPath = "/tmp/x.jsonl"
+	v := d.view(cs)
+	for _, tab := range v.LogTabs {
+		if tab.Label == "EVENTS" {
+			t.Error("EVENTS tab should not appear without RoostSessionID")
+		}
+	}
+}
+
 func TestClaudeViewInfoExtras(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.Title = "T"
@@ -626,7 +845,7 @@ func TestClaudeStepRoundTripSessionStartThenView(t *testing.T) {
 }
 
 func TestResolveTranscriptPathFallback(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{
 		ClaudeSessionID: "uuid-Z",
 		WorkingDir:      "/some/work",
@@ -639,7 +858,7 @@ func TestResolveTranscriptPathFallback(t *testing.T) {
 }
 
 func TestResolveTranscriptPathPrefersExplicit(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{
 		TranscriptPath:  "/explicit/path.jsonl",
 		ClaudeSessionID: "u",

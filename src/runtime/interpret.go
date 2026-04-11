@@ -290,11 +290,11 @@ func (r *Runtime) submitJob(e state.EffStartJob) {
 			return
 		}
 		worker.Submit(r.workers, e.JobID, input, r.runners.HaikuSummary)
-	case driver.GitBranchInput:
-		if r.runners.GitBranch == nil {
+	case driver.BranchDetectInput:
+		if r.runners.BranchDetect == nil {
 			return
 		}
-		worker.Submit(r.workers, e.JobID, input, r.runners.GitBranch)
+		worker.Submit(r.workers, e.JobID, input, r.runners.BranchDetect)
 	default:
 		slog.Warn("runtime: unknown job input type", "type", fmt.Sprintf("%T", e.Input))
 	}

@@ -12,19 +12,30 @@ func reduceHook(s State, e EvCmdHook) (State, []Effect) {
 		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeNotFound, "unknown session")}
 	}
 
-	// Inject the reducer's clock into the payload so the driver can
-	// stamp transitions without reading wall-clock from inside Step.
+	// Inject reducer-owned values into the payload so the driver can
+	// use them without breaking purity (no wall-clock, no session map).
 	payload := e.Payload
 	if payload == nil {
 		payload = map[string]any{}
 	}
+	needsCopy := false
 	if _, hasNow := payload["now"]; !hasNow {
-		// Avoid mutating the caller's map.
-		next := make(map[string]any, len(payload)+1)
+		needsCopy = true
+	}
+	if _, hasRSID := payload["roost_session_id"]; !hasRSID {
+		needsCopy = true
+	}
+	if needsCopy {
+		next := make(map[string]any, len(payload)+2)
 		for k, v := range payload {
 			next[k] = v
 		}
-		next["now"] = s.Now
+		if _, hasNow := next["now"]; !hasNow {
+			next["now"] = s.Now
+		}
+		if _, hasRSID := next["roost_session_id"]; !hasRSID {
+			next["roost_session_id"] = string(e.SessionID)
+		}
 		payload = next
 	}
 

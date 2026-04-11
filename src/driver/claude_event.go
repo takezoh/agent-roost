@@ -2,6 +2,7 @@ package driver
 
 import (
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/take/agent-roost/state"
@@ -110,20 +111,41 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 		return cs, nil
 	}
 
-	switch hp.HookEventName {
-	case "SessionStart":
-		return d.handleSessionStart(cs, hp, e.Payload)
-	case "UserPromptSubmit":
-		return d.handleUserPromptSubmit(cs, hp, e.Payload)
-	default:
-		// All other hook events (PreToolUse, PostToolUse, Stop, etc.)
-		// go through the state-change path if they map to a status.
-		status := hp.deriveState()
-		if status == "" {
-			return cs, nil
-		}
-		return d.handleStateChange(cs, hp, status, e.Payload)
+	if v, ok := e.Payload["roost_session_id"].(string); ok && v != "" {
+		cs.RoostSessionID = v
 	}
+
+	bridgeTS := payloadBridgeTS(e.Payload)
+
+	// SessionStart resets the session lifecycle, so it always goes
+	// through regardless of ordering. It also resets LastBridgeTS so
+	// a clock-skew (e.g. NTP adjustment) between SessionEnd and a
+	// subsequent SessionStart doesn't permanently block the session.
+	if hp.HookEventName == "SessionStart" {
+		cs.LastBridgeTS = bridgeTS
+		return d.handleSessionStart(cs, hp, e.Payload)
+	}
+
+	if bridgeTS > 0 && bridgeTS <= cs.LastBridgeTS {
+		slog.Warn("claude: dropping out-of-order hook",
+			"event", hp.HookEventName, "bridge_ts", bridgeTS, "last", cs.LastBridgeTS)
+		return cs, nil
+	}
+	if bridgeTS > 0 {
+		cs.LastBridgeTS = bridgeTS
+	}
+
+	if hp.HookEventName == "UserPromptSubmit" {
+		return d.handleUserPromptSubmit(cs, hp, e.Payload)
+	}
+
+	// All other hook events (PreToolUse, PostToolUse, Stop, etc.)
+	// go through the state-change path if they map to a status.
+	status := hp.deriveState()
+	if status == "" {
+		return cs, nil
+	}
+	return d.handleStateChange(cs, hp, status, e.Payload)
 }
 
 // handleSessionStart absorbs identity and kicks initial transcript
@@ -157,6 +179,18 @@ func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, payload
 		}
 	}
 	effs = append(effs, state.EffEventLogAppend{Line: "SessionStart"})
+
+	// Trigger branch detection immediately so the tag appears before
+	// the user types anything (Idle sessions are skipped by tick).
+	target := cs.WorkingDir
+	if target != "" && !cs.BranchInFlight {
+		cs.BranchInFlight = true
+		cs.BranchTarget = target
+		effs = append(effs, state.EffStartJob{
+			Input: BranchDetectInput{WorkingDir: target},
+		})
+	}
+
 	return cs, effs
 }
 
@@ -251,6 +285,16 @@ func absorbIdentityFromHP(cs ClaudeState, hp hookPayload) ClaudeState {
 		cs.TranscriptPath = hp.TranscriptPath
 	}
 	return cs
+}
+
+func payloadBridgeTS(payload map[string]any) int64 {
+	if v, ok := payload["bridge_ts"].(int64); ok {
+		return v
+	}
+	if f, ok := payload["bridge_ts"].(float64); ok {
+		return int64(f)
+	}
+	return 0
 }
 
 func payloadTime(payload map[string]any) time.Time {

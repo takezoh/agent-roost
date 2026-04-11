@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/take/agent-roost/lib/claude/transcript"
@@ -25,15 +26,10 @@ import (
 //   - Tags     = [CommandTag("claude"), BranchTag(BranchTag?)]
 //   - Indicators = derived from CurrentTool / SubagentCounts
 //
-// LogTabs are emitted by the runtime since the runtime is the only
-// component that knows the eventLogDir + per-session paths. The
-// driver only emits the abstract intent (transcript path) and the
-// runtime materializes the LogTab list when building proto payloads.
-//
 // StatusLine: cached from the transcript parse result.
 func (d ClaudeDriver) view(cs ClaudeState) state.View {
 	tags := []state.Tag{CommandTag("claude")}
-	if t := BranchTag(cs.BranchTag); t.Text != "" {
+	if t := BranchTag(cs.BranchTag, cs.BranchBG, cs.BranchFG); t.Text != "" {
 		tags = append(tags, t)
 	}
 
@@ -49,11 +45,13 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 			RendererCfg: rendererCfg,
 		})
 	}
-	// EVENTS tab path is filled in by the runtime when serializing
-	// SessionInfo since only the runtime knows the eventLogDir base.
-	// The driver declares its intent via SuppressInfo=false +
-	// LogTabs not containing EVENTS; the runtime appends EVENTS in
-	// proto building.
+	if cs.RoostSessionID != "" && d.eventLogDir != "" {
+		logTabs = append(logTabs, state.LogTab{
+			Label: "EVENTS",
+			Path:  filepath.Join(d.eventLogDir, cs.RoostSessionID+".log"),
+			Kind:  state.TabKindText,
+		})
+	}
 
 	return state.View{
 		Card: state.Card{

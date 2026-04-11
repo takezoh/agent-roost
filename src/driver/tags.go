@@ -7,10 +7,8 @@ import "github.com/take/agent-roost/state"
 // the driver package (not in tui/) — Tag colors are driver-owned per
 // ARCHITECTURE.md §描画責務の所在.
 const (
-	commandTagBg = "#78DCE8" // cyan-ish
-	commandTagFg = "#1d2021" // dark text on bright bg
-	branchTagBg  = "#A9DC76" // green-ish
-	branchTagFg  = "#1d2021"
+	commandTagBg = "#D97757" // Claude brand orange
+	commandTagFg = "#FFFFFF" // white text
 )
 
 // CommandTag returns the canonical command tag for a driver name. Every
@@ -24,15 +22,16 @@ func CommandTag(name string) state.Tag {
 	}
 }
 
-// BranchTag returns the standard git branch tag. Empty branch name
-// produces an empty Tag (Text == "") which callers should not append.
-func BranchTag(branch string) state.Tag {
+// BranchTag returns a VCS branch tag with pre-resolved brand colors.
+// Empty branch name produces an empty Tag (Text == "") which callers
+// should not append.
+func BranchTag(branch, bg, fg string) state.Tag {
 	if branch == "" {
 		return state.Tag{}
 	}
 	return state.Tag{
 		Text:       branch,
-		Background: branchTagBg,
-		Foreground: branchTagFg,
+		Background: bg,
+		Foreground: fg,
 	}
 }

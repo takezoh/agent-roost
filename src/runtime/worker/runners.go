@@ -18,13 +18,13 @@ import (
 	"github.com/take/agent-roost/driver"
 	"github.com/take/agent-roost/lib/claude/cli"
 	"github.com/take/agent-roost/lib/claude/transcript"
-	"github.com/take/agent-roost/lib/git"
+	"github.com/take/agent-roost/lib/vcs"
 )
 
 // Runners holds all runner functions used by the effect interpreter.
 type Runners struct {
 	CapturePane    func(driver.CapturePaneInput) (driver.CapturePaneResult, error)
-	GitBranch      func(driver.GitBranchInput) (driver.GitBranchResult, error)
+	BranchDetect   func(driver.BranchDetectInput) (driver.BranchDetectResult, error)
 	TranscriptParse func(driver.TranscriptParseInput) (driver.TranscriptParseResult, error)
 	HaikuSummary   func(driver.HaikuSummaryInput) (driver.HaikuSummaryResult, error)
 }
@@ -36,7 +36,7 @@ func NewRunners(capturePaneFn func(string, int) (string, error)) Runners {
 	tp, hs := newClaudeRunners()
 	return Runners{
 		CapturePane:     newCapturePane(capturePaneFn),
-		GitBranch:       newGitBranch(),
+		BranchDetect:    newBranchDetect(),
 		TranscriptParse: tp,
 		HaikuSummary:    hs,
 	}
@@ -56,9 +56,10 @@ func newCapturePane(captureFunc func(string, int) (string, error)) func(driver.C
 	}
 }
 
-func newGitBranch() func(driver.GitBranchInput) (driver.GitBranchResult, error) {
-	return func(in driver.GitBranchInput) (driver.GitBranchResult, error) {
-		return driver.GitBranchResult{Branch: git.DetectBranch(in.WorkingDir)}, nil
+func newBranchDetect() func(driver.BranchDetectInput) (driver.BranchDetectResult, error) {
+	return func(in driver.BranchDetectInput) (driver.BranchDetectResult, error) {
+		r := vcs.DetectBranch(in.WorkingDir)
+		return driver.BranchDetectResult{Branch: r.Branch, Background: r.Background, Foreground: r.Foreground}, nil
 	}
 }
 

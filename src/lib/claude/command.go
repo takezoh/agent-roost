@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/take/agent-roost/config"
 	"github.com/take/agent-roost/lib"
@@ -89,7 +90,10 @@ func runEvent() {
 	// field extraction (prompt, cwd, transcript_path, DeriveState).
 	// The bridge only does minimal parsing for routing (SessionID,
 	// HookEventName).
-	payload := map[string]any{"raw": string(input)}
+	payload := map[string]any{
+		"raw":       string(input),
+		"bridge_ts": time.Now().UnixNano(),
+	}
 	if err := client.SendHook("claude", event.HookEventName, sessionID, payload); err != nil {
 		slog.Debug("claude hook: send failed", "session", sessionID, "err", err)
 	}

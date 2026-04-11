@@ -16,7 +16,10 @@ func (ClaudeDriver) Persist(s state.DriverState) map[string]string {
 	if !ok {
 		return nil
 	}
-	out := make(map[string]string, 9)
+	out := make(map[string]string, 10)
+	if cs.RoostSessionID != "" {
+		out[claudeKeyRoostSessionID] = cs.RoostSessionID
+	}
 	if cs.ClaudeSessionID != "" {
 		out[claudeKeyClaudeSessionID] = cs.ClaudeSessionID
 	}
@@ -32,6 +35,12 @@ func (ClaudeDriver) Persist(s state.DriverState) map[string]string {
 	}
 	if cs.BranchTag != "" {
 		out[claudeKeyBranchTag] = cs.BranchTag
+	}
+	if cs.BranchBG != "" {
+		out[claudeKeyBranchBG] = cs.BranchBG
+	}
+	if cs.BranchFG != "" {
+		out[claudeKeyBranchFG] = cs.BranchFG
 	}
 	if cs.BranchTarget != "" {
 		out[claudeKeyBranchTarget] = cs.BranchTarget
@@ -61,6 +70,7 @@ func (d ClaudeDriver) Restore(bag map[string]string, now time.Time) state.Driver
 	if len(bag) == 0 {
 		return cs
 	}
+	cs.RoostSessionID = bag[claudeKeyRoostSessionID]
 	cs.ClaudeSessionID = bag[claudeKeyClaudeSessionID]
 	cs.WorkingDir = bag[claudeKeyWorkingDir]
 	cs.TranscriptPath = bag[claudeKeyTranscriptPath]
@@ -75,6 +85,8 @@ func (d ClaudeDriver) Restore(bag map[string]string, now time.Time) state.Driver
 		}
 	}
 	cs.BranchTag = bag[claudeKeyBranchTag]
+	cs.BranchBG = bag[claudeKeyBranchBG]
+	cs.BranchFG = bag[claudeKeyBranchFG]
 	cs.BranchTarget = bag[claudeKeyBranchTarget]
 	if v := bag[claudeKeyBranchAt]; v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {

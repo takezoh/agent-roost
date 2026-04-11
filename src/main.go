@@ -77,7 +77,8 @@ func runCoordinator() {
 	home, _ := os.UserHomeDir()
 
 	idleThreshold := time.Duration(cfg.Monitor.IdleThresholdSec) * time.Second
-	statedriver.RegisterDefaults(home, idleThreshold)
+	eventLogDir := filepath.Join(dataDir, "events")
+	statedriver.RegisterDefaults(home, eventLogDir, idleThreshold)
 
 	tmuxBackend := runtime.NewRealTmuxBackend(client)
 	pollInterval := time.Duration(cfg.Monitor.PollIntervalMs) * time.Millisecond

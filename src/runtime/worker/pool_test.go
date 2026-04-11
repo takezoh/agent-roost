@@ -20,8 +20,8 @@ func testRunners() Runners {
 		HaikuSummary: func(in driver.HaikuSummaryInput) (driver.HaikuSummaryResult, error) {
 			return driver.HaikuSummaryResult{Summary: "short summary"}, nil
 		},
-		GitBranch: func(in driver.GitBranchInput) (driver.GitBranchResult, error) {
-			return driver.GitBranchResult{Branch: "feature/x"}, nil
+		BranchDetect: func(in driver.BranchDetectInput) (driver.BranchDetectResult, error) {
+			return driver.BranchDetectResult{Branch: "feature/x", Background: "#F05032", Foreground: "#FFFFFF"}, nil
 		},
 		TranscriptParse: func(in driver.TranscriptParseInput) (driver.TranscriptParseResult, error) {
 			return driver.TranscriptParseResult{Title: "test"}, nil
@@ -76,12 +76,12 @@ func TestPoolHaikuRoundTrip(t *testing.T) {
 	}
 }
 
-func TestPoolGitBranch(t *testing.T) {
+func TestPoolBranchDetect(t *testing.T) {
 	pool := NewPool(1)
 	defer pool.Stop()
 	runners := testRunners()
 
-	Submit(pool, 4, driver.GitBranchInput{WorkingDir: "/tmp"}, runners.GitBranch)
+	Submit(pool, 4, driver.BranchDetectInput{WorkingDir: "/tmp"}, runners.BranchDetect)
 
 	select {
 	case ev := <-pool.Results():
@@ -89,9 +89,12 @@ func TestPoolGitBranch(t *testing.T) {
 		if res.Err != nil {
 			t.Fatalf("err = %v", res.Err)
 		}
-		gbr := res.Result.(driver.GitBranchResult)
-		if gbr.Branch != "feature/x" {
-			t.Errorf("Branch = %q", gbr.Branch)
+		bdr := res.Result.(driver.BranchDetectResult)
+		if bdr.Branch != "feature/x" {
+			t.Errorf("Branch = %q", bdr.Branch)
+		}
+		if bdr.Background != "#F05032" {
+			t.Errorf("Background = %q", bdr.Background)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout")

@@ -62,14 +62,16 @@ type TranscriptParseResult struct {
 	Subagents   map[string]int
 }
 
-// GitBranchInput asks the worker to detect the current git branch for
-// the given working directory.
-type GitBranchInput struct {
+// BranchDetectInput asks the worker to detect the current VCS branch
+// for the given working directory.
+type BranchDetectInput struct {
 	WorkingDir string
 }
 
-// GitBranchResult carries the detected branch name (empty when not a
-// git repo or detection failed).
-type GitBranchResult struct {
-	Branch string
+// BranchDetectResult carries the detected branch name and brand colors.
+// All fields are empty when no VCS is detected.
+type BranchDetectResult struct {
+	Branch     string
+	Background string // brand color hex
+	Foreground string // text color hex
 }

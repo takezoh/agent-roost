@@ -183,10 +183,6 @@ func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
 		if drv != nil {
 			view = drv.View(sess.Driver)
 		}
-		// Append the EVENTS log tab the runtime owns (driver only
-		// declares its intent — the runtime knows the file path).
-		view = r.appendEventLogTab(view, sess.ID)
-
 		info := proto.SessionInfo{
 			ID:          string(sess.ID),
 			Project:     sess.Project,
@@ -203,21 +199,6 @@ func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
 		infos = append(infos, info)
 	}
 	return infos, string(r.state.Active)
-}
-
-// appendEventLogTab attaches the EVENTS LogTab to a view, using the
-// runtime's eventlog backend to resolve the on-disk path. Drivers
-// don't know the eventLog directory, so the runtime stitches it in
-// when serializing.
-func (r *Runtime) appendEventLogTab(view state.View, sessionID state.SessionID) state.View {
-	if fl, ok := r.cfg.EventLog.(*FileEventLog); ok {
-		view.LogTabs = append(view.LogTabs, state.LogTab{
-			Label: "EVENTS",
-			Path:  fl.Path(sessionID),
-			Kind:  state.TabKindText,
-		})
-	}
-	return view
 }
 
 func typeNameOf(v any) string {

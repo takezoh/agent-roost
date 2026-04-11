@@ -30,7 +30,7 @@ func (d ClaudeDriver) handleTick(cs ClaudeState, e state.DEvTick) (ClaudeState, 
 	cs.BranchTarget = target // record what we asked about so the result can be matched
 	return cs, []state.Effect{
 		state.EffStartJob{
-			Input: GitBranchInput{WorkingDir: target},
+			Input: BranchDetectInput{WorkingDir: target},
 		},
 	}
 }
@@ -90,12 +90,14 @@ func (d ClaudeDriver) handleJobResult(cs ClaudeState, e state.DEvJobResult) (Cla
 		}
 		return cs, nil
 
-	case GitBranchResult:
+	case BranchDetectResult:
 		cs.BranchInFlight = false
 		if e.Err != nil {
 			return cs, nil
 		}
 		cs.BranchTag = r.Branch
+		cs.BranchBG = r.Background
+		cs.BranchFG = r.Foreground
 		cs.BranchAt = e.Now
 		return cs, nil
 	}
