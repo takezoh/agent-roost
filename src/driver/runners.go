@@ -42,7 +42,10 @@ func newCapturePane(captureFunc func(string, int) (string, error)) func(CaptureP
 func newBranchDetect() func(BranchDetectInput) (BranchDetectResult, error) {
 	return func(in BranchDetectInput) (BranchDetectResult, error) {
 		r := vcs.DetectBranch(in.WorkingDir)
-		return BranchDetectResult{Branch: r.Branch, Background: r.Background, Foreground: r.Foreground}, nil
+		return BranchDetectResult{
+			Branch: r.Branch, Background: r.Background, Foreground: r.Foreground,
+			IsWorktree: r.IsWorktree, ParentBranch: r.ParentBranch,
+		}, nil
 	}
 }
 

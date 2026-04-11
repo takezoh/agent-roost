@@ -110,6 +110,52 @@ func TestDetectBranchNoRemote(t *testing.T) {
 	}
 }
 
+func TestDetectBranch_Worktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-b", "main")
+	gitRun(t, dir, "config", "user.email", "test@test.com")
+	gitRun(t, dir, "config", "user.name", "Test")
+	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
+	gitRun(t, dir, "branch", "feature")
+	wtDir := t.TempDir()
+	gitRun(t, dir, "worktree", "add", wtDir, "feature")
+
+	r := DetectBranch(wtDir)
+	if r.Branch != "feature" {
+		t.Errorf("Branch = %q, want %q", r.Branch, "feature")
+	}
+	if !r.IsWorktree {
+		t.Error("IsWorktree = false, want true")
+	}
+	if r.ParentBranch != "main" {
+		t.Errorf("ParentBranch = %q, want %q", r.ParentBranch, "main")
+	}
+}
+
+func TestDetectBranch_MainRepo_NotWorktree(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-b", "main")
+	gitRun(t, dir, "config", "user.email", "test@test.com")
+	gitRun(t, dir, "config", "user.name", "Test")
+	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
+
+	r := DetectBranch(dir)
+	if r.IsWorktree {
+		t.Error("IsWorktree = true, want false")
+	}
+	if r.ParentBranch != "" {
+		t.Errorf("ParentBranch = %q, want empty", r.ParentBranch)
+	}
+}
+
 func TestDetectBranchNoVCS(t *testing.T) {
 	dir := t.TempDir()
 	r := DetectBranch(dir)

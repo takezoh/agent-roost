@@ -30,7 +30,7 @@ import (
 // StatusLine: cached from the transcript parse result.
 func (d ClaudeDriver) view(cs ClaudeState) state.View {
 	var tags []state.Tag
-	if t := BranchTag(cs.BranchTag, cs.BranchBG, cs.BranchFG); t.Text != "" {
+	if t := BranchTag(cs.BranchTag, cs.BranchBG, cs.BranchFG, cs.BranchParentBranch); t.Text != "" {
 		tags = append(tags, t)
 	}
 
@@ -102,6 +102,9 @@ func claudeInfoExtras(cs ClaudeState) []state.InfoLine {
 	add("Summary", cs.Summary)
 	add("Last Prompt", cs.LastPrompt)
 	add("Working Dir", cs.WorkingDir)
+	if cs.BranchIsWorktree {
+		add("Parent Branch", cs.BranchParentBranch)
+	}
 	add("Transcript", cs.TranscriptPath)
 	return lines
 }

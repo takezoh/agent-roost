@@ -67,6 +67,75 @@ func TestDetectRemoteHost_NotGitDir(t *testing.T) {
 	}
 }
 
+func TestIsWorktree_MainRepo(t *testing.T) {
+	dir := initRepo(t)
+	if IsWorktree(dir) {
+		t.Error("IsWorktree = true for main repo, want false")
+	}
+}
+
+func TestIsWorktree_LinkedWorktree(t *testing.T) {
+	dir := initRepo(t)
+	gitRun(t, dir, "branch", "feature")
+	wtDir := t.TempDir()
+	gitRun(t, dir, "worktree", "add", wtDir, "feature")
+
+	if !IsWorktree(wtDir) {
+		t.Error("IsWorktree = false for linked worktree, want true")
+	}
+}
+
+func TestDetectMainBranch_LinkedWorktree(t *testing.T) {
+	dir := initRepo(t)
+	gitRun(t, dir, "branch", "feature")
+	wtDir := t.TempDir()
+	gitRun(t, dir, "worktree", "add", wtDir, "feature")
+
+	got := DetectMainBranch(wtDir)
+	if got != "main" {
+		t.Errorf("DetectMainBranch = %q, want %q", got, "main")
+	}
+}
+
+func TestDetectMainBranch_NoGit(t *testing.T) {
+	dir := t.TempDir()
+	got := DetectMainBranch(dir)
+	if got != "" {
+		t.Errorf("DetectMainBranch = %q, want empty", got)
+	}
+}
+
+func TestParseMainBranch(t *testing.T) {
+	tests := []struct {
+		name   string
+		output string
+		want   string
+	}{
+		{
+			name:   "normal",
+			output: "worktree /home/user/repo\nHEAD abc123\nbranch refs/heads/main\n\nworktree /tmp/wt\nHEAD def456\nbranch refs/heads/feature\n\n",
+			want:   "main",
+		},
+		{
+			name:   "detached HEAD in main",
+			output: "worktree /home/user/repo\nHEAD abc123\ndetached\n\nworktree /tmp/wt\nHEAD def456\nbranch refs/heads/feature\n\n",
+			want:   "",
+		},
+		{
+			name:   "empty",
+			output: "",
+			want:   "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := parseMainBranch(tt.output); got != tt.want {
+				t.Errorf("parseMainBranch = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestParseHost(t *testing.T) {
 	tests := []struct {
 		raw  string

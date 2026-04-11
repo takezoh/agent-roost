@@ -689,11 +689,13 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 		TranscriptPath:  "/tmp/x.jsonl",
 		Status:          state.StatusRunning,
 		StatusChangedAt: now,
-		BranchTag:       "main",
-		BranchBG:        "#F05032",
-		BranchFG:        "#FFFFFF",
-		BranchTarget:    "/work",
-		BranchAt:        now,
+		BranchTag:          "main",
+		BranchBG:           "#F05032",
+		BranchFG:           "#FFFFFF",
+		BranchTarget:       "/work",
+		BranchAt:           now,
+		BranchIsWorktree:   true,
+		BranchParentBranch: "develop",
 		Summary:         "summary",
 		Title:           "Refactor X",
 		LastPrompt:      "do the thing",
@@ -729,6 +731,12 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 	}
 	if restored.BranchFG != "#FFFFFF" {
 		t.Errorf("restored BranchFG = %q", restored.BranchFG)
+	}
+	if !restored.BranchIsWorktree {
+		t.Error("restored BranchIsWorktree = false, want true")
+	}
+	if restored.BranchParentBranch != "develop" {
+		t.Errorf("restored BranchParentBranch = %q", restored.BranchParentBranch)
 	}
 	if restored.Summary != "summary" {
 		t.Errorf("restored Summary = %q", restored.Summary)
@@ -865,6 +873,16 @@ func TestClaudeViewBranchTagWhenSet(t *testing.T) {
 	v := d.view(cs)
 	if len(v.Card.Tags) < 1 || v.Card.Tags[0].Text != "feat-x" {
 		t.Errorf("branch tag missing: %+v", v.Card.Tags)
+	}
+}
+
+func TestClaudeViewBranchTagWorktree(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.BranchTag = "feature"
+	cs.BranchParentBranch = "main"
+	v := d.view(cs)
+	if len(v.Card.Tags) < 1 || v.Card.Tags[0].Text != "feature \u2190 main" {
+		t.Errorf("worktree branch tag: %+v", v.Card.Tags)
 	}
 }
 

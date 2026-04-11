@@ -22,14 +22,20 @@ func CommandTag(name string) state.Tag {
 }
 
 // BranchTag returns a VCS branch tag with pre-resolved brand colors.
+// When parentBranch is non-empty the tag text includes an arrow
+// showing the main worktree's branch (e.g. "feature ← main").
 // Empty branch name produces an empty Tag (Text == "") which callers
 // should not append.
-func BranchTag(branch, bg, fg string) state.Tag {
+func BranchTag(branch, bg, fg, parentBranch string) state.Tag {
 	if branch == "" {
 		return state.Tag{}
 	}
+	text := branch
+	if parentBranch != "" {
+		text = branch + " \u2190 " + parentBranch
+	}
 	return state.Tag{
-		Text:       branch,
+		Text:       text,
 		Background: bg,
 		Foreground: fg,
 	}

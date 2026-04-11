@@ -48,6 +48,12 @@ func (ClaudeDriver) Persist(s state.DriverState) map[string]string {
 	if !cs.BranchAt.IsZero() {
 		out[claudeKeyBranchAt] = cs.BranchAt.UTC().Format(time.RFC3339)
 	}
+	if cs.BranchIsWorktree {
+		out[claudeKeyBranchIsWorktree] = "1"
+	}
+	if cs.BranchParentBranch != "" {
+		out[claudeKeyBranchParentBranch] = cs.BranchParentBranch
+	}
 	if cs.Summary != "" {
 		out[claudeKeySummary] = cs.Summary
 	}
@@ -93,6 +99,8 @@ func (d ClaudeDriver) Restore(bag map[string]string, now time.Time) state.Driver
 			cs.BranchAt = t
 		}
 	}
+	cs.BranchIsWorktree = bag[claudeKeyBranchIsWorktree] == "1"
+	cs.BranchParentBranch = bag[claudeKeyBranchParentBranch]
 	cs.Summary = bag[claudeKeySummary]
 	cs.Title = bag[claudeKeyTitle]
 	cs.LastPrompt = bag[claudeKeyLastPrompt]
