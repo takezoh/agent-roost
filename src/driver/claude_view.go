@@ -71,6 +71,9 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 
 func claudeIndicators(cs ClaudeState) []string {
 	var out []string
+	if cs.HangDetected {
+		out = append(out, "stale?")
+	}
 	if cs.CurrentTool != "" {
 		out = append(out, "▸ "+cs.CurrentTool)
 	}
