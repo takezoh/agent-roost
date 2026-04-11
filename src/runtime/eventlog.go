@@ -92,8 +92,7 @@ func (f *FileEventLog) CloseAll() {
 	}
 }
 
-// Path returns the on-disk path of a session's log file. Used by the
-// proto LogTab serialization.
+// Path returns the on-disk path of a session's log file.
 func (f *FileEventLog) Path(sessionID state.SessionID) string {
 	return filepath.Join(f.dir, string(sessionID)+".log")
 }

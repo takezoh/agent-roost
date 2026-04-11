@@ -10,6 +10,7 @@ import (
 )
 
 const testHome = "/home/test"
+const testEventLogDir = "/data/events"
 
 // hookPayloadRaw builds a DEvHook payload with a "raw" JSON key from
 // the given fields. Extra kv pairs can be added via the extras map.
@@ -27,7 +28,7 @@ func hookPayloadRaw(fields map[string]string, now time.Time) map[string]any {
 func newClaude(t *testing.T) (ClaudeDriver, ClaudeState, time.Time) {
 	t.Helper()
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := d.NewState(now).(ClaudeState)
 	return d, cs, now
 }
@@ -137,6 +138,22 @@ func TestClaudeSessionStartNoCwdSkipsBranchDetect(t *testing.T) {
 	})
 	if next.BranchInFlight {
 		t.Error("BranchInFlight should be false when cwd is empty")
+	}
+}
+
+func TestClaudeSessionStartAbsorbsRoostSessionID(t *testing.T) {
+	d, cs, now := newClaude(t)
+	payload := hookPayloadRaw(map[string]string{
+		"session_id":      "claude-uuid",
+		"hook_event_name": "SessionStart",
+	}, now)
+	payload["roost_session_id"] = "roost-abc"
+	next, _ := d.handleHook(cs, state.DEvHook{
+		Event:   "SessionStart",
+		Payload: payload,
+	})
+	if next.RoostSessionID != "roost-abc" {
+		t.Errorf("RoostSessionID = %q, want roost-abc", next.RoostSessionID)
 	}
 }
 
@@ -457,9 +474,10 @@ func TestClaudeBranchResultMerges(t *testing.T) {
 // === Persistence ===
 
 func TestClaudePersistRoundTrip(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	cs := ClaudeState{
+		RoostSessionID:  "roost-1",
 		ClaudeSessionID: "uuid-1",
 		WorkingDir:      "/work",
 		TranscriptPath:  "/tmp/x.jsonl",
@@ -475,6 +493,9 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 		LastPrompt:      "do the thing",
 	}
 	bag := d.Persist(cs)
+	if bag[claudeKeyRoostSessionID] != "roost-1" {
+		t.Errorf("persist roost_session_id = %q", bag[claudeKeyRoostSessionID])
+	}
 	if bag[claudeKeyClaudeSessionID] != "uuid-1" {
 		t.Errorf("persist session_id = %q", bag[claudeKeyClaudeSessionID])
 	}
@@ -482,6 +503,9 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 		t.Errorf("persist status = %q", bag[claudeKeyStatus])
 	}
 	restored := d.Restore(bag, time.Now()).(ClaudeState)
+	if restored.RoostSessionID != "roost-1" {
+		t.Errorf("restored RoostSessionID = %q", restored.RoostSessionID)
+	}
 	if restored.ClaudeSessionID != cs.ClaudeSessionID {
 		t.Errorf("restored ClaudeSessionID = %q", restored.ClaudeSessionID)
 	}
@@ -512,7 +536,7 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 }
 
 func TestClaudeRestoreEmpty(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	cs := d.Restore(nil, now).(ClaudeState)
 	if cs.Status != state.StatusIdle {
@@ -526,7 +550,7 @@ func TestClaudeRestoreEmpty(t *testing.T) {
 // === SpawnCommand ===
 
 func TestClaudeSpawnCommandResume(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{ClaudeSessionID: "uuid-X"}
 	got := d.SpawnCommand(cs, "claude")
 	want := "claude --resume uuid-X"
@@ -536,7 +560,7 @@ func TestClaudeSpawnCommandResume(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandNoSession(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{}
 	got := d.SpawnCommand(cs, "claude --foo")
 	if got != "claude --foo" {
@@ -545,7 +569,7 @@ func TestClaudeSpawnCommandNoSession(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandStripsWorktree(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
 	got := d.SpawnCommand(cs, "claude --worktree")
 	want := "claude --resume uuid-W"
@@ -555,7 +579,7 @@ func TestClaudeSpawnCommandStripsWorktree(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandStripsWorktreeWithName(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
 	got := d.SpawnCommand(cs, "claude --worktree my-branch")
 	want := "claude --resume uuid-W"
@@ -565,7 +589,7 @@ func TestClaudeSpawnCommandStripsWorktreeWithName(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandStripsWorktreeEquals(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
 	got := d.SpawnCommand(cs, "claude --worktree=my-branch")
 	want := "claude --resume uuid-W"
@@ -575,7 +599,7 @@ func TestClaudeSpawnCommandStripsWorktreeEquals(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandAlreadyHasResume(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{ClaudeSessionID: "uuid-Y"}
 	got := d.SpawnCommand(cs, "claude --resume preset")
 	if got != "claude --resume preset" {
@@ -652,6 +676,37 @@ func TestClaudeViewLogTabsTranscript(t *testing.T) {
 	}
 }
 
+func TestClaudeViewEventsTab(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.TranscriptPath = "/tmp/x.jsonl"
+	cs.RoostSessionID = "sess-1"
+	v := d.view(cs)
+	if len(v.LogTabs) < 2 {
+		t.Fatalf("expected TRANSCRIPT + EVENTS tabs, got %d", len(v.LogTabs))
+	}
+	ev := v.LogTabs[1]
+	if ev.Label != "EVENTS" {
+		t.Errorf("LogTab[1].Label = %q, want EVENTS", ev.Label)
+	}
+	if ev.Path != "/data/events/sess-1.log" {
+		t.Errorf("LogTab[1].Path = %q, want /data/events/sess-1.log", ev.Path)
+	}
+	if ev.Kind != state.TabKindText {
+		t.Errorf("LogTab[1].Kind = %q, want text", ev.Kind)
+	}
+}
+
+func TestClaudeViewEventsTabOmittedWithoutRoostSessionID(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.TranscriptPath = "/tmp/x.jsonl"
+	v := d.view(cs)
+	for _, tab := range v.LogTabs {
+		if tab.Label == "EVENTS" {
+			t.Error("EVENTS tab should not appear without RoostSessionID")
+		}
+	}
+}
+
 func TestClaudeViewInfoExtras(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.Title = "T"
@@ -695,7 +750,7 @@ func TestClaudeStepRoundTripSessionStartThenView(t *testing.T) {
 }
 
 func TestResolveTranscriptPathFallback(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{
 		ClaudeSessionID: "uuid-Z",
 		WorkingDir:      "/some/work",
@@ -708,7 +763,7 @@ func TestResolveTranscriptPathFallback(t *testing.T) {
 }
 
 func TestResolveTranscriptPathPrefersExplicit(t *testing.T) {
-	d := NewClaudeDriver(testHome)
+	d := NewClaudeDriver(testHome, testEventLogDir)
 	cs := ClaudeState{
 		TranscriptPath:  "/explicit/path.jsonl",
 		ClaudeSessionID: "u",

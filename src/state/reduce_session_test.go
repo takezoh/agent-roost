@@ -531,6 +531,19 @@ func TestReduceHookRoutes(t *testing.T) {
 	}
 }
 
+func TestReduceHookInjectsRoostSessionID(t *testing.T) {
+	s := New()
+	id := SessionID("roost-xyz")
+	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	_, effs := Reduce(s, EvCmdHook{
+		ConnID: 1, ReqID: "r", SessionID: id, Event: "test",
+		Payload: map[string]any{},
+	})
+	if _, ok := findEff[EffSendError](effs); ok {
+		t.Error("unexpected error from hook with empty payload")
+	}
+}
+
 // === postProcessEffect ===
 
 func TestPostProcessAssignsJobID(t *testing.T) {

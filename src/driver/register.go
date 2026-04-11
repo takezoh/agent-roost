@@ -14,9 +14,9 @@ import (
 // Called from main() during runtime startup. The runtime needs both
 // the home directory (for Claude transcript path resolution) and the
 // idle threshold (for the generic driver's polling timeout).
-func RegisterDefaults(home string, idleThreshold time.Duration) {
+func RegisterDefaults(home, eventLogDir string, idleThreshold time.Duration) {
 	registerOnce.Do(func() {
-		state.Register(NewClaudeDriver(home))
+		state.Register(NewClaudeDriver(home, eventLogDir))
 		state.Register(NewGenericDriver("bash", idleThreshold))
 		state.Register(NewGenericDriver("codex", idleThreshold))
 		state.Register(NewGenericDriver("gemini", idleThreshold))

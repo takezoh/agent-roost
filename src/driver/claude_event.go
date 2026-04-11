@@ -110,6 +110,10 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 		return cs, nil
 	}
 
+	if v, ok := e.Payload["roost_session_id"].(string); ok && v != "" {
+		cs.RoostSessionID = v
+	}
+
 	switch hp.HookEventName {
 	case "SessionStart":
 		return d.handleSessionStart(cs, hp, e.Payload)

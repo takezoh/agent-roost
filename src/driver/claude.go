@@ -34,6 +34,7 @@ const (
 	claudeKeySummary         = "summary"
 	claudeKeyTitle           = "title"
 	claudeKeyLastPrompt      = "last_prompt"
+	claudeKeyRoostSessionID  = "roost_session_id"
 
 	// Re-detect branch at most every N seconds (only when active).
 	claudeBranchRefreshInterval = 30 * time.Second
@@ -46,6 +47,7 @@ type ClaudeState struct {
 	state.DriverStateBase
 
 	// Identity (set via Restore or DEvHook session-start payload).
+	RoostSessionID  string // roost session id; used to build the event log path
 	ClaudeSessionID string // distinct from roost session id; the *Claude* conversation id
 	WorkingDir      string
 	TranscriptPath  string
@@ -82,14 +84,15 @@ type ClaudeState struct {
 // canonical ~/.claude/projects/... path when the agent hasn't reported
 // transcript_path yet.
 type ClaudeDriver struct {
-	home string
+	home        string
+	eventLogDir string
 }
 
 // NewClaudeDriver constructs a Claude driver bound to the user's home
-// directory. The runtime constructs one of these at startup and
-// registers it with state.Register.
-func NewClaudeDriver(home string) ClaudeDriver {
-	return ClaudeDriver{home: home}
+// directory and event log directory. The runtime constructs one of
+// these at startup and registers it with state.Register.
+func NewClaudeDriver(home, eventLogDir string) ClaudeDriver {
+	return ClaudeDriver{home: home, eventLogDir: eventLogDir}
 }
 
 func (ClaudeDriver) Name() string        { return "claude" }

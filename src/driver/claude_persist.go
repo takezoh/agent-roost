@@ -16,7 +16,10 @@ func (ClaudeDriver) Persist(s state.DriverState) map[string]string {
 	if !ok {
 		return nil
 	}
-	out := make(map[string]string, 9)
+	out := make(map[string]string, 10)
+	if cs.RoostSessionID != "" {
+		out[claudeKeyRoostSessionID] = cs.RoostSessionID
+	}
 	if cs.ClaudeSessionID != "" {
 		out[claudeKeyClaudeSessionID] = cs.ClaudeSessionID
 	}
@@ -67,6 +70,7 @@ func (d ClaudeDriver) Restore(bag map[string]string, now time.Time) state.Driver
 	if len(bag) == 0 {
 		return cs
 	}
+	cs.RoostSessionID = bag[claudeKeyRoostSessionID]
 	cs.ClaudeSessionID = bag[claudeKeyClaudeSessionID]
 	cs.WorkingDir = bag[claudeKeyWorkingDir]
 	cs.TranscriptPath = bag[claudeKeyTranscriptPath]
