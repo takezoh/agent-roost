@@ -169,6 +169,57 @@ func okResp(connID ConnID, reqID string, body any) Effect {
 	}
 }
 
+// stepConnector runs a connector's Step and post-processes effects.
+// Mirrors stepDriver but for daemon-level connectors rather than
+// per-session drivers. Returns the new State, post-processed effects,
+// and a "found" bool that's false when the connector is unknown.
+func stepConnector(s State, name string, ev ConnectorEvent) (State, []Effect, bool) {
+	conn := GetConnector(name)
+	if conn == nil {
+		return s, nil, false
+	}
+	cs := s.Connectors[name]
+	if cs == nil {
+		return s, nil, false
+	}
+	nextCS, rawEffs := conn.Step(cs, ev)
+
+	s.Connectors = cloneConnectors(s.Connectors)
+	s.Connectors[name] = nextCS
+
+	if len(rawEffs) == 0 {
+		return s, nil, true
+	}
+
+	out := make([]Effect, 0, len(rawEffs))
+	for _, eff := range rawEffs {
+		patched, newState := postProcessConnectorEffect(s, name, eff)
+		s = newState
+		out = append(out, patched)
+	}
+	return s, out, true
+}
+
+// postProcessConnectorEffect fills in connector context for effects.
+// For EffStartJob, it allocates a JobID and records JobMeta with
+// Connector set instead of SessionID.
+func postProcessConnectorEffect(s State, connName string, eff Effect) (Effect, State) {
+	switch e := eff.(type) {
+	case EffStartJob:
+		s.NextJobID++
+		jobID := s.NextJobID
+		s.Jobs = cloneJobs(s.Jobs)
+		s.Jobs[jobID] = JobMeta{
+			Connector: connName,
+			StartedAt: s.Now,
+		}
+		e.JobID = jobID
+		return e, s
+	default:
+		return eff, s
+	}
+}
+
 // === ErrCode constants used by reducers ===
 //
 // These mirror proto.ErrCode but live in state pkg so reducers can

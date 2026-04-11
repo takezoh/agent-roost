@@ -30,6 +30,7 @@ type Model struct {
 	keys     KeyMap
 
 	sessions   []proto.SessionInfo
+	connectors []proto.ConnectorInfo
 	items      []listItem
 	cursor     int
 	offset     int // first visible item index for scrolling
@@ -123,6 +124,7 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 	switch e := ev.(type) {
 	case proto.EvtSessionsChanged:
 		m.sessions = e.Sessions
+		m.connectors = e.Connectors
 		m.rebuildItems()
 		if e.ActiveWindowID != "" && e.ActiveWindowID != m.active {
 			m.active = e.ActiveWindowID
@@ -143,13 +145,14 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 
 func (m Model) requestSessions() tea.Cmd {
 	return func() tea.Msg {
-		sessions, activeWID, err := m.client.ListSessions()
+		sessions, activeWID, connectors, err := m.client.ListSessions()
 		if err != nil {
 			return nil
 		}
 		return serverEventMsg{event: proto.EvtSessionsChanged{
 			Sessions:       sessions,
 			ActiveWindowID: activeWID,
+			Connectors:     connectors,
 		}}
 	}
 }
@@ -325,7 +328,7 @@ func (m Model) visibleEnd(bodyHeight int) int {
 }
 
 func (m Model) rowToItemIndex(y int) int {
-	row := sessionsHeaderRows
+	row := m.headerRowCount()
 	if m.offset > 0 {
 		row++ // "↑ N more" indicator line
 	}
@@ -397,6 +400,38 @@ func (m Model) findSessionCursorByWindowID(wid string) int {
 		}
 	}
 	return -1
+}
+
+// headerRowCount returns the number of rendered rows before the first
+// list item. Accounts for the optional connector summary line.
+func (m Model) headerRowCount() int {
+	n := 3 // header + filter bar + blank
+	if m.hasConnectorSummary() {
+		n++
+	}
+	return n
+}
+
+func (m Model) hasConnectorSummary() bool {
+	return m.connectorSummaryLine() != ""
+}
+
+// connectorSummaryLine returns the combined summary text from all
+// available connectors, or "" if none.
+func (m Model) connectorSummaryLine() string {
+	if len(m.connectors) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, c := range m.connectors {
+		if c.Summary != "" {
+			parts = append(parts, c.Summary)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (m Model) firstSessionIndex() int {

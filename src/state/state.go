@@ -35,6 +35,9 @@ type State struct {
 	ShutdownReq bool
 	Aliases        map[string]string // command alias expansion (e.g. "cw" → "codex --workspace")
 	DefaultCommand string            // fallback when session command is empty
+
+	Connectors      map[string]ConnectorState // connector name → state
+	ConnectorsReady bool                      // true after first initialization
 }
 
 // Session is the static metadata + driver state of one roost session.
@@ -60,9 +63,10 @@ type Subscriber struct {
 
 // JobMeta is the in-flight worker bookkeeping for one async job. The
 // runtime worker pool reports back via EvJobResult, which the reducer
-// looks up here to find which session the result belongs to.
+// looks up here to find which session or connector the result belongs to.
 type JobMeta struct {
 	SessionID SessionID
+	Connector string // non-empty → route result to this connector
 	StartedAt time.Time
 }
 
@@ -73,5 +77,6 @@ func New() State {
 		Sessions:    map[SessionID]Session{},
 		Subscribers: map[ConnID]Subscriber{},
 		Jobs:        map[JobID]JobMeta{},
+		Connectors:  map[string]ConnectorState{},
 	}
 }

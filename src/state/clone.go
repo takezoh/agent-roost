@@ -30,3 +30,11 @@ func cloneJobs(in map[JobID]JobMeta) map[JobID]JobMeta {
 	}
 	return out
 }
+
+func cloneConnectors(in map[string]ConnectorState) map[string]ConnectorState {
+	out := make(map[string]ConnectorState, len(in)+1)
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}

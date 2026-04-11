@@ -12,11 +12,26 @@ func reduceJobResult(s State, e EvJobResult) (State, []Effect) {
 		return s, nil
 	}
 
-	// Remove the job entry up front so a driver Step that races on
-	// the same job kind doesn't see itself.
+	// Remove the job entry up front so a Step that races on the same
+	// job kind doesn't see itself.
 	s.Jobs = cloneJobs(s.Jobs)
 	delete(s.Jobs, e.JobID)
 
+	// Connector job — route to the connector's Step.
+	if meta.Connector != "" {
+		next, effs, ok := stepConnector(s, meta.Connector, CEvJobResult{
+			Result: e.Result,
+			Err:    e.Err,
+			Now:    s.Now,
+		})
+		if !ok {
+			return s, nil
+		}
+		effs = append(effs, EffBroadcastSessionsChanged{})
+		return next, effs
+	}
+
+	// Driver job — route to the session's driver Step.
 	next, effs, _, ok := stepDriver(s, meta.SessionID, DEvJobResult{
 		Result: e.Result,
 		Err:    e.Err,

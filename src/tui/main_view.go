@@ -8,6 +8,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/takezoh/agent-roost/proto"
+	"github.com/takezoh/agent-roost/state"
 )
 
 func (m MainModel) View() tea.View {
@@ -15,6 +16,14 @@ func (m MainModel) View() tea.View {
 		titleStyle.Render("ROOST"),
 		"",
 		renderKeybindingsBody(),
+	}
+
+	for _, c := range m.connectors {
+		if !c.Available || len(c.Sections) == 0 {
+			continue
+		}
+		parts = append(parts, "", projectStyle.Render(c.Label))
+		parts = append(parts, renderConnectorSections(c.Sections)...)
 	}
 
 	if name := m.selectedProjectName(); name != "" {
@@ -46,6 +55,21 @@ func renderKeybindingsBody() string {
 		))
 	}
 	return b.String()
+}
+
+func renderConnectorSections(sections []state.ConnectorSection) []string {
+	var parts []string
+	for _, sec := range sections {
+		parts = append(parts, mutedStyle.Render(sec.Title))
+		for _, item := range sec.Items {
+			parts = append(parts, fmt.Sprintf("%s %s  %s",
+				mutedStyle.Render(item.Symbol),
+				item.Title,
+				mutedStyle.Render(item.Meta),
+			))
+		}
+	}
+	return parts
 }
 
 func renderProjectSessionsBody(sessions []proto.SessionInfo) string {
