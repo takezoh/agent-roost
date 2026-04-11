@@ -54,8 +54,8 @@ func Reduce(s State, ev Event) (State, []Effect) {
 		return reduceJobResult(s, e)
 
 	// fsnotify
-	case EvTranscriptChanged:
-		return reduceTranscriptChanged(s, e)
+	case EvFileChanged:
+		return reduceFileChanged(s, e)
 
 	// connection lifecycle
 	case EvConnOpened:

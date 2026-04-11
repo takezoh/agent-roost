@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/take/agent-roost/driver"
 	"github.com/take/agent-roost/runtime/worker"
 	"github.com/take/agent-roost/state"
 )
@@ -143,14 +142,20 @@ func (r *Runtime) execute(eff state.Effect) {
 
 	// === fsnotify ===
 
-	case state.EffWatchTranscript:
+	case state.EffWatchFile:
 		if err := r.cfg.Watcher.Watch(e.SessionID, e.Path); err != nil {
 			slog.Debug("runtime: watch failed", "path", e.Path, "err", err)
 		}
+		if r.relay != nil {
+			r.relay.WatchFile(e.SessionID, e.Path, e.Kind)
+		}
 
-	case state.EffUnwatchTranscript:
+	case state.EffUnwatchFile:
 		if err := r.cfg.Watcher.Unwatch(e.SessionID); err != nil {
 			slog.Debug("runtime: unwatch failed", "session", e.SessionID, "err", err)
+		}
+		if r.relay != nil {
+			r.relay.UnwatchFile(e.SessionID)
 		}
 
 	// === Event log ===
@@ -264,34 +269,10 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// submitJob dispatches an EffStartJob to the worker pool using the
-// typed Submit[In, Out] generic function. The type switch here
-// replaces the old reflect.Type-based Executor registry.
+// submitJob dispatches an EffStartJob to the worker pool via the
+// global runner registry.
 func (r *Runtime) submitJob(e state.EffStartJob) {
-	switch input := e.Input.(type) {
-	case driver.CapturePaneInput:
-		if r.runners.CapturePane == nil {
-			return
-		}
-		worker.Submit(r.workers, e.JobID, input, r.runners.CapturePane)
-	case driver.TranscriptParseInput:
-		if r.runners.TranscriptParse == nil {
-			return
-		}
-		worker.Submit(r.workers, e.JobID, input, r.runners.TranscriptParse)
-	case driver.HaikuSummaryInput:
-		if r.runners.HaikuSummary == nil {
-			return
-		}
-		worker.Submit(r.workers, e.JobID, input, r.runners.HaikuSummary)
-	case driver.BranchDetectInput:
-		if r.runners.BranchDetect == nil {
-			return
-		}
-		worker.Submit(r.workers, e.JobID, input, r.runners.BranchDetect)
-	default:
-		slog.Warn("runtime: unknown job input type", "type", fmt.Sprintf("%T", e.Input))
-	}
+	worker.Dispatch(r.workers, e.JobID, e.Input)
 }
 
 // snapshotSessions converts the current state.Sessions map into the

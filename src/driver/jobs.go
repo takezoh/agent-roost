@@ -75,3 +75,8 @@ type BranchDetectResult struct {
 	Background string // brand color hex
 	Foreground string // text color hex
 }
+
+func (CapturePaneInput) JobKind() string     { return "capture_pane" }
+func (TranscriptParseInput) JobKind() string { return "transcript_parse" }
+func (HaikuSummaryInput) JobKind() string    { return "haiku_summary" }
+func (BranchDetectInput) JobKind() string    { return "branch_detect" }

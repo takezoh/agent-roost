@@ -78,13 +78,18 @@ func runCoordinator() {
 
 	idleThreshold := time.Duration(cfg.Monitor.IdleThresholdSec) * time.Second
 	eventLogDir := filepath.Join(dataDir, "events")
-	statedriver.RegisterDefaults(home, eventLogDir, idleThreshold)
+	statedriver.RegisterDefaults(statedriver.RegisterOptions{
+		Home:          home,
+		EventLogDir:   eventLogDir,
+		IdleThreshold: idleThreshold,
+		DriverConfigs: cfg.Drivers,
+	})
 
 	tmuxBackend := runtime.NewRealTmuxBackend(client)
 	pollInterval := time.Duration(cfg.Monitor.PollIntervalMs) * time.Millisecond
 	sockPath := filepath.Join(dataDir, "roost.sock")
 
-	runners := worker.NewRunners(tmuxBackend.CapturePane)
+	statedriver.RegisterRunners(tmuxBackend.CapturePane)
 	pool := worker.NewPool(4)
 
 	rt := runtime.New(runtime.Config{
@@ -96,10 +101,10 @@ func runCoordinator() {
 		Persist:      runtime.NewFilePersist(dataDir),
 		EventLog:     runtime.NewFileEventLog(dataDir),
 		Pool:         pool,
-		Runners:      &runners,
 	})
 
 	rt.SetAliases(cfg.Session.Aliases)
+	rt.SetDefaultCommand(cfg.Session.DefaultCommand)
 
 	warmRestart := client.SessionExists()
 	if warmRestart {
@@ -139,14 +144,15 @@ func runCoordinator() {
 	}
 	slog.Info("server started", "sock", sockPath)
 
-	// Start the FileRelay so log/transcript/event files are pushed
-	// to TUI subscribers instead of the TUI polling them.
+	// Start the FileRelay so log and session files are pushed to TUI
+	// subscribers instead of the TUI polling them.
 	relay, err := runtime.NewFileRelay(rt)
 	if err != nil {
 		slog.Warn("filerelay: start failed, TUI will show backfill only", "err", err)
 	} else {
 		defer relay.Close()
 		relay.WatchLog(logger.LogFilePath())
+		rt.SetRelay(relay)
 	}
 
 	respawnSessionsPane(client, sessionName)
@@ -284,7 +290,7 @@ func runLogViewer() {
 
 	client, err := proto.Dial(sockPath)
 	if err != nil {
-		model := tui.NewLogModel(logger.LogFilePath(), nil, cfg.Transcript.ShowThinking)
+		model := tui.NewLogModel(logger.LogFilePath(), nil)
 		if _, err := tea.NewProgram(model).Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
 			os.Exit(1)
@@ -294,7 +300,7 @@ func runLogViewer() {
 	defer client.Close()
 	client.Subscribe()
 
-	model := tui.NewLogModel(logger.LogFilePath(), client, cfg.Transcript.ShowThinking)
+	model := tui.NewLogModel(logger.LogFilePath(), client)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
 		os.Exit(1)
@@ -378,6 +384,12 @@ func loadConfig() *config.Config {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "roost: %v\n", err)
 		os.Exit(1)
+	}
+	if cfg.Session.DefaultCommand == "" {
+		cfg.Session.DefaultCommand = "shell"
+	}
+	if len(cfg.Session.Commands) == 0 {
+		cfg.Session.Commands = []string{"shell"}
 	}
 	return cfg
 }

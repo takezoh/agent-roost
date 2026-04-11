@@ -14,11 +14,11 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Monitor.PollIntervalMs != 1000 {
 		t.Errorf("PollIntervalMs = %d, want 1000", cfg.Monitor.PollIntervalMs)
 	}
-	if cfg.Session.DefaultCommand != "claude" {
-		t.Errorf("DefaultCommand = %q, want %q", cfg.Session.DefaultCommand, "claude")
+	if cfg.Session.DefaultCommand != "" {
+		t.Errorf("DefaultCommand = %q, want empty", cfg.Session.DefaultCommand)
 	}
-	if len(cfg.Session.Commands) != 3 {
-		t.Errorf("len(Commands) = %d, want 3", len(cfg.Session.Commands))
+	if len(cfg.Session.Commands) != 0 {
+		t.Errorf("len(Commands) = %d, want 0", len(cfg.Session.Commands))
 	}
 	if cfg.Log.Level != "info" {
 		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "info")
@@ -173,5 +173,41 @@ cw = "codex --workspace"
 	}
 	if got := cfg.Session.ResolveAlias("claude"); got != "claude" {
 		t.Errorf("unknown alias should pass through, got %q", got)
+	}
+}
+
+func TestLoadFrom_DriversSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.toml")
+	os.WriteFile(path, []byte(`[drivers.claude]
+show_thinking = true
+`), 0o644)
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude, ok := cfg.Drivers["claude"]
+	if !ok {
+		t.Fatal("expected drivers.claude section")
+	}
+	if claude["show_thinking"] != true {
+		t.Errorf("show_thinking = %v, want true", claude["show_thinking"])
+	}
+}
+
+func TestLoadFrom_DriversEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.toml")
+	os.WriteFile(path, []byte(`[tmux]
+session_name = "test"
+`), 0o644)
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Drivers) != 0 {
+		t.Errorf("expected empty Drivers, got %v", cfg.Drivers)
 	}
 }

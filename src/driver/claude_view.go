@@ -1,9 +1,13 @@
 package driver
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
+	"github.com/take/agent-roost/lib/claude/transcript"
 	"github.com/take/agent-roost/state"
 )
 
@@ -31,10 +35,15 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 
 	var logTabs []state.LogTab
 	if transcriptPath := d.resolveTranscriptPath(cs); transcriptPath != "" {
+		rendererCfg, _ := json.Marshal(transcript.RendererConfig{
+			SubagentDir:  subagentDir(transcriptPath),
+			ShowThinking: d.showThinking,
+		})
 		logTabs = append(logTabs, state.LogTab{
-			Label: "TRANSCRIPT",
-			Path:  transcriptPath,
-			Kind:  state.TabKindTranscript,
+			Label:       "TRANSCRIPT",
+			Path:        transcriptPath,
+			Kind:        transcript.KindTranscript,
+			RendererCfg: rendererCfg,
 		})
 	}
 	if cs.RoostSessionID != "" && d.eventLogDir != "" {
@@ -88,6 +97,17 @@ func claudeInfoExtras(cs ClaudeState) []state.InfoLine {
 	add("Working Dir", cs.WorkingDir)
 	add("Transcript", cs.TranscriptPath)
 	return lines
+}
+
+func subagentDir(transcriptPath string) string {
+	if transcriptPath == "" {
+		return ""
+	}
+	if !strings.HasSuffix(transcriptPath, ".jsonl") {
+		return ""
+	}
+	base := strings.TrimSuffix(transcriptPath, ".jsonl")
+	return base + string(os.PathSeparator) + "subagents"
 }
 
 func firstNonEmpty(candidates ...string) string {

@@ -112,6 +112,13 @@ type connClose struct {
 
 func (connClose) isInternalEvent() {}
 
+// internalSetRelay is enqueued by SetRelay to wire a FileRelay into the loop.
+type internalSetRelay struct {
+	relay *FileRelay
+}
+
+func (internalSetRelay) isInternalEvent() {}
+
 // dispatchInternal handles runtime-internal events.
 func (r *Runtime) dispatchInternal(ev internalEvent) {
 	switch e := ev.(type) {
@@ -119,6 +126,19 @@ func (r *Runtime) dispatchInternal(ev internalEvent) {
 		r.handleConnOpen(e.conn)
 	case connClose:
 		r.handleConnClose(e.id)
+	case internalSetRelay:
+		r.relay = e.relay
+		for id, sess := range r.state.Sessions {
+			drv := state.GetDriver(sess.Command)
+			if drv == nil {
+				continue
+			}
+			for _, lt := range drv.View(sess.Driver).LogTabs {
+				if lt.Path != "" {
+					r.relay.WatchFile(id, lt.Path, string(lt.Kind))
+				}
+			}
+		}
 	}
 }
 

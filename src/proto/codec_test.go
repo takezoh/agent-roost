@@ -112,7 +112,7 @@ func TestEncodeDecodeEvent(t *testing.T) {
 		EvtProjectSelected{Project: "/foo"},
 		EvtPaneFocused{Pane: "0.1"},
 		EvtLogLine{Path: "/var/log", Line: "hello"},
-		EvtTranscriptLine{SessionID: "abc", Line: "world"},
+		EvtSessionFileLine{SessionID: "abc", Kind: "transcript", Line: "world"},
 	}
 	for _, e := range cases {
 		t.Run(e.EventName(), func(t *testing.T) {

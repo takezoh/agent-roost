@@ -16,17 +16,13 @@ type Config struct {
 	Monitor    MonitorConfig    `toml:"monitor"`
 	Session    SessionConfig    `toml:"session"`
 	Projects   ProjectsConfig   `toml:"projects"`
-	Transcript TranscriptConfig `toml:"transcript"`
+	Drivers map[string]map[string]any `toml:"drivers"`
 }
 
 // LogConfig controls slog handler verbosity. Level values: "debug", "info",
 // "warn", "error". Unknown / empty values fall back to info in logger.Init.
 type LogConfig struct {
 	Level string `toml:"level"`
-}
-
-type TranscriptConfig struct {
-	ShowThinking bool `toml:"show_thinking"`
 }
 
 type TmuxConfig struct {
@@ -95,9 +91,7 @@ func DefaultConfig() *Config {
 			IdleThresholdSec: 30,
 		},
 		Session: SessionConfig{
-			AutoName:       true,
-			DefaultCommand: "claude",
-			Commands:       []string{"claude", "gemini", "codex"},
+			AutoName: true,
 		},
 		Projects: ProjectsConfig{
 			ProjectRoots: []string{"~/dev", "~/work"},

@@ -12,6 +12,10 @@ import (
 // reducers without importing state/driver (which would create an
 // import cycle).
 
+type stubJobInput struct{}
+
+func (stubJobInput) JobKind() string { return "stub" }
+
 type stubDriverState struct {
 	DriverStateBase
 	calls  []string
@@ -121,15 +125,11 @@ func TestCreateSessionAllocatesAndSpawns(t *testing.T) {
 }
 
 func TestCreateSessionDefaultCommand(t *testing.T) {
-	// command="" defaults to "claude" inside reduceCreateSession.
-	// We don't have a real claude driver registered in state pkg
-	// tests (it lives in state/driver), so the lookup falls back
-	// to the registered fallback driver "" — which works because
-	// the command string "claude" still routes through the registry
-	// and falls back when not found.
+	// command="" defaults to DefaultCommand, then "shell" as final
+	// fallback. The fallback driver "" handles unknown commands.
 	s := New()
 	_, effs := Reduce(s, EvCmdCreateSession{
-		ConnID: 1, ReqID: "r", Project: "/foo", // no Command → defaults to "claude"
+		ConnID: 1, ReqID: "r", Project: "/foo", // no Command → defaults to "shell"
 	})
 	// The fallback driver handles unknown commands so spawn is emitted.
 	if _, ok := findEff[EffSpawnTmuxWindow](effs); !ok {
@@ -541,13 +541,13 @@ func TestJobResultRoutesToDriver(t *testing.T) {
 	}
 }
 
-// === reduceTranscriptChanged ===
+// === reduceFileChanged ===
 
-func TestTranscriptChangedRoutes(t *testing.T) {
+func TestFileChangedRoutes(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
-	_, effs := Reduce(s, EvTranscriptChanged{SessionID: id, Path: "/x"})
+	_, effs := Reduce(s, EvFileChanged{SessionID: id, Path: "/x"})
 	// stub driver returns no effects, so we expect 0 effects (no
 	// persist/broadcast either since the driver did nothing).
 	if len(effs) != 0 {
@@ -555,9 +555,9 @@ func TestTranscriptChangedRoutes(t *testing.T) {
 	}
 }
 
-func TestTranscriptChangedUnknownSession(t *testing.T) {
+func TestFileChangedUnknownSession(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvTranscriptChanged{SessionID: "ghost", Path: "/x"})
+	_, effs := Reduce(s, EvFileChanged{SessionID: "ghost", Path: "/x"})
 	if len(effs) != 0 {
 		t.Errorf("expected 0 effects, got %d", len(effs))
 	}
@@ -612,7 +612,7 @@ func TestReduceHookInjectsRoostSessionID(t *testing.T) {
 func TestPostProcessAssignsJobID(t *testing.T) {
 	s := New()
 	s.Now = time.Now()
-	patched, next := postProcessEffect(s, "abc", EffStartJob{Input: "test"})
+	patched, next := postProcessEffect(s, "abc", EffStartJob{Input: stubJobInput{}})
 	job := patched.(EffStartJob)
 	if job.JobID == 0 {
 		t.Error("JobID should be assigned")
@@ -640,8 +640,42 @@ func TestPostProcessFillsSessionID(t *testing.T) {
 
 func TestPostProcessLeavesSessionIDIfSet(t *testing.T) {
 	s := New()
-	patched, _ := postProcessEffect(s, "abc", EffWatchTranscript{SessionID: "preset", Path: "/x"})
-	if patched.(EffWatchTranscript).SessionID != "preset" {
+	patched, _ := postProcessEffect(s, "abc", EffWatchFile{SessionID: "preset", Path: "/x"})
+	if patched.(EffWatchFile).SessionID != "preset" {
 		t.Error("preset SessionID overwritten")
 	}
+}
+
+// === DefaultCommand ===
+
+func TestReduceCreateSession_DefaultCommand(t *testing.T) {
+	s := New()
+	s.DefaultCommand = "gemini"
+	s, _ = Reduce(s, EvCmdCreateSession{
+		Project: "test", Command: "",
+		ConnID: 1, ReqID: "r1",
+	})
+	for _, sess := range s.Sessions {
+		if sess.Command != "gemini" {
+			t.Errorf("Command = %q, want gemini", sess.Command)
+		}
+		return
+	}
+	t.Fatal("no session created")
+}
+
+func TestReduceCreateSession_FallbackToShell(t *testing.T) {
+	s := New()
+	// DefaultCommand is empty, Command is empty → "shell"
+	s, _ = Reduce(s, EvCmdCreateSession{
+		Project: "test", Command: "",
+		ConnID: 1, ReqID: "r1",
+	})
+	for _, sess := range s.Sessions {
+		if sess.Command != "shell" {
+			t.Errorf("Command = %q, want shell", sess.Command)
+		}
+		return
+	}
+	t.Fatal("no session created")
 }

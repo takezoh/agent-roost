@@ -17,9 +17,12 @@ func reduceCreateSession(s State, e EvCmdCreateSession) (State, []Effect) {
 	}
 	command := e.Command
 	if command == "" {
-		command = "claude"
+		command = s.DefaultCommand
 	}
-	// Expand command aliases (e.g. "clw" → "claude --worktree")
+	if command == "" {
+		command = "shell"
+	}
+	// Expand command aliases (e.g. "cw" → "codex --workspace")
 	if expanded, ok := s.Aliases[command]; ok {
 		command = expanded
 	}

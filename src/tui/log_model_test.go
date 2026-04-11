@@ -11,6 +11,23 @@ import (
 	"github.com/take/agent-roost/state"
 )
 
+// testKindTranscript is a test-local TabKind matching what the Claude
+// driver would emit. TUI tests must not import driver or lib packages.
+const testKindTranscript state.TabKind = "transcript"
+
+// stubRenderer is a minimal TabRenderer for tests.
+type stubRenderer struct{}
+
+func (stubRenderer) Append([]byte) string { return "" }
+func (stubRenderer) Reset()              {}
+
+func TestMain(m *testing.M) {
+	state.RegisterTabRenderer[struct{}](testKindTranscript, func(struct{}) state.TabRenderer {
+		return stubRenderer{}
+	})
+	os.Exit(m.Run())
+}
+
 func writeTempFile(t *testing.T, content string) *os.File {
 	t.Helper()
 	dir := t.TempDir()
@@ -128,7 +145,7 @@ func sessionWithTranscript(t *testing.T) proto.SessionInfo {
 		WindowID: "w1",
 		View: state.View{
 			LogTabs: []state.LogTab{
-				{Label: "TRANSCRIPT", Path: transcriptPath, Kind: state.TabKindTranscript},
+				{Label: "TRANSCRIPT", Path: transcriptPath, Kind: testKindTranscript},
 				{Label: "EVENTS", Path: eventsPath, Kind: state.TabKindText},
 			},
 		},
@@ -136,7 +153,7 @@ func sessionWithTranscript(t *testing.T) proto.SessionInfo {
 }
 
 func TestHandleLogEvent_PreviewActivatesInfoTab(t *testing.T) {
-	m := NewLogModel("/var/log/roost.log", nil, false)
+	m := NewLogModel("/var/log/roost.log", nil)
 	sess := sessionWithTranscript(t)
 
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
@@ -151,7 +168,7 @@ func TestHandleLogEvent_PreviewActivatesInfoTab(t *testing.T) {
 }
 
 func TestHandleLogEvent_PaneFocusedActivatesTranscript(t *testing.T) {
-	m := NewLogModel("/var/log/roost.log", nil, false)
+	m := NewLogModel("/var/log/roost.log", nil)
 	sess := sessionWithTranscript(t)
 
 	// Step 1: preview → INFO becomes active.
@@ -176,7 +193,7 @@ func TestHandleLogEvent_PaneFocusedActivatesTranscript(t *testing.T) {
 }
 
 func TestHandleLogEvent_PaneFocusedWithoutTranscriptKeepsInfo(t *testing.T) {
-	m := NewLogModel("/var/log/roost.log", nil, false)
+	m := NewLogModel("/var/log/roost.log", nil)
 	// Session with no driver-provided log tabs (only INFO + LOG will be built).
 	sess := proto.SessionInfo{ID: "s1", WindowID: "w1"}
 
@@ -205,7 +222,7 @@ func TestHandleLogEvent_PaneFocusedWithoutTranscriptKeepsInfo(t *testing.T) {
 // every poll interval. That must NOT clobber whichever tab the user is
 // currently looking at, otherwise INFO/LOG/etc become unviewable.
 func TestHandleLogEvent_NonPreviewSessionsChangedKeepsCurrentTab(t *testing.T) {
-	m := NewLogModel("/var/log/roost.log", nil, false)
+	m := NewLogModel("/var/log/roost.log", nil)
 	sess := sessionWithTranscript(t)
 
 	// Preview → INFO is active.
@@ -232,7 +249,7 @@ func TestHandleLogEvent_NonPreviewSessionsChangedKeepsCurrentTab(t *testing.T) {
 }
 
 func TestHandleLogEvent_PaneFocusedNonMainPaneIgnored(t *testing.T) {
-	m := NewLogModel("/var/log/roost.log", nil, false)
+	m := NewLogModel("/var/log/roost.log", nil)
 	sess := sessionWithTranscript(t)
 
 	// Preview → INFO active.
@@ -260,7 +277,7 @@ func TestHandleLogEvent_PaneFocusedNonMainPaneIgnored(t *testing.T) {
 // the LogModel must terminate so the tmux pane process exits instead of
 // lingering as a zombie. main_model and sessions model already do this.
 func TestHandleLogDisconnect_ReturnsQuit(t *testing.T) {
-	m := NewLogModel("/var/log/roost.log", nil, false)
+	m := NewLogModel("/var/log/roost.log", nil)
 	_, cmd := m.Update(logDisconnectMsg{})
 	if cmd == nil {
 		t.Fatal("expected tea.Quit cmd, got nil")

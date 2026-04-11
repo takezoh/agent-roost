@@ -179,8 +179,8 @@ func DecodeEvent(env Envelope) (ServerEvent, error) {
 			return nil, err
 		}
 		return e, nil
-	case EvtNameTranscriptLine:
-		var e EvtTranscriptLine
+	case EvtNameSessionFileLine:
+		var e EvtSessionFileLine
 		if err := json.Unmarshal(env.Data, &e); err != nil {
 			return nil, err
 		}

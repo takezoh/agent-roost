@@ -59,6 +59,12 @@ func (r *Runtime) SetAliases(aliases map[string]string) {
 	r.state.Aliases = aliases
 }
 
+// SetDefaultCommand sets the fallback command for sessions created
+// without an explicit command. Called once at startup from main.go.
+func (r *Runtime) SetDefaultCommand(cmd string) {
+	r.state.DefaultCommand = cmd
+}
+
 // ReconcileWarm reads the live tmux window list and:
 //   - Updates known sessions' WindowID/PaneID from the live tmux state
 //     (tmux reissues window ids after server restart, so JSON values may be

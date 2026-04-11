@@ -80,23 +80,29 @@ type ClaudeState struct {
 	SummaryInFlight     bool
 	TranscriptInFlight  bool
 	BranchInFlight      bool
-	WatchedTranscript   string // currently fsnotify-watched path; empty = not watched
+	WatchedFile   string // currently fsnotify-watched path; empty = not watched
 }
 
 // ClaudeDriver is the stateless plugin value. The home directory is
 // captured at construction so resolveTranscriptPath can build the
 // canonical ~/.claude/projects/... path when the agent hasn't reported
 // transcript_path yet.
+// ClaudeOptions holds driver-specific config decoded from [drivers.claude].
+type ClaudeOptions struct {
+	ShowThinking bool `json:"show_thinking"`
+}
+
 type ClaudeDriver struct {
-	home        string
-	eventLogDir string
+	home         string
+	eventLogDir  string
+	showThinking bool
 }
 
 // NewClaudeDriver constructs a Claude driver bound to the user's home
 // directory and event log directory. The runtime constructs one of
 // these at startup and registers it with state.Register.
-func NewClaudeDriver(home, eventLogDir string) ClaudeDriver {
-	return ClaudeDriver{home: home, eventLogDir: eventLogDir}
+func NewClaudeDriver(home, eventLogDir string, opts ClaudeOptions) ClaudeDriver {
+	return ClaudeDriver{home: home, eventLogDir: eventLogDir, showThinking: opts.ShowThinking}
 }
 
 func (ClaudeDriver) Name() string        { return "claude" }
@@ -193,7 +199,7 @@ func (d ClaudeDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.
 		next, effs := d.handleTick(cs, e)
 		return next, effs, d.view(next)
 
-	case state.DEvTranscriptChanged:
+	case state.DEvFileChanged:
 		next, effs := d.handleTranscriptChanged(cs, e)
 		return next, effs, d.view(next)
 

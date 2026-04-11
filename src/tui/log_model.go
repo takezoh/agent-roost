@@ -1,13 +1,13 @@
 package tui
 
 import (
+	"encoding/json"
 	"io"
 	"os"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/viewport"
-	"github.com/take/agent-roost/lib/claude/transcript"
 	"github.com/take/agent-roost/proto"
 	"github.com/take/agent-roost/state"
 )
@@ -37,12 +37,13 @@ const (
 )
 
 type tabState struct {
-	label   string
-	logPath string
-	kind    state.TabKind
-	file    *os.File
-	offset  int64
-	buf     string
+	label       string
+	logPath     string
+	kind        state.TabKind
+	rendererCfg json.RawMessage
+	file        *os.File
+	offset      int64
+	buf         string
 }
 
 type LogModel struct {
@@ -55,22 +56,19 @@ type LogModel struct {
 	width          int
 	height         int
 	client         *proto.Client
-	parser         *transcript.Parser
-	showThinking   bool
+	renderer       state.TabRenderer
 	currentSession *proto.SessionInfo
 }
 
-func NewLogModel(appLogPath string, client *proto.Client, showThinking bool) LogModel {
+func NewLogModel(appLogPath string, client *proto.Client) LogModel {
 	return LogModel{
 		appLogPath: appLogPath,
 		tabs: []*tabState{
 			{label: "LOG", logPath: appLogPath, kind: tabKindLog},
 		},
-		client:       client,
-		activeTab:    0,
-		following:    true,
-		showThinking: showThinking,
-		parser:       transcript.NewParser(transcript.ParserOptions{ShowThinking: showThinking}),
+		client:    client,
+		activeTab: 0,
+		following: true,
 	}
 }
 
@@ -151,11 +149,6 @@ func (m LogModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.following = false
 		m.viewport.GotoTop()
 		return m, nil
-	case "t":
-		if m.isTranscriptTab() {
-			m.toggleThinking()
-		}
-		return m, nil
 	}
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
@@ -167,7 +160,7 @@ func (m LogModel) handleLogEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 	switch e := ev.(type) {
 	case proto.EvtSessionsChanged:
 		m.currentSession = pickActiveSession(e.Sessions, e.ActiveWindowID)
-		m.rebuildTabs(m.currentSession)
+		sessionChanged := m.rebuildTabs(m.currentSession)
 		if e.IsPreview {
 			if idx, ok := m.tabIndexByLabel("INFO"); ok {
 				m.activeTab = idx
@@ -177,10 +170,18 @@ func (m LogModel) handleLogEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 		} else if m.activeTabIs("INFO") {
 			m.renderInfoTab()
 		}
+		if sessionChanged {
+			var cmds []tea.Cmd
+			if m.client != nil {
+				cmds = append(cmds, m.listenEvents())
+			}
+			cmds = append(cmds, m.backfillActiveTab())
+			return m, tea.Batch(cmds...)
+		}
 	case proto.EvtPaneFocused:
 		if e.Pane == mainPane {
-			if idx, ok := m.tabIndexByLabel("TRANSCRIPT"); ok {
-				cmd := m.switchToTabCmd(idx)
+			if idx := m.firstRenderedTabIndex(); idx >= 0 {
+				cmd := m.switchToTabCmd(logTab(idx))
 				if m.client != nil {
 					return m, tea.Batch(m.listenEvents(), cmd)
 				}
@@ -197,10 +198,12 @@ func (m LogModel) handleLogEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 				m.viewport.GotoBottom()
 			}
 		}
-	case proto.EvtTranscriptLine:
-		// Push transcript content. Match by session id (the
-		// transcript tab is the first tab with TabKindTranscript).
-		if m.currentSession != nil && m.currentSession.ID == e.SessionID && m.isTranscriptTab() && e.Line != "" {
+	case proto.EvtSessionFileLine:
+		// Push session file content. Match by session id and active
+		// tab kind.
+		tab := m.activeTabState()
+		if m.currentSession != nil && m.currentSession.ID == e.SessionID &&
+			tab != nil && string(tab.kind) == e.Kind && e.Line != "" {
 			m.appendContent(strings.TrimRight(e.Line, "\n"))
 			if m.following {
 				m.viewport.GotoBottom()
@@ -235,17 +238,14 @@ func (m LogModel) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *LogModel) rebuildTabs(current *proto.SessionInfo) {
+func (m *LogModel) rebuildTabs(current *proto.SessionInfo) bool {
 	prev := make(map[string]*tabState, len(m.tabs))
 	for _, t := range m.tabs {
 		prev[t.label] = t
 	}
-	prevTranscript := ""
-	if t, ok := prev["TRANSCRIPT"]; ok {
-		prevTranscript = t.logPath
-	}
-	transcriptPath := transcriptPathFromView(current)
-	sessionChanged := transcriptPath != prevTranscript
+	prevRendered := firstRenderedPath(prev)
+	renderedPath := renderedTabPath(current)
+	sessionChanged := renderedPath != prevRendered
 
 	m.tabs = buildTabList(prev, current, m.appLogPath)
 	for _, t := range prev {
@@ -256,22 +256,45 @@ func (m *LogModel) rebuildTabs(current *proto.SessionInfo) {
 	if int(m.activeTab) >= len(m.tabs) {
 		m.activeTab = 0
 	}
-	if sessionChanged && transcriptPath != "" {
+	if sessionChanged && renderedPath != "" {
 		m.activeTab = 0
 		m.viewport.SetContent("")
 		m.following = true
-		m.rebuildParser(transcriptPath)
+		m.rebuildRenderer(m.activeTabState())
 	}
+	return sessionChanged
 }
 
-// transcriptPathFromView returns the path of the first TRANSCRIPT-kind
-// tab the driver declared, or "" when no transcript tab exists.
-func transcriptPathFromView(current *proto.SessionInfo) string {
+// firstRenderedTabIndex returns the index of the first tab that has a
+// registered TabRenderer, or -1 when none exists.
+func (m *LogModel) firstRenderedTabIndex() int {
+	for i, t := range m.tabs {
+		if state.HasTabRenderer(t.kind) {
+			return i
+		}
+	}
+	return -1
+}
+
+// firstRenderedPath returns the logPath of the first tab in prev that
+// has a registered TabRenderer, or "".
+func firstRenderedPath(prev map[string]*tabState) string {
+	for _, t := range prev {
+		if state.HasTabRenderer(t.kind) {
+			return t.logPath
+		}
+	}
+	return ""
+}
+
+// renderedTabPath returns the path of the first driver-declared LogTab
+// that has a registered TabRenderer, or "" when none exists.
+func renderedTabPath(current *proto.SessionInfo) string {
 	if current == nil {
 		return ""
 	}
 	for _, lt := range current.View.LogTabs {
-		if lt.Kind == state.TabKindTranscript {
+		if state.HasTabRenderer(lt.Kind) {
 			return lt.Path
 		}
 	}
@@ -283,52 +306,34 @@ func transcriptPathFromView(current *proto.SessionInfo) string {
 // all match. Order: driver-declared LogTabs (in driver's order) → INFO →
 // LOG. The driver opts-out of INFO via SessionView.SuppressInfo.
 func buildTabList(prev map[string]*tabState, current *proto.SessionInfo, appLogPath string) []*tabState {
-	reuseOrNew := func(label, path string, kind state.TabKind) *tabState {
+	reuseOrNew := func(label, path string, kind state.TabKind, cfg json.RawMessage) *tabState {
 		if t, ok := prev[label]; ok && t.logPath == path && t.kind == kind {
 			delete(prev, label)
+			t.rendererCfg = cfg
 			return t
 		}
-		return &tabState{label: label, logPath: path, kind: kind}
+		return &tabState{label: label, logPath: path, kind: kind, rendererCfg: cfg}
 	}
 	var tabs []*tabState
 	if current != nil {
 		for _, lt := range current.View.LogTabs {
-			tabs = append(tabs, reuseOrNew(lt.Label, lt.Path, lt.Kind))
+			tabs = append(tabs, reuseOrNew(lt.Label, lt.Path, lt.Kind, lt.RendererCfg))
 		}
 		if !current.View.SuppressInfo {
-			tabs = append(tabs, reuseOrNew("INFO", "", tabKindInfo))
+			tabs = append(tabs, reuseOrNew("INFO", "", tabKindInfo, nil))
 		}
 	}
-	return append(tabs, reuseOrNew("LOG", appLogPath, tabKindLog))
+	return append(tabs, reuseOrNew("LOG", appLogPath, tabKindLog, nil))
 }
 
-// rebuildParser constructs a new transcript Parser pointed at the
-// subagent directory that lives next to transcriptPath
-// (i.e. {sessionID}/subagents/). Called whenever the active session
-// changes or thinking visibility is toggled.
-func (m *LogModel) rebuildParser(transcriptPath string) {
-	opts := transcript.ParserOptions{ShowThinking: m.showThinking}
-	if dir := subagentDir(transcriptPath); dir != "" {
-		if _, err := os.Stat(dir); err == nil {
-			opts.SubagentFS = os.DirFS(dir)
-			opts.SubagentDir = "."
-		}
+// rebuildRenderer creates a new TabRenderer via the registry for the
+// active tab's Kind. Called when the active session changes.
+func (m *LogModel) rebuildRenderer(tab *tabState) {
+	if tab == nil {
+		m.renderer = nil
+		return
 	}
-	m.parser = transcript.NewParser(opts)
-}
-
-// subagentDir returns the directory that contains the per-session
-// subagent files for a given main transcript jsonl path. The expected
-// layout is "{sess}.jsonl" -> "{sess}/subagents".
-func subagentDir(transcriptPath string) string {
-	if transcriptPath == "" {
-		return ""
-	}
-	if !strings.HasSuffix(transcriptPath, ".jsonl") {
-		return ""
-	}
-	base := strings.TrimSuffix(transcriptPath, ".jsonl")
-	return base + string(os.PathSeparator) + "subagents"
+	m.renderer = state.NewTabRenderer(tab.kind, tab.rendererCfg)
 }
 
 func (m *LogModel) isLogTab() bool {
@@ -336,9 +341,8 @@ func (m *LogModel) isLogTab() bool {
 	return tab != nil && tab.kind == tabKindLog
 }
 
-func (m *LogModel) isTranscriptTab() bool {
-	tab := m.activeTabState()
-	return tab != nil && tab.kind == state.TabKindTranscript
+func (m *LogModel) isRenderedTab() bool {
+	return m.renderer != nil
 }
 
 func (m *LogModel) activeTabIs(label string) bool {
@@ -367,29 +371,6 @@ func (m *LogModel) activeTabState() *tabState {
 	return nil
 }
 
-// toggleThinking flips the show-thinking flag and resets the active
-// transcript tab so the tail is reparsed under the new setting.
-func (m *LogModel) toggleThinking() {
-	m.showThinking = !m.showThinking
-	t := m.activeTabState()
-	transcriptPath := ""
-	if t != nil {
-		transcriptPath = t.logPath
-	}
-	m.rebuildParser(transcriptPath)
-	if t == nil {
-		return
-	}
-	if t.file != nil {
-		t.file.Close()
-		t.file = nil
-	}
-	t.offset = 0
-	t.buf = ""
-	m.viewport.SetContent("")
-	m.following = true
-}
-
 // switchToTabCmd switches to a new tab and returns a backfill command.
 // Use this from Update handlers that need to return a tea.Cmd.
 func (m *LogModel) switchToTabCmd(tab logTab) tea.Cmd {
@@ -415,7 +396,9 @@ func (m *LogModel) switchToTab(tab logTab) {
 
 	m.viewport.SetContent("")
 	m.following = true
-	m.parser.Reset()
+	if m.renderer != nil {
+		m.renderer.Reset()
+	}
 }
 
 func (m *LogModel) tabIndexAtX(x int) logTab {
@@ -432,11 +415,10 @@ func (m *LogModel) tabIndexAtX(x int) logTab {
 
 func (m *LogModel) appendContent(newContent string) {
 	var styled string
-	if m.isLogTab() {
+	if m.isRenderedTab() {
+		styled = m.renderer.Append([]byte(newContent))
+	} else if m.isLogTab() {
 		styled = colorizeLines(newContent)
-	} else if m.isTranscriptTab() {
-		entries := m.parser.ParseLines([]byte(newContent))
-		styled = transcript.RenderEntries(entries)
 	} else {
 		styled = newContent
 	}

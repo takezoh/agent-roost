@@ -13,7 +13,7 @@ const (
 	EvtNameProjectSelected = "project-selected"
 	EvtNamePaneFocused     = "pane-focused"
 	EvtNameLogLine         = "log-line"
-	EvtNameTranscriptLine  = "transcript-line"
+	EvtNameSessionFileLine = "session-file-line"
 )
 
 // EvtSessionsChanged carries the current session table. Sent on
@@ -55,12 +55,13 @@ type EvtLogLine struct {
 func (EvtLogLine) isEvent()          {}
 func (EvtLogLine) EventName() string { return EvtNameLogLine }
 
-// EvtTranscriptLine pushes one new line from a session's transcript
-// file to TUI subscribers (Phase 7).
-type EvtTranscriptLine struct {
+// EvtSessionFileLine pushes one new line from a session's log/transcript
+// file to TUI subscribers.
+type EvtSessionFileLine struct {
 	SessionID string `json:"session_id"`
+	Kind      string `json:"kind"`
 	Line      string `json:"line"`
 }
 
-func (EvtTranscriptLine) isEvent()          {}
-func (EvtTranscriptLine) EventName() string { return EvtNameTranscriptLine }
+func (EvtSessionFileLine) isEvent()          {}
+func (EvtSessionFileLine) EventName() string { return EvtNameSessionFileLine }

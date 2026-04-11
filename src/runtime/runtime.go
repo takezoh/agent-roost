@@ -33,8 +33,7 @@ type Config struct {
 	Persist  PersistBackend
 	EventLog EventLogBackend
 	Watcher  FSWatcher
-	Pool     *worker.Pool
-	Runners  *worker.Runners
+	Pool *worker.Pool
 }
 
 // Runtime owns the event loop goroutine and the side-effect backends.
@@ -49,7 +48,8 @@ type Runtime struct {
 	internalCh chan internalEvent // runtime-internal lifecycle (conn open/close)
 
 	workers *worker.Pool
-	runners worker.Runners
+
+	relay *FileRelay
 
 	listener net.Listener
 	conns    map[state.ConnID]*ipcConn // owned by event loop
@@ -94,9 +94,6 @@ func New(cfg Config) *Runtime {
 	} else {
 		r.workers = worker.NewPool(cfg.Workers)
 	}
-	if cfg.Runners != nil {
-		r.runners = *cfg.Runners
-	}
 	return r
 }
 
@@ -119,6 +116,11 @@ func (r *Runtime) Enqueue(ev state.Event) {
 	default:
 		slog.Warn("runtime: event channel full, dropping", "type", eventTypeName(ev))
 	}
+}
+
+// SetRelay registers a FileRelay with the runtime via the event loop.
+func (r *Runtime) SetRelay(fr *FileRelay) {
+	r.internalCh <- internalSetRelay{relay: fr}
 }
 
 // Run is the event loop. It blocks until ctx is cancelled.
@@ -161,7 +163,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 			r.dispatch(res)
 
 		case fsev := <-r.cfg.Watcher.Events():
-			r.dispatch(state.EvTranscriptChanged{
+			r.dispatch(state.EvFileChanged{
 				SessionID: state.SessionID(fsev.SessionID),
 				Path:      fsev.Path,
 			})

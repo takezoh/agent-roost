@@ -38,7 +38,7 @@ func (d ClaudeDriver) handleTick(cs ClaudeState, e state.DEvTick) (ClaudeState, 
 // handleTranscriptChanged fires when fsnotify reports a write to the
 // active session's transcript file. We schedule an incremental parse
 // (deduped via TranscriptInFlight).
-func (d ClaudeDriver) handleTranscriptChanged(cs ClaudeState, e state.DEvTranscriptChanged) (ClaudeState, []state.Effect) {
+func (d ClaudeDriver) handleTranscriptChanged(cs ClaudeState, e state.DEvFileChanged) (ClaudeState, []state.Effect) {
 	if cs.TranscriptInFlight {
 		return cs, nil
 	}
