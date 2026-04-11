@@ -4,10 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 )
-
-const hookMarker = "roost claude event"
 
 // RegisterHooks registers roost hooks in Claude's settings.json.
 // Returns the list of registered event names.
@@ -22,7 +19,6 @@ func RegisterHooks(settingsPath, roostBinary string) ([]string, error) {
 		hooks = make(map[string]any)
 	}
 
-	command := roostBinary + " claude event"
 	events := []string{
 		"SessionStart",
 		"SessionEnd",
@@ -43,6 +39,7 @@ func RegisterHooks(settingsPath, roostBinary string) ([]string, error) {
 	registered := []string{}
 
 	for _, event := range events {
+		command := roostBinary + " event " + event
 		if addHookEntry(hooks, event, command) {
 			registered = append(registered, event)
 		}
@@ -56,60 +53,10 @@ func RegisterHooks(settingsPath, roostBinary string) ([]string, error) {
 	return registered, writeSettings(settingsPath, settings)
 }
 
-// UnregisterHooks removes roost hooks from Claude's settings.json.
-func UnregisterHooks(settingsPath string) error {
-	settings, err := readSettings(settingsPath)
-	if err != nil {
-		return err
-	}
-
-	hooks, _ := settings["hooks"].(map[string]any)
-	if hooks == nil {
-		return nil
-	}
-
-	for event, v := range hooks {
-		entries, ok := v.([]any)
-		if !ok {
-			continue
-		}
-		filtered := filterNonRoost(entries)
-		if len(filtered) == 0 {
-			delete(hooks, event)
-		} else {
-			hooks[event] = filtered
-		}
-	}
-
-	settings["hooks"] = hooks
-	return writeSettings(settingsPath, settings)
-}
-
-// IsHookRegistered checks if roost hooks are already registered.
-func IsHookRegistered(settingsPath string) (bool, error) {
-	settings, err := readSettings(settingsPath)
-	if err != nil {
-		return false, err
-	}
-
-	hooks, _ := settings["hooks"].(map[string]any)
-	if hooks == nil {
-		return false, nil
-	}
-
-	entries, _ := hooks["SessionStart"].([]any)
-	for _, e := range entries {
-		if isRoostEntry(e) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
 func addHookEntry(hooks map[string]any, event, command string) bool {
 	entries, _ := hooks[event].([]any)
 	for _, e := range entries {
-		if isRoostEntry(e) {
+		if hasCommand(e, command) {
 			return false
 		}
 	}
@@ -126,7 +73,7 @@ func addHookEntry(hooks map[string]any, event, command string) bool {
 	return true
 }
 
-func isRoostEntry(entry any) bool {
+func hasCommand(entry any, command string) bool {
 	m, ok := entry.(map[string]any)
 	if !ok {
 		return false
@@ -137,22 +84,11 @@ func isRoostEntry(entry any) bool {
 		if !ok {
 			continue
 		}
-		cmd, _ := hm["command"].(string)
-		if strings.Contains(cmd, hookMarker) {
+		if hm["command"] == command {
 			return true
 		}
 	}
 	return false
-}
-
-func filterNonRoost(entries []any) []any {
-	var result []any
-	for _, e := range entries {
-		if !isRoostEntry(e) {
-			result = append(result, e)
-		}
-	}
-	return result
 }
 
 func readSettings(path string) (map[string]any, error) {

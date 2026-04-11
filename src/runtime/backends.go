@@ -155,12 +155,8 @@ func eventTypeName(ev state.Event) string {
 	switch ev.(type) {
 	case state.EvTick:
 		return "EvTick"
-	case state.EvCmdCreateSession:
-		return "EvCmdCreateSession"
-	case state.EvCmdStopSession:
-		return "EvCmdStopSession"
-	case state.EvCmdHook:
-		return "EvCmdHook"
+	case state.EvEvent:
+		return "EvEvent"
 	case state.EvJobResult:
 		return "EvJobResult"
 	case state.EvTmuxWindowSpawned:

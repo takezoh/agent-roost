@@ -15,9 +15,9 @@ import (
 	"golang.org/x/term"
 
 	"github.com/takezoh/agent-roost/config"
-	"github.com/takezoh/agent-roost/lib"
+	"github.com/takezoh/agent-roost/cli"
 	_ "github.com/takezoh/agent-roost/lib/claude" // registers the "claude" subcommand
-	_ "github.com/takezoh/agent-roost/lib/send"   // registers the "send" subcommand
+	_ "github.com/takezoh/agent-roost/event" // registers the "event" subcommand
 	"github.com/takezoh/agent-roost/logger"
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/runtime"
@@ -40,7 +40,7 @@ func main() {
 	logger.InitWithDataDir(level, dataDir)
 	defer logger.Close()
 
-	if lib.Dispatch(os.Args[1:]) {
+	if cli.Dispatch(os.Args[1:]) {
 		return
 	}
 
@@ -204,9 +204,10 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
 	}
 
 	exePath := resolveExe()
-	client.SendKeys(sn+":0.2", exePath+" --tui sessions")
-	client.SendKeys(sn+":0.1", exePath+" --tui log")
-	client.SendKeys(sn+":0.0", exePath+" --tui main")
+	envPrefix := "ROOST_SESSION_ID=" + sn + " "
+	client.SendKeys(sn+":0.2", envPrefix+exePath+" --tui sessions")
+	client.SendKeys(sn+":0.1", envPrefix+exePath+" --tui log")
+	client.SendKeys(sn+":0.0", envPrefix+exePath+" --tui main")
 
 	client.ResizePane(sn+":0.2", tuiWidth, 0)
 	client.ResizePane(sn+":0.1", 0, logHeight)
@@ -285,7 +286,7 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 		"if-shell", "-F", `#{==:#{pane_index},2}`,
 		"select-pane -t "+sn+":0.0",
 		"select-pane -t "+sn+":0.2")
-	client.BindKey("prefix", "Escape", "run-shell", exePath+" send preview-project")
+	client.BindKey("prefix", "Escape", "run-shell", exePath+" event preview-project")
 	client.BindKey("prefix", "z", "resize-pane", "-Z", "-t", sn+":0.0")
 	client.BindKey("prefix", "d", "detach-client")
 	client.BindKey("prefix", "q",
@@ -448,7 +449,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Usage:")
 	fmt.Println("  roost          Start or attach to the roost tmux session")
-	for _, pair := range lib.RegisteredHelp() {
+	for _, pair := range cli.RegisteredHelp() {
 		fmt.Printf("  roost %-8s %s\n", pair[0], pair[1])
 	}
 	fmt.Println("  roost help     Show this help message")

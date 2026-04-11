@@ -91,38 +91,8 @@ func DecodeCommand(env Envelope) (Command, error) {
 	case CmdNameUnsubscribe:
 		var c CmdUnsubscribe
 		return decodeInto(env.Data, &c)
-	case CmdNameCreateSession:
-		var c CmdCreateSession
-		return decodeInto(env.Data, &c)
-	case CmdNameStopSession:
-		var c CmdStopSession
-		return decodeInto(env.Data, &c)
-	case CmdNameListSessions:
-		var c CmdListSessions
-		return decodeInto(env.Data, &c)
-	case CmdNamePreviewSession:
-		var c CmdPreviewSession
-		return decodeInto(env.Data, &c)
-	case CmdNameSwitchSession:
-		var c CmdSwitchSession
-		return decodeInto(env.Data, &c)
-	case CmdNamePreviewProject:
-		var c CmdPreviewProject
-		return decodeInto(env.Data, &c)
-	case CmdNameFocusPane:
-		var c CmdFocusPane
-		return decodeInto(env.Data, &c)
-	case CmdNameLaunchTool:
-		var c CmdLaunchTool
-		return decodeInto(env.Data, &c)
-	case CmdNameHook:
-		var c CmdHook
-		return decodeInto(env.Data, &c)
-	case CmdNameShutdown:
-		var c CmdShutdown
-		return decodeInto(env.Data, &c)
-	case CmdNameDetach:
-		var c CmdDetach
+	case CmdNameEvent:
+		var c CmdEvent
 		return decodeInto(env.Data, &c)
 	}
 	return nil, fmt.Errorf("proto: unknown command: %q", env.Cmd)

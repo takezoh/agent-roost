@@ -13,27 +13,12 @@ import "fmt"
 // Reducer cases live in reduce_*.go files split by domain.
 func Reduce(s State, ev Event) (State, []Effect) {
 	switch e := ev.(type) {
-	// session lifecycle
-	case EvCmdCreateSession:
-		return reduceCreateSession(s, e)
-	case EvCmdStopSession:
-		return reduceStopSession(s, e)
-	case EvCmdPreviewSession:
-		return reducePreviewSession(s, e)
-	case EvCmdSwitchSession:
-		return reduceSwitchSession(s, e)
-	case EvCmdPreviewProject:
-		return reducePreviewProject(s, e)
-	case EvCmdListSessions:
-		return reduceListSessions(s, e)
-	case EvCmdFocusPane:
-		return reduceFocusPane(s, e)
-	case EvCmdLaunchTool:
-		return reduceLaunchTool(s, e)
-
-	// hook → driver
-	case EvCmdHook:
-		return reduceHook(s, e)
+	// registered command event → dispatch by event type
+	case EvEvent:
+		return reduceEvent(s, e)
+	// driver hook event → route to session's driver
+	case EvDriverEvent:
+		return reduceDriverHook(s, e)
 
 	// tmux feedback
 	case EvTmuxWindowSpawned:
@@ -66,16 +51,10 @@ func Reduce(s State, ev Event) (State, []Effect) {
 		return reduceSubscribe(s, e)
 	case EvCmdUnsubscribe:
 		return reduceUnsubscribe(s, e)
-
-	// daemon lifecycle
-	case EvCmdShutdown:
-		return reduceShutdown(s, e)
-	case EvCmdDetach:
-		return reduceDetach(s, e)
 	}
 
 	panic(fmt.Sprintf("state.Reduce: unhandled event type %T", ev))
 }
 
-// Reducer cases live in reduce_session.go / reduce_hook.go /
+// Reducer cases live in reduce_event.go / reduce_session.go /
 // reduce_tick.go / reduce_job.go / reduce_conn.go / reduce_lifecycle.go.

@@ -1,6 +1,9 @@
 package state
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Event is the closed sum type of every input the reducer accepts.
 // Adding a new event = adding a struct + a Reduce case. The compiler
@@ -8,6 +11,20 @@ import "time"
 type Event interface {
 	isEvent()
 }
+
+// Event type constants for dispatch by reduceEvent.
+const (
+	EventCreateSession  = "create-session"
+	EventStopSession    = "stop-session"
+	EventListSessions   = "list-sessions"
+	EventPreviewSession = "preview-session"
+	EventSwitchSession  = "switch-session"
+	EventPreviewProject = "preview-project"
+	EventFocusPane      = "focus-pane"
+	EventLaunchTool     = "launch-tool"
+	EventShutdown       = "shutdown"
+	EventDetach         = "detach"
+)
 
 // === IPC commands (caller → daemon) ===
 
@@ -26,76 +43,24 @@ type EvCmdUnsubscribe struct {
 	ReqID  string
 }
 
-type EvCmdCreateSession struct {
+// EvEvent is a registered command event (create-session, stop-session, etc.)
+// dispatched from TUI/tools/keybindings via the registry.
+type EvEvent struct {
 	ConnID  ConnID
 	ReqID   string
-	Project string
-	Command string
+	Event   string
+	Payload json.RawMessage
 }
 
-type EvCmdStopSession struct {
+// EvDriverEvent is a driver hook event from the agent process via
+// `roost event <eventType>`. Routed to the session's driver.
+type EvDriverEvent struct {
 	ConnID    ConnID
 	ReqID     string
-	SessionID SessionID
-}
-
-type EvCmdListSessions struct {
-	ConnID ConnID
-	ReqID  string
-}
-
-type EvCmdPreviewSession struct {
-	ConnID    ConnID
-	ReqID     string
-	SessionID SessionID
-}
-
-type EvCmdSwitchSession struct {
-	ConnID    ConnID
-	ReqID     string
-	SessionID SessionID
-}
-
-type EvCmdPreviewProject struct {
-	ConnID  ConnID
-	ReqID   string
-	Project string
-}
-
-type EvCmdFocusPane struct {
-	ConnID ConnID
-	ReqID  string
-	Pane   string
-}
-
-type EvCmdLaunchTool struct {
-	ConnID ConnID
-	ReqID  string
-	Tool   string
-	Args   map[string]string
-}
-
-// EvCmdHook delivers a typed hook payload from a driver-specific bridge
-// (e.g. `roost <driver> event`). Driver identifies the registered driver
-// name; Event is the driver-defined event kind; Payload is the parsed
-// hook payload.
-type EvCmdHook struct {
-	ConnID    ConnID
-	ReqID     string
-	Driver    string
 	Event     string
-	SessionID SessionID
-	Payload   map[string]any
-}
-
-type EvCmdShutdown struct {
-	ConnID ConnID
-	ReqID  string
-}
-
-type EvCmdDetach struct {
-	ConnID ConnID
-	ReqID  string
+	Timestamp time.Time
+	SenderID  SessionID
+	Payload   json.RawMessage
 }
 
 // === Connection lifecycle ===
@@ -174,17 +139,8 @@ type EvTmuxSpawnFailed struct {
 
 func (EvCmdSubscribe) isEvent()       {}
 func (EvCmdUnsubscribe) isEvent()     {}
-func (EvCmdCreateSession) isEvent()   {}
-func (EvCmdStopSession) isEvent()     {}
-func (EvCmdListSessions) isEvent()    {}
-func (EvCmdPreviewSession) isEvent()  {}
-func (EvCmdSwitchSession) isEvent()   {}
-func (EvCmdPreviewProject) isEvent()  {}
-func (EvCmdFocusPane) isEvent()       {}
-func (EvCmdLaunchTool) isEvent()      {}
-func (EvCmdHook) isEvent()            {}
-func (EvCmdShutdown) isEvent()        {}
-func (EvCmdDetach) isEvent()          {}
+func (EvEvent) isEvent()              {}
+func (EvDriverEvent) isEvent()        {}
 func (EvConnOpened) isEvent()         {}
 func (EvConnClosed) isEvent()         {}
 func (EvTick) isEvent()               {}

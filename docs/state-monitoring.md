@@ -125,7 +125,7 @@ type DEvFileChanged struct { Path string }
 | `NewState(now)` | `reduceCreateSession` | 新しい DriverState 値を生成。初期値は Idle / now |
 | `Restore(bag, now)` | `runtime.Bootstrap` | warm/cold restart で前回保存した opaque map から DriverState を再構築 |
 | `Step(prev, DEvTick)` | `reduceTick` → `stepAllSessions` | 定期 polling。Claude は `DEvTick.Active` で gate し、active 時のみ transcript parse job を emit。Generic は capture-pane job を emit |
-| `Step(prev, DEvHook)` | `reduceHook` | hook event を受けて DriverState を更新。Claude は status 遷移 + event log append effect |
+| `Step(prev, DEvHook)` | `reduceEvent` | hook event を受けて DriverState を更新。Claude は status 遷移 + event log append effect |
 | `Step(prev, DEvJobResult)` | `reduceJobResult` | worker pool からの結果を DriverState に反映。transcript parse result の title / lastPrompt 等 |
 | `Step(prev, DEvFileChanged)` | `reduceFileChanged` | fsnotify からのファイル変更通知。transcript parse job を emit |
 | `View(driverState)` | runtime の `broadcastSessionsChanged` / `activeStatusLine` | TUI 向け表示ペイロード (Card / LogTabs / InfoExtras / StatusLine) を返す pure getter |
@@ -173,7 +173,7 @@ hook event → driver.Status マッピング:
 | SessionStart | Idle |
 | SessionEnd | Stopped |
 
-`roost claude event` サブコマンドが Claude hook payload を `proto.CmdHook` に詰め替えて IPC で送り、runtime の IPC reader が `EvCmdHook` に変換して event loop に投入する。`reduceHook` が `Sessions[ev.SessionID]` で 1 段ルックアップして `Driver.Step(driverState, DEvHook{...})` を呼ぶ。state 層も runtime 層も Claude 固有の状態ロジックを一切持たない。
+`roost event <eventType>` サブコマンドが Claude hook payload を `proto.CmdEvent` に詰め替えて IPC で送り、runtime の IPC reader が `EvEvent` に変換して event loop に投入する。`reduceEvent` が `Sessions[ev.SessionID]` で 1 段ルックアップして `Driver.Step(driverState, DEvHook{...})` を呼ぶ。state 層も runtime 層も Claude 固有の状態ロジックを一切持たない。
 
 ルーティングは sessionID で 1 段ルックアップ。詳細は [hook event ルーティングと race-free identification](#hook-event-ルーティングと-race-free-identification) を参照。
 
@@ -193,13 +193,13 @@ runtime の spawn 処理は `tmux new-window` で agent プロセスを起動し
 T+0ms   roost: tmux new-window -e ROOST_SESSION_ID=abc123 'exec claude'
         → claude プロセス起動 (env に ROOST_SESSION_ID=abc123 が既に入っている)
 T+5ms   claude が SessionStart hook を発火
-T+5ms   roost claude event 起動 (環境変数を継承)
-T+5ms   currentRoostSessionID() → os.Getenv("ROOST_SESSION_ID") == "abc123" → 即 OK
-T+5ms   → SendAgentEvent({SessionID: "abc123", ...}) ✓
-T+5ms   server: HandleHookEvent → Sessions.FindByID("abc123") → 該当 → drv.HandleEvent
+T+5ms   roost event <eventType> 起動 (環境変数を継承)
+T+5ms   os.Getenv("ROOST_SESSION_ID") == "abc123" → 即 OK
+T+5ms   → SendEvent({Event: "SessionStart", SessionID: "abc123", ...}) ✓
+T+5ms   server: reduceEvent → Sessions["abc123"] → 該当 → Driver.Step(DEvHook)
 ```
 
-`lib/claude/command.go` の `currentRoostSessionID()` は env var を読むだけのトリビアル関数で、tmux への往復を一切しない。
+`lib/event/command.go` の `Run()` は env var を読むだけで、tmux への往復を一切しない。
 
 #### 副次効果
 
@@ -251,7 +251,7 @@ sequenceDiagram
     participant Interp as Effect interpreter
     participant JSON as sessions.json<br/>(single SoT)
 
-    Note over Red: EvTick or EvCmdHook
+    Note over Red: EvTick or EvEvent
     Red->>Drv: Driver.Step(driverState, driverEvent)
     Drv-->>Red: (driverState', effects, view)
     Note over Red: state.Session.Driver = driverState'

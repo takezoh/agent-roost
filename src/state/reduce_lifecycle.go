@@ -1,23 +1,23 @@
 package state
 
-// Daemon lifecycle reducers. Shutdown sets the ShutdownReq flag so
-// the runtime can detect it after Attach returns and kill the tmux
-// session. Detach is the soft version that drops the user back to
-// their pre-roost terminal without killing anything.
+func init() {
+	RegisterEvent[struct{}](EventShutdown, reduceShutdown)
+	RegisterEvent[struct{}](EventDetach, reduceDetach)
+}
 
-func reduceShutdown(s State, e EvCmdShutdown) (State, []Effect) {
+func reduceShutdown(s State, connID ConnID, reqID string, _ struct{}) (State, []Effect) {
 	s.ShutdownReq = true
 	return s, []Effect{
 		EffPersistSnapshot{},
-		okResp(e.ConnID, e.ReqID, nil),
+		okResp(connID, reqID, nil),
 		EffDetachClient{},
 	}
 }
 
-func reduceDetach(s State, e EvCmdDetach) (State, []Effect) {
+func reduceDetach(s State, connID ConnID, reqID string, _ struct{}) (State, []Effect) {
 	return s, []Effect{
 		EffPersistSnapshot{},
-		okResp(e.ConnID, e.ReqID, nil),
+		okResp(connID, reqID, nil),
 		EffDetachClient{},
 	}
 }

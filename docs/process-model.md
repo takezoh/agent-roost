@@ -98,7 +98,7 @@ roost --tui main            → メイン TUI (Pane 0.0)
 roost --tui sessions        → セッション一覧サーバー (Pane 0.2)
 roost --tui palette [flags] → コマンドパレット (tmux popup)
 roost --tui log             → ログ TUI (Pane 0.1)
-roost claude event          → Claude hook イベント受信（hook から呼ばれる短命プロセス）
+roost event <eventType>      → Claude hook イベント受信（hook から呼ばれる短命プロセス）
 roost claude setup          → Claude hook 登録（~/.claude/settings.json に書き込み）
 ```
 

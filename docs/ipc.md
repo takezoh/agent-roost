@@ -218,16 +218,16 @@ hook event は IPC reader → event loop → Reduce → Driver.Step の一直線
 
 ```mermaid
 sequenceDiagram
-    participant Bridge as roost claude event<br/>(hook bridge)
+    participant Bridge as roost event <eventType><br/>(hook bridge)
     participant Reader as IPC reader goroutine
     participant EL as Event loop
     participant Red as state.Reduce
     participant Drv as Driver.Step<br/>(claudeDriver)
 
-    Bridge->>Reader: proto.CmdHook{Driver, Event, SessionID, Payload}
-    Reader->>EL: EvCmdHook (eventCh)
-    EL->>Red: Reduce(state, EvCmdHook)
-    Note over Red: reduceHook: session lookup →<br/>Driver.Step(driverState, DEvHook{...})
+    Bridge->>Reader: proto.CmdEvent{Driver, Event, SessionID, Payload}
+    Reader->>EL: EvEvent (eventCh)
+    EL->>Red: Reduce(state, EvEvent)
+    Note over Red: reduceEvent: session lookup →<br/>Driver.Step(driverState, DEvHook{...})
     Red->>Drv: Step(prev, DEvHook{Event, Payload})
     Drv-->>Red: (next, [EffEventLogAppend, EffStartJob{Haiku}], view)
     Red-->>EL: (state', effects + EffSendResponse + EffBroadcastSessionsChanged)

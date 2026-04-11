@@ -2,14 +2,12 @@ package proto
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
-)
 
-// Convenience wrappers around Client.Send for the typed commands
-// callers issue most often. Each helper bounds the wait with a
-// short default timeout that's plenty for the local Unix socket
-// roundtrip the daemon expects.
+	"github.com/takezoh/agent-roost/state"
+)
 
 const defaultRequestTimeout = 5 * time.Second
 
@@ -28,7 +26,8 @@ func (c *Client) Subscribe() error {
 // CreateSession asks the daemon to spawn a new session. Returns
 // the freshly assigned session id and window id, or an error.
 func (c *Client) CreateSession(project, command string) (sessionID, windowID string, err error) {
-	resp, err := c.sendDefault(CmdCreateSession{Project: project, Command: command})
+	payload, _ := json.Marshal(map[string]string{"project": project, "command": command})
+	resp, err := c.sendDefault(CmdEvent{Event: state.EventCreateSession, Payload: json.RawMessage(payload)})
 	if err != nil {
 		return "", "", err
 	}
@@ -41,14 +40,15 @@ func (c *Client) CreateSession(project, command string) (sessionID, windowID str
 
 // StopSession kills a session by id.
 func (c *Client) StopSession(id string) error {
-	_, err := c.sendDefault(CmdStopSession{SessionID: id})
+	payload, _ := json.Marshal(map[string]string{"session_id": id})
+	_, err := c.sendDefault(CmdEvent{Event: state.EventStopSession, Payload: json.RawMessage(payload)})
 	return err
 }
 
 // ListSessions returns the current session table, active window id,
 // and connector info.
 func (c *Client) ListSessions() ([]SessionInfo, string, []ConnectorInfo, error) {
-	resp, err := c.sendDefault(CmdListSessions{})
+	resp, err := c.sendDefault(CmdEvent{Event: state.EventListSessions})
 	if err != nil {
 		return nil, "", nil, err
 	}
@@ -61,7 +61,8 @@ func (c *Client) ListSessions() ([]SessionInfo, string, []ConnectorInfo, error) 
 
 // PreviewSession swaps a session into pane 0.0 without focusing it.
 func (c *Client) PreviewSession(sessionID string) (string, error) {
-	resp, err := c.sendDefault(CmdPreviewSession{SessionID: sessionID})
+	payload, _ := json.Marshal(map[string]string{"session_id": sessionID})
+	resp, err := c.sendDefault(CmdEvent{Event: state.EventPreviewSession, Payload: json.RawMessage(payload)})
 	if err != nil {
 		return "", err
 	}
@@ -73,7 +74,8 @@ func (c *Client) PreviewSession(sessionID string) (string, error) {
 
 // SwitchSession swaps a session into pane 0.0 and focuses it.
 func (c *Client) SwitchSession(sessionID string) (string, error) {
-	resp, err := c.sendDefault(CmdSwitchSession{SessionID: sessionID})
+	payload, _ := json.Marshal(map[string]string{"session_id": sessionID})
+	resp, err := c.sendDefault(CmdEvent{Event: state.EventSwitchSession, Payload: json.RawMessage(payload)})
 	if err != nil {
 		return "", err
 	}
@@ -86,43 +88,48 @@ func (c *Client) SwitchSession(sessionID string) (string, error) {
 // PreviewProject deactivates the current session and broadcasts
 // project-selected.
 func (c *Client) PreviewProject(project string) error {
-	_, err := c.sendDefault(CmdPreviewProject{Project: project})
+	payload, _ := json.Marshal(map[string]string{"project": project})
+	_, err := c.sendDefault(CmdEvent{Event: state.EventPreviewProject, Payload: json.RawMessage(payload)})
 	return err
 }
 
 // FocusPane focuses the named control pane.
 func (c *Client) FocusPane(pane string) error {
-	_, err := c.sendDefault(CmdFocusPane{Pane: pane})
+	payload, _ := json.Marshal(map[string]string{"pane": pane})
+	_, err := c.sendDefault(CmdEvent{Event: state.EventFocusPane, Payload: json.RawMessage(payload)})
 	return err
 }
 
 // LaunchTool tells the daemon to display a popup running the named
 // tool. Args are pre-filled values the popup should start with.
 func (c *Client) LaunchTool(toolName string, args map[string]string) error {
-	_, err := c.sendDefault(CmdLaunchTool{Tool: toolName, Args: args})
+	m := map[string]string{"tool": toolName}
+	for k, v := range args {
+		m[k] = v
+	}
+	payload, _ := json.Marshal(m)
+	_, err := c.sendDefault(CmdEvent{Event: state.EventLaunchTool, Payload: json.RawMessage(payload)})
 	return err
 }
 
 // Shutdown tells the daemon to terminate.
 func (c *Client) Shutdown() error {
-	_, err := c.sendDefault(CmdShutdown{})
+	_, err := c.sendDefault(CmdEvent{Event: state.EventShutdown})
 	return err
 }
 
 // Detach asks the daemon to detach the tmux client (keeps daemon alive).
 func (c *Client) Detach() error {
-	_, err := c.sendDefault(CmdDetach{})
+	_, err := c.sendDefault(CmdEvent{Event: state.EventDetach})
 	return err
 }
 
-// SendHook ships a typed hook payload from the bridge to the daemon.
-// Caller picks the timeout — hook bridges typically use a short bound
-// since they should not stall claude-side hook execution.
-func (c *Client) SendHook(driverName, eventName, sessionID string, payload map[string]any) error {
-	return c.SendWithTimeout(CmdHook{
-		Driver:    driverName,
+// SendEvent ships a generic event to the daemon.
+func (c *Client) SendEvent(eventName string, timestamp time.Time, senderID string, payload json.RawMessage) error {
+	return c.SendWithTimeout(CmdEvent{
 		Event:     eventName,
-		SessionID: sessionID,
+		Timestamp: timestamp,
+		SenderID:  senderID,
 		Payload:   payload,
 	}, defaultRequestTimeout)
 }

@@ -35,7 +35,7 @@ func TestRegisterHooks_NewFile(t *testing.T) {
 	entry := entries[0].(map[string]any)
 	hookArr := entry["hooks"].([]any)
 	hook := hookArr[0].(map[string]any)
-	if hook["command"] != "/usr/local/bin/roost claude event" {
+	if hook["command"] != "/usr/local/bin/roost event SessionStart" {
 		t.Errorf("command = %v", hook["command"])
 	}
 }
@@ -73,36 +73,5 @@ func TestRegisterHooks_Idempotent(t *testing.T) {
 	}
 	if events != nil {
 		t.Errorf("expected nil for already registered, got %v", events)
-	}
-}
-
-func TestUnregisterHooks(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.json")
-
-	RegisterHooks(path, "/usr/local/bin/roost")
-	if err := UnregisterHooks(path); err != nil {
-		t.Fatalf("UnregisterHooks: %v", err)
-	}
-
-	registered, _ := IsHookRegistered(path)
-	if registered {
-		t.Error("hooks still registered after unregister")
-	}
-}
-
-func TestIsHookRegistered(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "settings.json")
-
-	registered, _ := IsHookRegistered(path)
-	if registered {
-		t.Error("expected false for non-existent file")
-	}
-
-	RegisterHooks(path, "/usr/local/bin/roost")
-	registered, _ = IsHookRegistered(path)
-	if !registered {
-		t.Error("expected true after registration")
 	}
 }

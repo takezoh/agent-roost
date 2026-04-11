@@ -8,17 +8,8 @@ import (
 func TestEncodeDecodeCommand(t *testing.T) {
 	cases := []Command{
 		CmdSubscribe{Filters: []string{"sessions-changed"}},
-		CmdCreateSession{Project: "/foo", Command: "claude"},
-		CmdStopSession{SessionID: "abc"},
-		CmdListSessions{},
-		CmdPreviewSession{SessionID: "abc"},
-		CmdSwitchSession{SessionID: "abc"},
-		CmdPreviewProject{Project: "/p"},
-		CmdFocusPane{Pane: "0.1"},
-		CmdLaunchTool{Tool: "new-session", Args: map[string]string{"project": "/p"}},
-		CmdHook{Driver: "claude", Event: "session-start", SessionID: "abc", Payload: map[string]any{"k": "v"}},
-		CmdShutdown{},
-		CmdDetach{},
+		CmdUnsubscribe{},
+		CmdEvent{Event: "session-start", SenderID: "abc", Payload: json.RawMessage(`{"k":"v"}`)},
 	}
 	for _, c := range cases {
 		t.Run(c.CommandName(), func(t *testing.T) {

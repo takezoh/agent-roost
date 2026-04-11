@@ -103,13 +103,12 @@ func (hp hookPayload) logEffects() []state.Effect {
 	return nil
 }
 
-func parseHookPayload(payload map[string]any) hookPayload {
-	raw, _ := payload["raw"].(string)
-	if raw == "" {
+func parseHookPayload(payload json.RawMessage) hookPayload {
+	if len(payload) == 0 {
 		return hookPayload{}
 	}
 	var hp hookPayload
-	json.Unmarshal([]byte(raw), &hp)
+	json.Unmarshal(payload, &hp)
 	return hp
 }
 
@@ -121,30 +120,26 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 		return cs, nil
 	}
 
-	if v, ok := e.Payload["roost_session_id"].(string); ok && v != "" {
-		cs.RoostSessionID = v
+	if e.RoostSessionID != "" {
+		cs.RoostSessionID = e.RoostSessionID
 	}
 
-	bridgeTS := payloadBridgeTS(e.Payload)
+	ts := e.Timestamp
 
-	// SessionStart resets the session lifecycle, so it always goes
-	// through regardless of ordering. It also resets LastBridgeTS so
-	// a clock-skew (e.g. NTP adjustment) between SessionEnd and a
-	// subsequent SessionStart doesn't permanently block the session.
 	if hp.HookEventName == "SessionStart" {
-		cs.LastBridgeTS = bridgeTS
+		cs.LastBridgeTS = ts
 		cs.HangDetected = false
 		cs.PaneHash = ""
-		return d.handleSessionStart(cs, hp, e.Payload)
+		return d.handleSessionStart(cs, hp, ts)
 	}
 
-	if bridgeTS > 0 && bridgeTS <= cs.LastBridgeTS {
+	if !ts.IsZero() && !ts.After(cs.LastBridgeTS) {
 		slog.Warn("claude: dropping out-of-order hook",
-			"event", hp.HookEventName, "bridge_ts", bridgeTS, "last", cs.LastBridgeTS)
+			"event", hp.HookEventName, "ts", ts, "last", cs.LastBridgeTS)
 		return cs, nil
 	}
-	if bridgeTS > 0 {
-		cs.LastBridgeTS = bridgeTS
+	if !ts.IsZero() {
+		cs.LastBridgeTS = ts
 	}
 
 	// A hook arriving (non-stale) means the agent is alive — clear
@@ -153,7 +148,7 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 	cs.PaneHash = ""
 
 	if hp.HookEventName == "UserPromptSubmit" {
-		return d.handleUserPromptSubmit(cs, hp, e.Payload)
+		return d.handleUserPromptSubmit(cs, hp, e.Timestamp)
 	}
 
 	// Agent tool events track subagent lifecycle, not main-agent
@@ -174,14 +169,13 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 		return cs, hp.logEffects()
 	}
 
-	return d.handleStateChange(cs, hp, status, e.Payload)
+	return d.handleStateChange(cs, hp, status, e.Timestamp)
 }
 
 // handleSessionStart absorbs identity and kicks initial transcript
 // watch + parse + event log.
-func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, payload map[string]any) (ClaudeState, []state.Effect) {
+func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, now time.Time) (ClaudeState, []state.Effect) {
 	cs = absorbIdentityFromHP(cs, hp)
-	now := payloadTime(payload)
 	if now.IsZero() {
 		now = cs.StatusChangedAt
 	}
@@ -224,9 +218,8 @@ func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, payload
 }
 
 // handleStateChange advances the status machine and emits an event log.
-func (d ClaudeDriver) handleStateChange(cs ClaudeState, hp hookPayload, statusStr string, payload map[string]any) (ClaudeState, []state.Effect) {
+func (d ClaudeDriver) handleStateChange(cs ClaudeState, hp hookPayload, statusStr string, now time.Time) (ClaudeState, []state.Effect) {
 	cs = absorbIdentityFromHP(cs, hp)
-	now := payloadTime(payload)
 	if now.IsZero() {
 		now = cs.StatusChangedAt
 	}
@@ -259,9 +252,8 @@ func (d ClaudeDriver) handleStateChange(cs ClaudeState, hp hookPayload, statusSt
 
 // handleUserPromptSubmit seeds LastPrompt, triggers haiku summary,
 // and also runs the state-change logic (UserPromptSubmit → "running").
-func (d ClaudeDriver) handleUserPromptSubmit(cs ClaudeState, hp hookPayload, payload map[string]any) (ClaudeState, []state.Effect) {
+func (d ClaudeDriver) handleUserPromptSubmit(cs ClaudeState, hp hookPayload, now time.Time) (ClaudeState, []state.Effect) {
 	cs = absorbIdentityFromHP(cs, hp)
-	now := payloadTime(payload)
 	if !now.IsZero() {
 		cs.StatusChangedAt = now
 	}
@@ -316,19 +308,3 @@ func absorbIdentityFromHP(cs ClaudeState, hp hookPayload) ClaudeState {
 	return cs
 }
 
-func payloadBridgeTS(payload map[string]any) int64 {
-	if v, ok := payload["bridge_ts"].(int64); ok {
-		return v
-	}
-	if f, ok := payload["bridge_ts"].(float64); ok {
-		return int64(f)
-	}
-	return 0
-}
-
-func payloadTime(payload map[string]any) time.Time {
-	if v, ok := payload["now"].(time.Time); ok {
-		return v
-	}
-	return time.Time{}
-}

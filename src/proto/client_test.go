@@ -8,9 +8,10 @@ import (
 	"net"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/takezoh/agent-roost/state"
+	"time"
+
 )
 
 // fakeServer pairs a net.Pipe end with a goroutine that reads
@@ -77,7 +78,7 @@ func TestClientSendRoundTrip(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		resp, err := c.Send(ctx, CmdCreateSession{Project: "/foo", Command: "claude"})
+		resp, err := c.Send(ctx, CmdEvent{Event: state.EventCreateSession, Payload: json.RawMessage(`{"project":"/foo","command":"claude"}`)})
 		resCh <- result{resp, err}
 	}()
 
@@ -109,7 +110,7 @@ func TestClientErrorResponse(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		_, err := c.Send(ctx, CmdStopSession{SessionID: "ghost"})
+		_, err := c.Send(ctx, CmdEvent{Event: state.EventStopSession, Payload: json.RawMessage(`{"session_id":"ghost"}`)})
 		resCh <- err
 	}()
 
@@ -161,7 +162,7 @@ func TestClientCloseUnblocksPending(t *testing.T) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
-		_, err := c.Send(ctx, CmdShutdown{})
+		_, err := c.Send(ctx, CmdEvent{Event: state.EventShutdown})
 		resCh <- err
 	}()
 
@@ -175,25 +176,6 @@ func TestClientCloseUnblocksPending(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Send did not unblock after close")
-	}
-}
-
-func TestCommandToStateEvent(t *testing.T) {
-	cases := []struct {
-		cmd  Command
-		want string
-	}{
-		{CmdSubscribe{}, "EvCmdSubscribe"},
-		{CmdCreateSession{Project: "/p"}, "EvCmdCreateSession"},
-		{CmdStopSession{SessionID: "x"}, "EvCmdStopSession"},
-		{CmdHook{Driver: "claude"}, "EvCmdHook"},
-		{CmdShutdown{}, "EvCmdShutdown"},
-	}
-	for _, c := range cases {
-		ev := CommandToStateEvent(state.ConnID(1), "r1", c.cmd)
-		if ev == nil {
-			t.Errorf("nil event for %T", c.cmd)
-		}
 	}
 }
 

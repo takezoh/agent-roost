@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/state"
 	"github.com/takezoh/agent-roost/tmux"
 	"github.com/takezoh/agent-roost/driver"
@@ -206,8 +208,9 @@ func TestRuntimeCreateSessionFlow(t *testing.T) {
 	defer cancel()
 	go func() { _ = r.Run(ctx) }()
 
-	r.Enqueue(state.EvCmdCreateSession{
-		ConnID: 1, ReqID: "r1", Project: "/tmp/test", Command: "stub-fallback",
+	r.Enqueue(state.EvEvent{
+		ConnID: 1, ReqID: "r1", Event: "create-session",
+		Payload: json.RawMessage(`{"project":"/tmp/test","command":"stub-fallback"}`),
 	})
 
 	// Wait for the spawn callback to land.
@@ -321,14 +324,29 @@ func TestWindowName(t *testing.T) {
 	}
 }
 
+func TestCommandToStateEvent(t *testing.T) {
+	cases := []struct {
+		cmd  proto.Command
+		want string
+	}{
+		{proto.CmdSubscribe{}, "EvCmdSubscribe"},
+		{proto.CmdEvent{Event: "test"}, "EvEvent"},
+	}
+	for _, c := range cases {
+		ev := commandToStateEvent(state.ConnID(1), "r1", c.cmd)
+		if ev == nil {
+			t.Errorf("nil event for %T", c.cmd)
+		}
+	}
+}
+
 func TestEventTypeName(t *testing.T) {
 	cases := []struct {
 		ev   state.Event
 		want string
 	}{
 		{state.EvTick{}, "EvTick"},
-		{state.EvCmdCreateSession{}, "EvCmdCreateSession"},
-		{state.EvCmdHook{}, "EvCmdHook"},
+		{state.EvEvent{}, "EvEvent"},
 	}
 	for _, c := range cases {
 		if got := eventTypeName(c.ev); got != c.want {
@@ -355,7 +373,7 @@ func TestRuntimeStopSession(t *testing.T) {
 	defer cancel()
 	go func() { _ = r.Run(ctx) }()
 
-	r.Enqueue(state.EvCmdStopSession{ConnID: 1, ReqID: "r", SessionID: "abc"})
+	r.Enqueue(state.EvEvent{ConnID: 1, ReqID: "r", Event: "stop-session", Payload: json.RawMessage(`{"session_id":"abc"}`)})
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		tmux.mu.Lock()
@@ -400,8 +418,9 @@ func TestRuntimeShellSessionSpawnsWithoutCommand(t *testing.T) {
 	defer cancel()
 	go func() { _ = r.Run(ctx) }()
 
-	r.Enqueue(state.EvCmdCreateSession{
-		ConnID: 1, ReqID: "r1", Project: "/tmp/test", Command: "shell",
+	r.Enqueue(state.EvEvent{
+		ConnID: 1, ReqID: "r1", Event: "create-session",
+		Payload: json.RawMessage(`{"project":"/tmp/test","command":"shell"}`),
 	})
 
 	deadline := time.Now().Add(2 * time.Second)

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -80,11 +81,16 @@ func countEff[T Effect](effs []Effect) int {
 	return n
 }
 
+func mustPayload(fields map[string]string) json.RawMessage {
+	b, _ := json.Marshal(fields)
+	return json.RawMessage(b)
+}
+
 // === reduceCreateSession ===
 
 func TestCreateSessionMissingProject(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdCreateSession{ConnID: 1, ReqID: "r"})
+	_, effs := Reduce(s, EvEvent{ConnID: 1, ReqID: "r", Event: "create-session"})
 	if _, ok := findEff[EffSendError](effs); !ok {
 		t.Error("expected EffSendError")
 	}
@@ -93,8 +99,9 @@ func TestCreateSessionMissingProject(t *testing.T) {
 func TestCreateSessionAllocatesAndSpawns(t *testing.T) {
 	s := New()
 	s.Now = time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
-	next, effs := Reduce(s, EvCmdCreateSession{
-		ConnID: 1, ReqID: "r", Project: "/foo", Command: "stub",
+	next, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "create-session",
+		Payload: mustPayload(map[string]string{"project": "/foo", "command": "stub"}),
 	})
 	if len(next.Sessions) != 1 {
 		t.Fatalf("session count = %d, want 1", len(next.Sessions))
@@ -125,13 +132,11 @@ func TestCreateSessionAllocatesAndSpawns(t *testing.T) {
 }
 
 func TestCreateSessionDefaultCommand(t *testing.T) {
-	// command="" defaults to DefaultCommand, then "shell" as final
-	// fallback. The fallback driver "" handles unknown commands.
 	s := New()
-	_, effs := Reduce(s, EvCmdCreateSession{
-		ConnID: 1, ReqID: "r", Project: "/foo", // no Command → defaults to "shell"
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "create-session",
+		Payload: mustPayload(map[string]string{"project": "/foo"}),
 	})
-	// The fallback driver handles unknown commands so spawn is emitted.
 	if _, ok := findEff[EffSpawnTmuxWindow](effs); !ok {
 		t.Error("expected EffSpawnTmuxWindow with default command")
 	}
@@ -139,10 +144,10 @@ func TestCreateSessionDefaultCommand(t *testing.T) {
 
 func TestCreateSessionUnknownCommandFallsBackToFallback(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdCreateSession{
-		ConnID: 1, ReqID: "r", Project: "/foo", Command: "nonexistent",
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "create-session",
+		Payload: mustPayload(map[string]string{"project": "/foo", "command": "nonexistent"}),
 	})
-	// Falls back to "" registered driver, so spawn is emitted.
 	if _, ok := findEff[EffSpawnTmuxWindow](effs); !ok {
 		t.Error("expected fallback driver to allow spawn")
 	}
@@ -210,7 +215,10 @@ func TestStopSessionRemovesAndKills(t *testing.T) {
 	id := SessionID("abc")
 	s.Sessions[id] = Session{ID: id, WindowID: "@5", Driver: stubDriverState{}}
 	s.Active = "@5"
-	next, effs := Reduce(s, EvCmdStopSession{ConnID: 1, ReqID: "r", SessionID: id})
+	next, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "stop-session",
+		Payload: mustPayload(map[string]string{"session_id": string(id)}),
+	})
 	if _, ok := next.Sessions[id]; ok {
 		t.Error("session should be removed")
 	}
@@ -225,7 +233,10 @@ func TestStopSessionRemovesAndKills(t *testing.T) {
 
 func TestStopSessionUnknownReturnsError(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdStopSession{ConnID: 1, ReqID: "r", SessionID: "ghost"})
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "stop-session",
+		Payload: mustPayload(map[string]string{"session_id": "ghost"}),
+	})
 	if _, ok := findEff[EffSendError](effs); !ok {
 		t.Error("expected EffSendError")
 	}
@@ -237,7 +248,10 @@ func TestPreviewSessionSwapsAndUpdatesActive(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = Session{ID: id, WindowID: "@5", Driver: stubDriverState{}}
-	next, effs := Reduce(s, EvCmdPreviewSession{ConnID: 1, ReqID: "r", SessionID: id})
+	next, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "preview-session",
+		Payload: mustPayload(map[string]string{"session_id": string(id)}),
+	})
 	if next.Active != "@5" {
 		t.Errorf("active = %q, want @5", next.Active)
 	}
@@ -252,7 +266,10 @@ func TestPreviewSessionSwapsAndUpdatesActive(t *testing.T) {
 
 func TestPreviewSessionUnknownErrors(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdPreviewSession{ConnID: 1, ReqID: "r", SessionID: "ghost"})
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "preview-session",
+		Payload: mustPayload(map[string]string{"session_id": "ghost"}),
+	})
 	if _, ok := findEff[EffSendError](effs); !ok {
 		t.Error("expected EffSendError")
 	}
@@ -262,7 +279,10 @@ func TestPreviewSessionWithoutWindowErrors(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = Session{ID: id, Driver: stubDriverState{}}
-	_, effs := Reduce(s, EvCmdPreviewSession{ConnID: 1, ReqID: "r", SessionID: id})
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "preview-session",
+		Payload: mustPayload(map[string]string{"session_id": string(id)}),
+	})
 	if _, ok := findEff[EffSendError](effs); !ok {
 		t.Error("expected EffSendError")
 	}
@@ -272,7 +292,10 @@ func TestSwitchSessionAlsoSelectsPane(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = Session{ID: id, WindowID: "@5", Driver: stubDriverState{}}
-	_, effs := Reduce(s, EvCmdSwitchSession{ConnID: 1, ReqID: "r", SessionID: id})
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "switch-session",
+		Payload: mustPayload(map[string]string{"session_id": string(id)}),
+	})
 	if _, ok := findEff[EffSelectPane](effs); !ok {
 		t.Error("expected EffSelectPane")
 	}
@@ -284,7 +307,10 @@ func TestSwitchSessionAlsoSelectsPane(t *testing.T) {
 func TestPreviewProjectDeactivatesActive(t *testing.T) {
 	s := New()
 	s.Active = "@5"
-	next, effs := Reduce(s, EvCmdPreviewProject{ConnID: 1, ReqID: "r", Project: "/foo"})
+	next, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "preview-project",
+		Payload: mustPayload(map[string]string{"project": "/foo"}),
+	})
 	if next.Active != "" {
 		t.Errorf("active = %q, want empty", next.Active)
 	}
@@ -298,7 +324,10 @@ func TestPreviewProjectDeactivatesActive(t *testing.T) {
 
 func TestPreviewProjectNoActiveStillBroadcasts(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdPreviewProject{ConnID: 1, ReqID: "r", Project: "/foo"})
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "preview-project",
+		Payload: mustPayload(map[string]string{"project": "/foo"}),
+	})
 	if _, ok := findEff[EffBroadcastEvent](effs); !ok {
 		t.Error("expected EffBroadcastEvent")
 	}
@@ -308,7 +337,7 @@ func TestPreviewProjectNoActiveStillBroadcasts(t *testing.T) {
 
 func TestListSessionsResponds(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdListSessions{ConnID: 1, ReqID: "r"})
+	_, effs := Reduce(s, EvEvent{ConnID: 1, ReqID: "r", Event: "list-sessions"})
 	if _, ok := findEff[EffSendResponse](effs); !ok {
 		t.Error("expected EffSendResponse")
 	}
@@ -318,7 +347,10 @@ func TestListSessionsResponds(t *testing.T) {
 
 func TestFocusPaneSelectsAndBroadcasts(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdFocusPane{ConnID: 1, ReqID: "r", Pane: "0.1"})
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "focus-pane",
+		Payload: mustPayload(map[string]string{"pane": "0.1"}),
+	})
 	if _, ok := findEff[EffSelectPane](effs); !ok {
 		t.Error("expected EffSelectPane")
 	}
@@ -329,7 +361,7 @@ func TestFocusPaneSelectsAndBroadcasts(t *testing.T) {
 
 func TestFocusPaneEmptyErrors(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdFocusPane{ConnID: 1, ReqID: "r"})
+	_, effs := Reduce(s, EvEvent{ConnID: 1, ReqID: "r", Event: "focus-pane"})
 	if _, ok := findEff[EffSendError](effs); !ok {
 		t.Error("expected EffSendError")
 	}
@@ -339,7 +371,10 @@ func TestFocusPaneEmptyErrors(t *testing.T) {
 
 func TestLaunchToolDisplaysPopup(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdLaunchTool{ConnID: 1, ReqID: "r", Tool: "new-session"})
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "launch-tool",
+		Payload: mustPayload(map[string]string{"tool": "new-session"}),
+	})
 	if _, ok := findEff[EffDisplayPopup](effs); !ok {
 		t.Error("expected EffDisplayPopup")
 	}
@@ -347,7 +382,7 @@ func TestLaunchToolDisplaysPopup(t *testing.T) {
 
 func TestLaunchToolEmptyErrors(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdLaunchTool{ConnID: 1, ReqID: "r"})
+	_, effs := Reduce(s, EvEvent{ConnID: 1, ReqID: "r", Event: "launch-tool"})
 	if _, ok := findEff[EffSendError](effs); !ok {
 		t.Error("expected EffSendError")
 	}
@@ -357,7 +392,7 @@ func TestLaunchToolEmptyErrors(t *testing.T) {
 
 func TestShutdownSetsFlag(t *testing.T) {
 	s := New()
-	next, effs := Reduce(s, EvCmdShutdown{ConnID: 1, ReqID: "r"})
+	next, effs := Reduce(s, EvEvent{ConnID: 1, ReqID: "r", Event: "shutdown"})
 	if !next.ShutdownReq {
 		t.Error("ShutdownReq should be true")
 	}
@@ -368,7 +403,7 @@ func TestShutdownSetsFlag(t *testing.T) {
 
 func TestDetach(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdDetach{ConnID: 1, ReqID: "r"})
+	_, effs := Reduce(s, EvEvent{ConnID: 1, ReqID: "r", Event: "detach"})
 	if _, ok := findEff[EffDetachClient](effs); !ok {
 		t.Error("expected EffDetachClient")
 	}
@@ -515,7 +550,6 @@ func TestPaneDiedNoActiveRespawnsMainTUI(t *testing.T) {
 	s.Sessions = map[SessionID]Session{
 		"s1": {ID: "s1", WindowID: "@5", PaneID: "%10", Command: "stub-x"},
 	}
-	// Active is empty — no session swapped into 0.0
 
 	_, effs := Reduce(s, EvPaneDied{
 		Pane:           "{sessionName}:0.0",
@@ -576,7 +610,6 @@ func TestJobResultRoutesToConnector(t *testing.T) {
 	if countEff[EffBroadcastSessionsChanged](effs) != 1 {
 		t.Errorf("broadcast count = %d, want 1", countEff[EffBroadcastSessionsChanged](effs))
 	}
-	// Connector state should have been stepped (Val incremented).
 	cs := next.Connectors["test"].(stubConnectorState)
 	if cs.Val != 1 {
 		t.Errorf("Val = %d, want 1", cs.Val)
@@ -590,8 +623,6 @@ func TestFileChangedRoutes(t *testing.T) {
 	id := SessionID("abc")
 	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
 	_, effs := Reduce(s, EvFileChanged{SessionID: id, Path: "/x"})
-	// stub driver returns no effects, so we expect 0 effects (no
-	// persist/broadcast either since the driver did nothing).
 	if len(effs) != 0 {
 		t.Errorf("expected 0 effects from no-op driver, got %d", len(effs))
 	}
@@ -607,9 +638,9 @@ func TestFileChangedUnknownSession(t *testing.T) {
 
 // === reduceHook ===
 
-func TestReduceHookMissingSessionID(t *testing.T) {
+func TestReduceHookMissingSenderID(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdHook{ConnID: 1, ReqID: "r"})
+	_, effs := Reduce(s, EvDriverEvent{ConnID: 1, ReqID: "r", Event: "custom-hook"})
 	if _, ok := findEff[EffSendError](effs); !ok {
 		t.Error("expected EffSendError")
 	}
@@ -617,7 +648,7 @@ func TestReduceHookMissingSessionID(t *testing.T) {
 
 func TestReduceHookUnknownSession(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvCmdHook{ConnID: 1, ReqID: "r", SessionID: "ghost"})
+	_, effs := Reduce(s, EvDriverEvent{ConnID: 1, ReqID: "r", Event: "custom-hook", SenderID: "ghost"})
 	if _, ok := findEff[EffSendError](effs); !ok {
 		t.Error("expected EffSendError")
 	}
@@ -627,9 +658,9 @@ func TestReduceHookRoutes(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
-	_, effs := Reduce(s, EvCmdHook{
-		ConnID: 1, ReqID: "r", SessionID: id, Event: "session-start",
-		Payload: map[string]any{},
+	_, effs := Reduce(s, EvDriverEvent{
+		ConnID: 1, ReqID: "r", SenderID: id, Event: "session-start",
+		Payload: json.RawMessage(`{}`),
 	})
 	if _, ok := findEff[EffSendResponse](effs); !ok {
 		t.Error("expected EffSendResponse")
@@ -640,9 +671,9 @@ func TestReduceHookInjectsRoostSessionID(t *testing.T) {
 	s := New()
 	id := SessionID("roost-xyz")
 	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
-	_, effs := Reduce(s, EvCmdHook{
-		ConnID: 1, ReqID: "r", SessionID: id, Event: "test",
-		Payload: map[string]any{},
+	_, effs := Reduce(s, EvDriverEvent{
+		ConnID: 1, ReqID: "r", SenderID: id, Event: "test",
+		Payload: json.RawMessage(`{}`),
 	})
 	if _, ok := findEff[EffSendError](effs); ok {
 		t.Error("unexpected error from hook with empty payload")
@@ -693,8 +724,9 @@ func TestPostProcessLeavesSessionIDIfSet(t *testing.T) {
 func TestReduceCreateSession_DefaultCommand(t *testing.T) {
 	s := New()
 	s.DefaultCommand = "gemini"
-	s, _ = Reduce(s, EvCmdCreateSession{
-		Project: "test", Command: "",
+	s, _ = Reduce(s, EvEvent{
+		Event: "create-session",
+		Payload: mustPayload(map[string]string{"project": "test"}),
 		ConnID: 1, ReqID: "r1",
 	})
 	for _, sess := range s.Sessions {
@@ -708,9 +740,9 @@ func TestReduceCreateSession_DefaultCommand(t *testing.T) {
 
 func TestReduceCreateSession_FallbackToShell(t *testing.T) {
 	s := New()
-	// DefaultCommand is empty, Command is empty → "shell"
-	s, _ = Reduce(s, EvCmdCreateSession{
-		Project: "test", Command: "",
+	s, _ = Reduce(s, EvEvent{
+		Event: "create-session",
+		Payload: mustPayload(map[string]string{"project": "test"}),
 		ConnID: 1, ReqID: "r1",
 	})
 	for _, sess := range s.Sessions {

@@ -1,6 +1,9 @@
 package state
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // DriverState is the per-session, per-driver private state value. Each
 // driver impl defines its own concrete type (e.g. driver.ClaudeState,
@@ -35,13 +38,13 @@ type DriverEvent interface {
 	isDriverEvent()
 }
 
-// DEvHook is a hook event that arrived from the agent process via the
-// hook bridge (e.g. `roost <driver> event`). Event identifies the kind
-// (driver-defined string), Payload carries the parsed payload bag.
-// Drivers dispatch internally on Event.
+// DEvHook is a hook event from the agent via `roost event <eventType>`.
+// Payload is the raw JSON from stdin.
 type DEvHook struct {
-	Event   string
-	Payload map[string]any
+	Event          string
+	Timestamp      time.Time
+	RoostSessionID string
+	Payload        json.RawMessage
 }
 
 func (DEvHook) isDriverEvent() {}

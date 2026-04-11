@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/takezoh/agent-roost/proto"
+	"github.com/takezoh/agent-roost/state"
 )
 
 // startRuntimeWithIPC spins up a Runtime, opens a Unix socket in a
@@ -58,7 +60,7 @@ func TestIPCListSessionsRoundTrip(t *testing.T) {
 
 	rctx, rcancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer rcancel()
-	resp, err := c.Send(rctx, proto.CmdListSessions{})
+	resp, err := c.Send(rctx, proto.CmdEvent{Event: state.EventListSessions})
 	if err != nil {
 		t.Fatalf("Send: %v", err)
 	}
@@ -81,7 +83,7 @@ func TestIPCStopUnknownSessionReturnsError(t *testing.T) {
 
 	rctx, rcancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer rcancel()
-	_, err := c.Send(rctx, proto.CmdStopSession{SessionID: "ghost"})
+	_, err := c.Send(rctx, proto.CmdEvent{Event: state.EventStopSession, Payload: json.RawMessage(`{"session_id":"ghost"}`)})
 	if err == nil {
 		t.Fatal("expected error for unknown session")
 	}

@@ -13,17 +13,14 @@ import (
 const testHome = "/home/test"
 const testEventLogDir = "/data/events"
 
-// hookPayloadRaw builds a DEvHook payload with a "raw" JSON key from
-// the given fields. Extra kv pairs can be added via the extras map.
-// The "now" key is passed outside "raw" since it's a time.Time that
-// the reducer injects, not part of the Claude hook JSON.
-func hookPayloadRaw(fields map[string]string, now time.Time) map[string]any {
+// hookEvent builds a DEvHook from the given fields and now time.
+func hookEvent(eventName string, fields map[string]string, ts time.Time) state.DEvHook {
 	raw, _ := json.Marshal(fields)
-	m := map[string]any{"raw": string(raw)}
-	if !now.IsZero() {
-		m["now"] = now
+	return state.DEvHook{
+		Event:     eventName,
+		Timestamp: ts,
+		Payload:   json.RawMessage(raw),
 	}
-	return m
 }
 
 func newClaude(t *testing.T) (ClaudeDriver, ClaudeState, time.Time) {
@@ -48,15 +45,12 @@ func findEffect[T state.Effect](effs []state.Effect) (T, bool) {
 
 func TestClaudeSessionStartAbsorbsIdentityAndWatches(t *testing.T) {
 	d, cs, now := newClaude(t)
-	next, effs := d.handleHook(cs, state.DEvHook{
-		Event: "SessionStart",
-		Payload: hookPayloadRaw(map[string]string{
-			"session_id":      "claude-uuid",
-			"cwd":             "/work",
-			"transcript_path": "/tmp/x.jsonl",
-			"hook_event_name": "SessionStart",
-		}, now),
-	})
+	next, effs := d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+		"session_id":      "claude-uuid",
+		"cwd":             "/work",
+		"transcript_path": "/tmp/x.jsonl",
+		"hook_event_name": "SessionStart",
+	}, now))
 	if next.ClaudeSessionID != "claude-uuid" {
 		t.Errorf("ClaudeSessionID = %q, want claude-uuid", next.ClaudeSessionID)
 	}
@@ -108,14 +102,11 @@ func TestClaudeSessionStartAbsorbsIdentityAndWatches(t *testing.T) {
 func TestClaudeSessionStartSkipsBranchDetectWhenInFlight(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.BranchInFlight = true
-	next, effs := d.handleHook(cs, state.DEvHook{
-		Event: "SessionStart",
-		Payload: hookPayloadRaw(map[string]string{
-			"session_id":      "uuid",
-			"cwd":             "/work",
-			"hook_event_name": "SessionStart",
-		}, now),
-	})
+	next, effs := d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+		"session_id":      "uuid",
+		"cwd":             "/work",
+		"hook_event_name": "SessionStart",
+	}, now))
 	if !next.BranchInFlight {
 		t.Error("BranchInFlight should remain true")
 	}
@@ -130,13 +121,10 @@ func TestClaudeSessionStartSkipsBranchDetectWhenInFlight(t *testing.T) {
 
 func TestClaudeSessionStartNoCwdSkipsBranchDetect(t *testing.T) {
 	d, cs, now := newClaude(t)
-	next, _ := d.handleHook(cs, state.DEvHook{
-		Event: "SessionStart",
-		Payload: hookPayloadRaw(map[string]string{
-			"session_id":      "uuid",
-			"hook_event_name": "SessionStart",
-		}, now),
-	})
+	next, _ := d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+		"session_id":      "uuid",
+		"hook_event_name": "SessionStart",
+	}, now))
 	if next.BranchInFlight {
 		t.Error("BranchInFlight should be false when cwd is empty")
 	}
@@ -144,15 +132,12 @@ func TestClaudeSessionStartNoCwdSkipsBranchDetect(t *testing.T) {
 
 func TestClaudeSessionStartAbsorbsRoostSessionID(t *testing.T) {
 	d, cs, now := newClaude(t)
-	payload := hookPayloadRaw(map[string]string{
+	ev := hookEvent("SessionStart", map[string]string{
 		"session_id":      "claude-uuid",
 		"hook_event_name": "SessionStart",
 	}, now)
-	payload["roost_session_id"] = "roost-abc"
-	next, _ := d.handleHook(cs, state.DEvHook{
-		Event:   "SessionStart",
-		Payload: payload,
-	})
+	ev.RoostSessionID = "roost-abc"
+	next, _ := d.handleHook(cs, ev)
 	if next.RoostSessionID != "roost-abc" {
 		t.Errorf("RoostSessionID = %q, want roost-abc", next.RoostSessionID)
 	}
@@ -162,13 +147,10 @@ func TestClaudeStateChangeStopSetsWaiting(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
 	cs.TranscriptPath = "/tmp/t.jsonl"
-	next, effs := d.handleHook(cs, state.DEvHook{
-		Event: "Stop",
-		Payload: hookPayloadRaw(map[string]string{
-			"session_id":      "uuid",
-			"hook_event_name": "Stop",
-		}, now.Add(time.Second)),
-	})
+	next, effs := d.handleHook(cs, hookEvent("Stop", map[string]string{
+		"session_id":      "uuid",
+		"hook_event_name": "Stop",
+	}, now.Add(time.Second)))
 	if next.Status != state.StatusWaiting {
 		t.Errorf("Status = %v, want Waiting (Stop → waiting)", next.Status)
 	}
@@ -190,14 +172,11 @@ func TestClaudeStateChangeStopSetsWaiting(t *testing.T) {
 func TestClaudeUnknownHookEventIsNoop(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.Status = state.StatusWaiting
-	next, _ := d.handleHook(cs, state.DEvHook{
-		Event:   "Notification",
-		Payload: hookPayloadRaw(map[string]string{
-			"session_id":        "uuid",
-			"hook_event_name":   "Notification",
-			"notification_type": "something_else",
-		}, time.Time{}),
-	})
+	next, _ := d.handleHook(cs, hookEvent("Notification", map[string]string{
+		"session_id":        "uuid",
+		"hook_event_name":   "Notification",
+		"notification_type": "something_else",
+	}, time.Time{}))
 	if next.Status != state.StatusWaiting {
 		t.Errorf("Status = %v, want Waiting (unchanged)", next.Status)
 	}
@@ -206,14 +185,11 @@ func TestClaudeUnknownHookEventIsNoop(t *testing.T) {
 func TestClaudeUserPromptSubmitTriggersHaiku(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
-	next, effs := d.handleHook(cs, state.DEvHook{
-		Event: "UserPromptSubmit",
-		Payload: hookPayloadRaw(map[string]string{
-			"session_id":      "uuid",
-			"hook_event_name": "UserPromptSubmit",
-			"prompt":          "do the thing",
-		}, now),
-	})
+	next, effs := d.handleHook(cs, hookEvent("UserPromptSubmit", map[string]string{
+		"session_id":      "uuid",
+		"hook_event_name": "UserPromptSubmit",
+		"prompt":          "do the thing",
+	}, now))
 	if next.LastPrompt != "do the thing" {
 		t.Errorf("LastPrompt = %q, want %q", next.LastPrompt, "do the thing")
 	}
@@ -240,14 +216,11 @@ func TestClaudeUserPromptSubmitDedupesWhileInFlight(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.SummaryInFlight = true
 	cs.ClaudeSessionID = "uuid"
-	next, effs := d.handleHook(cs, state.DEvHook{
-		Event: "UserPromptSubmit",
-		Payload: hookPayloadRaw(map[string]string{
-			"session_id":      "uuid",
-			"hook_event_name": "UserPromptSubmit",
-			"prompt":          "another",
-		}, now),
-	})
+	next, effs := d.handleHook(cs, hookEvent("UserPromptSubmit", map[string]string{
+		"session_id":      "uuid",
+		"hook_event_name": "UserPromptSubmit",
+		"prompt":          "another",
+	}, now))
 	if !next.SummaryInFlight {
 		t.Error("SummaryInFlight should remain true")
 	}
@@ -276,26 +249,26 @@ func TestClaudeHookDropsStaleEvent(t *testing.T) {
 	cs.ClaudeSessionID = "uuid"
 	cs.TranscriptPath = "/tmp/t.jsonl"
 
-	// First event at bridge_ts=200
-	p1 := hookPayloadRaw(map[string]string{
+	// First event at bridge_ts=now+200ms
+	ev1 := hookEvent("Stop", map[string]string{
 		"session_id": "uuid", "hook_event_name": "Stop",
 	}, now)
-	p1["bridge_ts"] = int64(200)
-	next, _ := d.handleHook(cs, state.DEvHook{Event: "Stop", Payload: p1})
-	if next.LastBridgeTS != 200 {
-		t.Fatalf("LastBridgeTS = %d, want 200", next.LastBridgeTS)
+	ev1.Timestamp = now.Add(200 * time.Millisecond)
+	next, _ := d.handleHook(cs, ev1)
+	if !next.LastBridgeTS.Equal(now.Add(200 * time.Millisecond)) {
+		t.Fatalf("LastBridgeTS = %v, want now+200ms", next.LastBridgeTS)
 	}
 	if next.Status != state.StatusWaiting {
 		t.Fatalf("Status = %v, want Waiting", next.Status)
 	}
 
-	// Second event at bridge_ts=100 (stale) — must be dropped
-	p2 := hookPayloadRaw(map[string]string{
+	// Second event at bridge_ts=now+100ms (stale) — must be dropped
+	ev2 := hookEvent("UserPromptSubmit", map[string]string{
 		"session_id": "uuid", "hook_event_name": "UserPromptSubmit",
 		"prompt": "stale",
 	}, now)
-	p2["bridge_ts"] = int64(100)
-	next2, effs := d.handleHook(next, state.DEvHook{Event: "UserPromptSubmit", Payload: p2})
+	ev2.Timestamp = now.Add(100 * time.Millisecond)
+	next2, effs := d.handleHook(next, ev2)
 	if next2.Status != state.StatusWaiting {
 		t.Errorf("stale event changed status to %v", next2.Status)
 	}
@@ -310,57 +283,57 @@ func TestClaudeHookDropsStaleEvent(t *testing.T) {
 func TestClaudeHookAcceptsMissingBridgeTS(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
-	cs.LastBridgeTS = 500
+	cs.LastBridgeTS = now.Add(500 * time.Millisecond)
 
-	p := hookPayloadRaw(map[string]string{
+	// No bridge_ts (Timestamp=zero) — should be accepted for backward compat
+	ev := hookEvent("Stop", map[string]string{
 		"session_id": "uuid", "hook_event_name": "Stop",
-	}, now)
-	// No bridge_ts key — should be accepted for backward compat
-	next, _ := d.handleHook(cs, state.DEvHook{Event: "Stop", Payload: p})
+	}, time.Time{})
+	next, _ := d.handleHook(cs, ev)
 	if next.Status != state.StatusWaiting {
 		t.Errorf("missing bridge_ts should be accepted, got status %v", next.Status)
 	}
-	if next.LastBridgeTS != 500 {
-		t.Errorf("LastBridgeTS changed to %d, should stay 500", next.LastBridgeTS)
+	if !next.LastBridgeTS.Equal(now.Add(500 * time.Millisecond)) {
+		t.Errorf("LastBridgeTS changed to %v, should stay now+500ms", next.LastBridgeTS)
 	}
 }
 
 func TestClaudeSessionStartBypassesOrdering(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
-	cs.LastBridgeTS = 9000 // high watermark from previous session
+	cs.LastBridgeTS = now.Add(9000 * time.Millisecond) // high watermark from previous session
 
 	// SessionStart with a lower bridge_ts (e.g. clock skew after NTP)
-	p := hookPayloadRaw(map[string]string{
+	ev := hookEvent("SessionStart", map[string]string{
 		"session_id":      "uuid",
 		"cwd":             "/work",
 		"transcript_path": "/tmp/x.jsonl",
 		"hook_event_name": "SessionStart",
 	}, now)
-	p["bridge_ts"] = int64(100)
-	next, effs := d.handleHook(cs, state.DEvHook{Event: "SessionStart", Payload: p})
+	ev.Timestamp = now.Add(100 * time.Millisecond)
+	next, effs := d.handleHook(cs, ev)
 	if next.Status != state.StatusIdle {
 		t.Errorf("SessionStart should always be accepted, got status %v", next.Status)
 	}
-	if next.LastBridgeTS != 100 {
-		t.Errorf("LastBridgeTS = %d, want 100 (reset by SessionStart)", next.LastBridgeTS)
+	if !next.LastBridgeTS.Equal(now.Add(100 * time.Millisecond)) {
+		t.Errorf("LastBridgeTS = %v, want now+100ms (reset by SessionStart)", next.LastBridgeTS)
 	}
 	if len(effs) == 0 {
 		t.Error("SessionStart should produce effects")
 	}
 }
 
-func TestClaudeHookAcceptsFloat64BridgeTS(t *testing.T) {
+func TestClaudeHookAdvancesLastBridgeTS(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
 
-	p := hookPayloadRaw(map[string]string{
+	ev := hookEvent("Stop", map[string]string{
 		"session_id": "uuid", "hook_event_name": "Stop",
 	}, now)
-	p["bridge_ts"] = float64(300)
-	next, _ := d.handleHook(cs, state.DEvHook{Event: "Stop", Payload: p})
-	if next.LastBridgeTS != 300 {
-		t.Errorf("LastBridgeTS = %d, want 300 (from float64)", next.LastBridgeTS)
+	ev.Timestamp = now.Add(300 * time.Millisecond)
+	next, _ := d.handleHook(cs, ev)
+	if !next.LastBridgeTS.Equal(now.Add(300 * time.Millisecond)) {
+		t.Errorf("LastBridgeTS = %v, want now+300ms", next.LastBridgeTS)
 	}
 }
 
@@ -370,12 +343,12 @@ func TestClaudeHookPreToolUseThenNotification(t *testing.T) {
 	cs.TranscriptPath = "/tmp/t.jsonl"
 
 	// PreToolUse arrives first — status becomes Running.
-	p1 := hookPayloadRaw(map[string]string{
+	ev1 := hookEvent("PreToolUse", map[string]string{
 		"session_id": "uuid", "hook_event_name": "PreToolUse",
 		"tool_name": "Bash",
 	}, now)
-	p1["bridge_ts"] = int64(100)
-	next, _ := d.handleHook(cs, state.DEvHook{Event: "PreToolUse", Payload: p1})
+	ev1.Timestamp = now.Add(100 * time.Millisecond)
+	next, _ := d.handleHook(cs, ev1)
 	if next.Status != state.StatusRunning {
 		t.Fatalf("Status = %v, want Running", next.Status)
 	}
@@ -385,12 +358,12 @@ func TestClaudeHookPreToolUseThenNotification(t *testing.T) {
 	// the Notification process could get a lower timestamp than the
 	// PreToolUse process due to stdin read latency, causing it to be
 	// dropped as stale and leaving the session stuck at Running.
-	p2 := hookPayloadRaw(map[string]string{
+	ev2 := hookEvent("Notification", map[string]string{
 		"session_id": "uuid", "hook_event_name": "Notification",
 		"notification_type": "permission_prompt",
 	}, now)
-	p2["bridge_ts"] = int64(150)
-	next2, _ := d.handleHook(next, state.DEvHook{Event: "Notification", Payload: p2})
+	ev2.Timestamp = now.Add(150 * time.Millisecond)
+	next2, _ := d.handleHook(next, ev2)
 	if next2.Status != state.StatusPending {
 		t.Errorf("Notification should advance to Pending, got %v", next2.Status)
 	}
@@ -402,12 +375,12 @@ func TestClaudeHookSubagentEventsDoNotChangeStatus(t *testing.T) {
 	cs.TranscriptPath = "/tmp/t.jsonl"
 
 	// Set pending via permission_prompt.
-	p0 := hookPayloadRaw(map[string]string{
+	ev0 := hookEvent("Notification", map[string]string{
 		"session_id": "uuid", "hook_event_name": "Notification",
 		"notification_type": "permission_prompt",
 	}, now)
-	p0["bridge_ts"] = int64(100)
-	cs, _ = d.handleHook(cs, state.DEvHook{Event: "Notification", Payload: p0})
+	ev0.Timestamp = now.Add(100 * time.Millisecond)
+	cs, _ = d.handleHook(cs, ev0)
 	if cs.Status != state.StatusPending {
 		t.Fatalf("Status = %v, want Pending", cs.Status)
 	}
@@ -429,9 +402,9 @@ func TestClaudeHookSubagentEventsDoNotChangeStatus(t *testing.T) {
 			if tt.toolName != "" {
 				fields["tool_name"] = tt.toolName
 			}
-			p := hookPayloadRaw(fields, now)
-			p["bridge_ts"] = int64(200)
-			next, effs := d.handleHook(cs, state.DEvHook{Event: tt.event, Payload: p})
+			ev := hookEvent(tt.event, fields, now)
+			ev.Timestamp = now.Add(200 * time.Millisecond)
+			next, effs := d.handleHook(cs, ev)
 			if next.Status != state.StatusPending {
 				t.Errorf("%s %s: Status = %v, want Pending", tt.event, tt.toolName, next.Status)
 			}
@@ -446,13 +419,13 @@ func TestClaudePendingTransitionsToRunningOnToolUse(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
 	cs.TranscriptPath = "/tmp/t.jsonl"
-	ts := int64(100)
+	tsOff := 100
 
 	hook := func(fields map[string]string) (ClaudeState, []state.Effect) {
-		ts++
-		p := hookPayloadRaw(fields, now)
-		p["bridge_ts"] = ts
-		next, effs := d.handleHook(cs, state.DEvHook{Event: fields["hook_event_name"], Payload: p})
+		tsOff++
+		ev := hookEvent(fields["hook_event_name"], fields, now)
+		ev.Timestamp = now.Add(time.Duration(tsOff) * time.Millisecond)
+		next, effs := d.handleHook(cs, ev)
 		cs = next
 		return next, effs
 	}
@@ -1028,15 +1001,12 @@ func TestClaudeViewInfoExtras(t *testing.T) {
 
 func TestClaudeStepRoundTripSessionStartThenView(t *testing.T) {
 	d, cs, now := newClaude(t)
-	next, effs, view := d.Step(cs, state.DEvHook{
-		Event: "SessionStart",
-		Payload: hookPayloadRaw(map[string]string{
-			"session_id":      "uuid",
-			"cwd":             "/work",
-			"transcript_path": "/tmp/x.jsonl",
-			"hook_event_name": "SessionStart",
-		}, now),
-	})
+	next, effs, view := d.Step(cs, hookEvent("SessionStart", map[string]string{
+		"session_id":      "uuid",
+		"cwd":             "/work",
+		"transcript_path": "/tmp/x.jsonl",
+		"hook_event_name": "SessionStart",
+	}, now))
 	cs2 := next.(ClaudeState)
 	if cs2.ClaudeSessionID != "uuid" {
 		t.Error("Step did not propagate session id")
@@ -1069,13 +1039,10 @@ func TestClaudeNoStateChangeEventsStillLog(t *testing.T) {
 			d, cs, now := newClaude(t)
 			cs.ClaudeSessionID = "uuid"
 			prevStatus := cs.Status
-			next, effs := d.handleHook(cs, state.DEvHook{
-				Event: name,
-				Payload: hookPayloadRaw(map[string]string{
-					"session_id":      "uuid",
-					"hook_event_name": name,
-				}, now),
-			})
+			next, effs := d.handleHook(cs, hookEvent(name, map[string]string{
+				"session_id":      "uuid",
+				"hook_event_name": name,
+			}, now))
 			if next.Status != prevStatus {
 				t.Errorf("Status changed to %v, want %v (unchanged)", next.Status, prevStatus)
 			}
@@ -1280,14 +1247,11 @@ func TestClaudeHookResetsHangDetected(t *testing.T) {
 	cs.ClaudeSessionID = "uuid"
 	cs.HangDetected = true
 	cs.PaneHash = "stale"
-	next, _ := d.handleHook(cs, state.DEvHook{
-		Event: "PreToolUse",
-		Payload: hookPayloadRaw(map[string]string{
-			"session_id":      "uuid",
-			"hook_event_name": "PreToolUse",
-			"tool_name":       "Bash",
-		}, now),
-	})
+	next, _ := d.handleHook(cs, hookEvent("PreToolUse", map[string]string{
+		"session_id":      "uuid",
+		"hook_event_name": "PreToolUse",
+		"tool_name":       "Bash",
+	}, now))
 	if next.HangDetected {
 		t.Error("HangDetected should be cleared on hook")
 	}
@@ -1299,15 +1263,15 @@ func TestClaudeHookResetsHangDetected(t *testing.T) {
 func TestClaudeStaleHookDoesNotResetHangDetected(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
-	cs.LastBridgeTS = 200
+	cs.LastBridgeTS = now.Add(200 * time.Millisecond)
 	cs.HangDetected = true
 	cs.PaneHash = "stale-hash"
 
-	p := hookPayloadRaw(map[string]string{
+	ev := hookEvent("Stop", map[string]string{
 		"session_id": "uuid", "hook_event_name": "Stop",
 	}, now)
-	p["bridge_ts"] = int64(100) // stale
-	next, _ := d.handleHook(cs, state.DEvHook{Event: "Stop", Payload: p})
+	ev.Timestamp = now.Add(100 * time.Millisecond) // stale
+	next, _ := d.handleHook(cs, ev)
 	if !next.HangDetected {
 		t.Error("stale hook should not clear HangDetected")
 	}

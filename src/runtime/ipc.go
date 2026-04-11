@@ -193,7 +193,7 @@ func (r *Runtime) connReader(cc *ipcConn) {
 			r.sendErrorImmediate(cc, env.ReqID, proto.ErrInvalidArgument, err.Error())
 			continue
 		}
-		ev := proto.CommandToStateEvent(cc.id, env.ReqID, cmd)
+		ev := commandToStateEvent(cc.id, env.ReqID, cmd)
 		if ev == nil {
 			r.sendErrorImmediate(cc, env.ReqID, proto.ErrUnsupported, "unknown command")
 			continue

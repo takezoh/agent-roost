@@ -88,7 +88,7 @@ func (c *Client) Events() <-chan ServerEvent { return c.events }
 // error interface; callers can use errors.As to recover the typed
 // body when they care about the code:
 //
-//	resp, err := client.Send(ctx, proto.CmdStopSession{SessionID: id})
+//	resp, err := client.Send(ctx, proto.CmdEvent{Event: state.EventStopSession, Payload: json.RawMessage(`{"session_id":"..."}`)})
 //	var ebody *proto.ErrorBody
 //	if errors.As(err, &ebody) && ebody.Code == proto.ErrNotFound { ... }
 func (c *Client) Send(ctx context.Context, cmd Command) (Response, error) {
@@ -143,7 +143,7 @@ func (c *Client) SendNoWait(cmd Command) error {
 
 // SendWithTimeout is the bounded version — waits up to timeout
 // for a response, but returns nil on success without parsing the
-// body. Used by `roost claude event` so the hook bridge knows the
+// body. Used by `roost event` so the hook bridge knows the
 // daemon accepted the event.
 func (c *Client) SendWithTimeout(cmd Command, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)

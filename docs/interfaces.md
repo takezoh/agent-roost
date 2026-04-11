@@ -133,7 +133,7 @@ type Envelope struct {
 type Command interface { isCommand(); CommandName() string }
 ```
 
-driver-specific な hook payload は `proto.CmdHook{Driver, Event, SessionID, Payload}` として typed IPC を渡る。各 driver subcommand (`roost claude event` 等) が自分の hook payload を `CmdHook` に詰め替えて送信し、runtime の IPC reader が `EvCmdHook` Event に変換して event loop に投入する。`reduceHook` が `Sessions[ev.SessionID]` で 1 段ルックアップして `Driver.Step(driverState, DEvHook{...})` を呼ぶだけ。state 層も runtime 層も driver 固有のキー名を一切ハードコードしない。
+driver-specific な hook payload は `proto.CmdEvent{Driver, Event, SessionID, Payload}` として typed IPC を渡る。各 driver subcommand (`roost event <eventType>` 等) が自分の hook payload を `CmdEvent` に詰め替えて送信し、runtime の IPC reader が `EvEvent` Event に変換して event loop に投入する。`reduceEvent` が `Sessions[ev.SessionID]` で 1 段ルックアップして `Driver.Step(driverState, DEvHook{...})` を呼ぶだけ。state 層も runtime 層も driver 固有のキー名を一切ハードコードしない。
 
 `Driver.SpawnCommand` は Cold start 復元時に `runtime.Bootstrap` から呼ばれ、ドライバごとに固有の resume 方法でコマンド文字列を組み立てる。Claude ドライバは `Restore` で受け取った `session_id` を DriverState に保持しており、`lib/claude/cli.ResumeCommand` に委譲して `claude --resume <id>` を返す。Generic ドライバは base コマンドをそのまま返す。
 

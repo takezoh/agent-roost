@@ -1,45 +1,71 @@
 package state
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
-// Session lifecycle reducers.
-//
-// reduceCreateSession is async-2-step: it allocates a session id and
-// emits EffSpawnTmuxWindow with the caller's reply context. The
-// runtime executes the spawn and feeds back EvTmuxWindowSpawned (or
-// EvTmuxSpawnFailed) which carries the reply context, allowing
-// reduceTmuxWindowSpawned to send the response and broadcast the
-// new session list.
+type CreateSessionParams struct {
+	Project string `json:"project"`
+	Command string `json:"command"`
+}
 
-func reduceCreateSession(s State, e EvCmdCreateSession) (State, []Effect) {
-	if e.Project == "" {
-		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeInvalidArgument, "project arg required")}
+type StopSessionParams struct {
+	SessionID string `json:"session_id"`
+}
+
+type PreviewSessionParams struct {
+	SessionID string `json:"session_id"`
+}
+
+type SwitchSessionParams struct {
+	SessionID string `json:"session_id"`
+}
+
+type PreviewProjectParams struct {
+	Project string `json:"project"`
+}
+
+type FocusPaneParams struct {
+	Pane string `json:"pane"`
+}
+
+func init() {
+	RegisterEvent[CreateSessionParams](EventCreateSession, reduceCreateSession)
+	RegisterEvent[StopSessionParams](EventStopSession, reduceStopSession)
+	RegisterEvent[struct{}](EventListSessions, reduceListSessions)
+	RegisterEvent[PreviewSessionParams](EventPreviewSession, reducePreviewSession)
+	RegisterEvent[SwitchSessionParams](EventSwitchSession, reduceSwitchSession)
+	RegisterEvent[PreviewProjectParams](EventPreviewProject, reducePreviewProject)
+	RegisterEvent[FocusPaneParams](EventFocusPane, reduceFocusPane)
+	RegisterEvent[json.RawMessage](EventLaunchTool, reduceLaunchTool)
+}
+
+func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionParams) (State, []Effect) {
+	if p.Project == "" {
+		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, "project arg required")}
 	}
-	command := e.Command
+	command := p.Command
 	if command == "" {
 		command = s.DefaultCommand
 	}
 	if command == "" {
 		command = "shell"
 	}
-	// Expand command aliases (e.g. "cw" → "codex --workspace")
 	if expanded, ok := s.Aliases[command]; ok {
 		command = expanded
 	}
 
-	// Allocate session id and stub a session record. WindowID stays
-	// empty until EvTmuxWindowSpawned arrives. The driver state is
-	// initialized via the registered driver.
 	sessID := allocSessionID()
 	drv := GetDriver(command)
 	if drv == nil {
-		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeUnsupported, "no driver registered for command "+command)}
+		return s, []Effect{errResp(connID, reqID, ErrCodeUnsupported, "no driver registered for command "+command)}
 	}
 
 	s.Sessions = cloneSessions(s.Sessions)
 	s.Sessions[sessID] = Session{
 		ID:        sessID,
-		Project:   e.Project,
+		Project:   p.Project,
 		Command:   command,
 		CreatedAt: s.Now,
 		Driver:    drv.NewState(s.Now),
@@ -48,20 +74,16 @@ func reduceCreateSession(s State, e EvCmdCreateSession) (State, []Effect) {
 	return s, []Effect{
 		EffSpawnTmuxWindow{
 			SessionID:  sessID,
-			Project:    e.Project,
+			Project:    p.Project,
 			Command:    command,
-			StartDir:   e.Project,
+			StartDir:   p.Project,
 			Env:        map[string]string{"ROOST_SESSION_ID": string(sessID)},
-			ReplyConn:  e.ConnID,
-			ReplyReqID: e.ReqID,
+			ReplyConn:  connID,
+			ReplyReqID: reqID,
 		},
 	}
 }
 
-// reduceTmuxWindowSpawned is the second half of CreateSession. It
-// fills in the WindowID/PaneID, switches to the new session
-// (swap-pane + focus), persists the snapshot, sends the response,
-// and broadcasts the new session list.
 func reduceTmuxWindowSpawned(s State, e EvTmuxWindowSpawned) (State, []Effect) {
 	sess, ok := s.Sessions[e.SessionID]
 	if !ok {
@@ -72,7 +94,6 @@ func reduceTmuxWindowSpawned(s State, e EvTmuxWindowSpawned) (State, []Effect) {
 	sess.PaneID = e.PaneID
 	s.Sessions[e.SessionID] = sess
 
-	// Switch to the newly created session (same as reduceSwitchSession).
 	chain := buildSwapChain(s.Active, e.WindowID)
 	s.Active = e.WindowID
 
@@ -93,16 +114,11 @@ func reduceTmuxWindowSpawned(s State, e EvTmuxWindowSpawned) (State, []Effect) {
 	return s, effs
 }
 
-// CreateSessionReply is the response body the proto layer marshals
-// into RespCreateSession. Defined in state pkg so reducers can build
-// it without importing proto.
 type CreateSessionReply struct {
 	SessionID string
 	WindowID  string
 }
 
-// reduceTmuxSpawnFailed evicts the half-created session and replies
-// with an error.
 func reduceTmuxSpawnFailed(s State, e EvTmuxSpawnFailed) (State, []Effect) {
 	if _, ok := s.Sessions[e.SessionID]; ok {
 		s.Sessions = cloneSessions(s.Sessions)
@@ -117,13 +133,14 @@ func reduceTmuxSpawnFailed(s State, e EvTmuxSpawnFailed) (State, []Effect) {
 	}
 }
 
-func reduceStopSession(s State, e EvCmdStopSession) (State, []Effect) {
-	sess, ok := s.Sessions[e.SessionID]
+func reduceStopSession(s State, connID ConnID, reqID string, p StopSessionParams) (State, []Effect) {
+	sid := SessionID(p.SessionID)
+	sess, ok := s.Sessions[sid]
 	if !ok {
-		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeNotFound, "session not found")}
+		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
 	s.Sessions = cloneSessions(s.Sessions)
-	delete(s.Sessions, e.SessionID)
+	delete(s.Sessions, sid)
 	if s.Active == sess.WindowID {
 		s.Active = ""
 	}
@@ -131,17 +148,18 @@ func reduceStopSession(s State, e EvCmdStopSession) (State, []Effect) {
 		EffKillTmuxWindow{WindowID: sess.WindowID},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
-		okResp(e.ConnID, e.ReqID, nil),
+		okResp(connID, reqID, nil),
 	}
 }
 
-func reducePreviewSession(s State, e EvCmdPreviewSession) (State, []Effect) {
-	sess, ok := s.Sessions[e.SessionID]
+func reducePreviewSession(s State, connID ConnID, reqID string, p PreviewSessionParams) (State, []Effect) {
+	sid := SessionID(p.SessionID)
+	sess, ok := s.Sessions[sid]
 	if !ok {
-		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeNotFound, "session not found")}
+		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
 	if sess.WindowID == "" {
-		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeInvalidArgument, "session has no tmux window yet")}
+		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, "session has no tmux window yet")}
 	}
 
 	chain := buildSwapChain(s.Active, sess.WindowID)
@@ -150,19 +168,20 @@ func reducePreviewSession(s State, e EvCmdPreviewSession) (State, []Effect) {
 	return s, []Effect{
 		EffSwapPane{ChainOps: chain},
 		EffSetTmuxEnv{Key: "ROOST_ACTIVE_WINDOW", Value: string(sess.WindowID)},
-		EffSyncStatusLine{Line: ""}, // runtime fills from view
+		EffSyncStatusLine{Line: ""},
 		EffBroadcastSessionsChanged{IsPreview: true},
-		okResp(e.ConnID, e.ReqID, ActiveWindowReply{ActiveWindowID: string(sess.WindowID)}),
+		okResp(connID, reqID, ActiveWindowReply{ActiveWindowID: string(sess.WindowID)}),
 	}
 }
 
-func reduceSwitchSession(s State, e EvCmdSwitchSession) (State, []Effect) {
-	sess, ok := s.Sessions[e.SessionID]
+func reduceSwitchSession(s State, connID ConnID, reqID string, p SwitchSessionParams) (State, []Effect) {
+	sid := SessionID(p.SessionID)
+	sess, ok := s.Sessions[sid]
 	if !ok {
-		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeNotFound, "session not found")}
+		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
 	if sess.WindowID == "" {
-		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeInvalidArgument, "session has no tmux window yet")}
+		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, "session has no tmux window yet")}
 	}
 
 	chain := buildSwapChain(s.Active, sess.WindowID)
@@ -170,23 +189,19 @@ func reduceSwitchSession(s State, e EvCmdSwitchSession) (State, []Effect) {
 
 	return s, []Effect{
 		EffSwapPane{ChainOps: chain},
-		EffSelectPane{Target: "{sessionName}:0.0"}, // runtime resolves placeholder
+		EffSelectPane{Target: "{sessionName}:0.0"},
 		EffSetTmuxEnv{Key: "ROOST_ACTIVE_WINDOW", Value: string(sess.WindowID)},
 		EffSyncStatusLine{Line: ""},
 		EffBroadcastSessionsChanged{},
-		okResp(e.ConnID, e.ReqID, ActiveWindowReply{ActiveWindowID: string(sess.WindowID)}),
+		okResp(connID, reqID, ActiveWindowReply{ActiveWindowID: string(sess.WindowID)}),
 	}
 }
 
-// ActiveWindowReply is the body returned by Preview/Switch/etc.
-// Carries the new active window id back to the caller.
 type ActiveWindowReply struct {
 	ActiveWindowID string
 }
 
-func reducePreviewProject(s State, e EvCmdPreviewProject) (State, []Effect) {
-	// Deactivate any currently swapped-in session so the main pane
-	// goes back to the keybind help screen.
+func reducePreviewProject(s State, connID ConnID, reqID string, p PreviewProjectParams) (State, []Effect) {
 	var effs []Effect
 	if s.Active != "" {
 		chain := buildDeactivateChain(s.Active)
@@ -194,73 +209,69 @@ func reducePreviewProject(s State, e EvCmdPreviewProject) (State, []Effect) {
 		effs = append(effs, EffUnsetTmuxEnv{Key: "ROOST_ACTIVE_WINDOW"})
 		s.Active = ""
 	}
-	effs = append(effs, okResp(e.ConnID, e.ReqID, nil))
+	effs = append(effs, okResp(connID, reqID, nil))
 	effs = append(effs, EffBroadcastEvent{
 		Name:    "project-selected",
-		Payload: ProjectSelectedPayload{Project: e.Project},
+		Payload: ProjectSelectedPayload{Project: p.Project},
 	})
 	return s, effs
 }
 
-// ProjectSelectedPayload is the body for the project-selected event
-// the runtime broadcasts to subscribers.
 type ProjectSelectedPayload struct {
 	Project string
 }
 
-func reduceListSessions(s State, e EvCmdListSessions) (State, []Effect) {
+func reduceListSessions(s State, connID ConnID, reqID string, _ struct{}) (State, []Effect) {
 	return s, []Effect{
-		okResp(e.ConnID, e.ReqID, SessionsReply{}),
+		okResp(connID, reqID, SessionsReply{}),
 	}
 }
 
-// SessionsReply is a marker body — the runtime serializes it by
-// reading State.Sessions directly and producing the proto SessionInfo
-// list. State pkg has no knowledge of proto so we can't materialize
-// SessionInfo here.
 type SessionsReply struct{}
 
-func reduceFocusPane(s State, e EvCmdFocusPane) (State, []Effect) {
-	if e.Pane == "" {
-		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeInvalidArgument, "pane arg required")}
+func reduceFocusPane(s State, connID ConnID, reqID string, p FocusPaneParams) (State, []Effect) {
+	if p.Pane == "" {
+		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, "pane arg required")}
 	}
 	return s, []Effect{
-		EffSelectPane{Target: e.Pane},
+		EffSelectPane{Target: p.Pane},
 		EffBroadcastEvent{
 			Name:    "pane-focused",
-			Payload: PaneFocusedPayload{Pane: e.Pane},
+			Payload: PaneFocusedPayload{Pane: p.Pane},
 		},
-		okResp(e.ConnID, e.ReqID, nil),
+		okResp(connID, reqID, nil),
 	}
 }
 
-// PaneFocusedPayload is the body for the pane-focused event.
 type PaneFocusedPayload struct {
 	Pane string
 }
 
-func reduceLaunchTool(s State, e EvCmdLaunchTool) (State, []Effect) {
-	if e.Tool == "" {
-		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeInvalidArgument, "tool arg required")}
+func reduceLaunchTool(s State, connID ConnID, reqID string, raw json.RawMessage) (State, []Effect) {
+	var m map[string]string
+	if len(raw) > 0 {
+		json.Unmarshal(raw, &m)
 	}
+	tool := m["tool"]
+	if tool == "" {
+		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, "tool arg required")}
+	}
+	delete(m, "tool")
 	return s, []Effect{
 		EffDisplayPopup{
 			Width:  "60%",
 			Height: "50%",
-			Tool:   e.Tool,
-			Args:   e.Args,
+			Tool:   tool,
+			Args:   m,
 		},
-		okResp(e.ConnID, e.ReqID, nil),
+		okResp(connID, reqID, nil),
 	}
 }
 
 // === Swap-chain builders ===
 
-// buildSwapChain returns the [][]string passed to EffSwapPane for a
-// preview/switch operation. If active is non-empty, the chain swaps
-// the current active window back first.
 func buildSwapChain(active, target WindowID) [][]string {
-	pane0 := "{sessionName}:0.0" // runtime substitutes session name
+	pane0 := "{sessionName}:0.0"
 	var cmds [][]string
 	if active != "" {
 		cmds = append(cmds, []string{"swap-pane", "-d", "-s", pane0, "-t", string(active) + ".0"})
@@ -269,8 +280,6 @@ func buildSwapChain(active, target WindowID) [][]string {
 	return cmds
 }
 
-// buildDeactivateChain swaps the currently active window back to the
-// background, leaving pane 0.0 with the keybind help.
 func buildDeactivateChain(active WindowID) [][]string {
 	pane0 := "{sessionName}:0.0"
 	return [][]string{
