@@ -143,14 +143,20 @@ func (r *Runtime) execute(eff state.Effect) {
 
 	// === fsnotify ===
 
-	case state.EffWatchTranscript:
+	case state.EffWatchFile:
 		if err := r.cfg.Watcher.Watch(e.SessionID, e.Path); err != nil {
 			slog.Debug("runtime: watch failed", "path", e.Path, "err", err)
 		}
+		if r.relay != nil {
+			r.relay.WatchFile(e.SessionID, e.Path, e.Kind)
+		}
 
-	case state.EffUnwatchTranscript:
+	case state.EffUnwatchFile:
 		if err := r.cfg.Watcher.Unwatch(e.SessionID); err != nil {
 			slog.Debug("runtime: unwatch failed", "session", e.SessionID, "err", err)
+		}
+		if r.relay != nil {
+			r.relay.UnwatchFile(e.SessionID)
 		}
 
 	// === Event log ===

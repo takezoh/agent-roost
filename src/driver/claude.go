@@ -70,7 +70,7 @@ type ClaudeState struct {
 	SummaryInFlight     bool
 	TranscriptInFlight  bool
 	BranchInFlight      bool
-	WatchedTranscript   string // currently fsnotify-watched path; empty = not watched
+	WatchedFile   string // currently fsnotify-watched path; empty = not watched
 }
 
 // ClaudeDriver is the stateless plugin value. The home directory is
@@ -182,7 +182,7 @@ func (d ClaudeDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.
 		next, effs := d.handleTick(cs, e)
 		return next, effs, d.view(next)
 
-	case state.DEvTranscriptChanged:
+	case state.DEvFileChanged:
 		next, effs := d.handleTranscriptChanged(cs, e)
 		return next, effs, d.view(next)
 

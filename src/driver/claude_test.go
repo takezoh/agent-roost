@@ -64,14 +64,14 @@ func TestClaudeSessionStartAbsorbsIdentityAndWatches(t *testing.T) {
 	if next.TranscriptPath != "/tmp/x.jsonl" {
 		t.Errorf("TranscriptPath = %q, want /tmp/x.jsonl", next.TranscriptPath)
 	}
-	if next.WatchedTranscript != "/tmp/x.jsonl" {
-		t.Errorf("WatchedTranscript = %q, want /tmp/x.jsonl", next.WatchedTranscript)
+	if next.WatchedFile != "/tmp/x.jsonl" {
+		t.Errorf("WatchedFile = %q, want /tmp/x.jsonl", next.WatchedFile)
 	}
 	if !next.TranscriptInFlight {
 		t.Error("TranscriptInFlight should be true after SessionStart")
 	}
-	if _, ok := findEffect[state.EffWatchTranscript](effs); !ok {
-		t.Error("expected EffWatchTranscript")
+	if _, ok := findEffect[state.EffWatchFile](effs); !ok {
+		t.Error("expected EffWatchFile")
 	}
 	job, ok := findEffect[state.EffStartJob](effs)
 	if !ok {
@@ -268,7 +268,7 @@ func TestClaudeTranscriptChangedSchedulesParse(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.TranscriptPath = "/tmp/x.jsonl"
 	cs.ClaudeSessionID = "uuid"
-	next, effs := d.handleTranscriptChanged(cs, state.DEvTranscriptChanged{Path: "/tmp/x.jsonl"})
+	next, effs := d.handleTranscriptChanged(cs, state.DEvFileChanged{Path: "/tmp/x.jsonl"})
 	if !next.TranscriptInFlight {
 		t.Error("TranscriptInFlight should be true")
 	}
@@ -285,7 +285,7 @@ func TestClaudeTranscriptChangedDedupes(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.TranscriptInFlight = true
 	cs.TranscriptPath = "/tmp/x.jsonl"
-	_, effs := d.handleTranscriptChanged(cs, state.DEvTranscriptChanged{Path: "/tmp/x.jsonl"})
+	_, effs := d.handleTranscriptChanged(cs, state.DEvFileChanged{Path: "/tmp/x.jsonl"})
 	if len(effs) != 0 {
 		t.Errorf("dedup effs = %d, want 0", len(effs))
 	}

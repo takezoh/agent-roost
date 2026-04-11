@@ -13,9 +13,9 @@ import (
 	"github.com/take/agent-roost/state"
 )
 
-// FileRelay watches log and transcript files via fsnotify, reads new
+// FileRelay watches log and session files via fsnotify, reads new
 // bytes when they change, and broadcasts them as EvtLogLine or
-// EvtTranscriptLine events to IPC subscribers. This replaces the
+// EvtSessionFileLine events to IPC subscribers. This replaces the
 // TUI's 200ms polling loop — the TUI just receives and renders.
 //
 // FileRelay owns its own fsnotify watcher (separate from the
@@ -66,17 +66,24 @@ func (fr *FileRelay) WatchLog(path string) {
 	fr.add(path, "", "log")
 }
 
-// WatchSessionLog registers a session's event log file.
-func (fr *FileRelay) WatchSessionLog(sessionID state.SessionID, path string) {
-	fr.add(path, sessionID, "log")
+// WatchFile registers a session file (transcript, event-log, etc.) for push relay.
+func (fr *FileRelay) WatchFile(sessionID state.SessionID, path string, kind string) {
+	fr.add(path, sessionID, kind)
 }
 
-// WatchTranscript registers a session's transcript file.
-func (fr *FileRelay) WatchTranscript(sessionID state.SessionID, path string) {
-	fr.add(path, sessionID, "transcript")
+// UnwatchFile removes all files associated with a session from the relay.
+func (fr *FileRelay) UnwatchFile(sessionID state.SessionID) {
+	fr.mu.Lock()
+	defer fr.mu.Unlock()
+	for path, f := range fr.files {
+		if f.sessionID == sessionID {
+			fr.watcher.Remove(path)
+			delete(fr.files, path)
+		}
+	}
 }
 
-// Unwatch removes a file from the relay.
+// Unwatch removes a file from the relay by path.
 func (fr *FileRelay) Unwatch(path string) {
 	fr.mu.Lock()
 	defer fr.mu.Unlock()
@@ -216,14 +223,14 @@ func readFrom(path string, offset int64) (string, int64) {
 
 func (fr *FileRelay) broadcast(f *relayFile, content string) {
 	var event proto.ServerEvent
-	switch f.kind {
-	case "log":
+	if f.sessionID == "" {
 		event = proto.EvtLogLine{Path: f.path, Line: content}
-	case "transcript":
-		event = proto.EvtTranscriptLine{SessionID: string(f.sessionID), Line: content}
-	}
-	if event == nil {
-		return
+	} else {
+		event = proto.EvtSessionFileLine{
+			SessionID: string(f.sessionID),
+			Kind:      f.kind,
+			Line:      content,
+		}
 	}
 	wire, err := proto.EncodeEvent(event)
 	if err != nil {

@@ -35,7 +35,7 @@ func allocSessionID() SessionID {
 //   - EffStartJob: assigns a fresh JobID, records JobMeta with the
 //     owning session id and kind, and rewrites the effect to carry
 //     the new id.
-//   - EffEventLogAppend / EffWatchTranscript / EffUnwatchTranscript:
+//   - EffEventLogAppend / EffWatchFile / EffUnwatchFile:
 //     fills in the SessionID field if the driver left it blank.
 func stepDriver(s State, sessID SessionID, ev DriverEvent) (State, []Effect, View, bool) {
 	sess, ok := s.Sessions[sessID]
@@ -85,12 +85,12 @@ func postProcessEffect(s State, sessID SessionID, eff Effect) (Effect, State) {
 			e.SessionID = sessID
 		}
 		return e, s
-	case EffWatchTranscript:
+	case EffWatchFile:
 		if e.SessionID == "" {
 			e.SessionID = sessID
 		}
 		return e, s
-	case EffUnwatchTranscript:
+	case EffUnwatchFile:
 		if e.SessionID == "" {
 			e.SessionID = sessID
 		}

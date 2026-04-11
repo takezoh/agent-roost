@@ -1,6 +1,9 @@
 package state
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // View is the complete TUI payload for one session, produced by its
 // Driver.Step. The runtime serializes it into a proto.SessionInfo for
@@ -46,9 +49,10 @@ type Tag struct {
 // display. Path is an absolute file path the TUI tails (or, in the
 // push model, the runtime watches and broadcasts diffs for).
 type LogTab struct {
-	Label string  `json:"label"`
-	Path  string  `json:"path"`
-	Kind  TabKind `json:"kind"`
+	Label       string          `json:"label"`
+	Path        string          `json:"path"`
+	Kind        TabKind         `json:"kind"`
+	RendererCfg json.RawMessage `json:"renderer_cfg,omitempty"`
 }
 
 // TabKind selects the renderer the TUI applies to a tab's contents.

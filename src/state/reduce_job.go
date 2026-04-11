@@ -31,13 +31,13 @@ func reduceJobResult(s State, e EvJobResult) (State, []Effect) {
 	return s, effs
 }
 
-// reduceTranscriptChanged routes a fsnotify event to the matching
-// session's driver as DEvTranscriptChanged.
-func reduceTranscriptChanged(s State, e EvTranscriptChanged) (State, []Effect) {
+// reduceFileChanged routes a fsnotify event to the matching
+// session's driver as DEvFileChanged.
+func reduceFileChanged(s State, e EvFileChanged) (State, []Effect) {
 	if _, ok := s.Sessions[e.SessionID]; !ok {
 		return s, nil
 	}
-	next, effs, _, ok := stepDriver(s, e.SessionID, DEvTranscriptChanged{Path: e.Path})
+	next, effs, _, ok := stepDriver(s, e.SessionID, DEvFileChanged{Path: e.Path})
 	if !ok {
 		return s, nil
 	}

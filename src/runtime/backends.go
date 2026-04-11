@@ -89,8 +89,7 @@ type EventLogBackend interface {
 }
 
 // FSWatcher is the fsnotify wrapper. It watches per-session
-// transcript files and emits FSEvent values on Events() when they
-// change.
+// files and emits FSEvent values on Events() when they change.
 type FSWatcher interface {
 	Watch(sessionID state.SessionID, path string) error
 	Unwatch(sessionID state.SessionID) error
@@ -98,9 +97,9 @@ type FSWatcher interface {
 	Close() error
 }
 
-// FSEvent is the runtime-side representation of a transcript file
-// change. SessionID is set by the watcher (which knows the path →
-// session mapping it was given via Watch).
+// FSEvent is the runtime-side representation of a file change.
+// SessionID is set by the watcher (which knows the path → session
+// mapping it was given via Watch).
 type FSEvent struct {
 	SessionID state.SessionID
 	Path      string
@@ -169,8 +168,8 @@ func eventTypeName(ev state.Event) string {
 		return "EvTmuxWindowSpawned"
 	case state.EvTmuxSpawnFailed:
 		return "EvTmuxSpawnFailed"
-	case state.EvTranscriptChanged:
-		return "EvTranscriptChanged"
+	case state.EvFileChanged:
+		return "EvFileChanged"
 	default:
 		return "Event"
 	}

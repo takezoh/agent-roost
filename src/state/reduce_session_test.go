@@ -478,13 +478,13 @@ func TestJobResultRoutesToDriver(t *testing.T) {
 	}
 }
 
-// === reduceTranscriptChanged ===
+// === reduceFileChanged ===
 
-func TestTranscriptChangedRoutes(t *testing.T) {
+func TestFileChangedRoutes(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
-	_, effs := Reduce(s, EvTranscriptChanged{SessionID: id, Path: "/x"})
+	_, effs := Reduce(s, EvFileChanged{SessionID: id, Path: "/x"})
 	// stub driver returns no effects, so we expect 0 effects (no
 	// persist/broadcast either since the driver did nothing).
 	if len(effs) != 0 {
@@ -492,9 +492,9 @@ func TestTranscriptChangedRoutes(t *testing.T) {
 	}
 }
 
-func TestTranscriptChangedUnknownSession(t *testing.T) {
+func TestFileChangedUnknownSession(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvTranscriptChanged{SessionID: "ghost", Path: "/x"})
+	_, effs := Reduce(s, EvFileChanged{SessionID: "ghost", Path: "/x"})
 	if len(effs) != 0 {
 		t.Errorf("expected 0 effects, got %d", len(effs))
 	}
@@ -564,8 +564,8 @@ func TestPostProcessFillsSessionID(t *testing.T) {
 
 func TestPostProcessLeavesSessionIDIfSet(t *testing.T) {
 	s := New()
-	patched, _ := postProcessEffect(s, "abc", EffWatchTranscript{SessionID: "preset", Path: "/x"})
-	if patched.(EffWatchTranscript).SessionID != "preset" {
+	patched, _ := postProcessEffect(s, "abc", EffWatchFile{SessionID: "preset", Path: "/x"})
+	if patched.(EffWatchFile).SessionID != "preset" {
 		t.Error("preset SessionID overwritten")
 	}
 }

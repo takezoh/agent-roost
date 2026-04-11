@@ -143,9 +143,9 @@ func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, payload
 	cs.StatusChangedAt = now
 
 	var effs []state.Effect
-	if path := d.resolveTranscriptPath(cs); path != "" && cs.WatchedTranscript != path {
-		cs.WatchedTranscript = path
-		effs = append(effs, state.EffWatchTranscript{Path: path})
+	if path := d.resolveTranscriptPath(cs); path != "" && cs.WatchedFile != path {
+		cs.WatchedFile = path
+		effs = append(effs, state.EffWatchFile{Path: path, Kind: "transcript"})
 		if !cs.TranscriptInFlight {
 			cs.TranscriptInFlight = true
 			effs = append(effs, state.EffStartJob{

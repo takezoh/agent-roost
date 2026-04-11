@@ -72,14 +72,14 @@ type DEvJobResult struct {
 
 func (DEvJobResult) isDriverEvent() {}
 
-// DEvTranscriptChanged is fired by the runtime fsnotify watcher when
-// the active session's transcript file changes on disk. Drivers
-// typically respond by emitting EffStartJob{JobTranscriptParse}.
-type DEvTranscriptChanged struct {
+// DEvFileChanged is fired by the runtime fsnotify watcher when a
+// session's watched file changes on disk. Drivers typically respond
+// by emitting EffStartJob{JobTranscriptParse}.
+type DEvFileChanged struct {
 	Path string
 }
 
-func (DEvTranscriptChanged) isDriverEvent() {}
+func (DEvFileChanged) isDriverEvent() {}
 
 // Driver is the interface every per-driver-type plugin implements. Each
 // impl is a stateless value type registered once at init time; the

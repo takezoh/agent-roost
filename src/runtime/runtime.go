@@ -51,6 +51,8 @@ type Runtime struct {
 	workers *worker.Pool
 	runners worker.Runners
 
+	relay *FileRelay
+
 	listener net.Listener
 	conns    map[state.ConnID]*ipcConn // owned by event loop
 	nextConn state.ConnID              // owned by event loop
@@ -121,6 +123,11 @@ func (r *Runtime) Enqueue(ev state.Event) {
 	}
 }
 
+// SetRelay registers a FileRelay with the runtime via the event loop.
+func (r *Runtime) SetRelay(fr *FileRelay) {
+	r.internalCh <- internalSetRelay{relay: fr}
+}
+
 // Run is the event loop. It blocks until ctx is cancelled.
 //
 // Internal events (connOpen, connClose) bypass state.Reduce and go
@@ -161,7 +168,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 			r.dispatch(res)
 
 		case fsev := <-r.cfg.Watcher.Events():
-			r.dispatch(state.EvTranscriptChanged{
+			r.dispatch(state.EvFileChanged{
 				SessionID: state.SessionID(fsev.SessionID),
 				Path:      fsev.Path,
 			})

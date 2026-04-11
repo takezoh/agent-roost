@@ -116,9 +116,9 @@ type EvTick struct {
 	Now time.Time
 }
 
-// EvTranscriptChanged is fired by runtime's fsnotify watcher when a
-// session's transcript file changes on disk.
-type EvTranscriptChanged struct {
+// EvFileChanged is fired by runtime's fsnotify watcher when a
+// session's watched file changes on disk.
+type EvFileChanged struct {
 	SessionID SessionID
 	Path      string
 }
@@ -188,7 +188,7 @@ func (EvCmdDetach) isEvent()          {}
 func (EvConnOpened) isEvent()         {}
 func (EvConnClosed) isEvent()         {}
 func (EvTick) isEvent()               {}
-func (EvTranscriptChanged) isEvent()  {}
+func (EvFileChanged) isEvent()        {}
 func (EvJobResult) isEvent()          {}
 func (EvPaneDied) isEvent()           {}
 func (EvTmuxWindowVanished) isEvent() {}

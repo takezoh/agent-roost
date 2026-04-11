@@ -131,15 +131,15 @@ type EffCloseConn struct {
 // sessions.json. No payload — runtime reads State directly.
 type EffPersistSnapshot struct{}
 
-// EffWatchTranscript registers a transcript file with the fsnotify
-// watcher.
-type EffWatchTranscript struct {
+// EffWatchFile registers a file with the fsnotify watcher.
+type EffWatchFile struct {
 	SessionID SessionID
 	Path      string
+	Kind      string
 }
 
-// EffUnwatchTranscript removes a transcript file from the watcher.
-type EffUnwatchTranscript struct {
+// EffUnwatchFile removes a file from the watcher.
+type EffUnwatchFile struct {
 	SessionID SessionID
 }
 
@@ -188,8 +188,8 @@ func (EffBroadcastSessionsChanged) isEffect() {}
 func (EffBroadcastEvent) isEffect()           {}
 func (EffCloseConn) isEffect()                {}
 func (EffPersistSnapshot) isEffect()          {}
-func (EffWatchTranscript) isEffect()          {}
-func (EffUnwatchTranscript) isEffect()        {}
+func (EffWatchFile) isEffect()                {}
+func (EffUnwatchFile) isEffect()              {}
 func (EffEventLogAppend) isEffect()           {}
 func (EffReconcileWindows) isEffect()         {}
 func (EffStartJob) isEffect()                 {}

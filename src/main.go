@@ -138,14 +138,15 @@ func runCoordinator() {
 	}
 	slog.Info("server started", "sock", sockPath)
 
-	// Start the FileRelay so log/transcript/event files are pushed
-	// to TUI subscribers instead of the TUI polling them.
+	// Start the FileRelay so log and session files are pushed to TUI
+	// subscribers instead of the TUI polling them.
 	relay, err := runtime.NewFileRelay(rt)
 	if err != nil {
 		slog.Warn("filerelay: start failed, TUI will show backfill only", "err", err)
 	} else {
 		defer relay.Close()
 		relay.WatchLog(logger.LogFilePath())
+		rt.SetRelay(relay)
 	}
 
 	respawnSessionsPane(client, sessionName)
