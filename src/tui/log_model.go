@@ -108,6 +108,11 @@ func (m LogModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case tea.MouseClickMsg:
 		return m.handleMouseClick(msg)
+	case tea.MouseWheelMsg:
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		m.following = m.viewport.AtBottom()
+		return m, cmd
 	}
 	return m, nil
 }
