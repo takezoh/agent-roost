@@ -12,8 +12,14 @@ import (
 )
 
 func (m MainModel) View() tea.View {
+	title := titleStyle.Render("ROOST")
+	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, title, m.viewport.View()))
+	v.AltScreen = true
+	return v
+}
+
+func (m MainModel) renderContent() string {
 	parts := []string{
-		titleStyle.Render("ROOST"),
 		"",
 		renderKeybindingsBody(),
 	}
@@ -32,9 +38,7 @@ func (m MainModel) View() tea.View {
 		parts = append(parts, "", header, "", renderProjectSessionsBody(sessions))
 	}
 
-	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, parts...))
-	v.AltScreen = true
-	return v
+	return lipgloss.JoinVertical(lipgloss.Left, parts...)
 }
 
 func renderKeybindingsBody() string {
