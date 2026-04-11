@@ -135,13 +135,6 @@ func (c *Client) RunChain(commands ...[]string) error {
 	return err
 }
 
-// Deprecated: BindKeyRaw passes a raw string to sh -c "tmux ...".
-// Prefer BindKey for new code — it avoids shell injection risks.
-func (c *Client) BindKeyRaw(rawCmd string) error {
-	cmd := exec.Command("sh", "-c", "tmux "+rawCmd)
-	return cmd.Run()
-}
-
 // BindKey executes a tmux bind-key command with typed arguments.
 // table is the key table (e.g. "prefix"), key is the key name,
 // and args are the bind-key arguments (the command to run on press).
