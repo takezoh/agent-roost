@@ -174,7 +174,12 @@ func (c *Client) read() {
 	for {
 		var env Envelope
 		if err := dec.Decode(&env); err != nil {
-			slog.Debug("proto: read loop ended", "err", err)
+			select {
+			case <-c.closed:
+				// 意図的なクローズ。ログ不要。
+			default:
+				slog.Debug("proto: read loop ended", "err", err)
+			}
 			return
 		}
 		c.dispatch(env)
