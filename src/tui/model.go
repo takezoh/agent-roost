@@ -321,6 +321,13 @@ func (m Model) rowToItemIndex(y int) int {
 	if m.offset > 0 {
 		row++ // "↑ N more" indicator line
 	}
+	sticky := stickyProject(m.items, m.offset)
+	if sticky != "" {
+		if y == row {
+			return m.findProjectHeader(sticky)
+		}
+		row++ // sticky project header line
+	}
 	for i := m.offset; i < len(m.items); i++ {
 		item := m.items[i]
 		if item.rows <= 0 {
@@ -330,6 +337,15 @@ func (m Model) rowToItemIndex(y int) int {
 			return i
 		}
 		row += item.rows
+	}
+	return -1
+}
+
+func (m Model) findProjectHeader(name string) int {
+	for i, item := range m.items {
+		if item.isProject && item.project == name {
+			return i
+		}
 	}
 	return -1
 }

@@ -40,7 +40,7 @@ func (m Model) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
 	m.lastMouseX = mouse.X
 	m.lastMouseY = mouse.Y
 	idx := m.rowToItemIndex(mouse.Y)
-	if idx < 0 || idx == m.cursor {
+	if idx < 0 || idx == m.cursor || idx < m.offset {
 		return m, leaveTimer
 	}
 	m.cursor = idx

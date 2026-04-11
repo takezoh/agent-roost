@@ -74,6 +74,90 @@ func TestVisibleEnd(t *testing.T) {
 	}
 }
 
+func TestStickyProject(t *testing.T) {
+	items := []listItem{
+		{isProject: true, project: "alpha"},
+		{project: "alpha"},
+		{project: "alpha"},
+		{isProject: true, project: "beta"},
+		{project: "beta"},
+	}
+
+	tests := []struct {
+		name   string
+		offset int
+		want   string
+	}{
+		{"offset 0, no sticky", 0, ""},
+		{"offset on project header", 3, ""},
+		{"offset past alpha header", 1, "alpha"},
+		{"offset on last alpha session", 2, "alpha"},
+		{"offset past beta header", 4, "beta"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := stickyProject(items, tt.offset)
+			if got != tt.want {
+				t.Errorf("stickyProject(offset=%d) = %q, want %q", tt.offset, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRowToItemIndexWithStickyHeader(t *testing.T) {
+	// Layout: project "alpha" (header idx=0), session (idx=1), session (idx=2)
+	items := []listItem{
+		{isProject: true, project: "alpha", rows: 1},
+		{project: "alpha", rows: 3},
+		{project: "alpha", rows: 3},
+	}
+	m := Model{
+		items:  items,
+		offset: 1, // project header scrolled out → sticky header shown
+	}
+	// Row layout (sessionsHeaderRows=3):
+	//   row 0-2: header area
+	//   row 3:   "↑ N more"
+	//   row 4:   sticky "alpha" header
+	//   row 5-7: session idx=1 (3 rows)
+	//   row 8-10: session idx=2 (3 rows)
+
+	// Click on sticky header → returns project header index (0)
+	if got := m.rowToItemIndex(4); got != 0 {
+		t.Errorf("sticky header click: got %d, want 0", got)
+	}
+	// Click on first visible session
+	if got := m.rowToItemIndex(5); got != 1 {
+		t.Errorf("first session click: got %d, want 1", got)
+	}
+	// Click on second session
+	if got := m.rowToItemIndex(8); got != 2 {
+		t.Errorf("second session click: got %d, want 2", got)
+	}
+}
+
+func TestRowToItemIndexStickyHeaderNoHoverJump(t *testing.T) {
+	items := []listItem{
+		{isProject: true, project: "alpha", rows: 1},
+		{project: "alpha", rows: 3},
+		{project: "alpha", rows: 3},
+	}
+	m := Model{
+		items:  items,
+		offset: 1,
+	}
+	// Sticky header is at row 4 (sessionsHeaderRows=3, +1 for ↑ indicator).
+	// rowToItemIndex returns 0 (project header index), which is < m.offset.
+	idx := m.rowToItemIndex(4)
+	if idx != 0 {
+		t.Fatalf("expected project header index 0, got %d", idx)
+	}
+	// handleMouseMotion should skip cursor update because idx < m.offset.
+	if idx >= m.offset {
+		t.Error("sticky header index should be less than offset")
+	}
+}
+
 func TestSessionCardLinesSubtitleClamp(t *testing.T) {
 	mk := func(subtitle string) *proto.SessionInfo {
 		return &proto.SessionInfo{

@@ -63,14 +63,19 @@ func renderSessionsBody(m *Model, innerWidth int) string {
 	if bodyHeight < 3 {
 		bodyHeight = 3
 	}
-	// Reserve 2 rows for potential scroll indicators (↑/↓) so that
-	// ensureCursorVisible never places the cursor outside the visible area.
-	m.ensureCursorVisible(bodyHeight - 2)
+	// Reserve 3 rows for potential scroll chrome (↑ indicator, sticky
+	// project header, ↓ indicator) so that ensureCursorVisible never
+	// places the cursor outside the visible area.
+	m.ensureCursorVisible(bodyHeight - 3)
 
 	// Subtract actual indicator rows from the available item height.
 	itemHeight := bodyHeight
 	if m.offset > 0 {
 		itemHeight-- // "↑ N more"
+	}
+	sticky := stickyProject(m.items, m.offset)
+	if sticky != "" {
+		itemHeight-- // sticky project header
 	}
 	end := m.visibleEnd(itemHeight)
 	if end < len(m.items) {
@@ -82,6 +87,10 @@ func renderSessionsBody(m *Model, innerWidth int) string {
 	if m.offset > 0 {
 		above := countSessions(m.items[:m.offset])
 		b.WriteString(mutedStyle.Render(fmt.Sprintf("  ↑ %d more", above)))
+		b.WriteString("\n")
+	}
+	if sticky != "" {
+		b.WriteString(renderProject(sticky, false, false))
 		b.WriteString("\n")
 	}
 	for i := m.offset; i < end; i++ {
@@ -106,6 +115,25 @@ func countSessions(items []listItem) int {
 		}
 	}
 	return n
+}
+
+// stickyProject returns the project name that should be shown as a sticky
+// header, or "" if none is needed. A sticky header is shown when the
+// project header for the first visible item has scrolled out of view.
+func stickyProject(items []listItem, offset int) string {
+	if offset <= 0 || len(items) == 0 {
+		return ""
+	}
+	proj := items[offset].project
+	for i := offset; i < len(items); i++ {
+		if items[i].isProject && items[i].project == proj {
+			return ""
+		}
+		if items[i].project != proj {
+			break
+		}
+	}
+	return proj
 }
 
 func renderItem(item listItem, selected bool, width int, folded bool) string {
