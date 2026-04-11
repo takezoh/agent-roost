@@ -37,9 +37,9 @@ func RegisterHooks(settingsPath, roostBinary string) ([]string, error) {
 		"TaskCompleted",
 	}
 	registered := []string{}
+	command := roostBinary + " event claude"
 
 	for _, event := range events {
-		command := roostBinary + " event " + event
 		if addHookEntry(hooks, event, command) {
 			registered = append(registered, event)
 		}
