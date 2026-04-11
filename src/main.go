@@ -248,6 +248,7 @@ func paneHints(prefix string) string {
 	sep := d + " · "
 
 	main := k + prefix + " Space" + d + " toggle" + sep +
+		k + prefix + " z" + d + " zoom" + sep +
 		k + prefix + " p" + d + " palette" + sep +
 		k + prefix + " d" + d + " detach" + sep +
 		k + prefix + " q" + d + " quit"
@@ -280,6 +281,7 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 		"if-shell", "-F", `#{==:#{pane_index},2}`,
 		"select-pane -t "+sn+":0.0",
 		"select-pane -t "+sn+":0.2")
+	client.BindKey("prefix", "z", "resize-pane", "-Z", "-t", sn+":0.0")
 	client.BindKey("prefix", "d", "detach-client")
 	client.BindKey("prefix", "q",
 		"display-popup", "-E", "-w", "40%", "-h", "20%",
