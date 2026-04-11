@@ -71,6 +71,7 @@ func NewModel(client *proto.Client, cfg *config.Config) Model {
 		keys:     DefaultKeyMap(),
 		folded:   make(map[string]bool),
 		filter:   allOnFilter(),
+		cursor:   -1,
 	}
 }
 
@@ -292,7 +293,7 @@ func (m *Model) restoreCursor(prev listItem) {
 		}
 	}
 	if len(m.items) == 0 {
-		m.cursor = 0
+		m.cursor = -1
 		return
 	}
 	if m.cursor >= len(m.items) {
@@ -313,7 +314,7 @@ func (m Model) totalItemRows() int {
 // ensureCursorVisible adjusts m.offset so that the cursor item fits within
 // bodyHeight rows. Items must already have their .rows set.
 func (m *Model) ensureCursorVisible(bodyHeight int) {
-	if len(m.items) == 0 || bodyHeight <= 0 {
+	if m.cursor < 0 || len(m.items) == 0 || bodyHeight <= 0 {
 		m.offset = 0
 		return
 	}
@@ -449,5 +450,5 @@ func (m Model) firstSessionIndex() int {
 			return i
 		}
 	}
-	return 0
+	return -1
 }
