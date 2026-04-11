@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/state"
 )
 
 func TestTabRendererAppend(t *testing.T) {

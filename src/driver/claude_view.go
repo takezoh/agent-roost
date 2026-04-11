@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/take/agent-roost/lib/claude/transcript"
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/lib/claude/transcript"
+	"github.com/takezoh/agent-roost/state"
 	"github.com/takezoh/fishpath-go"
 )
 

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/take/agent-roost/proto"
+	"github.com/takezoh/agent-roost/proto"
 )
 
 // startRuntimeWithIPC spins up a Runtime, opens a Unix socket in a

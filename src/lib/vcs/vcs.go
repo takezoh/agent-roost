@@ -1,8 +1,8 @@
 package vcs
 
 import (
-	"github.com/take/agent-roost/lib/git"
-	"github.com/take/agent-roost/lib/plastic"
+	"github.com/takezoh/agent-roost/lib/git"
+	"github.com/takezoh/agent-roost/lib/plastic"
 )
 
 // Result holds the detected branch name and brand colors for display.

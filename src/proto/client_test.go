@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/state"
 )
 
 // fakeServer pairs a net.Pipe end with a goroutine that reads

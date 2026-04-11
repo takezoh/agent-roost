@@ -8,8 +8,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/viewport"
-	"github.com/take/agent-roost/proto"
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/proto"
+	"github.com/takezoh/agent-roost/state"
 )
 
 const (

@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/take/agent-roost/lib/claude/cli"
-	"github.com/take/agent-roost/lib/claude/transcript"
-	"github.com/take/agent-roost/lib/vcs"
-	"github.com/take/agent-roost/runtime/worker"
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/lib/claude/cli"
+	"github.com/takezoh/agent-roost/lib/claude/transcript"
+	"github.com/takezoh/agent-roost/lib/vcs"
+	"github.com/takezoh/agent-roost/runtime/worker"
+	"github.com/takezoh/agent-roost/state"
 )
 
 var _ state.DriverState = GenericState{}

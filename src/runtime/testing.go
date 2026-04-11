@@ -1,6 +1,6 @@
 package runtime
 
-import "github.com/take/agent-roost/state"
+import "github.com/takezoh/agent-roost/state"
 
 // TestState exposes the runtime's state for test assertions. Must
 // only be called from tests — production code accesses state

@@ -16,8 +16,8 @@ import (
 	"net"
 	"time"
 
-	"github.com/take/agent-roost/runtime/worker"
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/runtime/worker"
+	"github.com/takezoh/agent-roost/state"
 )
 
 // Config carries the runtime's startup parameters. Backends are

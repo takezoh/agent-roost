@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/take/agent-roost/state"
-	"github.com/take/agent-roost/tmux"
-	"github.com/take/agent-roost/driver"
+	"github.com/takezoh/agent-roost/state"
+	"github.com/takezoh/agent-roost/tmux"
+	"github.com/takezoh/agent-roost/driver"
 )
 
 func TestMain(m *testing.M) {

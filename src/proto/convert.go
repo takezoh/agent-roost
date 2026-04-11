@@ -1,7 +1,7 @@
 package proto
 
 import (
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/state"
 )
 
 // CommandToStateEvent translates an incoming typed Command into the

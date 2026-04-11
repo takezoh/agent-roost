@@ -1,4 +1,4 @@
-module github.com/take/agent-roost
+module github.com/takezoh/agent-roost
 
 go 1.26.1
 

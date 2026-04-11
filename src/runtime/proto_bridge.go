@@ -4,8 +4,8 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/take/agent-roost/proto"
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/proto"
+	"github.com/takezoh/agent-roost/state"
 )
 
 // Bridge functions that translate state-package payloads (which are

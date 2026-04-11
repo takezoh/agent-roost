@@ -1,6 +1,6 @@
 package driver
 
-import "github.com/take/agent-roost/state"
+import "github.com/takezoh/agent-roost/state"
 
 // view returns the minimal View for a generic (non-Claude) session.
 // The only driver-specific UI element is the command tag — everything

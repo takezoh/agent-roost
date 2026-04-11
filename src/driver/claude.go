@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/state"
 )
 
 // Claude driver: event-driven status producer for the Claude Code CLI.
