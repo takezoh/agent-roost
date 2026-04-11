@@ -5,10 +5,12 @@
 package logger
 
 import (
+	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 var (
@@ -72,4 +74,19 @@ func Close() {
 	if logFile != nil {
 		logFile.Close()
 	}
+}
+
+// RedirectStderr redirects OS file descriptor 2 (stderr) to the log
+// file so that unexpected writes (panics, library output) do not
+// corrupt the Bubble Tea TUI rendering. Also redirects Go's standard
+// log package. Must be called after Init/InitWithDataDir.
+func RedirectStderr() {
+	if logFile == nil {
+		return
+	}
+	if err := syscall.Dup2(int(logFile.Fd()), 2); err != nil {
+		return
+	}
+	os.Stderr = logFile
+	log.SetOutput(logFile)
 }

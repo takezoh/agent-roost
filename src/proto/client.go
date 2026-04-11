@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"sync"
 	"time"
@@ -173,6 +174,7 @@ func (c *Client) read() {
 	for {
 		var env Envelope
 		if err := dec.Decode(&env); err != nil {
+			slog.Debug("proto: read loop ended", "err", err)
 			return
 		}
 		c.dispatch(env)
@@ -186,12 +188,13 @@ func (c *Client) dispatch(env Envelope) {
 	case TypeEvent:
 		ev, err := DecodeEvent(env)
 		if err != nil {
+			slog.Warn("proto: event decode error", "name", env.Name, "err", err)
 			return
 		}
 		select {
 		case c.events <- ev:
 		default:
-			// drop on full channel
+			slog.Warn("proto: event channel full, dropping")
 		}
 	}
 }
