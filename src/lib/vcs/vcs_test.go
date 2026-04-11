@@ -6,30 +6,26 @@ import (
 	"testing"
 )
 
+func gitRun(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "HOME="+dir)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
 func TestDetectBranchGitRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not in PATH")
 	}
 
 	dir := t.TempDir()
-
-	run := func(args ...string) {
-		t.Helper()
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		cmd.Env = append(os.Environ(),
-			"GIT_CONFIG_NOSYSTEM=1",
-			"HOME="+dir,
-		)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("git %v: %v\n%s", args, err, out)
-		}
-	}
-
-	run("init", "-b", "test-branch")
-	run("config", "user.email", "test@test.com")
-	run("config", "user.name", "Test")
-	run("commit", "--allow-empty", "-m", "init")
+	gitRun(t, dir, "init", "-b", "test-branch")
+	gitRun(t, dir, "config", "user.email", "test@test.com")
+	gitRun(t, dir, "config", "user.name", "Test")
+	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
 
 	r := DetectBranch(dir)
 	if r.Branch != "test-branch" {
@@ -40,6 +36,77 @@ func TestDetectBranchGitRepo(t *testing.T) {
 	}
 	if r.Foreground != defaultFG {
 		t.Errorf("Foreground = %q, want %q", r.Foreground, defaultFG)
+	}
+}
+
+func TestDetectBranchGitHubRemote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-b", "main")
+	gitRun(t, dir, "config", "user.email", "test@test.com")
+	gitRun(t, dir, "config", "user.name", "Test")
+	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
+	gitRun(t, dir, "remote", "add", "origin", "git@github.com:user/repo.git")
+
+	r := DetectBranch(dir)
+	if r.Background != hostColors["github.com"] {
+		t.Errorf("Background = %q, want %q", r.Background, hostColors["github.com"])
+	}
+}
+
+func TestDetectBranchGitLabRemote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-b", "main")
+	gitRun(t, dir, "config", "user.email", "test@test.com")
+	gitRun(t, dir, "config", "user.name", "Test")
+	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
+	gitRun(t, dir, "remote", "add", "origin", "https://gitlab.com/user/repo.git")
+
+	r := DetectBranch(dir)
+	if r.Background != hostColors["gitlab.com"] {
+		t.Errorf("Background = %q, want %q", r.Background, hostColors["gitlab.com"])
+	}
+}
+
+func TestDetectBranchUnknownRemote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-b", "main")
+	gitRun(t, dir, "config", "user.email", "test@test.com")
+	gitRun(t, dir, "config", "user.name", "Test")
+	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
+	gitRun(t, dir, "remote", "add", "origin", "https://selfhosted.example.com/repo.git")
+
+	r := DetectBranch(dir)
+	if r.Background != gitBG {
+		t.Errorf("Background = %q, want %q (fallback)", r.Background, gitBG)
+	}
+}
+
+func TestDetectBranchNoRemote(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not in PATH")
+	}
+
+	dir := t.TempDir()
+	gitRun(t, dir, "init", "-b", "main")
+	gitRun(t, dir, "config", "user.email", "test@test.com")
+	gitRun(t, dir, "config", "user.name", "Test")
+	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
+
+	r := DetectBranch(dir)
+	if r.Background != gitBG {
+		t.Errorf("Background = %q, want %q (fallback)", r.Background, gitBG)
 	}
 }
 

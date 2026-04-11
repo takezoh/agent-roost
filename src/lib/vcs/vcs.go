@@ -19,11 +19,27 @@ const (
 	defaultFG = "#FFFFFF" // white text on brand backgrounds
 )
 
+// hostColors maps git hosting provider hostnames to their brand colors.
+var hostColors = map[string]string{
+	"github.com":    "#24292F", // GitHub dark
+	"gitlab.com":    "#FC6D26", // GitLab orange
+	"bitbucket.org": "#0052CC", // Bitbucket blue
+	"codeberg.org":  "#2185D0", // Codeberg blue
+	"sr.ht":         "#888888", // SourceHut grey
+}
+
+func resolveGitBackground(dir string) string {
+	if bg, ok := hostColors[git.DetectRemoteHost(dir)]; ok {
+		return bg
+	}
+	return gitBG
+}
+
 // DetectBranch tries each supported VCS in order and returns the first
 // successful result. Order: git → Plastic SCM.
 func DetectBranch(dir string) Result {
 	if b := git.DetectBranch(dir); b != "" {
-		return Result{Branch: b, Background: gitBG, Foreground: defaultFG}
+		return Result{Branch: b, Background: resolveGitBackground(dir), Foreground: defaultFG}
 	}
 	if b := plastic.DetectBranch(dir); b != "" {
 		return Result{Branch: b, Background: plasticBG, Foreground: defaultFG}
