@@ -56,10 +56,12 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 
 	return state.View{
 		Card: state.Card{
-			Title:      cs.Title,
-			Subtitle:   firstNonEmpty(cs.Summary, cs.LastPrompt),
-			Tags:       tags,
-			Indicators: claudeIndicators(cs),
+			Title:       cs.Title,
+			Subtitle:    firstNonEmpty(cs.Summary, cs.LastPrompt),
+			Tags:        tags,
+			Indicators:  claudeIndicators(cs),
+			BorderTitle: "claude",
+			BorderBadge: shortenHome(cs.WorkingDir, d.home),
 		},
 		LogTabs:         logTabs,
 		InfoExtras:      claudeInfoExtras(cs),
@@ -108,6 +110,13 @@ func subagentDir(transcriptPath string) string {
 	}
 	base := strings.TrimSuffix(transcriptPath, ".jsonl")
 	return base + string(os.PathSeparator) + "subagents"
+}
+
+func shortenHome(path, home string) string {
+	if home != "" && strings.HasPrefix(path, home) {
+		return "~" + path[len(home):]
+	}
+	return path
 }
 
 func firstNonEmpty(candidates ...string) string {

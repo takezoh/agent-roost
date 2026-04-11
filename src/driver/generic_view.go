@@ -14,7 +14,7 @@ func (d GenericDriver) view(gs GenericState) state.View {
 		tags = []state.Tag{CommandTag(d.displayName)}
 	}
 	return state.View{
-		Card:            state.Card{Tags: tags},
+		Card:            state.Card{Tags: tags, BorderTitle: d.displayName},
 		Status:          gs.Status,
 		StatusChangedAt: gs.StatusChangedAt,
 	}

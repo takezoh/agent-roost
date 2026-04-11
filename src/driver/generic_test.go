@@ -197,6 +197,23 @@ func TestGenericViewHasCommandTag(t *testing.T) {
 	}
 }
 
+func TestGenericViewBorderTitle(t *testing.T) {
+	d, s, _ := newGenericState(t, 0)
+	v := d.view(s)
+	if v.Card.BorderTitle != "bash" {
+		t.Errorf("BorderTitle = %q, want bash", v.Card.BorderTitle)
+	}
+}
+
+func TestGenericFallbackHasNoBorderTitle(t *testing.T) {
+	d := NewGenericDriver("", 0)
+	s := d.NewState(time.Now()).(GenericState)
+	v := d.view(s)
+	if v.Card.BorderTitle != "" {
+		t.Errorf("fallback BorderTitle = %q, want empty", v.Card.BorderTitle)
+	}
+}
+
 func TestGenericFallbackHasNoCommandTag(t *testing.T) {
 	d := NewGenericDriver("", 0)
 	s := d.NewState(time.Now()).(GenericState)

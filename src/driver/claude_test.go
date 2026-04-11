@@ -747,6 +747,40 @@ func TestClaudeViewIncludesCommandTag(t *testing.T) {
 	}
 }
 
+func TestClaudeViewBorderTitle(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	v := d.view(cs)
+	if v.Card.BorderTitle != "claude" {
+		t.Errorf("BorderTitle = %q, want claude", v.Card.BorderTitle)
+	}
+}
+
+func TestClaudeViewBorderBadge(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.WorkingDir = "/home/test/project"
+	v := d.view(cs)
+	if v.Card.BorderBadge != "~/project" {
+		t.Errorf("BorderBadge = %q, want ~/project", v.Card.BorderBadge)
+	}
+}
+
+func TestShortenHome(t *testing.T) {
+	tests := []struct {
+		path, home, want string
+	}{
+		{"/home/user/project", "/home/user", "~/project"},
+		{"/home/user", "/home/user", "~"},
+		{"/other/path", "/home/user", "/other/path"},
+		{"", "/home/user", ""},
+		{"/home/user/project", "", "/home/user/project"},
+	}
+	for _, tt := range tests {
+		if got := shortenHome(tt.path, tt.home); got != tt.want {
+			t.Errorf("shortenHome(%q, %q) = %q, want %q", tt.path, tt.home, got, tt.want)
+		}
+	}
+}
+
 func TestClaudeViewBranchTagWhenSet(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.BranchTag = "feat-x"
