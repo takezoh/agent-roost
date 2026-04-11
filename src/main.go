@@ -204,7 +204,7 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
 	client.ResizePane(sn+":0.1", 0, logHeight)
 
 	setupKeyBindings(client, sn)
-	setupStatusBar(client, sn)
+	setupStatusBar(client, sn, cfg.Tmux.Prefix)
 	client.SelectPane(sn + ":0.0")
 }
 
@@ -218,7 +218,7 @@ func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {
 	client.ResizePane(sn+":0.2", tuiWidth, 0)
 	client.ResizePane(sn+":0.1", 0, logHeight)
 	setupKeyBindings(client, sn)
-	setupStatusBar(client, sn)
+	setupStatusBar(client, sn, cfg.Tmux.Prefix)
 	client.SelectPane(sn + ":0.0")
 }
 
@@ -226,12 +226,48 @@ const paneLabel = `#{?#{==:#{window_index},0},` +
 	`#{?#{==:#{pane_index},0},[MAIN],#{?#{==:#{pane_index},1},[LOG],[SESSIONS]}},` +
 	`[#{window_name}]}`
 
-func setupStatusBar(client *tmux.Client, sn string) {
+func setupStatusBar(client *tmux.Client, sn string, prefix string) {
 	client.SetOption(sn, "status-left", " ")
 	client.SetOption(sn, "status-left-length", "120")
-	client.SetOption(sn, "status-right", "")
+	client.SetOption(sn, "status-right", paneHints(prefix))
+	client.SetOption(sn, "status-right-length", "120")
 	client.SetOption(sn, "status-style", "bg=#1d2021,fg=#ebdbb2")
-	client.Run("set-option", "-t", sn, "status-format[0]", " "+paneLabel+"#{status-left}")
+	client.Run("set-option", "-t", sn, "status-format[0]",
+		" "+paneLabel+"#{status-left}#[align=right]#{status-right} ")
+}
+
+// paneHints builds a tmux conditional format string that shows different
+// keybinding hints depending on which pane is focused.
+func paneHints(prefix string) string {
+	// Split style attributes into separate #[...] blocks to avoid commas
+	// inside #[...] being misinterpreted as tmux conditional delimiters.
+	k := "#[bold]#[fg=#ebdbb2]"    // key style
+	d := "#[nobold]#[fg=#626262]" // description style
+	sep := d + " · "
+
+	main := k + prefix + " Space" + d + " toggle" + sep +
+		k + prefix + " p" + d + " palette" + sep +
+		k + prefix + " d" + d + " detach" + sep +
+		k + prefix + " q" + d + " quit"
+
+	log := k + "g" + d + " top" + sep +
+		k + "G" + d + " bottom" + sep +
+		k + "↑/↓" + d + " scroll"
+
+	sessions := k + "n" + d + " new" + sep +
+		k + "N" + d + " cmd" + sep +
+		k + "Enter" + d + " switch" + sep +
+		k + "d" + d + " stop" + sep +
+		k + "Tab" + d + " fold" + sep +
+		k + "1-5/0" + d + " filter"
+
+	other := k + prefix + " Space" + d + " toggle"
+
+	// Nested tmux conditionals: window 0 → pane-based hints, else → other.
+	return "#{?#{==:#{window_index},0}," +
+		"#{?#{==:#{pane_index},0}," + main + "," +
+		"#{?#{==:#{pane_index},1}," + log + "," + sessions + "}}," +
+		other + "}"
 }
 
 func setupKeyBindings(client *tmux.Client, sn string) {

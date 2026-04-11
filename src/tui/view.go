@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/take/agent-roost/proto"
@@ -32,9 +31,8 @@ func (m Model) View() tea.View {
 	header := titleStyle.Render("SESSIONS") + "  " + badgeStyle.Render(fmt.Sprintf("%d/%d sessions", visible, total))
 	filterBar, _ := filterBarLayout(m.filter)
 	body := renderSessionsBody(m, width)
-	footer := Footer([]key.Binding{m.keys.New, m.keys.NewCmd, m.keys.Enter, m.keys.Stop, m.keys.Toggle, m.keys.FilterHelp})
 
-	screen := lipgloss.JoinVertical(lipgloss.Left, header, filterBar, "", body, "", footer)
+	screen := lipgloss.JoinVertical(lipgloss.Left, header, filterBar, "", body)
 
 	v := tea.NewView(screen)
 	v.AltScreen = true
