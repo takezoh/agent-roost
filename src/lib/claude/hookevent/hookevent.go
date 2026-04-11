@@ -74,7 +74,7 @@ func ParseHookEvent(data []byte) (HookEvent, error) {
 // Returns empty string if the event doesn't map to a state change.
 func (e HookEvent) DeriveState() string {
 	switch e.HookEventName {
-	case "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart":
+	case "UserPromptSubmit", "PreToolUse", "PostToolUse":
 		return "running"
 	case "Stop", "StopFailure":
 		return "waiting"

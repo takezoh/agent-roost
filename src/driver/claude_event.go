@@ -42,7 +42,7 @@ func (hp hookPayload) toolInputString(key string) string {
 // Must stay in sync with lib/claude/hookevent.HookEvent.DeriveState.
 func (hp hookPayload) deriveState() string {
 	switch hp.HookEventName {
-	case "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart":
+	case "UserPromptSubmit", "PreToolUse", "PostToolUse":
 		return "running"
 	case "Stop", "StopFailure":
 		return "waiting"
@@ -147,6 +147,16 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 
 	if hp.HookEventName == "UserPromptSubmit" {
 		return d.handleUserPromptSubmit(cs, hp, e.Payload)
+	}
+
+	// Agent tool events track subagent lifecycle, not main-agent
+	// activity — log only, no status change.
+	if hp.ToolName == "Agent" {
+		var effs []state.Effect
+		if line := hp.formatLog(); line != "" {
+			effs = append(effs, state.EffEventLogAppend{Line: line})
+		}
+		return cs, effs
 	}
 
 	// All other hook events (PreToolUse, PostToolUse, Stop, etc.)
