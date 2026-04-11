@@ -268,6 +268,101 @@ func TestClaudeUnknownHookIsNoop(t *testing.T) {
 	}
 }
 
+// === Hook ordering ===
+
+func TestClaudeHookDropsStaleEvent(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.TranscriptPath = "/tmp/t.jsonl"
+
+	// First event at bridge_ts=200
+	p1 := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "Stop",
+	}, now)
+	p1["bridge_ts"] = int64(200)
+	next, _ := d.handleHook(cs, state.DEvHook{Event: "Stop", Payload: p1})
+	if next.LastBridgeTS != 200 {
+		t.Fatalf("LastBridgeTS = %d, want 200", next.LastBridgeTS)
+	}
+	if next.Status != state.StatusWaiting {
+		t.Fatalf("Status = %v, want Waiting", next.Status)
+	}
+
+	// Second event at bridge_ts=100 (stale) — must be dropped
+	p2 := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "UserPromptSubmit",
+		"prompt": "stale",
+	}, now)
+	p2["bridge_ts"] = int64(100)
+	next2, effs := d.handleHook(next, state.DEvHook{Event: "UserPromptSubmit", Payload: p2})
+	if next2.Status != state.StatusWaiting {
+		t.Errorf("stale event changed status to %v", next2.Status)
+	}
+	if next2.LastPrompt == "stale" {
+		t.Error("stale event should not set LastPrompt")
+	}
+	if len(effs) != 0 {
+		t.Errorf("stale event produced %d effects, want 0", len(effs))
+	}
+}
+
+func TestClaudeHookAcceptsMissingBridgeTS(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.LastBridgeTS = 500
+
+	p := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "Stop",
+	}, now)
+	// No bridge_ts key — should be accepted for backward compat
+	next, _ := d.handleHook(cs, state.DEvHook{Event: "Stop", Payload: p})
+	if next.Status != state.StatusWaiting {
+		t.Errorf("missing bridge_ts should be accepted, got status %v", next.Status)
+	}
+	if next.LastBridgeTS != 500 {
+		t.Errorf("LastBridgeTS changed to %d, should stay 500", next.LastBridgeTS)
+	}
+}
+
+func TestClaudeSessionStartBypassesOrdering(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.LastBridgeTS = 9000 // high watermark from previous session
+
+	// SessionStart with a lower bridge_ts (e.g. clock skew after NTP)
+	p := hookPayloadRaw(map[string]string{
+		"session_id":      "uuid",
+		"cwd":             "/work",
+		"transcript_path": "/tmp/x.jsonl",
+		"hook_event_name": "SessionStart",
+	}, now)
+	p["bridge_ts"] = int64(100)
+	next, effs := d.handleHook(cs, state.DEvHook{Event: "SessionStart", Payload: p})
+	if next.Status != state.StatusIdle {
+		t.Errorf("SessionStart should always be accepted, got status %v", next.Status)
+	}
+	if next.LastBridgeTS != 100 {
+		t.Errorf("LastBridgeTS = %d, want 100 (reset by SessionStart)", next.LastBridgeTS)
+	}
+	if len(effs) == 0 {
+		t.Error("SessionStart should produce effects")
+	}
+}
+
+func TestClaudeHookAcceptsFloat64BridgeTS(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+
+	p := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "Stop",
+	}, now)
+	p["bridge_ts"] = float64(300)
+	next, _ := d.handleHook(cs, state.DEvHook{Event: "Stop", Payload: p})
+	if next.LastBridgeTS != 300 {
+		t.Errorf("LastBridgeTS = %d, want 300 (from float64)", next.LastBridgeTS)
+	}
+}
+
 // === Tick handling (branch detection) ===
 
 func TestClaudeTickInactiveDoesNothing(t *testing.T) {

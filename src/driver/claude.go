@@ -56,6 +56,10 @@ type ClaudeState struct {
 	Status          state.Status
 	StatusChangedAt time.Time
 
+	// Hook ordering: bridge-stamped nanosecond timestamp. Stale events
+	// (bridge_ts <= LastBridgeTS) are dropped by handleHook.
+	LastBridgeTS int64
+
 	// Cached transcript meta (folded in by DEvJobResult{JobTranscriptParse})
 	Title          string
 	LastPrompt     string
