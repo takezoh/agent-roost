@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -41,14 +42,16 @@ type fakeTmuxBackend struct {
 	spawnPane    string
 	spawnErr     error
 	roostWindows []tmux.RoostWindow
+	displayMsgs  map[string]string // target → response; absent = error
 }
 
 func newFakeTmux() *fakeTmuxBackend {
 	return &fakeTmuxBackend{
-		alive:    map[string]bool{},
-		envs:     map[string]string{},
-		spawnWID: "@1",
-		spawnPane: "%1",
+		alive:       map[string]bool{},
+		envs:        map[string]string{},
+		displayMsgs: map[string]string{},
+		spawnWID:    "@1",
+		spawnPane:   "%1",
 	}
 }
 
@@ -121,6 +124,15 @@ func (f *fakeTmuxBackend) CapturePane(string, int) (string, error) {
 }
 func (f *fakeTmuxBackend) DetachClient() error { return nil }
 func (f *fakeTmuxBackend) KillSession() error  { return nil }
+func (f *fakeTmuxBackend) DisplayMessage(target, format string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if v, ok := f.displayMsgs[target]; ok {
+		return v, nil
+	}
+	return "", fmt.Errorf("no such target: %s", target)
+}
+
 func (f *fakeTmuxBackend) DisplayPopup(w, h, cmd string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

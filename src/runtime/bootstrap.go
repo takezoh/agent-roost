@@ -173,6 +173,81 @@ func (r *Runtime) DeactivateOnStartup(tmuxClient interface{ GetEnv(string) (stri
 	slog.Info("bootstrap: deactivated session on startup", "window", wid)
 }
 
+// RescueActiveSession checks whether the previously active session's
+// tmux window was destroyed during restart (the main TUI that was
+// swapped into it exited, and remain-on-exit is off on session
+// windows). If so, it spawns a replacement window and swaps the
+// still-alive agent from pane 0.0 into it, then updates state so
+// ReconcileWarm finds the session.
+//
+// Must be called after LoadSnapshot and before ReconcileWarm.
+func (r *Runtime) RescueActiveSession(tmuxClient interface{ GetEnv(string) (string, error) }) {
+	wid, _ := tmuxClient.GetEnv("ROOST_ACTIVE_WINDOW")
+	if wid == "" {
+		return
+	}
+
+	var targetID state.SessionID
+	for id, sess := range r.state.Sessions {
+		if string(sess.WindowID) == wid {
+			targetID = id
+			break
+		}
+	}
+	if targetID == "" {
+		return
+	}
+
+	if r.windowExists(wid) {
+		return
+	}
+
+	pane0 := r.cfg.SessionName + ":0.0"
+	alive, err := r.cfg.Tmux.PaneAlive(pane0)
+	if err != nil || !alive {
+		slog.Warn("bootstrap: active session window gone and agent dead, cannot rescue",
+			"session", targetID, "window", wid)
+		return
+	}
+
+	sess := r.state.Sessions[targetID]
+	windowName := buildWindowName(sess.Project, string(targetID))
+	newWID, newPaneID, err := r.cfg.Tmux.SpawnWindow(
+		windowName, "", sess.Project,
+		map[string]string{"ROOST_SESSION_ID": string(targetID)},
+	)
+	if err != nil {
+		slog.Error("bootstrap: rescue spawn failed", "session", targetID, "err", err)
+		return
+	}
+
+	op := []string{"swap-pane", "-d", "-s", pane0, "-t", newWID + ".0"}
+	if err := r.cfg.Tmux.RunChain(op); err != nil {
+		slog.Error("bootstrap: rescue swap failed", "session", targetID, "err", err)
+		_ = r.cfg.Tmux.KillWindow(newWID)
+		return
+	}
+
+	sess.WindowID = state.WindowID(newWID)
+	sess.PaneID = newPaneID
+	r.state.Sessions[targetID] = sess
+	slog.Info("bootstrap: rescued active session",
+		"session", targetID, "old_window", wid, "new_window", newWID)
+}
+
+// windowExists checks whether a tmux window ID still exists.
+func (r *Runtime) windowExists(windowID string) bool {
+	type displayer interface {
+		DisplayMessage(target, format string) (string, error)
+	}
+	d, ok := r.cfg.Tmux.(displayer)
+	if !ok {
+		return false
+	}
+	_, err := d.DisplayMessage(windowID, "#{window_id}")
+	return err == nil
+}
+
 // ClearStaleWindowIDs zeroes out WindowID and PaneID on every
 // session. Called on cold start before RecreateAll so that stale
 // IDs from the previous run's snapshot don't leak into the new
