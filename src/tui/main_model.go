@@ -2,6 +2,7 @@ package tui
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/viewport"
 
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/state"
@@ -9,6 +10,7 @@ import (
 
 type MainModel struct {
 	client          *proto.Client
+	viewport        viewport.Model
 	sessions        []proto.SessionInfo
 	connectors      []proto.ConnectorInfo
 	selectedProject string
@@ -37,6 +39,9 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.viewport.SetWidth(m.width)
+		m.viewport.SetHeight(m.height - 1) // reserve title row
+		m.viewport.SetContent(m.renderContent())
 		return m, nil
 
 	case mainDisconnectMsg:
@@ -46,7 +51,14 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleEvent(msg.event)
 
 	case tea.KeyPressMsg:
-		return m, nil
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
+
+	case tea.MouseWheelMsg:
+		var cmd tea.Cmd
+		m.viewport, cmd = m.viewport.Update(msg)
+		return m, cmd
 	}
 	return m, nil
 }
@@ -59,6 +71,7 @@ func (m MainModel) handleEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 	case proto.EvtProjectSelected:
 		m.selectedProject = e.Project
 	}
+	m.viewport.SetContent(m.renderContent())
 	return m, m.listenEvents()
 }
 
