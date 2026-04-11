@@ -1,41 +1,25 @@
 # Architecture
 
-This document describes the internal architecture of roost for developers.
+## Vision
 
-**roost** is a TUI tool that centrally manages multiple AI agent sessions on tmux.
+When running AI agents across multiple projects, you lose track of which agents are working, which are waiting for input, and which need tool approval. Switching between them in raw tmux is slow and error-prone. roost solves this: launch sessions in seconds, see their status at a glance, and switch instantly.
 
-## Detailed Documentation
+roost is a session lifecycle manager — not an agent orchestrator. It does not control what agents do; it gives you visibility and fast access to all of them from a single tmux-based TUI.
+
+## Design Principles
+
+- **Functional Core / Imperative Shell**: All state transitions are expressed as a pure function `state.Reduce(state, event) → (state', effects)`. I/O is emitted as `Effect` values and interpreted by a single event loop (runtime). No goroutines, mutexes, or actors exist in the state layer
+- **Driver as Value Type**: Drivers are stateless plugins. Per-session state is embedded as a `DriverState` value in `state.Session.Driver` and round-trips through `Driver.Step`. No goroutines, no I/O — side effects are returned as `[]Effect`
+- **Single event loop**: All daemon state is exclusively owned by one goroutine. No mutexes needed (except inside the worker pool). Slow I/O (transcript parse, capture-pane, etc.) runs in a fixed-size worker pool and feeds results back as events
+- **Driver/Connector isolation**: Concepts specific to `driver/` and `connector/` must not leak into `state/`, `runtime/`, `tui/`, or `proto/`. TUI never branches on driver or connector name. Only `main.go` imports driver/connector packages as wiring
+- **No fallbacks**: Do not synthesize "if source A is unavailable, use B". Until `Driver.Step` updates the state, the status does not change
+
+## Documentation
 
 - [Process Model, tmux Layout, Rendering Responsibilities](docs/process-model.md) — Daemon/TUI process structure, pane layout, rendering boundary between Driver and TUI
 - [Inter-Process Communication and Tool System](docs/ipc.md) — IPC message format, command list, concurrency model (event loop + worker pool), Tool abstraction
 - [State Monitoring](docs/state-monitoring.md) — State detection via Driver plugins, Claude/Generic driver, persistence/restoration
 - [Interface and File Reference](docs/interfaces.md) — Go type definitions, data files, source tree
-
-## Vision
-
-When running AI agents concurrently across multiple projects, raw tmux operations make it cumbersome to track and switch between sessions, and there is no visibility into whether each agent is idle/running/waiting. roost solves this.
-
-- An operation panel that centrally manages multiple AI agent sessions across projects
-- A thin TUI focused on session lifecycle management, without venturing into agent orchestration itself
-- Start and switch sessions with minimal operations
-
-## Design Principles
-
-- **Functional Core / Imperative Shell**: All state transitions are expressed as a pure function `state.Reduce(state, event) → (state', effects)`. I/O is emitted as `Effect` values externally, and a single event loop (runtime) interprets them. No goroutines, mutexes, or actors exist in the state layer
-- **tmux Native**: Directly leverage tmux sessions/windows/panes. Do not reimplement agent PTY
-- **High-Level Operations as Tools**: Abstract high-level operations with side effects (session creation, stopping, termination) as Tools (`tools` package). The same Tool can be executed from both the TUI and the command palette
-- **No Business Logic in TUI**: TUI handles display and key input only. Logic is consolidated in `state.Reduce` + `runtime`
-- **Typed messages**: All boundaries (IPC command/response/event, state Event/Effect, driver DriverEvent) are closed sum types. Do not use closures as messages
-- **Driver as Value Type**: Drivers are stateless plugins with no per-session state. Per-session state is embedded as a `DriverState` value in `state.Session.Driver` and round-trips as arguments and return values of `Driver.Step`. No goroutines or I/O
-- **Effects are auditable**: All side-effects are `grep`-able as `state.Effect` enum constructors. Drivers do not directly write files or spawn subprocesses — the runtime interpreter executes everything
-- **Single event loop**: All daemon state is exclusively owned by a single goroutine (the runtime event loop). No mutexes needed (except inside the worker pool). Fixed goroutine count (~16) independent of session count
-- **Worker pool for slow I/O**: Transcript parse, haiku summary, git branch detect, and capture-pane run off-loop in a fixed-size worker pool (4 goroutines). Results feed back to the event loop as `EvJobResult`
-- **Single persistence store**: `sessions.json` is the single source of truth. The only tmux user option is `@roost_id` (window-to-session marker). No dual bookkeeping
-- **No fallbacks**: Do not synthesize "if source A is unavailable, use B". Until the Driver's Step updates the state, the status does not change
-- **Testable design**: state.Reduce is tested with pure function tests at 90%+ coverage. Runtime is E2E tested with fake backends injected via interfaces. No mocks needed
-- **Isolation of Driver-Specific Concepts**: Concepts specific to `driver/` and `lib/` (type names, constants, interfaces, configuration) must not be exposed to `state/`, `runtime/`, `tui/`, `proto/`, `config/`. Driver-specific TabKind constants are defined in each driver package. Driver-specific config is decoded by the driver into its own type from the `[drivers.<name>]` TOML section. Only main.go imports driver/lib as wiring
-- **Isolation of Connector-Specific Concepts**: The same principle as Driver applies to Connectors. Concepts specific to `connector/` and `lib/` must not be exposed to `state/`, `runtime/`, `tui/`, `proto/`. Do not branch on connector name in TUI (`if name == "github"` is forbidden). Connectors hold no I/O (delegated to runtime via Effects). Job input/output types and runners are defined and registered within the `connector/` package
-- **Pluggable Registration Pattern**: Driver plugin registration uses three init-time registries: `RegisterTabRenderer[C]`, `RegisterRunner[In,Out]`, and `state.Register(Driver)`. Connector plugin registration uses `RegisterRunner[In,Out]` and `state.RegisterConnector(Connector)`. runtime/tui dispatches via registries without knowing specific drivers/connectors
 
 ## Terminology
 
