@@ -246,8 +246,8 @@ func TestWithDisplayName(t *testing.T) {
 	if len(v.Card.Tags) != 1 || v.Card.Tags[0].Text != "zsh" {
 		t.Errorf("tag text = %q, want zsh", v.Card.Tags[0].Text)
 	}
-	if v.Card.BorderTitle != "zsh" {
-		t.Errorf("BorderTitle = %q, want zsh", v.Card.BorderTitle)
+	if v.Card.BorderTitle.Text != "zsh" {
+		t.Errorf("BorderTitle = %q, want zsh", v.Card.BorderTitle.Text)
 	}
 }
 
