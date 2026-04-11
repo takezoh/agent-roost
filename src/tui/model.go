@@ -32,6 +32,7 @@ type Model struct {
 	sessions   []proto.SessionInfo
 	items      []listItem
 	cursor     int
+	offset     int // first visible item index for scrolling
 	folded     map[string]bool
 	filter     statusFilter
 	active     string
@@ -103,6 +104,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case mouseLeaveMsg:
 		return m.handleMouseLeave(msg)
+	case tea.MouseWheelMsg:
+		return m.handleMouseWheel(msg)
 	case tea.MouseMotionMsg:
 		return m.handleMouseMotion(msg)
 	case tea.MouseClickMsg:
@@ -278,9 +281,52 @@ func (m *Model) restoreCursor(prev listItem) {
 	}
 }
 
+// ensureCursorVisible adjusts m.offset so that the cursor item fits within
+// bodyHeight rows. Items must already have their .rows set.
+func (m *Model) ensureCursorVisible(bodyHeight int) {
+	if len(m.items) == 0 || bodyHeight <= 0 {
+		m.offset = 0
+		return
+	}
+	if m.cursor < m.offset {
+		m.offset = m.cursor
+	}
+	// Accumulate rows from offset to cursor. If they exceed bodyHeight,
+	// advance offset by subtracting the front item (O(n) single pass).
+	rows := m.items[m.offset].rows
+	for i := m.offset + 1; i <= m.cursor && i < len(m.items); i++ {
+		rows += 1 + m.items[i].rows // 1 for newline between items
+	}
+	for rows > bodyHeight && m.offset < m.cursor {
+		rows -= m.items[m.offset].rows + 1
+		m.offset++
+	}
+}
+
+// visibleEnd returns the exclusive end index of items that fit within
+// bodyHeight rows starting from m.offset.
+func (m Model) visibleEnd(bodyHeight int) int {
+	rows := 0
+	for i := m.offset; i < len(m.items); i++ {
+		need := m.items[i].rows
+		if i > m.offset {
+			need++ // newline between items
+		}
+		if rows+need > bodyHeight {
+			return i
+		}
+		rows += need
+	}
+	return len(m.items)
+}
+
 func (m Model) rowToItemIndex(y int) int {
 	row := sessionsHeaderRows
-	for i, item := range m.items {
+	if m.offset > 0 {
+		row++ // "↑ N more" indicator line
+	}
+	for i := m.offset; i < len(m.items); i++ {
+		item := m.items[i]
 		if item.rows <= 0 {
 			continue
 		}

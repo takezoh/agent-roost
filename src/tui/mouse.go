@@ -82,6 +82,35 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+const scrollStep = 3
+
+func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
+	if len(m.items) == 0 {
+		return m, nil
+	}
+	mouse := msg.Mouse()
+	switch mouse.Button {
+	case tea.MouseWheelUp:
+		m.offset -= scrollStep
+		if m.offset < 0 {
+			m.offset = 0
+		}
+		if m.cursor < m.offset {
+			m.cursor = m.offset
+		}
+	case tea.MouseWheelDown:
+		m.offset += scrollStep
+		last := len(m.items) - 1
+		if m.offset > last {
+			m.offset = last
+		}
+		if m.cursor < m.offset {
+			m.cursor = m.offset
+		}
+	}
+	return m, m.cursorPreviewCmd()
+}
+
 func (m Model) isMouseAtEdge() bool {
 	return m.lastMouseX < edgeMargin || m.lastMouseX >= m.width-edgeMargin ||
 		m.lastMouseY < edgeMargin || m.lastMouseY >= m.height-edgeMargin

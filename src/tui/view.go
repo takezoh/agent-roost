@@ -30,7 +30,7 @@ func (m Model) View() tea.View {
 	total := len(m.sessions)
 	header := titleStyle.Render("SESSIONS") + "  " + badgeStyle.Render(fmt.Sprintf("%d/%d sessions", visible, total))
 	filterBar, _ := filterBarLayout(m.filter)
-	body := renderSessionsBody(m, width)
+	body := renderSessionsBody(&m, width)
 
 	screen := lipgloss.JoinVertical(lipgloss.Left, header, filterBar, "", body)
 
@@ -40,26 +40,59 @@ func (m Model) View() tea.View {
 	return v
 }
 
-func renderSessionsBody(m Model, innerWidth int) string {
+func renderSessionsBody(m *Model, innerWidth int) string {
 	if len(m.items) == 0 {
 		return mutedStyle.Render("  No sessions")
 	}
 
-	var b strings.Builder
+	// Pass 1: render all items to measure their row heights.
+	rendered := make([]string, len(m.items))
 	for i := range m.items {
 		selected := i == m.cursor
-		rendered := renderItem(m.items[i], selected, innerWidth, m.folded[m.items[i].project])
-		// In minimal mode, draw a horizontal separator between two adjacent
-		// sessions. The separator is prepended to the lower card so that
-		// SetRows accounts for it and mouse mapping clicks the lower card.
+		r := renderItem(m.items[i], selected, innerWidth, m.folded[m.items[i].project])
 		if Active.Minimal && i > 0 && !m.items[i].isProject && !m.items[i-1].isProject {
-			rendered = renderSessionSeparator(innerWidth) + "\n" + rendered
+			r = renderSessionSeparator(innerWidth) + "\n" + r
 		}
-		m.items[i].SetRows(rendered)
-		b.WriteString(rendered)
-		if i < len(m.items)-1 {
+		m.items[i].SetRows(r)
+		rendered[i] = r
+	}
+
+	// Compute available body height and adjust scroll offset.
+	// Reserve rows for the chrome: header area (sessionsHeaderRows).
+	bodyHeight := m.height - sessionsHeaderRows
+	if bodyHeight < 3 {
+		bodyHeight = 3
+	}
+	m.ensureCursorVisible(bodyHeight)
+
+	// Reserve 1 row for "↑ N more" when scrolled down.
+	itemHeight := bodyHeight
+	if m.offset > 0 {
+		itemHeight--
+	}
+	end := m.visibleEnd(itemHeight)
+	// Reserve 1 row for "↓ N more" if items remain below.
+	if end < len(m.items) {
+		end = m.visibleEnd(itemHeight - 1)
+	}
+
+	// Pass 2: assemble visible items with scroll indicators.
+	var b strings.Builder
+	if m.offset > 0 {
+		above := countSessions(m.items[:m.offset])
+		b.WriteString(mutedStyle.Render(fmt.Sprintf("  ↑ %d more", above)))
+		b.WriteString("\n")
+	}
+	for i := m.offset; i < end; i++ {
+		b.WriteString(rendered[i])
+		if i < end-1 {
 			b.WriteString("\n")
 		}
+	}
+	if end < len(m.items) {
+		below := countSessions(m.items[end:])
+		b.WriteString("\n")
+		b.WriteString(mutedStyle.Render(fmt.Sprintf("  ↓ %d more", below)))
 	}
 	return b.String()
 }

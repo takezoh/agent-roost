@@ -8,6 +8,72 @@ import (
 	"github.com/take/agent-roost/state"
 )
 
+func makeItems(rowCounts ...int) []listItem {
+	items := make([]listItem, len(rowCounts))
+	for i, r := range rowCounts {
+		items[i] = listItem{rows: r}
+	}
+	return items
+}
+
+func TestEnsureCursorVisible(t *testing.T) {
+	tests := []struct {
+		name       string
+		rows       []int
+		cursor     int
+		offset     int
+		bodyHeight int
+		wantOffset int
+	}{
+		{"all fit", []int{2, 2, 2}, 2, 0, 10, 0},
+		{"cursor below viewport", []int{3, 3, 3}, 2, 0, 7, 1},
+		{"cursor above offset", []int{2, 2, 2}, 0, 2, 10, 0},
+		{"single tall item", []int{10}, 0, 0, 5, 0},
+		{"scroll to last", []int{2, 2, 2, 2}, 3, 0, 3, 3},
+		{"already visible", []int{2, 2, 2}, 1, 0, 6, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				items:  makeItems(tt.rows...),
+				cursor: tt.cursor,
+				offset: tt.offset,
+			}
+			m.ensureCursorVisible(tt.bodyHeight)
+			if m.offset != tt.wantOffset {
+				t.Errorf("offset = %d, want %d", m.offset, tt.wantOffset)
+			}
+		})
+	}
+}
+
+func TestVisibleEnd(t *testing.T) {
+	tests := []struct {
+		name       string
+		rows       []int
+		offset     int
+		bodyHeight int
+		wantEnd    int
+	}{
+		{"all fit", []int{2, 2, 2}, 0, 10, 3},
+		{"partial", []int{3, 3, 3}, 0, 5, 1},
+		{"from offset", []int{3, 3, 3}, 1, 7, 3},
+		{"exact fit", []int{2, 2, 2}, 0, 8, 3}, // 2+1+2+1+2=8
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{
+				items:  makeItems(tt.rows...),
+				offset: tt.offset,
+			}
+			got := m.visibleEnd(tt.bodyHeight)
+			if got != tt.wantEnd {
+				t.Errorf("visibleEnd = %d, want %d", got, tt.wantEnd)
+			}
+		})
+	}
+}
+
 func TestSessionCardLinesSubtitleClamp(t *testing.T) {
 	mk := func(subtitle string) *proto.SessionInfo {
 		return &proto.SessionInfo{
