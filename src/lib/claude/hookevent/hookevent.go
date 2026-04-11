@@ -33,6 +33,9 @@ func (e HookEvent) FormatLog() string {
 	s := e.HookEventName
 	switch e.HookEventName {
 	case "PreToolUse", "PostToolUse", "PostToolUseFailure":
+		if e.ToolName == "" {
+			break
+		}
 		s += " " + e.ToolName
 		if e.ToolName == "Bash" {
 			if cmd, ok := e.ToolInput["command"].(string); ok {

@@ -396,9 +396,7 @@ func (m *LogModel) switchToTab(tab logTab) {
 
 	m.viewport.SetContent("")
 	m.following = true
-	if m.renderer != nil {
-		m.renderer.Reset()
-	}
+	m.rebuildRenderer(t)
 }
 
 func (m *LogModel) tabIndexAtX(x int) logTab {
