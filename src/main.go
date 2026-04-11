@@ -33,6 +33,7 @@ func main() {
 	}
 
 	if len(os.Args) > 1 && os.Args[1] == "--tui" && len(os.Args) > 2 {
+		logger.RedirectStderr()
 		switch os.Args[2] {
 		case "main":
 			runMainTUI()
