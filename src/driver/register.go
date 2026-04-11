@@ -42,6 +42,13 @@ func RegisterDefaults(opts RegisterOptions) {
 
 var registerOnce sync.Once
 
+// ParseClaudeOptions decodes the [drivers.claude] section of settings.toml
+// into a ClaudeOptions value. Exported so the runtime coordinator can read
+// it without duplicating the JSON round-trip logic.
+func ParseClaudeOptions(raw map[string]any) ClaudeOptions {
+	return decodeConfig[ClaudeOptions](raw)
+}
+
 // decodeConfig converts a raw map (from TOML) into a typed config
 // struct via JSON round-trip. Same pattern as RegisterTabRenderer's
 // json.RawMessage unmarshaling.

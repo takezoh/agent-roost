@@ -17,9 +17,9 @@ import (
 
 var _ state.DriverState = GenericState{}
 
-func RegisterRunners(capturePaneFn func(string, int) (string, error), language string) {
+func RegisterRunners(capturePaneFn func(string, int) (string, error), language, summarizeCmd string) {
 	worker.RegisterRunner("capture_pane", newCapturePane(capturePaneFn))
-	tp, hs := newClaudeRunners(language)
+	tp, hs := newClaudeRunners(language, summarizeCmd)
 	worker.RegisterRunner("transcript_parse", tp)
 	worker.RegisterRunner("haiku_summary", hs)
 	worker.RegisterRunner("branch_detect", newBranchDetect())
@@ -49,7 +49,7 @@ func newBranchDetect() func(BranchDetectInput) (BranchDetectResult, error) {
 	}
 }
 
-func newClaudeRunners(language string) (
+func newClaudeRunners(language, summarizeCmd string) (
 	func(TranscriptParseInput) (TranscriptParseResult, error),
 	func(HaikuSummaryInput) (HaikuSummaryResult, error),
 ) {
@@ -73,6 +73,10 @@ func newClaudeRunners(language string) (
 	}
 
 	hs := func(in HaikuSummaryInput) (HaikuSummaryResult, error) {
+		if summarizeCmd == "" {
+			return HaikuSummaryResult{}, nil
+		}
+
 		mu.Lock()
 		turns := tracker.RecentRounds(in.ClaudeUUID, 2)
 		mu.Unlock()
@@ -85,7 +89,7 @@ func newClaudeRunners(language string) (
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		result, err := cli.SummarizeWithHaiku(ctx, prompt)
+		result, err := cli.SummarizeWithCommand(ctx, prompt, summarizeCmd)
 		if err != nil {
 			return HaikuSummaryResult{}, err
 		}

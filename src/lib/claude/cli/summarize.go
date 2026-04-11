@@ -9,6 +9,22 @@ import (
 	"strings"
 )
 
+// SummarizeWithCommand runs an arbitrary shell command as a one-shot
+// summarizer. The prompt is written to the command's stdin; the trimmed
+// stdout is returned as the summary. The command is executed via "sh -c"
+// so shell features (pipes, env vars) work as expected.
+func SummarizeWithCommand(ctx context.Context, prompt, command string) (string, error) {
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
+	cmd.Stdin = strings.NewReader(prompt)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("summarize command: %w (stderr=%s)", err, strings.TrimSpace(stderr.String()))
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
 // SummarizeWithHaiku runs `claude -p --model=haiku` as a one-shot
 // background subprocess and returns the trimmed assistant output. The
 // caller is expected to pass a bounded context — this package does not

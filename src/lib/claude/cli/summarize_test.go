@@ -1,6 +1,43 @@
 package cli
 
-import "testing"
+import (
+	"context"
+	"strings"
+	"testing"
+)
+
+func TestSummarizeWithCommand(t *testing.T) {
+	ctx := context.Background()
+
+	got, err := SummarizeWithCommand(ctx, "hello world", "cat")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "hello world" {
+		t.Errorf("expected %q, got %q", "hello world", got)
+	}
+}
+
+func TestSummarizeWithCommandTrimsOutput(t *testing.T) {
+	ctx := context.Background()
+
+	got, err := SummarizeWithCommand(ctx, "x", "echo '  trimmed  '")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if strings.TrimSpace(got) != got {
+		t.Errorf("output not trimmed: %q", got)
+	}
+}
+
+func TestSummarizeWithCommandError(t *testing.T) {
+	ctx := context.Background()
+
+	_, err := SummarizeWithCommand(ctx, "x", "false")
+	if err == nil {
+		t.Fatal("expected error from failing command, got nil")
+	}
+}
 
 func TestFilteredClaudeEnvStripsRoostSessionID(t *testing.T) {
 	src := []string{
