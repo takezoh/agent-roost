@@ -63,17 +63,18 @@ func renderSessionsBody(m *Model, innerWidth int) string {
 	if bodyHeight < 3 {
 		bodyHeight = 3
 	}
-	m.ensureCursorVisible(bodyHeight)
+	// Reserve 2 rows for potential scroll indicators (↑/↓) so that
+	// ensureCursorVisible never places the cursor outside the visible area.
+	m.ensureCursorVisible(bodyHeight - 2)
 
-	// Reserve 1 row for "↑ N more" when scrolled down.
+	// Subtract actual indicator rows from the available item height.
 	itemHeight := bodyHeight
 	if m.offset > 0 {
-		itemHeight--
+		itemHeight-- // "↑ N more"
 	}
 	end := m.visibleEnd(itemHeight)
-	// Reserve 1 row for "↓ N more" if items remain below.
 	if end < len(m.items) {
-		end = m.visibleEnd(itemHeight - 1)
+		end = m.visibleEnd(itemHeight - 1) // "↓ N more"
 	}
 
 	// Pass 2: assemble visible items with scroll indicators.

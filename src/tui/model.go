@@ -293,12 +293,12 @@ func (m *Model) ensureCursorVisible(bodyHeight int) {
 	}
 	// Accumulate rows from offset to cursor. If they exceed bodyHeight,
 	// advance offset by subtracting the front item (O(n) single pass).
-	rows := m.items[m.offset].rows
-	for i := m.offset + 1; i <= m.cursor && i < len(m.items); i++ {
-		rows += 1 + m.items[i].rows // 1 for newline between items
+	rows := 0
+	for i := m.offset; i <= m.cursor && i < len(m.items); i++ {
+		rows += m.items[i].rows
 	}
 	for rows > bodyHeight && m.offset < m.cursor {
-		rows -= m.items[m.offset].rows + 1
+		rows -= m.items[m.offset].rows
 		m.offset++
 	}
 }
@@ -308,14 +308,10 @@ func (m *Model) ensureCursorVisible(bodyHeight int) {
 func (m Model) visibleEnd(bodyHeight int) int {
 	rows := 0
 	for i := m.offset; i < len(m.items); i++ {
-		need := m.items[i].rows
-		if i > m.offset {
-			need++ // newline between items
-		}
-		if rows+need > bodyHeight {
+		if rows+m.items[i].rows > bodyHeight {
 			return i
 		}
-		rows += need
+		rows += m.items[i].rows
 	}
 	return len(m.items)
 }

@@ -58,7 +58,7 @@ func TestVisibleEnd(t *testing.T) {
 		{"all fit", []int{2, 2, 2}, 0, 10, 3},
 		{"partial", []int{3, 3, 3}, 0, 5, 1},
 		{"from offset", []int{3, 3, 3}, 1, 7, 3},
-		{"exact fit", []int{2, 2, 2}, 0, 8, 3}, // 2+1+2+1+2=8
+		{"exact fit", []int{2, 2, 2}, 0, 8, 3}, // 2+2+2=6 <= 8
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
