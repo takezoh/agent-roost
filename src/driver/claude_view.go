@@ -61,7 +61,7 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 			Tags:        tags,
 			Indicators:  claudeIndicators(cs),
 			BorderTitle: "claude",
-			BorderBadge: shortenHome(cs.WorkingDir, d.home),
+			BorderBadge: shortenPath(shortenHome(cs.WorkingDir, d.home)),
 		},
 		LogTabs:         logTabs,
 		InfoExtras:      claudeInfoExtras(cs),
@@ -113,6 +113,41 @@ func subagentDir(transcriptPath string) string {
 	}
 	base := strings.TrimSuffix(transcriptPath, ".jsonl")
 	return base + string(os.PathSeparator) + "subagents"
+}
+
+// shortenPath compresses intermediate directory segments to their first
+// character (fish-shell style), keeping the last segment fully spelled out.
+//
+//	~/projects/agent-roost/src/driver → ~/p/a/s/driver
+func shortenPath(path string) string {
+	if path == "" || path == "/" {
+		return path
+	}
+	parts := strings.Split(path, "/")
+	// Need at least 3 parts for there to be an intermediate segment to shorten.
+	// e.g. ["~","project"] or ["","data"] have no intermediate.
+	if len(parts) < 3 {
+		return path
+	}
+	// parts[0] is anchor ("~" or "" for absolute); for relative paths
+	// the first segment is also shortened.
+	start := 1
+	if parts[0] != "~" && parts[0] != "" {
+		start = 0
+	}
+	for i := start; i < len(parts)-1; i++ {
+		s := parts[i]
+		if s == "" {
+			continue
+		}
+		runes := []rune(s)
+		if runes[0] == '.' && len(runes) > 1 {
+			parts[i] = string(runes[:2])
+		} else {
+			parts[i] = string(runes[:1])
+		}
+	}
+	return strings.Join(parts, "/")
 }
 
 func shortenHome(path, home string) string {

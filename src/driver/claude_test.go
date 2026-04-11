@@ -797,6 +797,39 @@ func TestClaudeViewBorderBadge(t *testing.T) {
 	}
 }
 
+func TestClaudeViewBorderBadgeDeepPath(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.WorkingDir = "/home/test/code/go/agent-roost"
+	v := d.view(cs)
+	if v.Card.BorderBadge != "~/c/g/agent-roost" {
+		t.Errorf("BorderBadge = %q, want ~/c/g/agent-roost", v.Card.BorderBadge)
+	}
+}
+
+func TestShortenPath(t *testing.T) {
+	tests := []struct {
+		path, want string
+	}{
+		{"", ""},
+		{"~", "~"},
+		{"/", "/"},
+		{"~/project", "~/project"},
+		{"/data", "/data"},
+		{"~/very/long/deep/nested/project/dir", "~/v/l/d/n/p/dir"},
+		{"~/projects/agent-roost", "~/p/agent-roost"},
+		{"/usr/local/share/fonts", "/u/l/s/fonts"},
+		{"/opt/data", "/o/data"},
+		{"~/.config/nvim/lua", "~/.c/n/lua"},
+		{"~/.local/share/fonts", "~/.l/s/fonts"},
+		{"relative/path/here", "r/p/here"},
+	}
+	for _, tt := range tests {
+		if got := shortenPath(tt.path); got != tt.want {
+			t.Errorf("shortenPath(%q) = %q, want %q", tt.path, got, tt.want)
+		}
+	}
+}
+
 func TestShortenHome(t *testing.T) {
 	tests := []struct {
 		path, home, want string
