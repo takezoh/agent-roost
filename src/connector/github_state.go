@@ -22,10 +22,21 @@ type IssueInfo struct {
 	Age    time.Duration
 }
 
+type RunInfo struct {
+	Name       string
+	Status     string
+	Conclusion string
+	Branch     string
+	Repo       string
+	URL        string
+	Age        time.Duration
+}
+
 type GitHubState struct {
 	state.ConnectorStateBase
 	PRs       []PRInfo
 	Issues    []IssueInfo
+	Runs      []RunInfo
 	FetchedAt time.Time
 	Available bool
 	Fetching  bool

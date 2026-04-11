@@ -29,6 +29,13 @@ func newGitHubFetch() func(GitHubFetchInput) (GitHubFetchResult, error) {
 				Repo: iss.Repo, URL: iss.URL, Age: iss.Age,
 			}
 		}
-		return GitHubFetchResult{PRs: prs, Issues: issues}, nil
+		runs := make([]RunInfo, len(summary.Runs))
+		for i, r := range summary.Runs {
+			runs[i] = RunInfo{
+				Name: r.Name, Status: r.Status, Conclusion: r.Conclusion,
+				Branch: r.Branch, Repo: r.Repo, URL: r.URL, Age: r.Age,
+			}
+		}
+		return GitHubFetchResult{PRs: prs, Issues: issues, Runs: runs}, nil
 	}
 }
