@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/take/agent-roost/state"
+	"github.com/take/agent-roost/tmux"
 	"github.com/take/agent-roost/driver"
 )
 
@@ -24,20 +25,22 @@ func TestMain(m *testing.M) {
 // === Fake backends for runtime tests ===
 
 type fakeTmuxBackend struct {
-	mu          sync.Mutex
-	spawnCalls  int
-	spawnCmds   []string
-	killCalls   int
-	swapCalls   int
-	respawnCmds []string
-	statusLines []string
-	envs        map[string]string
-	popups      []string
-	alive       map[string]bool
-	captured    string
-	spawnWID    string
-	spawnPane   string
-	spawnErr    error
+	mu           sync.Mutex
+	spawnCalls   int
+	spawnCmds    []string
+	killCalls    int
+	killedWIDs   []string
+	swapCalls    int
+	respawnCmds  []string
+	statusLines  []string
+	envs         map[string]string
+	popups       []string
+	alive        map[string]bool
+	captured     string
+	spawnWID     string
+	spawnPane    string
+	spawnErr     error
+	roostWindows []tmux.RoostWindow
 }
 
 func newFakeTmux() *fakeTmuxBackend {
@@ -60,11 +63,18 @@ func (f *fakeTmuxBackend) SpawnWindow(name, command, startDir string, env map[st
 	return f.spawnWID, f.spawnPane, nil
 }
 
-func (f *fakeTmuxBackend) KillWindow(string) error {
+func (f *fakeTmuxBackend) KillWindow(wid string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.killCalls++
+	f.killedWIDs = append(f.killedWIDs, wid)
 	return nil
+}
+
+func (f *fakeTmuxBackend) ListRoostWindows() ([]tmux.RoostWindow, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.roostWindows, nil
 }
 func (f *fakeTmuxBackend) RunChain(ops ...[]string) error {
 	f.mu.Lock()
@@ -402,6 +412,83 @@ func TestRuntimeShellSessionSpawnsWithoutCommand(t *testing.T) {
 	}
 	if tmux.spawnCmds[0] != "" {
 		t.Errorf("spawn command = %q, want empty (login shell)", tmux.spawnCmds[0])
+	}
+}
+
+func TestReconcileKillsOrphanedWindows(t *testing.T) {
+	ftmux := newFakeTmux()
+	// Window @2 has roost_id "orphan1" but no matching session in state.
+	// Window @3 has roost_id "tracked1" and matches a session.
+	ftmux.roostWindows = []tmux.RoostWindow{
+		{WindowID: "@2", ID: "orphan1"},
+		{WindowID: "@3", ID: "tracked1"},
+	}
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 20 * time.Millisecond,
+		Tmux:         ftmux,
+	})
+	drv := state.GetDriver("shell")
+	r.state.Sessions[state.SessionID("tracked1")] = state.Session{
+		ID:       state.SessionID("tracked1"),
+		WindowID: state.WindowID("@3"),
+		Command:  "shell",
+		Driver:   drv.NewState(time.Now()),
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = r.Run(ctx) }()
+
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		ftmux.mu.Lock()
+		n := ftmux.killCalls
+		ftmux.mu.Unlock()
+		if n > 0 {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	<-r.Done()
+
+	ftmux.mu.Lock()
+	defer ftmux.mu.Unlock()
+	if ftmux.killCalls < 1 {
+		t.Fatalf("killCalls = %d, want ≥1", ftmux.killCalls)
+	}
+	if ftmux.killedWIDs[0] != "@2" {
+		t.Errorf("killed window = %q, want @2", ftmux.killedWIDs[0])
+	}
+	// Ensure tracked window @3 was never killed.
+	for _, wid := range ftmux.killedWIDs {
+		if wid == "@3" {
+			t.Error("tracked window @3 should not be killed")
+		}
+	}
+}
+
+func TestReconcileSkipsNonRoostWindows(t *testing.T) {
+	ftmux := newFakeTmux()
+	// No roost windows at all — nothing to kill.
+	ftmux.roostWindows = nil
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 20 * time.Millisecond,
+		Tmux:         ftmux,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() { _ = r.Run(ctx) }()
+
+	time.Sleep(60 * time.Millisecond)
+	cancel()
+	<-r.Done()
+
+	ftmux.mu.Lock()
+	defer ftmux.mu.Unlock()
+	if ftmux.killCalls != 0 {
+		t.Errorf("killCalls = %d, want 0 (no orphans)", ftmux.killCalls)
 	}
 }
 

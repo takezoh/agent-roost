@@ -326,7 +326,8 @@ func (r *Runtime) activeStatusLine() string {
 
 // reconcileWindows compares live tmux windows with state sessions.
 // Sessions whose windows have vanished are reported via
-// EvTmuxWindowVanished so the reducer evicts them.
+// EvTmuxWindowVanished so the reducer evicts them. Orphaned windows
+// (carrying @roost_id but not tracked in state.Sessions) are killed.
 func (r *Runtime) reconcileWindows() {
 	list, err := r.listRoostWindows()
 	if err != nil {
@@ -343,6 +344,22 @@ func (r *Runtime) reconcileWindows() {
 		}
 		if _, ok := live[string(sess.WindowID)]; !ok {
 			r.Enqueue(state.EvTmuxWindowVanished{WindowID: sess.WindowID})
+		}
+	}
+
+	// Reverse check: kill orphaned windows whose @roost_id has no
+	// matching session in state. Window 0 (TUI panes) never carries
+	// @roost_id, so it is never affected.
+	tracked := make(map[string]struct{}, len(r.state.Sessions))
+	for _, sess := range r.state.Sessions {
+		tracked[string(sess.ID)] = struct{}{}
+	}
+	for _, w := range list {
+		if _, ok := tracked[w.ID]; !ok {
+			slog.Info("runtime: killing orphaned window", "window", w.WindowID, "roost_id", w.ID)
+			if err := r.cfg.Tmux.KillWindow(w.WindowID); err != nil {
+				slog.Warn("runtime: kill orphaned window failed", "window", w.WindowID, "err", err)
+			}
 		}
 	}
 }
