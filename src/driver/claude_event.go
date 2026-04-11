@@ -96,6 +96,13 @@ func (hp hookPayload) formatLog() string {
 	return s
 }
 
+func (hp hookPayload) logEffects() []state.Effect {
+	if line := hp.formatLog(); line != "" {
+		return []state.Effect{state.EffEventLogAppend{Line: line}}
+	}
+	return nil
+}
+
 func parseHookPayload(payload map[string]any) hookPayload {
 	raw, _ := payload["raw"].(string)
 	if raw == "" {
@@ -128,6 +135,7 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 		cs.LastBridgeTS = bridgeTS
 		cs.HangDetected = false
 		cs.PaneHash = ""
+		cs.SubagentDepth = 0
 		return d.handleSessionStart(cs, hp, e.Payload)
 	}
 
@@ -152,23 +160,39 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 	// Agent tool events track subagent lifecycle, not main-agent
 	// activity — log only, no status change.
 	if hp.ToolName == "Agent" {
-		var effs []state.Effect
-		if line := hp.formatLog(); line != "" {
-			effs = append(effs, state.EffEventLogAppend{Line: line})
+		return cs, hp.logEffects()
+	}
+
+	// Track subagent depth from SubagentStart/SubagentStop hooks.
+	switch hp.HookEventName {
+	case "SubagentStart":
+		cs.SubagentDepth++
+		return cs, hp.logEffects()
+	case "SubagentStop":
+		cs.SubagentDepth--
+		if cs.SubagentDepth < 0 {
+			cs.SubagentDepth = 0
 		}
-		return cs, effs
+		return cs, hp.logEffects()
 	}
 
 	// All other hook events (PreToolUse, PostToolUse, Stop, etc.)
 	// go through the state-change path if they map to a status.
 	status := hp.deriveState()
 	if status == "" {
-		var effs []state.Effect
-		if line := hp.formatLog(); line != "" {
-			effs = append(effs, state.EffEventLogAppend{Line: line})
-		}
-		return cs, effs
+		return cs, hp.logEffects()
 	}
+
+	// When pending on a permission prompt and subagents are active,
+	// their PreToolUse/PostToolUse events (indistinguishable from
+	// main-agent events) would override Pending → Running. Block
+	// that transition while SubagentDepth > 0.
+	if cs.Status == state.StatusPending && status == "running" && cs.SubagentDepth > 0 {
+		slog.Debug("claude: suppressing pending→running while subagents active",
+			"event", hp.HookEventName, "tool", hp.ToolName, "depth", cs.SubagentDepth)
+		return cs, hp.logEffects()
+	}
+
 	return d.handleStateChange(cs, hp, status, e.Payload)
 }
 

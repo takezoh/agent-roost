@@ -71,6 +71,7 @@ type ClaudeState struct {
 	StatusLine     string
 	CurrentTool    string
 	SubagentCounts map[string]int
+	SubagentDepth  int // real-time depth from SubagentStart/SubagentStop hooks
 
 	// Branch tag cache
 	BranchTag    string
