@@ -17,6 +17,10 @@ import (
 // The mouse row→item mapping relies on this staying in sync with View().
 const sessionsHeaderRows = 3
 
+// maxSubtitleLines caps the number of non-empty subtitle lines rendered
+// in a session card.
+const maxSubtitleLines = 5
+
 func (m Model) View() tea.View {
 	width := m.width
 	if width <= 0 {
@@ -164,11 +168,16 @@ func sessionCardLines(s *proto.SessionInfo, textWidth int) []string {
 	// summaries get a row each instead of a literal "\n" rendered onto one
 	// line.
 	if subtitle := s.View.Card.Subtitle; subtitle != "" {
+		n := 0
 		for _, sub := range strings.Split(subtitle, "\n") {
 			if sub == "" {
 				continue
 			}
 			lines = append(lines, mutedStyle.Render(truncate(sub, textWidth)))
+			n++
+			if n >= maxSubtitleLines {
+				break
+			}
 		}
 	}
 
