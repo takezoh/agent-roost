@@ -18,6 +18,7 @@ import (
 // directly across the wire without a parallel type hierarchy.
 type View struct {
 	Card            Card       `json:"card"`
+	DisplayName     string     `json:"display_name,omitempty"`
 	LogTabs         []LogTab   `json:"log_tabs,omitempty"`
 	InfoExtras      []InfoLine `json:"info_extras,omitempty"`
 	SuppressInfo    bool       `json:"suppress_info,omitempty"`

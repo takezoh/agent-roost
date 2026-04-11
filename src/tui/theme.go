@@ -118,7 +118,6 @@ var (
 	// Minimal mode
 	minimalProjectSelStyle      lipgloss.Style // Primary + Bold
 	minimalTagTextStyle         lipgloss.Style // Fg
-	minimalTagDriverPrefixStyle lipgloss.Style // Primary
 	minimalTagBranchPrefixStyle lipgloss.Style // Running
 	minimalSeparatorStyle       lipgloss.Style // Dim
 )
@@ -217,7 +216,6 @@ func rebuildFilterStyles(t Theme) {
 func rebuildMinimalStyles(t Theme) {
 	minimalProjectSelStyle = lipgloss.NewStyle().Foreground(t.Primary).Bold(true)
 	minimalTagTextStyle = lipgloss.NewStyle().Foreground(t.Fg)
-	minimalTagDriverPrefixStyle = lipgloss.NewStyle().Foreground(t.Primary)
 	minimalTagBranchPrefixStyle = lipgloss.NewStyle().Foreground(t.Running)
 	minimalSeparatorStyle = lipgloss.NewStyle().Foreground(t.Dim)
 }

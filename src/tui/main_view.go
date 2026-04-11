@@ -59,11 +59,9 @@ func renderProjectSessionsBody(sessions []proto.SessionInfo) string {
 		}
 		symbol := stateSymbol(s.State)
 		elapsed := formatElapsed(time.Since(s.CreatedAtTime()))
-		// Command tag comes from the driver via View.Card.Tags[0].
-		// Falls back to "?" only if the driver produced no tags at all.
-		tagText := "?"
-		if len(s.View.Card.Tags) > 0 {
-			tagText = s.View.Card.Tags[0].Text
+		tagText := s.View.DisplayName
+		if tagText == "" {
+			tagText = "?"
 		}
 		b.WriteString(fmt.Sprintf("%s  %s %s  %s",
 			mutedStyle.Render(s.ID[:6]),
