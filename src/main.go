@@ -17,6 +17,7 @@ import (
 	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/lib"
 	_ "github.com/takezoh/agent-roost/lib/claude" // registers the "claude" subcommand
+	_ "github.com/takezoh/agent-roost/lib/send"   // registers the "send" subcommand
 	"github.com/takezoh/agent-roost/logger"
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/runtime"
@@ -284,6 +285,7 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 		"if-shell", "-F", `#{==:#{pane_index},2}`,
 		"select-pane -t "+sn+":0.0",
 		"select-pane -t "+sn+":0.2")
+	client.BindKey("prefix", "Escape", "run-shell", exePath+" send preview-project")
 	client.BindKey("prefix", "z", "resize-pane", "-Z", "-t", sn+":0.0")
 	client.BindKey("prefix", "d", "detach-client")
 	client.BindKey("prefix", "q",

@@ -48,6 +48,36 @@ func TestDeactivateDoneMsgPreservesStateOnError(t *testing.T) {
 
 var errDummy = fmt.Errorf("dummy")
 
+func TestClickHeaderWithActiveSession(t *testing.T) {
+	m := Model{
+		active: "@1",
+		height: 20,
+		width:  80,
+		folded: make(map[string]bool),
+		filter: allOnFilter(),
+	}
+	msg := tea.MouseClickMsg(tea.Mouse{X: 5, Y: 0, Button: tea.MouseLeft})
+	_, cmd := m.handleMouseClick(msg)
+	if cmd == nil {
+		t.Fatal("expected deactivateCmd, got nil")
+	}
+}
+
+func TestClickHeaderWithoutActiveSession(t *testing.T) {
+	m := Model{
+		active: "",
+		height: 20,
+		width:  80,
+		folded: make(map[string]bool),
+		filter: allOnFilter(),
+	}
+	msg := tea.MouseClickMsg(tea.Mouse{X: 5, Y: 0, Button: tea.MouseLeft})
+	_, cmd := m.handleMouseClick(msg)
+	if cmd == nil {
+		t.Fatal("expected focusCmd, got nil")
+	}
+}
+
 func TestClickConnectorSummaryWithActiveSession(t *testing.T) {
 	m := Model{
 		active: "@1",
