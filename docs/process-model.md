@@ -1,55 +1,54 @@
-# プロセスモデル・tmux レイアウト・描画責務
+# Process Model, tmux Layout, and Rendering Responsibilities
 
-## 描画責務の所在
+## Rendering Responsibilities
 
-agent-roost の TUI 描画は driver と TUI の間で以下の境界で責務を分ける。**新しい driver を追加するとき、runtime や TUI のコードを触る必要はない**。Driver は `View(DriverState) state.View` を実装するだけで完結する。
+The agent-roost TUI rendering divides responsibilities between the driver and TUI at the following boundaries. **When adding a new driver, you do not need to touch the runtime or TUI code**. A driver only needs to implement `View(DriverState) state.View`.
 
-### Driver 所有 (`SessionView`)
+### Driver-Owned (`SessionView`)
 
-Driver は `View(DriverState) state.View` を返す。純関数であり、I/O や検出を行わない (重い処理は `Step(DEvTick)` で DriverState に反映済み)。
+The driver returns `View(DriverState) state.View`. It is a pure function that performs no I/O or detection (heavy processing is already reflected in DriverState via `Step(DEvTick)`).
 
-- `Card.Title`: 1 行目 (例: 会話タイトル)
-- `Card.Subtitle`: 2 行目 (例: 直近プロンプト)
-- `Card.Tags`: identity 系のチップ。**色も driver が直接決める** (`Foreground` / `Background` を Tag に持たせる)
-  - コマンド名は `View.DisplayName` と `Card.BorderTitle` で表示。Tags にはブランチ等のみ
-- `Card.Indicators`: state 系のチップ (例: `▸ Edit`, `2 subs`, `3 err`)
-- `Card.Subjects`: ぶら下がり箇条書き
-- `LogTabs`: 追加ログタブ (label + 絶対パス + kind)。kind は driver が定義する TabKind 定数（汎用の `TabKindText` は state 提供、driver 固有の kind は各 driver パッケージで定義）
-- `InfoExtras`: INFO タブの driver-specific 行
-- `SuppressInfo`: INFO タブの opt-out (driver 明示)
-- `StatusLine`: tmux status-left に流す pre-rendered 文字列
+- `Card.Title`: First line (e.g., conversation title)
+- `Card.Subtitle`: Second line (e.g., most recent prompt)
+- `Card.Tags`: Identity chips. **The driver directly determines colors** (Tags carry `Foreground` / `Background`)
+  - The command name is displayed via `View.DisplayName` and `Card.BorderTitle`. Tags contain only branch names, etc.
+- `Card.Indicators`: State chips (e.g., `▸ Edit`, `2 subs`, `3 err`)
+- `LogTabs`: Additional log tabs (label + absolute path + kind). kind is a TabKind constant defined by the driver (the generic `TabKindText` is provided by state; driver-specific kinds are defined in each driver package)
+- `InfoExtras`: Driver-specific lines in the INFO tab
+- `SuppressInfo`: Opt-out of the INFO tab (explicitly set by driver)
+- `StatusLine`: Pre-rendered string sent to tmux status-left
 
-### TUI 所有
+### TUI-Owned
 
-TUI は driver-agnostic な汎用 renderer に徹する。
+The TUI acts as a driver-agnostic generic renderer.
 
-- `SessionInfo` の generic フィールド (ID / Project / Command / WindowID / CreatedAt / State / StateChangedAt) の描画
-- `State` enum 値からの色選択 (`tui/theme.go`) — universal な状態色は driver 横断で統一
-- 経過時間フォーマット (`5m ago` などの相対表記)
-- カードレイアウト (各スロットの並び順 / 余白 / wrap / truncate)
-- INFO タブの generic header (`renderInfoContent` で SessionInfo の generic フィールドから自動生成 → driver の `InfoExtras` を後ろに append)
-- LOG タブ (常時最後尾、`~/.roost/roost.log` を tail)
-- フィルタ / フォールド / カーソル復元
+- Rendering of `SessionInfo` generic fields (ID / Project / Command / WindowID / CreatedAt / State / StateChangedAt)
+- Color selection from `State` enum values (`tui/theme.go`) — universal state colors are consistent across all drivers
+- Elapsed time formatting (relative notation like `5m ago`)
+- Card layout (ordering of each slot / margins / wrap / truncate)
+- INFO tab generic header (auto-generated from SessionInfo generic fields in `renderInfoContent` → driver's `InfoExtras` appended at the end)
+- LOG tab (always tails `~/.roost/roost.log`)
+- Filter / fold / cursor restoration
 
-### 禁止事項
+### Prohibitions
 
-- **TUI から driver 名で分岐しない** (`if cmd == "claude" {...}` のようなコード禁止)。grep で検証可能:
+- **Do not branch on driver name in the TUI** (code like `if cmd == "claude" {...}` is prohibited). Verifiable by grep:
   ```sh
-  grep -rn '"claude"\|"bash"\|"codex"\|"gemini"' src/tui/  # → 0 件であること
+  grep -rn '"claude"\|"bash"\|"codex"\|"gemini"' src/tui/  # → should return 0 results
   ```
-- **driver から TUI を import しない** (`tui` パッケージ / lipgloss / bubbletea に依存しない)
-- **driver は I/O を持たない** (EffEventLogAppend, EffStartJob 等の Effect で runtime に委譲する)
-- **runtime から driver-specific I/O を直接呼ばない** (runtime は Effect を interpret するだけ。driver-specific な I/O は worker pool の runner が実行する)
+- **Drivers must not import the TUI** (no dependency on the `tui` package / lipgloss / bubbletea)
+- **Drivers must not perform I/O** (delegate to runtime via Effects like EffEventLogAppend, EffStartJob, etc.)
+- **Runtime must not call driver-specific I/O directly** (runtime only interprets Effects; driver-specific I/O is executed by worker pool runners)
 
-### Tag の色は driver、State の色は TUI — なぜ別所有なのか
+### Tag Colors Are Driver-Owned, State Colors Are TUI-Owned — Why the Different Ownership?
 
-- **State** の概念 (idle / running / waiting / error) と色は **全 driver で共通すべき**。同じ状態は同じ色で見えないと混乱する → TUI theme に集約
-- **Tag** は driver 固有 (branch tag, command tag, ...)。何を出すかも色も driver の自由 → driver 所有
-- 結果として `@roost_tags` user option は撤廃。tag のキャッシュ/永続化が必要なら driver が `PersistedState` bag 内に持つ (例: claudeDriver の `branch_tag` / `branch_target` / `branch_at`)
+- **State** concepts (idle / running / waiting / error) and their colors **should be consistent across all drivers**. Users would be confused if the same state appeared in different colors → centralized in TUI theme
+- **Tags** are driver-specific (branch tag, command tag, ...). What to display and what color are up to the driver → driver-owned
+- If tag caching/persistence is needed, the driver holds it in the `PersistedState` bag (e.g., claudeDriver's `branch_tag` / `branch_target` / `branch_at`)
 
-### 描画フロー (driver → runtime → IPC → TUI)
+### Rendering Flow (driver → runtime → IPC → TUI)
 
-Driver の `View(driverState)` が UI ペイロードを produce し、runtime の `buildSessionInfos` がそれを `proto.SessionInfo` に詰め、`EffBroadcastSessionsChanged` で IPC 経由でブロードキャストし、TUI は **driver 名で分岐せず** generic に描画する。下図は各 tick で起きる流れ:
+The driver's `View(driverState)` produces the UI payload, runtime's `buildSessionInfos` packs it into `proto.SessionInfo`, broadcasts it via IPC through `EffBroadcastSessionsChanged`, and the TUI renders it generically **without branching on driver name**. The diagram below shows the flow that occurs on each tick:
 
 ```mermaid
 sequenceDiagram
@@ -62,7 +61,7 @@ sequenceDiagram
     participant Model as TUI Model
     participant Render as TUI View renderer
 
-    Note over D: Driver.Step(DEvTick) で<br/>DriverState を更新済み<br/>(title / lastPrompt / insight / tags)
+    Note over D: Driver.Step(DEvTick) has already<br/>updated DriverState<br/>(title / lastPrompt / insight / tags)
 
     loop ticker (1s)
         EL->>Red: Reduce(state, EvTick)
@@ -70,191 +69,189 @@ sequenceDiagram
         D-->>Red: (driverState', effects, view)
         Red-->>EL: (state', [..., EffBroadcastSessionsChanged])
         EL->>Interp: execute(EffBroadcastSessionsChanged)
-        loop 各 Session
+        loop each Session
             Interp->>Bridge: Driver.View(driverState)
             Bridge-->>Interp: state.View → proto.SessionInfo
         end
         Interp-->>Client: sessions-changed (Unix socket)
         Client-->>Model: serverEventMsg
-        Model->>Model: rebuildItems で listItem 構築
-        Model->>Render: View() レンダリング
-        Render->>Render: SessionInfo.View.Card.{Title, Subtitle, Tags, Indicators}<br/>SessionInfo.View.LogTabs / InfoExtras<br/>を generic に描画
+        Model->>Model: Build listItem in rebuildItems
+        Model->>Render: View() rendering
+        Render->>Render: Render SessionInfo.View.Card.{Title, Subtitle, Tags, Indicators}<br/>SessionInfo.View.LogTabs / InfoExtras<br/>generically
     end
 ```
 
-ポイント:
-- **Driver.Step / View は純関数**: I/O なし、goroutine なし。重い処理 (transcript parse, git branch) は EffStartJob で worker pool に委譲済み。View は DriverState から組み立てるだけ
-- **runtime は中身を見ない**: `buildSessionInfos` は `state.View` をそのまま `proto.SessionInfo.View` に詰めて運ぶ
-- **TUI は generic renderer**: `SessionInfo.View.*` のフィールドを順に描画するだけ。`if cmd == "claude"` のような分岐は禁止 (`grep '"claude"\|"bash"\|"codex"' src/tui/` で検証可能)
-- **StatusLine だけは別経路**: tmux `status-left` への流し込みは `EffSyncStatusLine` で runtime が active session の `Driver.View().StatusLine` を pull して tmux に反映する (broadcast 経路には乗らない)
+Key points:
+- Runtime's `buildSessionInfos` packs `state.View` directly into `proto.SessionInfo.View` and transports it. The TUI renders `SessionInfo.View.*` fields generically
+- StatusLine uses a separate path: `EffSyncStatusLine` causes runtime to reflect the active session's `Driver.View().StatusLine` into tmux `status-left`
 
-## プロセスモデル
+## Process Model
 
-3つの実行モードを1つのバイナリで提供。各ペイン ID (`0.0`, `0.1`, `0.2`) のレイアウトは [tmux レイアウト](#tmux-レイアウト) を参照。
+Three execution modes are provided in a single binary. The pane IDs (`0.0`, `0.1`, `0.2`) layout is described in [tmux Layout](#tmux-layout).
 
 ```
-roost                       → Daemon（親プロセス。Runtime event loop + IPC server）
-roost --tui main            → メイン TUI (Pane 0.0)
-roost --tui sessions        → セッション一覧サーバー (Pane 0.2)
-roost --tui palette [flags] → コマンドパレット (tmux popup)
-roost --tui log             → ログ TUI (Pane 0.1)
-roost event <eventType>      → Claude hook イベント受信（hook から呼ばれる短命プロセス）
-roost claude setup          → Claude hook 登録（~/.claude/settings.json に書き込み）
+roost                       → Daemon (parent process: Runtime event loop + IPC server)
+roost --tui main            → Main TUI (Pane 0.0)
+roost --tui sessions        → Session list server (Pane 0.2)
+roost --tui palette [flags] → Command palette (tmux popup)
+roost --tui log             → Log TUI (Pane 0.1)
+roost event <eventType>     → Hook event receiver (short-lived process invoked by hook)
+roost claude setup          → Claude hook registration (writes to ~/.claude/settings.json)
 ```
 
 ### Daemon (Runtime)
 
-tmux セッション全体のライフサイクルを管理する親プロセス。起動時に tmux セッションを作成し、TUI プロセスを子ペインとして起動する。tmux attach 中はブロックし、detach またはシャットダウンで終了する。
+The parent process that manages the lifecycle of the entire tmux session. On startup, it creates a tmux session and launches TUI processes as child panes. It blocks while tmux is attached, and exits on detach or shutdown.
 
 ```
 runDaemon()
-├── Driver 登録 (driver.RegisterDefaults)
-├── Worker pool 構築 (worker.NewPool + RegisterDefaults)
-├── Runtime 構築 (runtime.New)
-├── tmux セッション存在確認
-│   ├── 存在 (Warm start)
-│   │   ├── restoreSession (tmux pane layout 再構築)
-│   │   ├── rt.LoadSnapshot() — sessions.json から State.Sessions を復元
-│   │   ├── rt.ReconcileWarm() — tmux @roost_id で照合、消えた window の session を evict
-│   │   └── rt.RestoreActiveWindow() — ROOST_ACTIVE_WINDOW env から State.Active 復元
-│   └── 不在 (Cold start)
-│       ├── setupNewSession (新 tmux session 作成)
-│       ├── rt.LoadSnapshot() — sessions.json から State.Sessions を復元
-│       ├── rt.ClearStaleWindowIDs() — 旧 WindowID をクリア
-│       └── rt.RecreateAll() — 各 session について:
-│           ├── Driver.SpawnCommand(driverState, command) で resume コマンド組み立て
-│           └── tmux new-window で spawn → WindowID/PaneID を取得
-├── rt.Run(ctx) — event loop goroutine 起動 (select: eventCh / ticker / workers / fsnotify)
-├── rt.StartIPC() — Unix socket サーバー起動
-├── FileRelay 起動 — ログ/transcript ファイルの push 監視
-├── tmux attach (ブロック)
-└── attach 終了時
-    ├── shutdown 受信済み → KillSession()
-    └── 通常 detach → 終了（tmux セッション生存）
+├── Register drivers (driver.RegisterDefaults)
+├── Build worker pool (worker.NewPool + RegisterDefaults)
+├── Build Runtime (runtime.New)
+├── Check tmux session existence
+│   ├── Exists (Warm start)
+│   │   ├── restoreSession (rebuild tmux pane layout)
+│   │   ├── rt.LoadSnapshot() — restore State.Sessions from sessions.json
+│   │   ├── rt.ReconcileWarm() — match by tmux @roost_id, evict sessions for disappeared windows
+│   │   └── rt.RestoreActiveWindow() — restore State.Active from ROOST_ACTIVE_WINDOW env
+│   └── Does not exist (Cold start)
+│       ├── setupNewSession (create new tmux session)
+│       ├── rt.LoadSnapshot() — restore State.Sessions from sessions.json
+│       ├── rt.ClearStaleWindowIDs() — clear old WindowIDs
+│       └── rt.RecreateAll() — for each session:
+│           ├── Driver.SpawnCommand(driverState, command) to build resume command
+│           └── tmux new-window to spawn → obtain WindowID/PaneID
+├── rt.Run(ctx) — start event loop goroutine (select: eventCh / ticker / workers / fsnotify)
+├── rt.StartIPC() — start Unix socket server
+├── FileRelay startup — push monitoring for log/transcript files
+├── tmux attach (blocking)
+└── On attach exit
+    ├── Shutdown received → KillSession()
+    └── Normal detach → exit (tmux session survives)
 ```
 
-**Warm start と Cold start の差は bootstrap 経路だけ**。どちらも sessions.json が SoT。Driver の PersistedState (status / title / summary / branch 等) は sessions.json に含まれるため、どちらのパスでも前回値が復元される。
+**The difference between warm start and cold start is only the bootstrap path**. Both use sessions.json as the source of truth. The driver's PersistedState (status / title / summary / branch, etc.) is included in sessions.json, so previous values are restored in both paths.
 
-### メイン TUI
+### Main TUI
 
-Pane 0.0 で動作する常駐 Bubbletea TUI プロセス。キーバインドヘルプを常時表示し、セッション一覧でプロジェクトヘッダーが選択されたとき該当プロジェクトのセッション情報を表示する。daemon 未起動時はキーバインドヘルプのみの static モードで動作する。セッション切替時は `swap-pane` でバックグラウンド window に退避し、プロジェクトヘッダー選択時に復帰する。
+A resident Bubbletea TUI process running in Pane 0.0. It always displays keybinding help, and shows session information for the corresponding project when a project header is selected in the session list. When the daemon is not running, it operates in static mode showing only keybinding help. On session switch, it retreats to a background window via `swap-pane`, and returns when a project header is selected.
 
 ```
 runTUI("main")
-├── ソケット接続を試行
-│   ├── 成功 → subscribe + Client 付きで MainModel 起動
-│   └── 失敗 → static モード（キーバインドヘルプのみ）
-└── Bubbletea イベントループ（sessions-changed / project-selected を受信 → 再描画）
+├── Attempt socket connection
+│   ├── Success → subscribe + launch MainModel with Client
+│   └── Failure → static mode (keybinding help only)
+└── Bubbletea event loop (receives sessions-changed / project-selected → re-render)
 ```
 
-### セッション一覧サーバー
+### Session List Server
 
-Pane 0.2 で動作する常駐 Bubbletea TUI プロセス。ソケット経由で daemon に接続し、セッション一覧の表示・操作を提供する。終了不可（Ctrl+C 無効）。crash 時はヘルスモニタが自動 respawn。state.State や Driver を一切持たず、全操作をソケット経由で daemon に委譲する。
+A resident Bubbletea TUI process running in Pane 0.2. It connects to the daemon via socket and provides session list display and operations. Cannot be terminated (Ctrl+C disabled). On crash, the daemon automatically recovers it via `respawn-pane`. It holds no state.State or Driver; all operations are delegated to the daemon via socket.
 
 ```
 runTUI("sessions")
-├── Client 初期化 + ソケット接続
-├── subscribe コマンド送信（broadcast 受信開始）
-├── list-sessions で初期データ取得
-└── Bubbletea イベントループ（キー入力 → IPC コマンド → broadcast 受信 → 再描画）
+├── Initialize Client + socket connection
+├── Send subscribe command (start receiving broadcasts)
+├── Fetch initial data via list-sessions
+└── Bubbletea event loop (key input → IPC command → receive broadcast → re-render)
 ```
 
-### ログ TUI
+### Log TUI
 
-Pane 0.1 で動作する常駐 Bubbletea TUI プロセス。APP タブ（アプリケーションログ）と、セッションごとに動的生成されるセッションタブを提供する。200ms 間隔でログファイルをポーリングし、新規行を表示する。
+A resident Bubbletea TUI process running in Pane 0.1. It provides an APP tab (application log) and dynamically generated per-session tabs. It polls log files at 200ms intervals and displays new lines.
 
 ```
 runTUI("log")
-├── ソケット接続を試行
-│   ├── 成功 → subscribe + Client 付きで LogModel 起動
-│   │          sessions-changed でセッションタブを動的再構築
-│   └── 失敗 → アプリログのみモードで LogModel 起動（Client なし）
-└── Bubbletea イベントループ（タブ切替、スクロール、follow モード）
+├── Attempt socket connection
+│   ├── Success → subscribe + launch LogModel with Client
+│   │              Dynamically rebuild session tabs on sessions-changed
+│   └── Failure → launch LogModel in app-log-only mode (no Client)
+└── Bubbletea event loop (tab switching, scrolling, follow mode)
 ```
 
-**タブ構成**: アクティブセッションがある場合 `TRANSCRIPT | EVENTS | INFO | LOG` (Claude セッション時)、または `INFO | LOG` (非 Claude)、それ以外は `LOG` のみ。`sessions-changed` イベントで動的に再構築。`INFO` は LOG の直前固定で、ファイルではなく `SessionInfo` のスナップショットを直接 viewport に描画する非ファイル系タブ。Preview (サイドバーで cursor hover、メインペインに window を swap するだけ) 時は `Message.IsPreview` フラグで判定して INFO をアクティブにする。メインペインが実際に focus された (`pane-focused` イベントで `Pane == "0.0"`) ときに TRANSCRIPT へ切り替える。`sessions-changed` の Tick broadcast はアクティブタブを変更しない（ユーザーが選んだタブを保持）。タブ切替時はファイル末尾から再読み込み（状態保持不要）。マウスクリックはタブラベルの累積幅でヒット判定する。
+**Tab structure**: When there is an active session: `TRANSCRIPT | EVENTS | INFO | LOG` (for Claude sessions), or `INFO | LOG` (for non-Claude); otherwise `LOG` only. Dynamically rebuilt on `sessions-changed` events. `INFO` is always positioned immediately before LOG; it is a non-file tab that renders a `SessionInfo` snapshot directly into the viewport rather than reading from a file. During Preview (hovering over a cursor in the sidebar, just swapping the window into the main pane), the `Message.IsPreview` flag determines behavior and activates INFO. When the main pane is actually focused (detected via `pane-focused` event with `Pane == "0.0"`), it switches to TRANSCRIPT. Tick broadcasts from `sessions-changed` do not change the active tab (preserving the user's tab selection). On tab switch, the file is re-read from the end (no state persistence needed). Mouse clicks use cumulative tab label widths for hit detection.
 
-**経過時間表示**: セッション一覧とメイン TUI の両方で、`CreatedAt` からの経過時間を `formatElapsed` で表示する（分/時/日の 3 段階）。
+**Elapsed time display**: Both the session list and main TUI display elapsed time from `CreatedAt` using `formatElapsed` (3 levels: minutes/hours/days).
 
-daemon との通信は任意。接続できない場合（daemon 未起動・起動順の競合）はアプリログのみで動作する。crash 時はヘルスモニタが Pane 0.1 の死活を検知し respawn する。
+Communication with the daemon is optional. If the connection fails (daemon not running / startup race), it operates with app logs only. On crash, the daemon detects the failure and recovers via `respawn-pane`.
 
-### コマンドパレット
+### Command Palette
 
-`prefix p` または TUI の `n`/`N`/`d` で tmux popup として起動する独立プロセス。ソケット経由でコマンド送信。ツール選択 → パラメータ入力 → 実行 → 終了。TUI のサブコンポーネントではなく tmux popup にすることで、TUI のイベントループをブロックせず、パレットが crash しても TUI に影響しない。
+An independent process launched as a tmux popup via `prefix p` or TUI's `n`/`N`/`d`. Sends commands via socket. Tool selection → parameter input → execution → exit. By using a tmux popup rather than a TUI subcomponent, the TUI event loop is not blocked, and palette crashes do not affect the TUI.
 
 ```
 runTUI("palette")
-├── Client 初期化 + ソケット接続
-├── フラグからツール名・初期引数を取得
-├── 未確定パラメータがあればインクリメンタル選択 UI
-├── 全パラメータ確定 → Tool.Run で IPC コマンド送信
-└── 終了（popup 自動クローズ）
+├── Initialize Client + socket connection
+├── Get tool name and initial arguments from flags
+├── If undetermined parameters exist, show incremental selection UI
+├── All parameters determined → send IPC command via Tool.Run
+└── Exit (popup auto-closes)
 ```
 
-### 障害時の振る舞い
+### Failure Behavior
 
-- **TUI のソケット切断**: TUI プロセスは終了する。ヘルスモニタが検知し respawn
-- **セッション window の外部 kill / agent プロセス終了**: session window は `remain-on-exit off` のため tmux が自動でペイン破棄、ペイン 1 個のみの window も自動消滅。`reduceTick` が `EffReconcileWindows` を emit し、runtime が tmux window 一覧と `state.State` を照合、消えた window を State から削除して snapshot を更新し `sessions-changed` を broadcast する
-- **Active session の agent プロセス終了 (C-c など)**: active session の agent pane は swap-pane で `roost:0.0` に持ち込まれている。Window 0 は `remain-on-exit on` のため、agent が exit すると pane は `[exited]` のまま居座り、session window 側は swap で入れ替わった main TUI pane が生きているので通常の reconcile では掃除されない。`reduceTick` は毎 tick `EffCheckPaneAlive{0.0}` を emit し、runtime が `display-message -t roost:0.0 -p '#{pane_dead} #{pane_id}'` を実行する。dead な場合はその pane id (`%N`、swap-pane を跨いで不変) で `runtime.findPaneOwner` を引いて死んだ pane の **本来の owner session** を特定する。State の activeWindowID を信頼して reap 対象を決めると、並行 Preview などで activeWindowID が pane 0.0 の実 owner とずれた瞬間に無関係な window を kill してしまう (= 別 session のカードが消え、本物の死んだ session が `stopped` 表示で残る誤爆) ため、pane id だけが reap 対象の唯一の真実。owner が特定できたら dead pane を owner window に swap-pane で戻し、window ごと破棄する。その後の `runtime.reconcileWindows` パスで State が最終的に掃除される。owner が見つからない場合 (main TUI 自身が死んだ等) は何もしない (= ヘルスモニタの責務)。PaneID は spawn 時に `display-message -t <wid>:0.0 -p '#{pane_id}'` で取得し `sessions.json` に永続化する
-- **ヘルスモニタの respawn 連続失敗**: respawn-pane は tmux がペインを再作成するため通常は失敗しない（ただしバイナリ削除・権限変更等の環境異常時は起動失敗する）。tmux セッション消失時は daemon の attach も終了するため、全体が終了する
-- **起動時の整合性**: tmux window user options を単一の真実とするため、orphan チェックは不要。`@roost_id` を持つ tmux window がそのまま roost セッション一覧になる
-- **IPC エラー**: TUI 側で IPC コマンドがエラーを返した場合、slog にログ出力し UI 状態は変更しない。タイムアウトは設定していない（Unix socket のローカル通信のため）。サーバーがデッドロックした場合、クライアントは無期限にブロックするリスクがある。復帰手段は外部からの `tmux kill-session -t roost` または daemon プロセスの kill
+- **TUI socket disconnection**: The TUI process exits. The daemon detects this and recovers via `respawn-pane`
+- **External kill of session window / agent process exit**: Session windows have `remain-on-exit off`, so tmux automatically destroys the pane; windows with only 1 pane also auto-disappear. `reduceTick` emits `EffReconcileWindows`, and runtime reconciles the tmux window list with `state.State`, removes disappeared windows from State, updates the snapshot, and broadcasts `sessions-changed`
+- **Active session agent process exit (e.g., C-c)**: The active session's agent pane is brought into `roost:0.0` via swap-pane. Window 0 has `remain-on-exit on`, so when the agent exits, the pane remains as `[exited]`; the session window side has the main TUI pane swapped in and alive, so normal reconcile does not clean it up. `reduceTick` emits `EffCheckPaneAlive{0.0}` every tick, and runtime executes `display-message -t roost:0.0 -p '#{pane_dead} #{pane_id}'`. If dead, it looks up the pane id (`%N`, invariant across swap-pane) via `runtime.findPaneOwner` to identify the **original owner session** of the dead pane. Relying on State's activeWindowID to determine the reap target would cause an unrelated window to be killed when activeWindowID diverges from the actual owner of pane 0.0 during concurrent Preview operations (= cards for other sessions disappear while the actually dead session remains displayed as `stopped` — a false positive). Therefore, the pane id is the sole source of truth for the reap target. Once the owner is identified, the dead pane is swapped back to the owner window via swap-pane, and the window is destroyed. The subsequent `runtime.reconcileWindows` pass finally cleans up State. If the owner cannot be found (e.g., main TUI itself died), nothing is done (that is `respawn-pane`'s responsibility). PaneID is obtained at spawn time via `display-message -t <wid>:0.0 -p '#{pane_id}'` and persisted in `sessions.json`
+- **Consecutive `respawn-pane` failures**: respawn-pane normally does not fail since tmux recreates the pane (however, startup may fail in cases of environmental anomalies such as binary deletion or permission changes). When the tmux session is destroyed, the daemon's attach also exits, so everything shuts down
+- **Startup consistency**: Since tmux window user options are the single source of truth, orphan checking is unnecessary. tmux windows with `@roost_id` directly constitute the roost session list
+- **IPC errors**: When an IPC command returns an error on the TUI side, it logs to slog and does not change UI state. No timeout is configured (local communication over Unix socket). If the server deadlocks, the client risks blocking indefinitely. Recovery means externally running `tmux kill-session -t roost` or killing the daemon process
 
-## tmux レイアウト
+## tmux Layout
 
 ```
 ┌─────────────────────┬────────────────┐
 │  Pane 0.0           │  Pane 0.2      │
-│  メイン TUI (常時focus) │  TUI サーバー   │
-│                     │                │
+│  Main TUI (always   │  TUI server    │
+│  focused)           │                │
 ├─────────────────────┤                │
 │  Pane 0.1           │                │
-│  ログ TUI           │                │
+│  Log TUI            │                │
 └─────────────────────┴────────────────┘
 
-Window 0: 制御画面（3ペイン固定）
-Window 1+: セッション（バックグラウンド、swap-pane で Pane 0.0 に表示）
+Window 0: Control screen (3 fixed panes)
+Window 1+: Sessions (background, displayed in Pane 0.0 via swap-pane)
 ```
 
-- Window 0 のみ `remain-on-exit on`: log / sessions ペインがクラッシュしてもレイアウトを維持し、ヘルスモニタが `respawn-pane` で復活させるため
-- Session window (Window 1+) は `remain-on-exit off`: agent プロセス終了でペインごと自動消滅させ、`reduceTick` → `EffReconcileWindows` で State を片付ける
-- `mouse on` でマウスホイールスクロールとペイン境界認識を有効化。roost が明示的に設定し、ユーザーの tmux.conf に依存しない
-- ターミナルサイズを `term.GetSize()` で取得し `new-session -x -y` に渡す
-- prefix テーブルの全デフォルトキーを無効化し、Space/d/q/p のみ登録
+- Window 0 only has `remain-on-exit on`: to maintain layout even when log / sessions panes crash, allowing daemon to revive them via `respawn-pane`
+- Session windows (Window 1+) have `remain-on-exit off`: agent process exit causes automatic pane destruction, and `reduceTick` → `EffReconcileWindows` cleans up State
+- `mouse on` enables mouse wheel scrolling and pane border detection. Explicitly set by roost, not dependent on the user's tmux.conf
+- Terminal size is obtained via `term.GetSize()` and passed to `new-session -x -y`
+- All default keys in the prefix table are disabled; only Space/d/q/p are registered
 
-### マウス操作
+### Mouse Operations
 
-tmux `mouse on` により、マウス操作は tmux が仲介する。テキスト選択は tmux のコピーモードを経由する。
+With tmux `mouse on`, mouse operations are mediated by tmux. Text selection goes through tmux copy mode.
 
-| 操作 | 動作 |
-|------|------|
-| ホイール | tmux がスクロール処理（alt screen ペインではプログラムにイベント転送） |
-| ドラッグ | tmux コピーモードに入り、ペイン内でテキスト選択 |
-| リリース | 選択テキストをコピーし、コピーモードを終了（ライブ表示に復帰） |
-| Shift+ドラッグ | tmux を迂回し、ターミナルネイティブの選択（ペイン境界を跨ぐ） |
+| Operation | Behavior |
+|-----------|----------|
+| Wheel | tmux handles scrolling (forwards events to the program for alt screen panes) |
+| Drag | Enters tmux copy mode, selects text within the pane |
+| Release | Copies selected text and exits copy mode (returns to live display) |
+| Shift+Drag | Bypasses tmux, uses terminal-native selection (can cross pane boundaries) |
 
-**制約**: コピーモード終了時にライブ表示（最下部）に復帰するのは tmux の仕様。スクロールバック位置を維持したままコピーモードを抜けることはできない。ペイン内選択とスクロール位置維持を両立するには Shift+ドラッグを使うか、コピーモード内で `q` を押すまで閲覧を続ける。
+**Limitation**: Returning to live display (bottom) when exiting copy mode is tmux's default behavior. It is not possible to exit copy mode while maintaining the scrollback position. To have both in-pane selection and scrollback position retention, use Shift+Drag or continue browsing within copy mode until pressing `q`.
 
-### セッション切替
+### Session Switching
 
-runtime が個別の `swap-pane -d` 操作を順に実行する（途中失敗時のロールバックはない）。
+Runtime executes individual `swap-pane -d` operations sequentially (no rollback on mid-sequence failure).
 
 ```
 Preview(sess):
-  1. swap-pane -d  メインペイン ↔ 旧セッション (旧を戻す、activeWindowID がある場合)
-  2. swap-pane -d  メインペイン ↔ 新セッション (新を表示)
-  → フォーカスは変更しない
+  1. swap-pane -d  main pane ↔ old session (return old, if activeWindowID exists)
+  2. swap-pane -d  main pane ↔ new session (display new)
+  → Focus is not changed
 
 Switch(sess):
-  Preview と同じ + SelectPane でメインペインにフォーカス
+  Preview + SelectPane to focus the main pane
 ```
 
-### キー入力の処理分担
+### Key Input Processing Responsibilities
 
-| レベル | 処理者 | 例 |
-|--------|--------|-----|
-| prefix キー | tmux bind-key (daemon が設定) | Space, d, q, p |
-| TUI キー | セッション一覧の Bubbletea | j/k, Enter, n, N, Tab |
-| パレットキー | パレットの Bubbletea | Esc, Enter, 文字入力 |
+| Level | Handler | Examples |
+|-------|---------|----------|
+| Prefix keys | tmux bind-key (configured by daemon) | Space, d, q, p |
+| TUI keys | Session list Bubbletea | j/k, Enter, n, N, Tab |
+| Palette keys | Palette Bubbletea | Esc, Enter, text input |
 
-prefix キーは tmux が横取り。bare key は各 pane のプロセスが直接受信。
+Prefix keys are intercepted by tmux. Bare keys are received directly by each pane's process.

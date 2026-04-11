@@ -1288,3 +1288,41 @@ func TestClaudeViewIndicatorsStale(t *testing.T) {
 		t.Errorf("Indicators = %v, want [stale? ...]", v.Card.Indicators)
 	}
 }
+
+func TestClaudeStateChangeDoesNotUpdateWorkingDir(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs, _ = d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+		"session_id":      "uuid",
+		"cwd":             "/original",
+		"hook_event_name": "SessionStart",
+	}, now))
+	if cs.WorkingDir != "/original" {
+		t.Fatalf("WorkingDir after SessionStart = %q, want /original", cs.WorkingDir)
+	}
+	cs, _ = d.handleHook(cs, hookEvent("Stop", map[string]string{
+		"session_id":      "uuid",
+		"cwd":             "/changed",
+		"hook_event_name": "Stop",
+	}, now.Add(time.Second)))
+	if cs.WorkingDir != "/original" {
+		t.Errorf("WorkingDir after Stop = %q, want /original (should not change)", cs.WorkingDir)
+	}
+}
+
+func TestClaudeUserPromptSubmitDoesNotUpdateWorkingDir(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs, _ = d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+		"session_id":      "uuid",
+		"cwd":             "/original",
+		"hook_event_name": "SessionStart",
+	}, now))
+	cs, _ = d.handleHook(cs, hookEvent("UserPromptSubmit", map[string]string{
+		"session_id":      "uuid",
+		"cwd":             "/worktree/path",
+		"hook_event_name": "UserPromptSubmit",
+		"prompt":          "hello",
+	}, now.Add(time.Second)))
+	if cs.WorkingDir != "/original" {
+		t.Errorf("WorkingDir after UserPromptSubmit = %q, want /original (should not change)", cs.WorkingDir)
+	}
+}

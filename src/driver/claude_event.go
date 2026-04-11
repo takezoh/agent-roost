@@ -176,6 +176,9 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 // watch + parse + event log.
 func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, now time.Time) (ClaudeState, []state.Effect) {
 	cs = absorbIdentityFromHP(cs, hp)
+	if hp.Cwd != "" {
+		cs.WorkingDir = hp.Cwd
+	}
 	if now.IsZero() {
 		now = cs.StatusChangedAt
 	}
@@ -298,9 +301,6 @@ func (d ClaudeDriver) handleUserPromptSubmit(cs ClaudeState, hp hookPayload, now
 func absorbIdentityFromHP(cs ClaudeState, hp hookPayload) ClaudeState {
 	if hp.SessionID != "" {
 		cs.ClaudeSessionID = hp.SessionID
-	}
-	if hp.Cwd != "" {
-		cs.WorkingDir = hp.Cwd
 	}
 	if hp.TranscriptPath != "" {
 		cs.TranscriptPath = hp.TranscriptPath

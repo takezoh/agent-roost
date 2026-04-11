@@ -91,7 +91,7 @@ func runCoordinator() {
 	pollInterval := time.Duration(cfg.Monitor.PollIntervalMs) * time.Millisecond
 	sockPath := filepath.Join(dataDir, "roost.sock")
 
-	statedriver.RegisterRunners(tmuxBackend.CapturePane)
+	statedriver.RegisterRunners(tmuxBackend.CapturePane, cfg.Language)
 	connector.RegisterDefaults()
 	connector.RegisterRunners()
 	pool := worker.NewPool(4)
