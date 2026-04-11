@@ -385,6 +385,12 @@ func loadConfig() *config.Config {
 		fmt.Fprintf(os.Stderr, "roost: %v\n", err)
 		os.Exit(1)
 	}
+	if cfg.Session.DefaultCommand == "" {
+		cfg.Session.DefaultCommand = "shell"
+	}
+	if len(cfg.Session.Commands) == 0 {
+		cfg.Session.Commands = []string{"shell"}
+	}
 	return cfg
 }
 

@@ -11,6 +11,10 @@ import (
 	"github.com/take/agent-roost/state"
 )
 
+// testKindTranscript is a test-local TabKind matching what the Claude
+// driver would emit. TUI tests must not import driver or lib packages.
+const testKindTranscript state.TabKind = "transcript"
+
 // stubRenderer is a minimal TabRenderer for tests.
 type stubRenderer struct{}
 
@@ -18,7 +22,7 @@ func (stubRenderer) Append([]byte) string { return "" }
 func (stubRenderer) Reset()              {}
 
 func TestMain(m *testing.M) {
-	state.RegisterTabRenderer[struct{}](state.TabKindTranscript, func(struct{}) state.TabRenderer {
+	state.RegisterTabRenderer[struct{}](testKindTranscript, func(struct{}) state.TabRenderer {
 		return stubRenderer{}
 	})
 	os.Exit(m.Run())
@@ -141,7 +145,7 @@ func sessionWithTranscript(t *testing.T) proto.SessionInfo {
 		WindowID: "w1",
 		View: state.View{
 			LogTabs: []state.LogTab{
-				{Label: "TRANSCRIPT", Path: transcriptPath, Kind: state.TabKindTranscript},
+				{Label: "TRANSCRIPT", Path: transcriptPath, Kind: testKindTranscript},
 				{Label: "EVENTS", Path: eventsPath, Kind: state.TabKindText},
 			},
 		},

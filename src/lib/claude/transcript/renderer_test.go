@@ -10,9 +10,9 @@ import (
 
 func TestTabRendererAppend(t *testing.T) {
 	cfg, _ := json.Marshal(RendererConfig{})
-	r := state.NewTabRenderer(state.TabKindTranscript, cfg)
+	r := state.NewTabRenderer(KindTranscript, cfg)
 	if r == nil {
-		t.Fatal("expected non-nil renderer for TabKindTranscript")
+		t.Fatal("expected non-nil renderer for KindTranscript")
 	}
 
 	line := []byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"hello"}]}}`)
@@ -24,7 +24,7 @@ func TestTabRendererAppend(t *testing.T) {
 
 func TestTabRendererReset(t *testing.T) {
 	cfg, _ := json.Marshal(RendererConfig{})
-	r := state.NewTabRenderer(state.TabKindTranscript, cfg)
+	r := state.NewTabRenderer(KindTranscript, cfg)
 	if r == nil {
 		t.Fatal("expected non-nil renderer")
 	}
@@ -33,7 +33,7 @@ func TestTabRendererReset(t *testing.T) {
 
 func TestTabRendererShowThinkingViaConfig(t *testing.T) {
 	cfg, _ := json.Marshal(RendererConfig{ShowThinking: true})
-	r := state.NewTabRenderer(state.TabKindTranscript, cfg)
+	r := state.NewTabRenderer(KindTranscript, cfg)
 	if r == nil {
 		t.Fatal("expected non-nil renderer")
 	}
@@ -47,7 +47,7 @@ func TestTabRendererShowThinkingViaConfig(t *testing.T) {
 
 func TestTabRendererThinkingHiddenByDefault(t *testing.T) {
 	cfg, _ := json.Marshal(RendererConfig{})
-	r := state.NewTabRenderer(state.TabKindTranscript, cfg)
+	r := state.NewTabRenderer(KindTranscript, cfg)
 	if r == nil {
 		t.Fatal("expected non-nil renderer")
 	}

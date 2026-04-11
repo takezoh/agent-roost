@@ -11,8 +11,8 @@ import (
 // branching.
 //
 // Step is a pure function — drivers must build View from already-known
-// state without performing I/O. Heavy work (transcript parse, branch
-// detect) happens in worker jobs and feeds back via DEvJobResult.
+// state without performing I/O. Heavy work (file parsing, branch
+// detection) happens in worker jobs and feeds back via DEvJobResult.
 //
 // JSON tags are present so the proto layer can ship View values
 // directly across the wire without a parallel type hierarchy.
@@ -56,14 +56,13 @@ type LogTab struct {
 }
 
 // TabKind selects the renderer the TUI applies to a tab's contents.
-// The set is intentionally closed: a new kind requires both a driver
-// emitting it and a TUI renderer that knows how to display it.
+// Drivers define their own TabKind constants and register a
+// TabRenderer factory for each via RegisterTabRenderer.
 type TabKind string
 
-const (
-	TabKindText       TabKind = "text"
-	TabKindTranscript TabKind = "transcript"
-)
+// TabKindText is the built-in plain-text kind. Drivers may use it for
+// tabs that need no special rendering (e.g. event logs).
+const TabKindText TabKind = "text"
 
 // InfoLine is one entry in the INFO tab body. The driver returns the
 // driver-specific lines via View.InfoExtras; the TUI prepends a

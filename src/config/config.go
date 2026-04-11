@@ -91,9 +91,7 @@ func DefaultConfig() *Config {
 			IdleThresholdSec: 30,
 		},
 		Session: SessionConfig{
-			AutoName:       true,
-			DefaultCommand: "claude",
-			Commands:       []string{"claude", "gemini", "codex"},
+			AutoName: true,
 		},
 		Projects: ProjectsConfig{
 			ProjectRoots: []string{"~/dev", "~/work"},

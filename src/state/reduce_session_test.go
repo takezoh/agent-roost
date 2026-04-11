@@ -125,15 +125,11 @@ func TestCreateSessionAllocatesAndSpawns(t *testing.T) {
 }
 
 func TestCreateSessionDefaultCommand(t *testing.T) {
-	// command="" defaults to "claude" inside reduceCreateSession.
-	// We don't have a real claude driver registered in state pkg
-	// tests (it lives in state/driver), so the lookup falls back
-	// to the registered fallback driver "" — which works because
-	// the command string "claude" still routes through the registry
-	// and falls back when not found.
+	// command="" defaults to DefaultCommand, then "shell" as final
+	// fallback. The fallback driver "" handles unknown commands.
 	s := New()
 	_, effs := Reduce(s, EvCmdCreateSession{
-		ConnID: 1, ReqID: "r", Project: "/foo", // no Command → defaults to "claude"
+		ConnID: 1, ReqID: "r", Project: "/foo", // no Command → defaults to "shell"
 	})
 	// The fallback driver handles unknown commands so spawn is emitted.
 	if _, ok := findEff[EffSpawnTmuxWindow](effs); !ok {

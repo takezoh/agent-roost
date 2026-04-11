@@ -6,6 +6,9 @@ import (
 	"github.com/take/agent-roost/state"
 )
 
+// KindTranscript is the TabKind for Claude JSONL transcript tabs.
+const KindTranscript state.TabKind = "transcript"
+
 type RendererConfig struct {
 	SubagentDir  string `json:"subagent_dir,omitempty"`
 	ShowThinking bool   `json:"show_thinking,omitempty"`
@@ -39,7 +42,7 @@ func newParserWithDir(dir string, showThinking bool) *Parser {
 
 func init() {
 	state.RegisterTabRenderer[RendererConfig](
-		state.TabKindTranscript,
+		KindTranscript,
 		func(cfg RendererConfig) state.TabRenderer {
 			return &tabRenderer{
 				parser:      newParserWithDir(cfg.SubagentDir, cfg.ShowThinking),

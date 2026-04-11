@@ -12,7 +12,7 @@ func TestBuildTabList_DriverProvidedTabsThenInfoThenLog(t *testing.T) {
 		ID: "s1",
 		View: state.View{
 			LogTabs: []state.LogTab{
-				{Label: "TRANSCRIPT", Path: "/tmp/x.jsonl", Kind: state.TabKindTranscript},
+				{Label: "TRANSCRIPT", Path: "/tmp/x.jsonl", Kind: testKindTranscript},
 				{Label: "EVENTS", Path: "/tmp/x.log", Kind: state.TabKindText},
 			},
 			InfoExtras: []state.InfoLine{{Label: "k", Value: "v"}},
@@ -29,8 +29,8 @@ func TestBuildTabList_DriverProvidedTabsThenInfoThenLog(t *testing.T) {
 			t.Errorf("tab[%d] = %q, want %q", i, tabs[i].label, want)
 		}
 	}
-	if tabs[0].kind != state.TabKindTranscript {
-		t.Errorf("transcript kind = %q, want %q", tabs[0].kind, state.TabKindTranscript)
+	if tabs[0].kind != testKindTranscript {
+		t.Errorf("transcript kind = %q, want %q", tabs[0].kind, testKindTranscript)
 	}
 	if tabs[2].kind != tabKindInfo {
 		t.Errorf("info kind = %q, want %q", tabs[2].kind, tabKindInfo)

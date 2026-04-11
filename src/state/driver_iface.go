@@ -36,7 +36,7 @@ type DriverEvent interface {
 }
 
 // DEvHook is a hook event that arrived from the agent process via the
-// hook bridge (e.g. `roost claude event`). Event identifies the kind
+// hook bridge (e.g. `roost <driver> event`). Event identifies the kind
 // (driver-defined string), Payload carries the parsed payload bag.
 // Drivers dispatch internally on Event.
 type DEvHook struct {
@@ -85,7 +85,7 @@ func (DEvFileChanged) isDriverEvent() {}
 // impl is a stateless value type registered once at init time; the
 // per-session state lives in DriverState values returned by NewState.
 type Driver interface {
-	// Name is the registry key (e.g. "claude").
+	// Name is the registry key (e.g. "mydriver").
 	Name() string
 
 	// DisplayName is the human-readable label shown in card / palette.
@@ -112,7 +112,7 @@ type Driver interface {
 
 	// SpawnCommand returns the shell command for (re)starting the agent
 	// process during cold-boot recovery. Drivers that support resume
-	// (e.g. claude --resume <id>) augment the base command using their
+	// (e.g. mydriver --resume <id>) augment the base command using their
 	// own keys recovered from the persisted state.
 	SpawnCommand(s DriverState, baseCommand string) string
 
@@ -153,9 +153,9 @@ func GetDriver(command string) Driver {
 }
 
 // commandToDriverName extracts the registry key from a session command
-// string. Currently a literal first-token match — "claude --resume X"
-// → "claude". Anything not registered (including bash, zsh, ...) maps
-// to "" so the fallback driver picks it up.
+// string. Currently a literal first-token match — "mydriver --flag X"
+// → "mydriver". Anything not registered maps to "" so the fallback
+// driver picks it up.
 func commandToDriverName(command string) string {
 	for i := 0; i < len(command); i++ {
 		if command[i] == ' ' || command[i] == '\t' {

@@ -76,7 +76,7 @@ type EvCmdLaunchTool struct {
 }
 
 // EvCmdHook delivers a typed hook payload from a driver-specific bridge
-// (e.g. `roost claude event`). Driver identifies the registered driver
+// (e.g. `roost <driver> event`). Driver identifies the registered driver
 // name; Event is the driver-defined event kind; Payload is the parsed
 // hook payload.
 type EvCmdHook struct {

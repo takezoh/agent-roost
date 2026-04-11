@@ -42,7 +42,7 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 		logTabs = append(logTabs, state.LogTab{
 			Label:       "TRANSCRIPT",
 			Path:        transcriptPath,
-			Kind:        state.TabKindTranscript,
+			Kind:        transcript.KindTranscript,
 			RendererCfg: rendererCfg,
 		})
 	}

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/take/agent-roost/lib/claude/transcript"
 	"github.com/take/agent-roost/state"
 )
 
@@ -766,7 +767,7 @@ func TestClaudeViewLogTabsTranscript(t *testing.T) {
 	if len(v.LogTabs) == 0 {
 		t.Fatal("expected TRANSCRIPT tab")
 	}
-	if v.LogTabs[0].Label != "TRANSCRIPT" || v.LogTabs[0].Kind != state.TabKindTranscript {
+	if v.LogTabs[0].Label != "TRANSCRIPT" || v.LogTabs[0].Kind != transcript.KindTranscript {
 		t.Errorf("LogTab[0] = %+v", v.LogTabs[0])
 	}
 }
