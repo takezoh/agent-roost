@@ -36,7 +36,8 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 	var logTabs []state.LogTab
 	if transcriptPath := d.resolveTranscriptPath(cs); transcriptPath != "" {
 		rendererCfg, _ := json.Marshal(transcript.RendererConfig{
-			SubagentDir: subagentDir(transcriptPath),
+			SubagentDir:  subagentDir(transcriptPath),
+			ShowThinking: d.showThinking,
 		})
 		logTabs = append(logTabs, state.LogTab{
 			Label:       "TRANSCRIPT",

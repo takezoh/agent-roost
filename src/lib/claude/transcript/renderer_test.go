@@ -31,18 +31,12 @@ func TestTabRendererReset(t *testing.T) {
 	r.Reset()
 }
 
-func TestTabRendererSetShowThinking(t *testing.T) {
-	cfg, _ := json.Marshal(RendererConfig{})
+func TestTabRendererShowThinkingViaConfig(t *testing.T) {
+	cfg, _ := json.Marshal(RendererConfig{ShowThinking: true})
 	r := state.NewTabRenderer(state.TabKindTranscript, cfg)
 	if r == nil {
 		t.Fatal("expected non-nil renderer")
 	}
-
-	toggler, ok := r.(state.ShowThinkingToggler)
-	if !ok {
-		t.Fatal("renderer does not implement ShowThinkingToggler")
-	}
-	toggler.SetShowThinking(true)
 
 	line := []byte(`{"type":"assistant","message":{"content":[{"type":"thinking","text":"deep thought"}]}}`)
 	got := r.Append(line)

@@ -87,16 +87,22 @@ type ClaudeState struct {
 // captured at construction so resolveTranscriptPath can build the
 // canonical ~/.claude/projects/... path when the agent hasn't reported
 // transcript_path yet.
+// ClaudeOptions holds driver-specific config decoded from [drivers.claude].
+type ClaudeOptions struct {
+	ShowThinking bool `json:"show_thinking"`
+}
+
 type ClaudeDriver struct {
-	home        string
-	eventLogDir string
+	home         string
+	eventLogDir  string
+	showThinking bool
 }
 
 // NewClaudeDriver constructs a Claude driver bound to the user's home
 // directory and event log directory. The runtime constructs one of
 // these at startup and registers it with state.Register.
-func NewClaudeDriver(home, eventLogDir string) ClaudeDriver {
-	return ClaudeDriver{home: home, eventLogDir: eventLogDir}
+func NewClaudeDriver(home, eventLogDir string, opts ClaudeOptions) ClaudeDriver {
+	return ClaudeDriver{home: home, eventLogDir: eventLogDir, showThinking: opts.ShowThinking}
 }
 
 func (ClaudeDriver) Name() string        { return "claude" }

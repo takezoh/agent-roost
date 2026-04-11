@@ -28,7 +28,7 @@ func hookPayloadRaw(fields map[string]string, now time.Time) map[string]any {
 func newClaude(t *testing.T) (ClaudeDriver, ClaudeState, time.Time) {
 	t.Helper()
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
-	d := NewClaudeDriver(testHome, testEventLogDir)
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := d.NewState(now).(ClaudeState)
 	return d, cs, now
 }
@@ -569,7 +569,7 @@ func TestClaudeBranchResultMerges(t *testing.T) {
 // === Persistence ===
 
 func TestClaudePersistRoundTrip(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir)
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	cs := ClaudeState{
 		RoostSessionID:  "roost-1",
@@ -631,7 +631,7 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 }
 
 func TestClaudeRestoreEmpty(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir)
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	cs := d.Restore(nil, now).(ClaudeState)
 	if cs.Status != state.StatusIdle {
@@ -645,7 +645,7 @@ func TestClaudeRestoreEmpty(t *testing.T) {
 // === SpawnCommand ===
 
 func TestClaudeSpawnCommandResume(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir)
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{ClaudeSessionID: "uuid-X"}
 	got := d.SpawnCommand(cs, "claude")
 	want := "claude --resume uuid-X"
@@ -655,7 +655,7 @@ func TestClaudeSpawnCommandResume(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandNoSession(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir)
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{}
 	got := d.SpawnCommand(cs, "claude --foo")
 	if got != "claude --foo" {
@@ -664,7 +664,7 @@ func TestClaudeSpawnCommandNoSession(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandStripsWorktree(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir)
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
 	got := d.SpawnCommand(cs, "claude --worktree")
 	want := "claude --resume uuid-W"
@@ -674,7 +674,7 @@ func TestClaudeSpawnCommandStripsWorktree(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandStripsWorktreeWithName(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir)
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
 	got := d.SpawnCommand(cs, "claude --worktree my-branch")
 	want := "claude --resume uuid-W"
@@ -684,7 +684,7 @@ func TestClaudeSpawnCommandStripsWorktreeWithName(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandStripsWorktreeEquals(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir)
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
 	got := d.SpawnCommand(cs, "claude --worktree=my-branch")
 	want := "claude --resume uuid-W"
@@ -694,7 +694,7 @@ func TestClaudeSpawnCommandStripsWorktreeEquals(t *testing.T) {
 }
 
 func TestClaudeSpawnCommandAlreadyHasResume(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir)
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{ClaudeSessionID: "uuid-Y"}
 	got := d.SpawnCommand(cs, "claude --resume preset")
 	if got != "claude --resume preset" {
@@ -845,7 +845,7 @@ func TestClaudeStepRoundTripSessionStartThenView(t *testing.T) {
 }
 
 func TestResolveTranscriptPathFallback(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir)
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{
 		ClaudeSessionID: "uuid-Z",
 		WorkingDir:      "/some/work",
@@ -858,7 +858,7 @@ func TestResolveTranscriptPathFallback(t *testing.T) {
 }
 
 func TestResolveTranscriptPathPrefersExplicit(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir)
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{
 		TranscriptPath:  "/explicit/path.jsonl",
 		ClaudeSessionID: "u",

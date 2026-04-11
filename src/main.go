@@ -78,7 +78,12 @@ func runCoordinator() {
 
 	idleThreshold := time.Duration(cfg.Monitor.IdleThresholdSec) * time.Second
 	eventLogDir := filepath.Join(dataDir, "events")
-	statedriver.RegisterDefaults(home, eventLogDir, idleThreshold)
+	statedriver.RegisterDefaults(statedriver.RegisterOptions{
+		Home:          home,
+		EventLogDir:   eventLogDir,
+		IdleThreshold: idleThreshold,
+		DriverConfigs: cfg.Drivers,
+	})
 
 	tmuxBackend := runtime.NewRealTmuxBackend(client)
 	pollInterval := time.Duration(cfg.Monitor.PollIntervalMs) * time.Millisecond
@@ -99,6 +104,7 @@ func runCoordinator() {
 	})
 
 	rt.SetAliases(cfg.Session.Aliases)
+	rt.SetDefaultCommand(cfg.Session.DefaultCommand)
 
 	warmRestart := client.SessionExists()
 	if warmRestart {
@@ -284,7 +290,7 @@ func runLogViewer() {
 
 	client, err := proto.Dial(sockPath)
 	if err != nil {
-		model := tui.NewLogModel(logger.LogFilePath(), nil, cfg.Transcript.ShowThinking)
+		model := tui.NewLogModel(logger.LogFilePath(), nil)
 		if _, err := tea.NewProgram(model).Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
 			os.Exit(1)
@@ -294,7 +300,7 @@ func runLogViewer() {
 	defer client.Close()
 	client.Subscribe()
 
-	model := tui.NewLogModel(logger.LogFilePath(), client, cfg.Transcript.ShowThinking)
+	model := tui.NewLogModel(logger.LogFilePath(), client)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
 		os.Exit(1)

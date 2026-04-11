@@ -175,3 +175,39 @@ cw = "codex --workspace"
 		t.Errorf("unknown alias should pass through, got %q", got)
 	}
 }
+
+func TestLoadFrom_DriversSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.toml")
+	os.WriteFile(path, []byte(`[drivers.claude]
+show_thinking = true
+`), 0o644)
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claude, ok := cfg.Drivers["claude"]
+	if !ok {
+		t.Fatal("expected drivers.claude section")
+	}
+	if claude["show_thinking"] != true {
+		t.Errorf("show_thinking = %v, want true", claude["show_thinking"])
+	}
+}
+
+func TestLoadFrom_DriversEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.toml")
+	os.WriteFile(path, []byte(`[tmux]
+session_name = "test"
+`), 0o644)
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Drivers) != 0 {
+		t.Errorf("expected empty Drivers, got %v", cfg.Drivers)
+	}
+}

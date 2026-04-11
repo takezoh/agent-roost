@@ -586,3 +586,37 @@ func TestPostProcessLeavesSessionIDIfSet(t *testing.T) {
 		t.Error("preset SessionID overwritten")
 	}
 }
+
+// === DefaultCommand ===
+
+func TestReduceCreateSession_DefaultCommand(t *testing.T) {
+	s := New()
+	s.DefaultCommand = "gemini"
+	s, _ = Reduce(s, EvCmdCreateSession{
+		Project: "test", Command: "",
+		ConnID: 1, ReqID: "r1",
+	})
+	for _, sess := range s.Sessions {
+		if sess.Command != "gemini" {
+			t.Errorf("Command = %q, want gemini", sess.Command)
+		}
+		return
+	}
+	t.Fatal("no session created")
+}
+
+func TestReduceCreateSession_FallbackToShell(t *testing.T) {
+	s := New()
+	// DefaultCommand is empty, Command is empty → "shell"
+	s, _ = Reduce(s, EvCmdCreateSession{
+		Project: "test", Command: "",
+		ConnID: 1, ReqID: "r1",
+	})
+	for _, sess := range s.Sessions {
+		if sess.Command != "shell" {
+			t.Errorf("Command = %q, want shell", sess.Command)
+		}
+		return
+	}
+	t.Fatal("no session created")
+}

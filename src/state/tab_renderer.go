@@ -14,12 +14,6 @@ type TabRenderer interface {
 	Reset()
 }
 
-// ShowThinkingToggler is an optional interface a TabRenderer may
-// implement to support toggling visibility of "thinking" blocks.
-type ShowThinkingToggler interface {
-	SetShowThinking(bool)
-}
-
 var rendererFactories = map[TabKind]func(json.RawMessage) TabRenderer{}
 
 // RegisterTabRenderer registers a typed factory for a TabKind. The

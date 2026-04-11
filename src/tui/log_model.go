@@ -57,20 +57,18 @@ type LogModel struct {
 	height         int
 	client         *proto.Client
 	renderer       state.TabRenderer
-	showThinking   bool
 	currentSession *proto.SessionInfo
 }
 
-func NewLogModel(appLogPath string, client *proto.Client, showThinking bool) LogModel {
+func NewLogModel(appLogPath string, client *proto.Client) LogModel {
 	return LogModel{
 		appLogPath: appLogPath,
 		tabs: []*tabState{
 			{label: "LOG", logPath: appLogPath, kind: tabKindLog},
 		},
-		client:       client,
-		activeTab:    0,
-		following:    true,
-		showThinking: showThinking,
+		client:    client,
+		activeTab: 0,
+		following: true,
 	}
 }
 
@@ -150,11 +148,6 @@ func (m LogModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	case "g":
 		m.following = false
 		m.viewport.GotoTop()
-		return m, nil
-	case "t":
-		if m.renderer != nil {
-			m.toggleThinking()
-		}
 		return m, nil
 	}
 	var cmd tea.Cmd
@@ -334,19 +327,13 @@ func buildTabList(prev map[string]*tabState, current *proto.SessionInfo, appLogP
 }
 
 // rebuildRenderer creates a new TabRenderer via the registry for the
-// active tab's Kind. Called when the active session changes or when
-// thinking visibility is toggled.
+// active tab's Kind. Called when the active session changes.
 func (m *LogModel) rebuildRenderer(tab *tabState) {
 	if tab == nil {
 		m.renderer = nil
 		return
 	}
 	m.renderer = state.NewTabRenderer(tab.kind, tab.rendererCfg)
-	if m.renderer != nil {
-		if t, ok := m.renderer.(state.ShowThinkingToggler); ok {
-			t.SetShowThinking(m.showThinking)
-		}
-	}
 }
 
 func (m *LogModel) isLogTab() bool {
@@ -382,25 +369,6 @@ func (m *LogModel) activeTabState() *tabState {
 		return m.tabs[idx]
 	}
 	return nil
-}
-
-// toggleThinking flips the show-thinking flag and rebuilds the
-// renderer so content is reparsed under the new setting.
-func (m *LogModel) toggleThinking() {
-	m.showThinking = !m.showThinking
-	t := m.activeTabState()
-	m.rebuildRenderer(t)
-	if t == nil {
-		return
-	}
-	if t.file != nil {
-		t.file.Close()
-		t.file = nil
-	}
-	t.offset = 0
-	t.buf = ""
-	m.viewport.SetContent("")
-	m.following = true
 }
 
 // switchToTabCmd switches to a new tab and returns a backfill command.

@@ -7,13 +7,13 @@ import (
 )
 
 type RendererConfig struct {
-	SubagentDir string `json:"subagent_dir,omitempty"`
+	SubagentDir  string `json:"subagent_dir,omitempty"`
+	ShowThinking bool   `json:"show_thinking,omitempty"`
 }
 
 type tabRenderer struct {
-	parser       *Parser
-	subagentDir  string
-	showThinking bool
+	parser      *Parser
+	subagentDir string
 }
 
 func (r *tabRenderer) Append(data []byte) string {
@@ -23,11 +23,6 @@ func (r *tabRenderer) Append(data []byte) string {
 
 func (r *tabRenderer) Reset() {
 	r.parser.Reset()
-}
-
-func (r *tabRenderer) SetShowThinking(v bool) {
-	r.showThinking = v
-	r.parser = newParserWithDir(r.subagentDir, v)
 }
 
 func newParserWithDir(dir string, showThinking bool) *Parser {
@@ -47,7 +42,7 @@ func init() {
 		state.TabKindTranscript,
 		func(cfg RendererConfig) state.TabRenderer {
 			return &tabRenderer{
-				parser:      newParserWithDir(cfg.SubagentDir, false),
+				parser:      newParserWithDir(cfg.SubagentDir, cfg.ShowThinking),
 				subagentDir: cfg.SubagentDir,
 			}
 		},
