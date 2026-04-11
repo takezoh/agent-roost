@@ -233,6 +233,24 @@ func TestGenericRegisteredViaInit(t *testing.T) {
 	}
 }
 
+func TestWithDisplayName(t *testing.T) {
+	d := NewGenericDriver("shell", 0).WithDisplayName("zsh")
+	if d.Name() != "shell" {
+		t.Errorf("Name() = %q, want shell", d.Name())
+	}
+	if d.DisplayName() != "zsh" {
+		t.Errorf("DisplayName() = %q, want zsh", d.DisplayName())
+	}
+	s := d.NewState(time.Now()).(GenericState)
+	v := d.view(s)
+	if len(v.Card.Tags) != 1 || v.Card.Tags[0].Text != "zsh" {
+		t.Errorf("tag text = %q, want zsh", v.Card.Tags[0].Text)
+	}
+	if v.Card.BorderTitle != "zsh" {
+		t.Errorf("BorderTitle = %q, want zsh", v.Card.BorderTitle)
+	}
+}
+
 func TestHashContentDeterministic(t *testing.T) {
 	a := hashContent("hello")
 	b := hashContent("hello")
