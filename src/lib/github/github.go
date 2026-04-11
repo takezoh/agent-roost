@@ -79,14 +79,41 @@ func searchPRs() ([]Item, error) {
 }
 
 func searchIssues() ([]Item, error) {
+	owned, err := runIssueSearch("--owner=@me")
+	if err != nil {
+		return nil, err
+	}
+	assigned, err := runIssueSearch("--assignee=@me")
+	if err != nil {
+		return nil, err
+	}
+	return dedup(owned, assigned), nil
+}
+
+func runIssueSearch(filter string) ([]Item, error) {
 	out, err := exec.Command("gh", "search", "issues",
-		"--assignee=@me", "--state=open",
+		filter, "--state=open",
 		"--json", "number,title,repository,url,updatedAt",
 	).Output()
 	if err != nil {
 		return nil, err
 	}
 	return parseItems(out)
+}
+
+func dedup(primary, secondary []Item) []Item {
+	seen := make(map[string]struct{}, len(primary))
+	for _, item := range primary {
+		seen[item.URL] = struct{}{}
+	}
+	result := make([]Item, len(primary), len(primary)+len(secondary))
+	copy(result, primary)
+	for _, item := range secondary {
+		if _, ok := seen[item.URL]; !ok {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 type ghRepo struct {
