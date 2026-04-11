@@ -17,9 +17,9 @@ import (
 
 var _ state.DriverState = GenericState{}
 
-func RegisterRunners(capturePaneFn func(string, int) (string, error)) {
+func RegisterRunners(capturePaneFn func(string, int) (string, error), language string) {
 	worker.RegisterRunner("capture_pane", newCapturePane(capturePaneFn))
-	tp, hs := newClaudeRunners()
+	tp, hs := newClaudeRunners(language)
 	worker.RegisterRunner("transcript_parse", tp)
 	worker.RegisterRunner("haiku_summary", hs)
 	worker.RegisterRunner("branch_detect", newBranchDetect())
@@ -49,7 +49,7 @@ func newBranchDetect() func(BranchDetectInput) (BranchDetectResult, error) {
 	}
 }
 
-func newClaudeRunners() (
+func newClaudeRunners(language string) (
 	func(TranscriptParseInput) (TranscriptParseResult, error),
 	func(HaikuSummaryInput) (HaikuSummaryResult, error),
 ) {
@@ -81,7 +81,7 @@ func newClaudeRunners() (
 		if len(turns) == 0 && in.PrevSummary == "" {
 			return HaikuSummaryResult{}, nil
 		}
-		prompt := formatSummaryPrompt(in.PrevSummary, turns)
+		prompt := formatSummaryPrompt(language, in.PrevSummary, turns)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
@@ -110,14 +110,16 @@ func appendHookPromptTurn(turns []transcript.TurnText, hookPrompt string) []tran
 	return append(turns, transcript.TurnText{Role: "user", Text: hookPrompt})
 }
 
-func formatSummaryPrompt(prev string, turns []transcript.TurnText) string {
+func formatSummaryPrompt(language string, prev string, turns []transcript.TurnText) string {
 	var b strings.Builder
-	b.WriteString("あなたはセッション要約器です。以下の会話履歴と前回要約から、")
-	b.WriteString("この AI コーディングセッションで現在ユーザーが何をしようとしているかを")
-	b.WriteString("日本語で 2〜3 行の説明的なメッセージにまとめてください。")
-	b.WriteString("各行は別の観点（目的 / 直近の進捗 / 次の行動）を簡潔に述べ、")
-	b.WriteString("各行 30 文字以内を目安にする。")
-	b.WriteString("返答は本文のみ、見出し・装飾・前置き・引用符なし。\n\n")
+	b.WriteString("You are a session summarizer. From the conversation history and previous summary below, ")
+	b.WriteString("summarize what the user is currently trying to do in this AI coding session ")
+	b.WriteString("into a 2-3 line descriptive message in ")
+	b.WriteString(language)
+	b.WriteString(". ")
+	b.WriteString("Each line covers a different perspective (goal / recent progress / next action) stated concisely, ")
+	b.WriteString("with ~30 characters per line. ")
+	b.WriteString("Return only the body text, no headings, decoration, preamble, or quotes.\n\n")
 	if prev != "" {
 		b.WriteString("<previous_summary>\n")
 		b.WriteString(prev)
