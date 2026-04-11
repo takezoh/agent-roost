@@ -187,8 +187,8 @@ func (m LogModel) handleLogEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 		}
 	case proto.EvtPaneFocused:
 		if e.Pane == mainPane {
-			if idx, ok := m.tabIndexByLabel("TRANSCRIPT"); ok {
-				cmd := m.switchToTabCmd(idx)
+			if idx := m.firstRenderedTabIndex(); idx >= 0 {
+				cmd := m.switchToTabCmd(logTab(idx))
 				if m.client != nil {
 					return m, tea.Batch(m.listenEvents(), cmd)
 				}
@@ -270,6 +270,17 @@ func (m *LogModel) rebuildTabs(current *proto.SessionInfo) bool {
 		m.rebuildRenderer(m.activeTabState())
 	}
 	return sessionChanged
+}
+
+// firstRenderedTabIndex returns the index of the first tab that has a
+// registered TabRenderer, or -1 when none exists.
+func (m *LogModel) firstRenderedTabIndex() int {
+	for i, t := range m.tabs {
+		if state.HasTabRenderer(t.kind) {
+			return i
+		}
+	}
+	return -1
 }
 
 // firstRenderedPath returns the logPath of the first tab in prev that

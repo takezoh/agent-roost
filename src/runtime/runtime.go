@@ -33,8 +33,7 @@ type Config struct {
 	Persist  PersistBackend
 	EventLog EventLogBackend
 	Watcher  FSWatcher
-	Pool     *worker.Pool
-	Runners  *worker.Runners
+	Pool *worker.Pool
 }
 
 // Runtime owns the event loop goroutine and the side-effect backends.
@@ -49,7 +48,6 @@ type Runtime struct {
 	internalCh chan internalEvent // runtime-internal lifecycle (conn open/close)
 
 	workers *worker.Pool
-	runners worker.Runners
 
 	relay *FileRelay
 
@@ -95,9 +93,6 @@ func New(cfg Config) *Runtime {
 		r.workers = cfg.Pool
 	} else {
 		r.workers = worker.NewPool(cfg.Workers)
-	}
-	if cfg.Runners != nil {
-		r.runners = *cfg.Runners
 	}
 	return r
 }

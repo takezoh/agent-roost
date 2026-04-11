@@ -2,7 +2,6 @@ package runtime
 
 import (
 	"github.com/take/agent-roost/state"
-	"github.com/take/agent-roost/driver"
 )
 
 // Backend interfaces. The runtime depends on these abstractions, not
@@ -174,8 +173,3 @@ func eventTypeName(ev state.Event) string {
 		return "Event"
 	}
 }
-
-// Compile-time interface assertions.
-var (
-	_ state.DriverState = driver.GenericState{}
-)

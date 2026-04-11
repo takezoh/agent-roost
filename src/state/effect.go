@@ -160,12 +160,18 @@ type EffReconcileWindows struct{}
 
 // === Async work ===
 
+// JobInput is implemented by all job input types. JobKind returns the
+// registry key used to look up the runner.
+type JobInput interface {
+	JobKind() string
+}
+
 // EffStartJob enqueues a job on the worker pool. JobID is allocated
 // by the reducer (via State.NextJobID) and recorded in State.Jobs so
 // the EvJobResult callback can be routed back to the right session.
 type EffStartJob struct {
 	JobID JobID
-	Input any
+	Input JobInput
 }
 
 // === isEffect markers ===

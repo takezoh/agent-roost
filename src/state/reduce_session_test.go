@@ -12,6 +12,10 @@ import (
 // reducers without importing state/driver (which would create an
 // import cycle).
 
+type stubJobInput struct{}
+
+func (stubJobInput) JobKind() string { return "stub" }
+
 type stubDriverState struct {
 	DriverStateBase
 	calls  []string
@@ -549,7 +553,7 @@ func TestReduceHookInjectsRoostSessionID(t *testing.T) {
 func TestPostProcessAssignsJobID(t *testing.T) {
 	s := New()
 	s.Now = time.Now()
-	patched, next := postProcessEffect(s, "abc", EffStartJob{Input: "test"})
+	patched, next := postProcessEffect(s, "abc", EffStartJob{Input: stubJobInput{}})
 	job := patched.(EffStartJob)
 	if job.JobID == 0 {
 		t.Error("JobID should be assigned")

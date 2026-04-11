@@ -1,11 +1,4 @@
-// Composed job runners. Each function returns a typed runner closure
-// that the effect interpreter passes to Submit[In, Out]. No reflect
-// dispatch — the type switch lives in interpret.go.
-//
-// lib packages export raw functions (git.DetectBranch,
-// cli.SummarizeWithHaiku, transcript.Tracker). This file combines
-// them into coherent jobs.
-package worker
+package driver
 
 import (
 	"context"
@@ -15,69 +8,59 @@ import (
 	"sync"
 	"time"
 
-	"github.com/take/agent-roost/driver"
 	"github.com/take/agent-roost/lib/claude/cli"
 	"github.com/take/agent-roost/lib/claude/transcript"
 	"github.com/take/agent-roost/lib/vcs"
+	"github.com/take/agent-roost/runtime/worker"
+	"github.com/take/agent-roost/state"
 )
 
-// Runners holds all runner functions used by the effect interpreter.
-type Runners struct {
-	CapturePane    func(driver.CapturePaneInput) (driver.CapturePaneResult, error)
-	BranchDetect   func(driver.BranchDetectInput) (driver.BranchDetectResult, error)
-	TranscriptParse func(driver.TranscriptParseInput) (driver.TranscriptParseResult, error)
-	HaikuSummary   func(driver.HaikuSummaryInput) (driver.HaikuSummaryResult, error)
-}
+var _ state.DriverState = GenericState{}
 
-// NewRunners constructs all runners. capturePaneFn is the tmux backend
-// dependency for capture-pane. The TranscriptParse and HaikuSummary
-// runners share a Tracker.
-func NewRunners(capturePaneFn func(string, int) (string, error)) Runners {
+func RegisterRunners(capturePaneFn func(string, int) (string, error)) {
+	worker.RegisterRunner("capture_pane", newCapturePane(capturePaneFn))
 	tp, hs := newClaudeRunners()
-	return Runners{
-		CapturePane:     newCapturePane(capturePaneFn),
-		BranchDetect:    newBranchDetect(),
-		TranscriptParse: tp,
-		HaikuSummary:    hs,
-	}
+	worker.RegisterRunner("transcript_parse", tp)
+	worker.RegisterRunner("haiku_summary", hs)
+	worker.RegisterRunner("branch_detect", newBranchDetect())
 }
 
-func newCapturePane(captureFunc func(string, int) (string, error)) func(driver.CapturePaneInput) (driver.CapturePaneResult, error) {
-	return func(in driver.CapturePaneInput) (driver.CapturePaneResult, error) {
+func newCapturePane(captureFunc func(string, int) (string, error)) func(CapturePaneInput) (CapturePaneResult, error) {
+	return func(in CapturePaneInput) (CapturePaneResult, error) {
 		content, err := captureFunc(string(in.WindowID), in.NLines)
 		if err != nil {
-			return driver.CapturePaneResult{}, err
+			return CapturePaneResult{}, err
 		}
 		h := sha256.Sum256([]byte(content))
-		return driver.CapturePaneResult{
+		return CapturePaneResult{
 			Content: content,
 			Hash:    hex.EncodeToString(h[:]),
 		}, nil
 	}
 }
 
-func newBranchDetect() func(driver.BranchDetectInput) (driver.BranchDetectResult, error) {
-	return func(in driver.BranchDetectInput) (driver.BranchDetectResult, error) {
+func newBranchDetect() func(BranchDetectInput) (BranchDetectResult, error) {
+	return func(in BranchDetectInput) (BranchDetectResult, error) {
 		r := vcs.DetectBranch(in.WorkingDir)
-		return driver.BranchDetectResult{Branch: r.Branch, Background: r.Background, Foreground: r.Foreground}, nil
+		return BranchDetectResult{Branch: r.Branch, Background: r.Background, Foreground: r.Foreground}, nil
 	}
 }
 
 func newClaudeRunners() (
-	func(driver.TranscriptParseInput) (driver.TranscriptParseResult, error),
-	func(driver.HaikuSummaryInput) (driver.HaikuSummaryResult, error),
+	func(TranscriptParseInput) (TranscriptParseResult, error),
+	func(HaikuSummaryInput) (HaikuSummaryResult, error),
 ) {
 	tracker := transcript.NewTracker()
 	var mu sync.Mutex
 
-	tp := func(in driver.TranscriptParseInput) (driver.TranscriptParseResult, error) {
+	tp := func(in TranscriptParseInput) (TranscriptParseResult, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		if _, err := tracker.Update(in.ClaudeUUID, in.Path); err != nil {
-			return driver.TranscriptParseResult{}, err
+			return TranscriptParseResult{}, err
 		}
 		snap := tracker.Snapshot(in.ClaudeUUID)
-		return driver.TranscriptParseResult{
+		return TranscriptParseResult{
 			Title:       snap.Title,
 			LastPrompt:  snap.LastPrompt,
 			StatusLine:  tracker.StatusLine(in.ClaudeUUID),
@@ -86,14 +69,14 @@ func newClaudeRunners() (
 		}, nil
 	}
 
-	hs := func(in driver.HaikuSummaryInput) (driver.HaikuSummaryResult, error) {
+	hs := func(in HaikuSummaryInput) (HaikuSummaryResult, error) {
 		mu.Lock()
 		turns := tracker.RecentRounds(in.ClaudeUUID, 2)
 		mu.Unlock()
 
 		turns = appendHookPromptTurn(turns, in.CurrentPrompt)
 		if len(turns) == 0 && in.PrevSummary == "" {
-			return driver.HaikuSummaryResult{}, nil
+			return HaikuSummaryResult{}, nil
 		}
 		prompt := formatSummaryPrompt(in.PrevSummary, turns)
 
@@ -101,15 +84,13 @@ func newClaudeRunners() (
 		defer cancel()
 		result, err := cli.SummarizeWithHaiku(ctx, prompt)
 		if err != nil {
-			return driver.HaikuSummaryResult{}, err
+			return HaikuSummaryResult{}, err
 		}
-		return driver.HaikuSummaryResult{Summary: strings.TrimSpace(result)}, nil
+		return HaikuSummaryResult{Summary: strings.TrimSpace(result)}, nil
 	}
 
 	return tp, hs
 }
-
-// === Prompt assembly helpers (ported from old claude_summary.go) ===
 
 const (
 	summaryEntryTextCap = 1500

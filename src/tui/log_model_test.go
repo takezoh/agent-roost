@@ -11,6 +11,19 @@ import (
 	"github.com/take/agent-roost/state"
 )
 
+// stubRenderer is a minimal TabRenderer for tests.
+type stubRenderer struct{}
+
+func (stubRenderer) Append([]byte) string { return "" }
+func (stubRenderer) Reset()              {}
+
+func TestMain(m *testing.M) {
+	state.RegisterTabRenderer[struct{}](state.TabKindTranscript, func(struct{}) state.TabRenderer {
+		return stubRenderer{}
+	})
+	os.Exit(m.Run())
+}
+
 func writeTempFile(t *testing.T, content string) *os.File {
 	t.Helper()
 	dir := t.TempDir()
