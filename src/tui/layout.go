@@ -3,7 +3,6 @@ package tui
 import (
 	"strings"
 
-	"charm.land/bubbles/v2/key"
 	"charm.land/lipgloss/v2"
 )
 
@@ -41,23 +40,6 @@ func Card(body string, selected bool, outerWidth int) string {
 		style = cardSelStyle
 	}
 	return style.Width(outerWidth).Render(body)
-}
-
-// Footer renders a help bar from a slice of key bindings.
-// Output is a single line prefixed with two spaces of left margin.
-func Footer(bindings []key.Binding) string {
-	var parts []string
-	for _, b := range bindings {
-		h := b.Help()
-		if h.Key == "" {
-			continue
-		}
-		parts = append(parts, helpKeyStyle.Render(h.Key)+" "+helpStyle.Render(h.Desc))
-	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return "  " + strings.Join(parts, helpStyle.Render("  ·  "))
 }
 
 // PanelChromeRows is the number of rows the Panel adds around the body

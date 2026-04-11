@@ -20,7 +20,6 @@ type KeyMap struct {
 	Filter4     key.Binding
 	Filter5     key.Binding
 	FilterReset key.Binding
-	FilterHelp  key.Binding // help-only entry shown in the footer
 }
 
 func DefaultKeyMap() KeyMap {
@@ -38,7 +37,6 @@ func DefaultKeyMap() KeyMap {
 		Filter4:     key.NewBinding(key.WithKeys("4")),
 		Filter5:     key.NewBinding(key.WithKeys("5")),
 		FilterReset: key.NewBinding(key.WithKeys("0")),
-		FilterHelp:  key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "0"), key.WithHelp("1-5/0", "filter")),
 	}
 }
 
