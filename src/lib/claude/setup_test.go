@@ -35,7 +35,7 @@ func TestRegisterHooks_NewFile(t *testing.T) {
 	entry := entries[0].(map[string]any)
 	hookArr := entry["hooks"].([]any)
 	hook := hookArr[0].(map[string]any)
-	if hook["command"] != "/usr/local/bin/roost event SessionStart" {
+	if hook["command"] != "/usr/local/bin/roost event claude" {
 		t.Errorf("command = %v", hook["command"])
 	}
 }
@@ -75,3 +75,4 @@ func TestRegisterHooks_Idempotent(t *testing.T) {
 		t.Errorf("expected nil for already registered, got %v", events)
 	}
 }
+
