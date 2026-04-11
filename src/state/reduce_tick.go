@@ -99,17 +99,19 @@ func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 
 	s.Sessions = cloneSessions(s.Sessions)
 	delete(s.Sessions, ownerID)
+	var deactivate []Effect
 	if s.ActiveSession == ownerID {
 		s.ActiveSession = ""
+		deactivate = []Effect{EffDeactivateSession{}}
 	}
 
-	effs := []Effect{
+	effs := append(deactivate, []Effect{
 		EffKillSessionWindow{SessionID: ownerID},
 		EffUnregisterWindow{SessionID: ownerID},
 		EffRespawnPane{Pane: "{sessionName}:0.0", Cmd: "{roostExe} --tui main"},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
-	}
+	}...)
 	return s, effs
 }
 
@@ -131,12 +133,14 @@ func reduceTmuxWindowVanished(s State, e EvTmuxWindowVanished) (State, []Effect)
 	}
 	s.Sessions = cloneSessions(s.Sessions)
 	delete(s.Sessions, e.SessionID)
+	var deactivate []Effect
 	if s.ActiveSession == e.SessionID {
 		s.ActiveSession = ""
+		deactivate = []Effect{EffDeactivateSession{}}
 	}
-	return s, []Effect{
+	return s, append(deactivate, []Effect{
 		EffUnregisterWindow{SessionID: e.SessionID},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
-	}
+	}...)
 }

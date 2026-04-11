@@ -246,6 +246,35 @@ func TestStopSessionUnknownReturnsError(t *testing.T) {
 	}
 }
 
+func TestStopActiveSessionEmitsDeactivate(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.ActiveSession = id
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "stop-session",
+		Payload: mustPayload(map[string]string{"session_id": string(id)}),
+	})
+	if _, ok := findEff[EffDeactivateSession](effs); !ok {
+		t.Error("expected EffDeactivateSession when stopping active session")
+	}
+}
+
+func TestStopInactiveSessionNoDeactivate(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	other := SessionID("other")
+	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.ActiveSession = other
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "stop-session",
+		Payload: mustPayload(map[string]string{"session_id": string(id)}),
+	})
+	if _, ok := findEff[EffDeactivateSession](effs); ok {
+		t.Error("should not emit EffDeactivateSession for inactive session")
+	}
+}
+
 // === reducePreviewSession / reduceSwitchSession ===
 
 func TestPreviewSessionActivatesAndBroadcasts(t *testing.T) {

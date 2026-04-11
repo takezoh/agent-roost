@@ -349,6 +349,65 @@ func TestAppendContent_PlainTextWhenNoRenderer(t *testing.T) {
 	}
 }
 
+// Regression: new sessions must stream EvtSessionFileLine immediately,
+// without requiring a tab switch first. This broke when buildSessionInfos
+// switched from r.state.Active to r.activeSession, which was only set after
+// swap-pane success — ActiveSessionID arrived empty, pickActiveSession
+// returned nil, and all streaming was silently dropped.
+func TestHandleLogEvent_SessionFileLineStreams(t *testing.T) {
+	m := NewLogModel("/var/log/roost.log", nil)
+	sess := sessionWithTranscript(t)
+
+	// Simulate the non-preview sessions-changed event with ActiveSessionID set
+	// (as emitted after the Bug 1 fix — r.activeSession set unconditionally).
+	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
+		Sessions:        []proto.SessionInfo{sess},
+		ActiveSessionID: sess.ID,
+		IsPreview:       false,
+	})
+	lm := model.(LogModel)
+	if lm.currentSession == nil {
+		t.Fatal("currentSession is nil — ActiveSessionID was not picked up")
+	}
+
+	// Use the EVENTS tab (TabKindText) so appendContent passes the line
+	// through as plain text (stubRenderer.Append returns "", making
+	// TRANSCRIPT tab unsuitable for viewport-content assertions).
+	eventsIdx, ok := lm.tabIndexByLabel("EVENTS")
+	if !ok {
+		t.Fatal("EVENTS tab not found")
+	}
+	lm.switchToTab(eventsIdx)
+
+	// Deliver a streaming line via EvtSessionFileLine with kind "text".
+	model, _ = lm.handleLogEvent(proto.EvtSessionFileLine{
+		SessionID: sess.ID,
+		Kind:      string(state.TabKindText),
+		Line:      "hello from events\n",
+	})
+	lm = model.(LogModel)
+	content := lm.viewport.GetContent()
+	if !strings.Contains(content, "hello from events") {
+		t.Errorf("viewport content %q does not contain streamed line", content)
+	}
+}
+
+func TestHandleLogEvent_SessionFileLineDroppedWhenNoActiveSession(t *testing.T) {
+	m := NewLogModel("/var/log/roost.log", nil)
+
+	// No sessions-changed event → currentSession is nil.
+	model, _ := m.handleLogEvent(proto.EvtSessionFileLine{
+		SessionID: "s1",
+		Kind:      string(testKindTranscript),
+		Line:      "should be dropped\n",
+	})
+	lm := model.(LogModel)
+	content := lm.viewport.GetContent()
+	if strings.Contains(content, "should be dropped") {
+		t.Errorf("line should be dropped when currentSession is nil, got %q", content)
+	}
+}
+
 func fixedWidth5(n int) string {
 	s := ""
 	for i := 0; i < 5; i++ {

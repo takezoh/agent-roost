@@ -99,6 +99,40 @@ func TestTickInitializesConnectorsOnlyOnce(t *testing.T) {
 	}
 }
 
+func TestPaneDiedActiveSessionEmitsDeactivate(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.ActiveSession = id
+	_, effs := Reduce(s, EvPaneDied{Pane: "{sessionName}:0.0", OwnerSessionID: id})
+	if _, ok := findEff[EffDeactivateSession](effs); !ok {
+		t.Error("expected EffDeactivateSession when active session's pane dies")
+	}
+}
+
+func TestTmuxWindowVanishedActiveSessionEmitsDeactivate(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.ActiveSession = id
+	_, effs := Reduce(s, EvTmuxWindowVanished{SessionID: id})
+	if _, ok := findEff[EffDeactivateSession](effs); !ok {
+		t.Error("expected EffDeactivateSession when active session's window vanishes")
+	}
+}
+
+func TestTmuxWindowVanishedInactiveSessionNoDeactivate(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	other := SessionID("other")
+	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.ActiveSession = other
+	_, effs := Reduce(s, EvTmuxWindowVanished{SessionID: id})
+	if _, ok := findEff[EffDeactivateSession](effs); ok {
+		t.Error("should not emit EffDeactivateSession for inactive session's window vanish")
+	}
+}
+
 func TestTickNoBroadcastWhenNoChange(t *testing.T) {
 	now := time.Now()
 	s := New()
