@@ -135,7 +135,6 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 		cs.LastBridgeTS = bridgeTS
 		cs.HangDetected = false
 		cs.PaneHash = ""
-		cs.SubagentDepth = 0
 		return d.handleSessionStart(cs, hp, e.Payload)
 	}
 
@@ -163,16 +162,8 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 		return cs, hp.logEffects()
 	}
 
-	// Track subagent depth from SubagentStart/SubagentStop hooks.
 	switch hp.HookEventName {
-	case "SubagentStart":
-		cs.SubagentDepth++
-		return cs, hp.logEffects()
-	case "SubagentStop":
-		cs.SubagentDepth--
-		if cs.SubagentDepth < 0 {
-			cs.SubagentDepth = 0
-		}
+	case "SubagentStart", "SubagentStop":
 		return cs, hp.logEffects()
 	}
 
@@ -180,16 +171,6 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 	// go through the state-change path if they map to a status.
 	status := hp.deriveState()
 	if status == "" {
-		return cs, hp.logEffects()
-	}
-
-	// When pending on a permission prompt and subagents are active,
-	// their PreToolUse/PostToolUse events (indistinguishable from
-	// main-agent events) would override Pending → Running. Block
-	// that transition while SubagentDepth > 0.
-	if cs.Status == state.StatusPending && status == "running" && cs.SubagentDepth > 0 {
-		slog.Debug("claude: suppressing pending→running while subagents active",
-			"event", hp.HookEventName, "tool", hp.ToolName, "depth", cs.SubagentDepth)
 		return cs, hp.logEffects()
 	}
 
