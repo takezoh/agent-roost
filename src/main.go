@@ -232,11 +232,9 @@ const paneLabel = `#{?#{==:#{window_index},0},` +
 func setupStatusBar(client *tmux.Client, sn string, prefix string) {
 	client.SetOption(sn, "status-left", " ")
 	client.SetOption(sn, "status-left-length", "120")
-	client.SetOption(sn, "status-right", paneHints(prefix))
-	client.SetOption(sn, "status-right-length", "120")
 	client.SetOption(sn, "status-style", "bg=#1d2021,fg=#ebdbb2")
 	client.Run("set-option", "-t", sn, "status-format[0]",
-		" "+paneLabel+"#{status-left}#[align=right]#{status-right} ")
+		" "+paneLabel+"#{status-left}#[align=right]"+paneHints(prefix)+" ")
 }
 
 // paneHints builds a tmux conditional format string that shows different
