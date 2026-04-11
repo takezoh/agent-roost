@@ -44,12 +44,24 @@ func (GitHubConnector) View(s state.ConnectorState) state.ConnectorView {
 		return state.ConnectorView{Label: "GitHub"}
 	}
 
-	summary := fmt.Sprintf("%d %s · %d %s",
-		len(gs.PRs), plural(len(gs.PRs), "PR", "PRs"),
-		len(gs.Issues), plural(len(gs.Issues), "Issue", "Issues"))
+	parts := []string{
+		fmt.Sprintf("%d %s", len(gs.PRs), plural(len(gs.PRs), "PR", "PRs")),
+		fmt.Sprintf("%d %s", len(gs.Issues), plural(len(gs.Issues), "Issue", "Issues")),
+	}
+	if len(gs.Runs) > 0 {
+		parts = append(parts, fmt.Sprintf("%d %s", len(gs.Runs), plural(len(gs.Runs), "Run", "Runs")))
+	}
+	summary := joinParts(parts)
 	prItems, issueItems := toItems(gs.PRs, gs.Issues)
+	runItems := toRunItems(gs.Runs)
 
 	var sections []state.ConnectorSection
+	if len(runItems) > 0 {
+		sections = append(sections, state.ConnectorSection{
+			Title: fmt.Sprintf("Actions (%d)", len(gs.Runs)),
+			Items: runItems,
+		})
+	}
 	if len(prItems) > 0 {
 		sections = append(sections, state.ConnectorSection{
 			Title: fmt.Sprintf("Pull Requests (%d)", len(gs.PRs)),
@@ -109,5 +121,17 @@ func githubStepJobResult(gs GitHubState, e state.CEvJobResult) (state.ConnectorS
 	gs.Available = true
 	gs.PRs = result.PRs
 	gs.Issues = result.Issues
+	gs.Runs = result.Runs
 	return gs, nil
+}
+
+func joinParts(parts []string) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	result := parts[0]
+	for _, p := range parts[1:] {
+		result += " · " + p
+	}
+	return result
 }

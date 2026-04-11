@@ -12,6 +12,7 @@ type GitHubFetchInput struct{}
 type GitHubFetchResult struct {
 	PRs    []PRInfo
 	Issues []IssueInfo
+	Runs   []RunInfo
 }
 
 func (GitHubFetchInput) JobKind() string { return "github_fetch" }
@@ -38,12 +39,38 @@ func toItems(prs []PRInfo, issues []IssueInfo) ([]state.ConnectorItem, []state.C
 	return prItems, issueItems
 }
 
-func formatItemTitle(number int, title string) string {
-	r := []rune(title)
-	if len(r) > 50 {
-		title = string(r[:49]) + "…"
+func toRunItems(runs []RunInfo) []state.ConnectorItem {
+	items := make([]state.ConnectorItem, len(runs))
+	for i, r := range runs {
+		symbol := "◌"
+		switch {
+		case r.Status == "completed" && r.Conclusion == "failure":
+			symbol = "✗"
+		case r.Status == "in_progress":
+			symbol = "▶"
+		case r.Status == "queued" || r.Status == "waiting" || r.Status == "pending":
+			symbol = "◌"
+		}
+		title := truncate(r.Name, 50)
+		items[i] = state.ConnectorItem{
+			Symbol: symbol,
+			Title:  title,
+			Meta:   r.Repo + " · " + r.Branch + " · " + formatAge(r.Age),
+		}
 	}
-	return fmt.Sprintf("#%d %s", number, title)
+	return items
+}
+
+func truncate(s string, max int) string {
+	r := []rune(s)
+	if len(r) > max {
+		return string(r[:max-1]) + "…"
+	}
+	return s
+}
+
+func formatItemTitle(number int, title string) string {
+	return fmt.Sprintf("#%d %s", number, truncate(title, 50))
 }
 
 func formatAge(d time.Duration) string {
