@@ -131,16 +131,18 @@ func reduceStopSession(s State, connID ConnID, reqID string, p StopSessionParams
 	}
 	s.Sessions = cloneSessions(s.Sessions)
 	delete(s.Sessions, sid)
+	var deactivate []Effect
 	if s.ActiveSession == sid {
 		s.ActiveSession = ""
+		deactivate = []Effect{EffDeactivateSession{}}
 	}
-	return s, []Effect{
+	return s, append(deactivate, []Effect{
 		EffKillSessionWindow{SessionID: sid},
 		EffUnregisterWindow{SessionID: sid},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
 		okResp(connID, reqID, nil),
-	}
+	}...)
 }
 
 func reducePreviewSession(s State, connID ConnID, reqID string, p PreviewSessionParams) (State, []Effect) {

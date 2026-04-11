@@ -381,12 +381,11 @@ func (r *Runtime) activateSession(sessID state.SessionID) {
 		}
 	}
 	// Bring target into pane 0.0.
+	r.activeSession = sessID
 	op := []string{"swap-pane", "-d", "-s", pane0, "-t", target + ".0"}
 	if err := r.cfg.Tmux.RunChain(op); err != nil {
 		slog.Warn("runtime: swap-pane in failed", "target", target, "err", err)
-		return
 	}
-	r.activeSession = sessID
 }
 
 // deactivateSession swaps the current active session back to its window,
