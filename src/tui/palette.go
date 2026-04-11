@@ -290,6 +290,9 @@ func (m PaletteModel) View() tea.View {
 		body = renderPaletteTool(m, innerWidth)
 
 	case phaseParamSelect:
+		if m.selectedTool == nil || m.paramIndex >= len(m.selectedTool.Params) {
+			break
+		}
 		p := m.selectedTool.Params[m.paramIndex]
 		title = m.selectedTool.Name
 		badge = p.Name

@@ -197,6 +197,32 @@ func TestRenderPaletteToolNoScrollWhenFits(t *testing.T) {
 	}
 }
 
+func TestPaletteViewDoesNotPanicAfterToolExecution(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.Register(tools.Tool{
+		Name: "two-param",
+		Params: []tools.Param{
+			{Name: "a", Options: func(ctx *tools.ToolContext) []string { return []string{"x"} }},
+			{Name: "b", Options: func(ctx *tools.ToolContext) []string { return []string{"y"} }},
+		},
+		Run: func(ctx *tools.ToolContext, args map[string]string) (*tools.ToolInvocation, error) {
+			return nil, nil
+		},
+	})
+
+	m := NewPaletteModel(registry, &tools.ToolContext{}, "two-param")
+	m.width = 60
+	m.height = 20
+	// Simulate state after all params filled and tool executed:
+	// paramIndex == len(Params), phase still phaseParamSelect
+	m.phase = phaseParamSelect
+	m.selectedTool = registry.Get("two-param")
+	m.paramIndex = len(m.selectedTool.Params)
+
+	// Must not panic
+	_ = m.View()
+}
+
 func TestPaletteIgnoresUnknownChainTarget(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(tools.Tool{
