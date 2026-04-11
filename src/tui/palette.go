@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -337,6 +339,17 @@ func renderPaletteTool(m PaletteModel, innerWidth int) string {
 	return b.String()
 }
 
+func paramOptionSuffix(raw string) string {
+	dir := filepath.Dir(raw)
+	if dir == "." {
+		return ""
+	}
+	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(dir, home) {
+		dir = "~" + dir[len(home):]
+	}
+	return descStyle.Render("  " + dir)
+}
+
 func renderPaletteParam(m PaletteModel, innerWidth int) string {
 	var b strings.Builder
 	b.WriteString(promptStyle.Render("> "))
@@ -361,10 +374,11 @@ func renderPaletteParam(m PaletteModel, innerWidth int) string {
 	}
 	for i := start; i < end; i++ {
 		display := tools.ProjectDisplayName(filtered[i])
+		suffix := paramOptionSuffix(filtered[i])
 		if i == m.paramCursor {
-			b.WriteString(selItemStyle.Width(innerWidth).MaxHeight(1).Render(fmt.Sprintf("▸ %s", display)))
+			b.WriteString(selItemStyle.Width(innerWidth).MaxHeight(1).Render(fmt.Sprintf("▸ %s", display) + suffix))
 		} else {
-			b.WriteString(itemStyle.Width(innerWidth).MaxHeight(1).Render(fmt.Sprintf("  %s", display)))
+			b.WriteString(itemStyle.Width(innerWidth).MaxHeight(1).Render(fmt.Sprintf("  %s", display) + suffix))
 		}
 		if i < end-1 || end < total {
 			b.WriteString("\n")
