@@ -137,6 +137,21 @@ func overlayCardBorderTitle(rendered, title, badge string, outerWidth int, fg co
 	}
 
 	fill := middleW - titleW - badgeW
+	if fill < 0 && badge != "" {
+		// Badge too long — try truncating it.
+		// Minimum badge frame: " X… ─" = 4 chars around the badge text.
+		maxBadge := middleW - titleW - 4
+		if maxBadge >= 4 {
+			badge = truncate(badge, maxBadge)
+			badgeW = 3 + lipgloss.Width(badge)
+			fill = middleW - titleW - badgeW
+		} else {
+			// Drop badge entirely, show title only.
+			badge = ""
+			badgeW = 1
+			fill = middleW - titleW - badgeW
+		}
+	}
 	if fill < 0 {
 		return rendered
 	}
