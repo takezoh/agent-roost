@@ -88,6 +88,10 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 	if len(m.items) == 0 {
 		return m, nil
 	}
+	bodyHeight := m.height - sessionsHeaderRows
+	if bodyHeight >= m.totalItemRows() {
+		return m, nil
+	}
 	mouse := msg.Mouse()
 	switch mouse.Button {
 	case tea.MouseWheelUp:

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/take/agent-roost/proto"
 	"github.com/take/agent-roost/state"
 )
@@ -155,6 +156,50 @@ func TestRowToItemIndexStickyHeaderNoHoverJump(t *testing.T) {
 	// handleMouseMotion should skip cursor update because idx < m.offset.
 	if idx >= m.offset {
 		t.Error("sticky header index should be less than offset")
+	}
+}
+
+func TestTotalItemRows(t *testing.T) {
+	m := Model{items: makeItems(2, 3, 1)}
+	if got := m.totalItemRows(); got != 6 {
+		t.Errorf("totalItemRows = %d, want 6", got)
+	}
+}
+
+func TestTotalItemRowsEmpty(t *testing.T) {
+	m := Model{}
+	if got := m.totalItemRows(); got != 0 {
+		t.Errorf("totalItemRows = %d, want 0", got)
+	}
+}
+
+func TestHandleMouseWheelNoScrollWhenFits(t *testing.T) {
+	m := Model{
+		items:  makeItems(2, 2, 2), // total 6 rows
+		height: sessionsHeaderRows + 10, // bodyHeight=10, fits
+		offset: 0,
+		cursor: 0,
+	}
+	msg := tea.MouseWheelMsg{Button: tea.MouseWheelDown}
+	result, _ := m.handleMouseWheel(msg)
+	got := result.(Model).offset
+	if got != 0 {
+		t.Errorf("offset = %d, want 0 (should not scroll when content fits)", got)
+	}
+}
+
+func TestHandleMouseWheelScrollsWhenOverflows(t *testing.T) {
+	m := Model{
+		items:  makeItems(3, 3, 3), // total 9 rows
+		height: sessionsHeaderRows + 5, // bodyHeight=5, overflows
+		offset: 0,
+		cursor: 0,
+	}
+	msg := tea.MouseWheelMsg{Button: tea.MouseWheelDown}
+	result, _ := m.handleMouseWheel(msg)
+	got := result.(Model).offset
+	if got == 0 {
+		t.Error("offset should have changed when content overflows")
 	}
 }
 

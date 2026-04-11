@@ -281,6 +281,14 @@ func (m *Model) restoreCursor(prev listItem) {
 	}
 }
 
+func (m Model) totalItemRows() int {
+	rows := 0
+	for _, item := range m.items {
+		rows += item.rows
+	}
+	return rows
+}
+
 // ensureCursorVisible adjusts m.offset so that the cursor item fits within
 // bodyHeight rows. Items must already have their .rows set.
 func (m *Model) ensureCursorVisible(bodyHeight int) {
