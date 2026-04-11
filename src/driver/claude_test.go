@@ -442,6 +442,130 @@ func TestClaudeHookSubagentEventsDoNotChangeStatus(t *testing.T) {
 	}
 }
 
+func TestClaudeSubagentDepthTracking(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	ts := int64(100)
+
+	send := func(event string) ClaudeState {
+		ts++
+		p := hookPayloadRaw(map[string]string{
+			"session_id":      "uuid",
+			"hook_event_name": event,
+		}, now)
+		p["bridge_ts"] = ts
+		next, _ := d.handleHook(cs, state.DEvHook{Event: event, Payload: p})
+		cs = next
+		return next
+	}
+
+	send("SubagentStart")
+	if cs.SubagentDepth != 1 {
+		t.Fatalf("SubagentDepth = %d, want 1", cs.SubagentDepth)
+	}
+	send("SubagentStart")
+	if cs.SubagentDepth != 2 {
+		t.Fatalf("SubagentDepth = %d, want 2", cs.SubagentDepth)
+	}
+	send("SubagentStop")
+	if cs.SubagentDepth != 1 {
+		t.Fatalf("SubagentDepth = %d, want 1", cs.SubagentDepth)
+	}
+	send("SubagentStop")
+	if cs.SubagentDepth != 0 {
+		t.Fatalf("SubagentDepth = %d, want 0", cs.SubagentDepth)
+	}
+	// Extra stop should not go negative.
+	send("SubagentStop")
+	if cs.SubagentDepth != 0 {
+		t.Fatalf("SubagentDepth = %d, want 0 (clamped)", cs.SubagentDepth)
+	}
+}
+
+func TestClaudePendingNotOverriddenBySubagentToolUse(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.TranscriptPath = "/tmp/t.jsonl"
+	ts := int64(100)
+
+	hook := func(fields map[string]string) (ClaudeState, []state.Effect) {
+		ts++
+		p := hookPayloadRaw(fields, now)
+		p["bridge_ts"] = ts
+		next, effs := d.handleHook(cs, state.DEvHook{Event: fields["hook_event_name"], Payload: p})
+		cs = next
+		return next, effs
+	}
+
+	// Enter pending.
+	hook(map[string]string{
+		"session_id": "uuid", "hook_event_name": "Notification",
+		"notification_type": "permission_prompt",
+	})
+	if cs.Status != state.StatusPending {
+		t.Fatalf("Status = %v, want Pending", cs.Status)
+	}
+
+	// A subagent starts.
+	hook(map[string]string{
+		"session_id": "uuid", "hook_event_name": "SubagentStart",
+	})
+	if cs.SubagentDepth != 1 {
+		t.Fatalf("SubagentDepth = %d, want 1", cs.SubagentDepth)
+	}
+
+	// Subagent tool events must NOT override Pending.
+	for _, tt := range []struct {
+		event, tool string
+	}{
+		{"PreToolUse", "Bash"},
+		{"PostToolUse", "Bash"},
+		{"PreToolUse", "Read"},
+		{"PostToolUse", "Edit"},
+	} {
+		next, effs := hook(map[string]string{
+			"session_id": "uuid", "hook_event_name": tt.event,
+			"tool_name": tt.tool,
+		})
+		if next.Status != state.StatusPending {
+			t.Errorf("%s %s: Status = %v, want Pending", tt.event, tt.tool, next.Status)
+		}
+		if _, ok := findEffect[state.EffEventLogAppend](effs); !ok {
+			t.Errorf("%s %s: expected EffEventLogAppend", tt.event, tt.tool)
+		}
+	}
+
+	// After subagent stops, PostToolUse CAN transition to Running.
+	hook(map[string]string{
+		"session_id": "uuid", "hook_event_name": "SubagentStop",
+	})
+	if cs.SubagentDepth != 0 {
+		t.Fatalf("SubagentDepth = %d, want 0", cs.SubagentDepth)
+	}
+	next, _ := hook(map[string]string{
+		"session_id": "uuid", "hook_event_name": "PostToolUse",
+		"tool_name": "Bash",
+	})
+	if next.Status != state.StatusRunning {
+		t.Errorf("After subagent stop: Status = %v, want Running", next.Status)
+	}
+}
+
+func TestClaudeSessionStartResetsSubagentDepth(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.SubagentDepth = 3
+
+	p := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "SessionStart",
+	}, now)
+	p["bridge_ts"] = int64(100)
+	next, _ := d.handleHook(cs, state.DEvHook{Event: "SessionStart", Payload: p})
+	if next.SubagentDepth != 0 {
+		t.Errorf("SubagentDepth = %d, want 0 after SessionStart", next.SubagentDepth)
+	}
+}
+
 // === Tick handling (branch detection) ===
 
 func TestClaudeTickInactiveIdleDoesNothing(t *testing.T) {
