@@ -64,6 +64,42 @@ func TestTickProcessesRunningSessions(t *testing.T) {
 	}
 }
 
+func TestTickInitializesConnectors(t *testing.T) {
+	orig := connectorRegistry
+	connectorRegistry = map[string]Connector{}
+	defer func() { connectorRegistry = orig }()
+
+	RegisterConnector(stubConnector{name: "test"})
+
+	s := New()
+	next, _ := Reduce(s, EvTick{Now: time.Now()})
+	if !next.ConnectorsReady {
+		t.Error("ConnectorsReady should be true after first tick")
+	}
+	if _, ok := next.Connectors["test"]; !ok {
+		t.Error("Connector 'test' should be initialized")
+	}
+}
+
+func TestTickInitializesConnectorsOnlyOnce(t *testing.T) {
+	orig := connectorRegistry
+	connectorRegistry = map[string]Connector{}
+	defer func() { connectorRegistry = orig }()
+
+	RegisterConnector(stubConnector{name: "test"})
+
+	s := New()
+	s.ConnectorsReady = true
+	s.Connectors["test"] = stubConnectorState{Val: 42}
+
+	next, _ := Reduce(s, EvTick{Now: time.Now()})
+	cs := next.Connectors["test"].(stubConnectorState)
+	// Should Step (Val incremented) but not re-initialize (Val would be 0).
+	if cs.Val != 43 {
+		t.Errorf("Val = %d, want 43 (Step once, not re-initialized)", cs.Val)
+	}
+}
+
 func TestTickNoBroadcastWhenNoChange(t *testing.T) {
 	now := time.Now()
 	s := New()

@@ -11,11 +11,6 @@ import (
 	"github.com/takezoh/agent-roost/state"
 )
 
-// sessionsHeaderRows is the number of rendered rows before the first list
-// item inside the Sessions view (header line + filter bar + blank).
-// The mouse row→item mapping relies on this staying in sync with View().
-const sessionsHeaderRows = 3
-
 // maxSubtitleLines caps the number of non-empty subtitle lines rendered
 // in a session card.
 const maxSubtitleLines = 5
@@ -32,7 +27,12 @@ func (m Model) View() tea.View {
 	filterBar, _ := filterBarLayout(m.filter)
 	body := renderSessionsBody(&m, width)
 
-	screen := lipgloss.JoinVertical(lipgloss.Left, header, filterBar, "", body)
+	parts := []string{header, filterBar, ""}
+	if summary := m.connectorSummaryLine(); summary != "" {
+		parts = append(parts, "  "+mutedStyle.Render(summary))
+	}
+	parts = append(parts, body)
+	screen := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	v := tea.NewView(screen)
 	v.AltScreen = true
@@ -58,8 +58,8 @@ func renderSessionsBody(m *Model, innerWidth int) string {
 	}
 
 	// Compute available body height and adjust scroll offset.
-	// Reserve rows for the chrome: header area (sessionsHeaderRows).
-	bodyHeight := m.height - sessionsHeaderRows
+	// Reserve rows for the chrome: header area.
+	bodyHeight := m.height - m.headerRowCount()
 	if bodyHeight < 3 {
 		bodyHeight = 3
 	}

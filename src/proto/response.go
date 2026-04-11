@@ -34,8 +34,9 @@ func (RespCreateSession) isResponse() {}
 // EvtSessionsChanged. Carries the full session table + the active
 // window id.
 type RespSessions struct {
-	Sessions       []SessionInfo `json:"sessions"`
-	ActiveWindowID string        `json:"active_window_id,omitempty"`
+	Sessions       []SessionInfo   `json:"sessions"`
+	ActiveWindowID string          `json:"active_window_id,omitempty"`
+	Connectors     []ConnectorInfo `json:"connectors,omitempty"`
 }
 
 func (RespSessions) isResponse() {}
@@ -94,6 +95,16 @@ func (si SessionInfo) StateChangedAtTime() time.Time {
 	}
 	t, _ := time.Parse(time.RFC3339, si.StateChangedAt)
 	return t
+}
+
+// ConnectorInfo is the per-connector wire payload carried inside
+// EvtSessionsChanged. Mirrors state.ConnectorView for IPC transport.
+type ConnectorInfo struct {
+	Name      string                 `json:"name"`
+	Label     string                 `json:"label"`
+	Summary   string                 `json:"summary"`
+	Available bool                   `json:"available"`
+	Sections  []state.ConnectorSection `json:"sections,omitempty"`
 }
 
 // baseName mirrors filepath.Base without importing filepath, so the

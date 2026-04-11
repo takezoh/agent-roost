@@ -557,6 +557,32 @@ func TestJobResultRoutesToDriver(t *testing.T) {
 	}
 }
 
+func TestJobResultRoutesToConnector(t *testing.T) {
+	orig := connectorRegistry
+	connectorRegistry = map[string]Connector{}
+	defer func() { connectorRegistry = orig }()
+
+	RegisterConnector(stubConnector{name: "test"})
+
+	s := New()
+	s.ConnectorsReady = true
+	s.Connectors["test"] = stubConnectorState{}
+	s.Jobs[1] = JobMeta{Connector: "test"}
+
+	next, effs := Reduce(s, EvJobResult{JobID: 1, Result: "data"})
+	if _, ok := next.Jobs[1]; ok {
+		t.Error("job should be removed")
+	}
+	if countEff[EffBroadcastSessionsChanged](effs) != 1 {
+		t.Errorf("broadcast count = %d, want 1", countEff[EffBroadcastSessionsChanged](effs))
+	}
+	// Connector state should have been stepped (Val incremented).
+	cs := next.Connectors["test"].(stubConnectorState)
+	if cs.Val != 1 {
+		t.Errorf("Val = %d, want 1", cs.Val)
+	}
+}
+
 // === reduceFileChanged ===
 
 func TestFileChangedRoutes(t *testing.T) {

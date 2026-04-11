@@ -15,6 +15,22 @@ func reduceTick(s State, e EvTick) (State, []Effect) {
 		}
 	})
 
+	// Initialize connectors (once).
+	if !s.ConnectorsReady && len(AllConnectors()) > 0 {
+		s.ConnectorsReady = true
+		s.Connectors = cloneConnectors(s.Connectors)
+		for _, c := range AllConnectors() {
+			s.Connectors[c.Name()] = c.NewState()
+		}
+	}
+
+	// Step all connectors.
+	s, connEffs := stepConnectors(s)
+	effs = append(effs, connEffs...)
+	if len(connEffs) > 0 {
+		changed = true
+	}
+
 	// Reconcile: compare live tmux windows with state sessions.
 	// Any session whose window has vanished gets EvTmuxWindowVanished.
 	effs = append(effs, EffReconcileWindows{})
@@ -30,6 +46,19 @@ func reduceTick(s State, e EvTick) (State, []Effect) {
 
 	if changed {
 		effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
+	}
+	return s, effs
+}
+
+func stepConnectors(s State) (State, []Effect) {
+	var effs []Effect
+	for _, c := range AllConnectors() {
+		next, cEffs, ok := stepConnector(s, c.Name(), CEvTick{Now: s.Now})
+		if !ok {
+			continue
+		}
+		s = next
+		effs = append(effs, cEffs...)
 	}
 	return s, effs
 }

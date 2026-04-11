@@ -10,6 +10,7 @@ import (
 type MainModel struct {
 	client          *proto.Client
 	sessions        []proto.SessionInfo
+	connectors      []proto.ConnectorInfo
 	selectedProject string
 	width           int
 	height          int
@@ -54,6 +55,7 @@ func (m MainModel) handleEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 	switch e := ev.(type) {
 	case proto.EvtSessionsChanged:
 		m.sessions = e.Sessions
+		m.connectors = e.Connectors
 	case proto.EvtProjectSelected:
 		m.selectedProject = e.Project
 	}
@@ -62,11 +64,11 @@ func (m MainModel) handleEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 
 func (m MainModel) requestSessions() tea.Cmd {
 	return func() tea.Msg {
-		sessions, _, err := m.client.ListSessions()
+		sessions, _, connectors, err := m.client.ListSessions()
 		if err != nil {
 			return nil
 		}
-		return mainEventMsg{event: proto.EvtSessionsChanged{Sessions: sessions}}
+		return mainEventMsg{event: proto.EvtSessionsChanged{Sessions: sessions, Connectors: connectors}}
 	}
 }
 

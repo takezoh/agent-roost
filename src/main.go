@@ -21,6 +21,7 @@ import (
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/runtime"
 	"github.com/takezoh/agent-roost/runtime/worker"
+	"github.com/takezoh/agent-roost/connector"
 	statedriver "github.com/takezoh/agent-roost/driver"
 	"github.com/takezoh/agent-roost/tmux"
 	"github.com/takezoh/agent-roost/tools"
@@ -90,6 +91,8 @@ func runCoordinator() {
 	sockPath := filepath.Join(dataDir, "roost.sock")
 
 	statedriver.RegisterRunners(tmuxBackend.CapturePane)
+	connector.RegisterDefaults()
+	connector.RegisterRunners()
 	pool := worker.NewPool(4)
 
 	rt := runtime.New(runtime.Config{

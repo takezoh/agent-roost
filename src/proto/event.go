@@ -19,9 +19,10 @@ const (
 // EvtSessionsChanged carries the current session table. Sent on
 // every state change that affects what the TUI should render.
 type EvtSessionsChanged struct {
-	Sessions       []SessionInfo `json:"sessions"`
-	ActiveWindowID string        `json:"active_window_id,omitempty"`
-	IsPreview      bool          `json:"is_preview,omitempty"`
+	Sessions       []SessionInfo   `json:"sessions"`
+	ActiveWindowID string          `json:"active_window_id,omitempty"`
+	IsPreview      bool            `json:"is_preview,omitempty"`
+	Connectors     []ConnectorInfo `json:"connectors,omitempty"`
 }
 
 func (EvtSessionsChanged) isEvent()          {}

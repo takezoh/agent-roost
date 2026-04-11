@@ -9,6 +9,10 @@ import (
 	"github.com/takezoh/agent-roost/state"
 )
 
+// baseHeaderRows is the header row count when no connectors are present
+// (header + filter bar + blank = 3). Test models have no connectors.
+const baseHeaderRows = 3
+
 func makeItems(rowCounts ...int) []listItem {
 	items := make([]listItem, len(rowCounts))
 	for i, r := range rowCounts {
@@ -116,7 +120,7 @@ func TestRowToItemIndexWithStickyHeader(t *testing.T) {
 		items:  items,
 		offset: 1, // project header scrolled out → sticky header shown
 	}
-	// Row layout (sessionsHeaderRows=3):
+	// Row layout (baseHeaderRows=3):
 	//   row 0-2: header area
 	//   row 3:   "↑ N more"
 	//   row 4:   sticky "alpha" header
@@ -147,7 +151,7 @@ func TestRowToItemIndexStickyHeaderNoHoverJump(t *testing.T) {
 		items:  items,
 		offset: 1,
 	}
-	// Sticky header is at row 4 (sessionsHeaderRows=3, +1 for ↑ indicator).
+	// Sticky header is at row 4 (baseHeaderRows=3, +1 for ↑ indicator).
 	// rowToItemIndex returns 0 (project header index), which is < m.offset.
 	idx := m.rowToItemIndex(4)
 	if idx != 0 {
@@ -176,7 +180,7 @@ func TestTotalItemRowsEmpty(t *testing.T) {
 func TestHandleMouseWheelNoScrollWhenFits(t *testing.T) {
 	m := Model{
 		items:  makeItems(2, 2, 2), // total 6 rows
-		height: sessionsHeaderRows + 10, // bodyHeight=10, fits
+		height: baseHeaderRows + 10, // bodyHeight=10, fits
 		offset: 0,
 		cursor: 0,
 	}
@@ -191,7 +195,7 @@ func TestHandleMouseWheelNoScrollWhenFits(t *testing.T) {
 func TestHandleMouseWheelScrollsWhenOverflows(t *testing.T) {
 	m := Model{
 		items:  makeItems(3, 3, 3), // total 9 rows
-		height: sessionsHeaderRows + 5, // bodyHeight=5, overflows
+		height: baseHeaderRows + 5, // bodyHeight=5, overflows
 		offset: 0,
 		cursor: 0,
 	}

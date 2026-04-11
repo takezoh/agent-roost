@@ -51,7 +51,7 @@ func (r *Runtime) translateResponseBody(body any) proto.Response {
 		}
 	case state.SessionsReply:
 		infos, active := r.buildSessionInfos()
-		return proto.RespSessions{Sessions: infos, ActiveWindowID: active}
+		return proto.RespSessions{Sessions: infos, ActiveWindowID: active, Connectors: r.buildConnectorInfos()}
 	case state.ActiveWindowReply:
 		return proto.RespActiveWindow{ActiveWindowID: b.ActiveWindowID}
 	}
@@ -81,6 +81,7 @@ func (r *Runtime) broadcastSessionsChanged(preview bool) {
 		Sessions:       infos,
 		ActiveWindowID: active,
 		IsPreview:      preview,
+		Connectors:     r.buildConnectorInfos(),
 	}
 	wire, err := proto.EncodeEvent(ev)
 	if err != nil {
@@ -199,6 +200,35 @@ func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
 		infos = append(infos, info)
 	}
 	return infos, string(r.state.Active)
+}
+
+// buildConnectorInfos materializes the current connector states into
+// the proto.ConnectorInfo wire format. Calls each connector's View()
+// pure getter to fill the payload. Only includes available connectors.
+func (r *Runtime) buildConnectorInfos() []proto.ConnectorInfo {
+	connectors := state.AllConnectors()
+	if len(connectors) == 0 {
+		return nil
+	}
+	var infos []proto.ConnectorInfo
+	for _, c := range connectors {
+		cs := r.state.Connectors[c.Name()]
+		if cs == nil {
+			continue
+		}
+		view := c.View(cs)
+		if !view.Available {
+			continue
+		}
+		infos = append(infos, proto.ConnectorInfo{
+			Name:      c.Name(),
+			Label:     view.Label,
+			Summary:   view.Summary,
+			Available: view.Available,
+			Sections:  view.Sections,
+		})
+	}
+	return infos
 }
 
 func typeNameOf(v any) string {

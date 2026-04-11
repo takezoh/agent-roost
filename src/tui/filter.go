@@ -123,9 +123,8 @@ func filterBarLayout(f statusFilter) (string, []chipHitbox) {
 }
 
 // hitTestFilterChip maps a mouse coordinate to a filter chip. The filter bar
-// is rendered as the second row of the sessions screen (header=0, filter=1,
-// blank=2, items start at sessionsHeaderRows). Returns hit=false when the
-// click is not on a chip.
+// is rendered as the second row of the sessions screen (header=0, filter=1).
+// Returns hit=false when the click is not on a chip.
 func (m Model) hitTestFilterChip(x, y int) (status state.Status, isAll bool, hit bool) {
 	const filterRow = 1
 	if y != filterRow {

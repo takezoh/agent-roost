@@ -45,17 +45,18 @@ func (c *Client) StopSession(id string) error {
 	return err
 }
 
-// ListSessions returns the current session table + active window id.
-func (c *Client) ListSessions() ([]SessionInfo, string, error) {
+// ListSessions returns the current session table, active window id,
+// and connector info.
+func (c *Client) ListSessions() ([]SessionInfo, string, []ConnectorInfo, error) {
 	resp, err := c.sendDefault(CmdListSessions{})
 	if err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 	r, ok := resp.(RespSessions)
 	if !ok {
-		return nil, "", errors.New("proto: unexpected response type for list-sessions")
+		return nil, "", nil, errors.New("proto: unexpected response type for list-sessions")
 	}
-	return r.Sessions, r.ActiveWindowID, nil
+	return r.Sessions, r.ActiveWindowID, r.Connectors, nil
 }
 
 // PreviewSession swaps a session into pane 0.0 without focusing it.
