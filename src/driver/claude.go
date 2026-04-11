@@ -38,6 +38,11 @@ const (
 
 	// Re-detect branch at most every N seconds (only when active).
 	claudeBranchRefreshInterval = 30 * time.Second
+
+	// Hang detection: if the pane content hasn't changed for this long
+	// while the session is Running (and no subagents are active), treat
+	// the agent as stale and transition to Idle.
+	claudeHangThreshold = 120 * time.Second
 )
 
 // ClaudeState is the per-session private state for the Claude driver.
@@ -76,11 +81,17 @@ type ClaudeState struct {
 
 	// Summary cache + in-flight guards. Each *InFlight bool prevents
 	// duplicate jobs from being scheduled while one is still pending.
-	Summary             string
-	SummaryInFlight     bool
-	TranscriptInFlight  bool
-	BranchInFlight      bool
-	WatchedFile   string // currently fsnotify-watched path; empty = not watched
+	Summary            string
+	SummaryInFlight    bool
+	TranscriptInFlight bool
+	BranchInFlight     bool
+	CaptureInFlight    bool
+	WatchedFile        string // currently fsnotify-watched path; empty = not watched
+
+	// Hang detection: pane-capture hash comparison for background sessions.
+	PaneHash     string    // SHA256 of last captured pane content
+	PaneHashAt   time.Time // when PaneHash last changed (or first set)
+	HangDetected bool      // set when hang threshold fires; cleared on next hook
 }
 
 // ClaudeDriver is the stateless plugin value. The home directory is

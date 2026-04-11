@@ -398,12 +398,13 @@ func TestClaudeHookPreToolUseThenNotification(t *testing.T) {
 
 // === Tick handling (branch detection) ===
 
-func TestClaudeTickInactiveDoesNothing(t *testing.T) {
+func TestClaudeTickInactiveIdleDoesNothing(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.WorkingDir = "/work"
+	// Idle (default) + inactive → no effects
 	_, effs := d.handleTick(cs, state.DEvTick{Now: now, Active: false})
 	if len(effs) != 0 {
-		t.Errorf("inactive tick effs = %d, want 0", len(effs))
+		t.Errorf("inactive idle tick effs = %d, want 0", len(effs))
 	}
 }
 
@@ -993,5 +994,227 @@ func TestResolveTranscriptPathPrefersExplicit(t *testing.T) {
 	got := d.resolveTranscriptPath(cs)
 	if got != "/explicit/path.jsonl" {
 		t.Errorf("resolveTranscriptPath = %q, want explicit", got)
+	}
+}
+
+// === Hang detection (pane capture) ===
+
+func TestClaudeTickEmitsCapturePaneWhenBackgroundRunning(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.Status = state.StatusRunning
+	next, effs := d.handleTick(cs, state.DEvTick{
+		Now: now, Active: false, WindowID: "@42",
+	})
+	if !next.CaptureInFlight {
+		t.Error("CaptureInFlight should be true")
+	}
+	job, ok := findEffect[state.EffStartJob](effs)
+	if !ok {
+		t.Fatal("expected EffStartJob for CapturePaneInput")
+	}
+	cp, ok := job.Input.(CapturePaneInput)
+	if !ok {
+		t.Fatalf("job input type = %T, want CapturePaneInput", job.Input)
+	}
+	if cp.WindowID != "@42" {
+		t.Errorf("WindowID = %q, want @42", cp.WindowID)
+	}
+}
+
+func TestClaudeTickSkipsCaptureWhenActive(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.Status = state.StatusRunning
+	_, effs := d.handleTick(cs, state.DEvTick{
+		Now: now, Active: true, WindowID: "@42",
+	})
+	for _, e := range effs {
+		if j, ok := e.(state.EffStartJob); ok {
+			if _, ok := j.Input.(CapturePaneInput); ok {
+				t.Error("should not capture pane for active session")
+			}
+		}
+	}
+}
+
+func TestClaudeTickSkipsCaptureWhenNotRunning(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.Status = state.StatusWaiting
+	_, effs := d.handleTick(cs, state.DEvTick{
+		Now: now, Active: false, WindowID: "@42",
+	})
+	for _, e := range effs {
+		if j, ok := e.(state.EffStartJob); ok {
+			if _, ok := j.Input.(CapturePaneInput); ok {
+				t.Error("should not capture pane when not Running")
+			}
+		}
+	}
+}
+
+func TestClaudeTickSkipsCaptureWhenInFlight(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.Status = state.StatusRunning
+	cs.CaptureInFlight = true
+	_, effs := d.handleTick(cs, state.DEvTick{
+		Now: now, Active: false, WindowID: "@42",
+	})
+	for _, e := range effs {
+		if j, ok := e.(state.EffStartJob); ok {
+			if _, ok := j.Input.(CapturePaneInput); ok {
+				t.Error("should not schedule duplicate capture")
+			}
+		}
+	}
+}
+
+func TestClaudeCapturePrimesBaseline(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.CaptureInFlight = true
+	now := time.Date(2026, 4, 10, 12, 1, 0, 0, time.UTC)
+	next, _ := d.handleJobResult(cs, state.DEvJobResult{
+		Now:    now,
+		Result: CapturePaneResult{Content: "hello", Hash: "abc123"},
+	})
+	if next.CaptureInFlight {
+		t.Error("CaptureInFlight should be cleared")
+	}
+	if next.PaneHash != "abc123" {
+		t.Errorf("PaneHash = %q, want abc123", next.PaneHash)
+	}
+	if !next.PaneHashAt.Equal(now) {
+		t.Error("PaneHashAt should be set to now")
+	}
+	if next.Status != state.StatusIdle { // default from newClaude
+		t.Error("status should not change on priming")
+	}
+}
+
+func TestClaudeCaptureResetsTimer(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.CaptureInFlight = true
+	cs.PaneHash = "old-hash"
+	cs.PaneHashAt = time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	now := time.Date(2026, 4, 10, 12, 1, 0, 0, time.UTC)
+	next, _ := d.handleJobResult(cs, state.DEvJobResult{
+		Now:    now,
+		Result: CapturePaneResult{Content: "changed", Hash: "new-hash"},
+	})
+	if next.PaneHash != "new-hash" {
+		t.Errorf("PaneHash = %q, want new-hash", next.PaneHash)
+	}
+	if !next.PaneHashAt.Equal(now) {
+		t.Error("PaneHashAt should be updated on hash change")
+	}
+}
+
+func TestClaudeCaptureUnchangedKeepsTimer(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.CaptureInFlight = true
+	orig := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	cs.PaneHash = "same-hash"
+	cs.PaneHashAt = orig
+	now := time.Date(2026, 4, 10, 12, 1, 0, 0, time.UTC)
+	next, _ := d.handleJobResult(cs, state.DEvJobResult{
+		Now:    now,
+		Result: CapturePaneResult{Content: "same", Hash: "same-hash"},
+	})
+	if !next.PaneHashAt.Equal(orig) {
+		t.Error("PaneHashAt should not change when hash is same")
+	}
+}
+
+func TestClaudeHangDetectionTriggersIdle(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.Status = state.StatusRunning
+	cs.StatusChangedAt = time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	cs.PaneHash = "stale"
+	cs.PaneHashAt = cs.StatusChangedAt
+
+	// Tick at threshold+1s
+	now := cs.StatusChangedAt.Add(claudeHangThreshold + time.Second)
+	next, effs := d.handleTick(cs, state.DEvTick{
+		Now: now, Active: false, WindowID: "@42",
+	})
+	if next.Status != state.StatusIdle {
+		t.Errorf("Status = %v, want Idle", next.Status)
+	}
+	if !next.HangDetected {
+		t.Error("HangDetected should be true")
+	}
+	if !next.StatusChangedAt.Equal(now) {
+		t.Error("StatusChangedAt should be updated")
+	}
+	if _, ok := findEffect[state.EffEventLogAppend](effs); !ok {
+		t.Error("expected EffEventLogAppend for hang detection")
+	}
+}
+
+func TestClaudeHangDetectionSuppressedBySubagents(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.Status = state.StatusRunning
+	cs.StatusChangedAt = time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	cs.PaneHash = "stale"
+	cs.PaneHashAt = cs.StatusChangedAt
+	cs.SubagentCounts = map[string]int{"Task": 2}
+
+	now := cs.StatusChangedAt.Add(claudeHangThreshold + time.Minute)
+	next, _ := d.handleTick(cs, state.DEvTick{
+		Now: now, Active: false, WindowID: "@42",
+	})
+	if next.Status != state.StatusRunning {
+		t.Errorf("Status = %v, want Running (subagents active)", next.Status)
+	}
+	if next.HangDetected {
+		t.Error("HangDetected should be false when subagents active")
+	}
+}
+
+func TestClaudeHookResetsHangDetected(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.HangDetected = true
+	cs.PaneHash = "stale"
+	next, _ := d.handleHook(cs, state.DEvHook{
+		Event: "PreToolUse",
+		Payload: hookPayloadRaw(map[string]string{
+			"session_id":      "uuid",
+			"hook_event_name": "PreToolUse",
+			"tool_name":       "Bash",
+		}, now),
+	})
+	if next.HangDetected {
+		t.Error("HangDetected should be cleared on hook")
+	}
+	if next.PaneHash != "" {
+		t.Errorf("PaneHash should be reset, got %q", next.PaneHash)
+	}
+}
+
+func TestClaudeStaleHookDoesNotResetHangDetected(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.LastBridgeTS = 200
+	cs.HangDetected = true
+	cs.PaneHash = "stale-hash"
+
+	p := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "Stop",
+	}, now)
+	p["bridge_ts"] = int64(100) // stale
+	next, _ := d.handleHook(cs, state.DEvHook{Event: "Stop", Payload: p})
+	if !next.HangDetected {
+		t.Error("stale hook should not clear HangDetected")
+	}
+	if next.PaneHash != "stale-hash" {
+		t.Error("stale hook should not clear PaneHash")
+	}
+}
+
+func TestClaudeViewIndicatorsStale(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.HangDetected = true
+	v := d.view(cs)
+	if len(v.Card.Indicators) == 0 || v.Card.Indicators[0] != "stale?" {
+		t.Errorf("Indicators = %v, want [stale? ...]", v.Card.Indicators)
 	}
 }
