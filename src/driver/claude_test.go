@@ -852,47 +852,6 @@ func TestClaudeViewBorderBadgeDeepPath(t *testing.T) {
 	}
 }
 
-func TestShortenPath(t *testing.T) {
-	tests := []struct {
-		path, want string
-	}{
-		{"", ""},
-		{"~", "~"},
-		{"/", "/"},
-		{"~/project", "~/project"},
-		{"/data", "/data"},
-		{"~/very/long/deep/nested/project/dir", "~/v/l/d/n/p/dir"},
-		{"~/projects/agent-roost", "~/p/agent-roost"},
-		{"/usr/local/share/fonts", "/u/l/s/fonts"},
-		{"/opt/data", "/o/data"},
-		{"~/.config/nvim/lua", "~/.c/n/lua"},
-		{"~/.local/share/fonts", "~/.l/s/fonts"},
-		{"relative/path/here", "r/p/here"},
-	}
-	for _, tt := range tests {
-		if got := shortenPath(tt.path); got != tt.want {
-			t.Errorf("shortenPath(%q) = %q, want %q", tt.path, got, tt.want)
-		}
-	}
-}
-
-func TestShortenHome(t *testing.T) {
-	tests := []struct {
-		path, home, want string
-	}{
-		{"/home/user/project", "/home/user", "~/project"},
-		{"/home/user", "/home/user", "~"},
-		{"/other/path", "/home/user", "/other/path"},
-		{"", "/home/user", ""},
-		{"/home/user/project", "", "/home/user/project"},
-	}
-	for _, tt := range tests {
-		if got := shortenHome(tt.path, tt.home); got != tt.want {
-			t.Errorf("shortenHome(%q, %q) = %q, want %q", tt.path, tt.home, got, tt.want)
-		}
-	}
-}
-
 func TestClaudeViewBranchTagWhenSet(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.BranchTag = "feat-x"

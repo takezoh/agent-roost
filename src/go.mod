@@ -8,6 +8,7 @@ require (
 	charm.land/lipgloss/v2 v2.0.2
 	github.com/BurntSushi/toml v1.6.0
 	github.com/fsnotify/fsnotify v1.9.0
+	github.com/takezoh/fishpath-go v0.1.0
 	golang.org/x/term v0.41.0
 )
 
