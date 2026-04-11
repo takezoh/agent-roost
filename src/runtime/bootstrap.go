@@ -148,6 +148,12 @@ func (r *Runtime) DeactivateOnStartup(tmuxClient interface{ GetEnv(string) (stri
 	if wid == "" {
 		return
 	}
+
+	// Always clean up env and state, even if the session was dropped.
+	_ = r.cfg.Tmux.UnsetEnv("ROOST_ACTIVE_WINDOW")
+	_ = r.cfg.Tmux.SetStatusLine("")
+	r.state.Active = ""
+
 	found := false
 	for _, sess := range r.state.Sessions {
 		if string(sess.WindowID) == wid {
@@ -156,6 +162,7 @@ func (r *Runtime) DeactivateOnStartup(tmuxClient interface{ GetEnv(string) (stri
 		}
 	}
 	if !found {
+		slog.Warn("bootstrap: active window not found, cleaned up stale env", "window", wid)
 		return
 	}
 	pane0 := r.cfg.SessionName + ":0.0"
@@ -163,9 +170,6 @@ func (r *Runtime) DeactivateOnStartup(tmuxClient interface{ GetEnv(string) (stri
 	if err := r.cfg.Tmux.RunChain(op); err != nil {
 		slog.Warn("bootstrap: swap-pane failed during deactivate", "window", wid, "err", err)
 	}
-	_ = r.cfg.Tmux.UnsetEnv("ROOST_ACTIVE_WINDOW")
-	_ = r.cfg.Tmux.SetStatusLine("")
-	r.state.Active = ""
 	slog.Info("bootstrap: deactivated session on startup", "window", wid)
 }
 

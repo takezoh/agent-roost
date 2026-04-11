@@ -155,6 +155,9 @@ func runCoordinator() {
 		rt.SetRelay(relay)
 	}
 
+	if warmRestart {
+		respawnMainPane(client, sessionName)
+	}
 	respawnSessionsPane(client, sessionName)
 	respawnLogPane(client, sessionName)
 
@@ -285,6 +288,10 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 	client.BindKey("prefix", "p",
 		"display-popup", "-E", "-w", "60%", "-h", "50%",
 		exePath+" --tui palette")
+}
+
+func respawnMainPane(client *tmux.Client, sn string) {
+	client.RespawnPane(sn+":0.0", resolveExe()+" --tui main")
 }
 
 func respawnSessionsPane(client *tmux.Client, sn string) {

@@ -480,6 +480,12 @@ func TestPaneDiedEvictsSessionByOwnerID(t *testing.T) {
 	if _, ok := findEff[EffBroadcastSessionsChanged](effs); !ok {
 		t.Error("expected EffBroadcastSessionsChanged")
 	}
+	respawn, ok := findEff[EffRespawnPane](effs)
+	if !ok {
+		t.Error("expected EffRespawnPane to respawn main TUI after eviction")
+	} else if respawn.Pane != "{sessionName}:0.0" {
+		t.Errorf("respawn pane = %q, want {sessionName}:0.0", respawn.Pane)
+	}
 }
 
 func TestPaneDiedFallbackViaActive(t *testing.T) {
@@ -499,9 +505,12 @@ func TestPaneDiedFallbackViaActive(t *testing.T) {
 	if _, ok := findEff[EffKillTmuxWindow](effs); !ok {
 		t.Error("expected EffKillTmuxWindow")
 	}
+	if _, ok := findEff[EffRespawnPane](effs); !ok {
+		t.Error("expected EffRespawnPane for main TUI after fallback eviction")
+	}
 }
 
-func TestPaneDiedNoActiveIsNoop(t *testing.T) {
+func TestPaneDiedNoActiveRespawnsMainTUI(t *testing.T) {
 	s := New()
 	s.Sessions = map[SessionID]Session{
 		"s1": {ID: "s1", WindowID: "@5", PaneID: "%10", Command: "stub-x"},
@@ -512,8 +521,15 @@ func TestPaneDiedNoActiveIsNoop(t *testing.T) {
 		Pane:           "{sessionName}:0.0",
 		OwnerSessionID: "",
 	})
-	if len(effs) != 0 {
-		t.Errorf("expected 0 effects, got %d", len(effs))
+	respawn, ok := findEff[EffRespawnPane](effs)
+	if !ok {
+		t.Fatal("expected EffRespawnPane for main TUI")
+	}
+	if respawn.Pane != "{sessionName}:0.0" {
+		t.Errorf("pane = %q, want {sessionName}:0.0", respawn.Pane)
+	}
+	if respawn.Cmd != "{roostExe} --tui main" {
+		t.Errorf("cmd = %q, want main TUI command", respawn.Cmd)
 	}
 }
 

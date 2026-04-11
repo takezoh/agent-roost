@@ -77,6 +77,7 @@ func TestDeactivateOnStartup_StaleWindow(t *testing.T) {
 		ID:       state.SessionID("s1"),
 		WindowID: state.WindowID("@20"),
 	}
+	r.state.Active = state.WindowID("@99")
 
 	env := &fakeEnvClient{envs: map[string]string{"ROOST_ACTIVE_WINDOW": "@99"}}
 	r.DeactivateOnStartup(env)
@@ -86,5 +87,12 @@ func TestDeactivateOnStartup_StaleWindow(t *testing.T) {
 	defer tmux.mu.Unlock()
 	if tmux.swapCalls != 0 {
 		t.Errorf("expected 0 swap calls for stale window, got %d", tmux.swapCalls)
+	}
+	// But should still clean up env and state
+	if _, ok := tmux.envs["ROOST_ACTIVE_WINDOW"]; ok {
+		t.Error("expected ROOST_ACTIVE_WINDOW to be unset")
+	}
+	if r.state.Active != "" {
+		t.Errorf("expected Active to be empty, got %q", r.state.Active)
 	}
 }
