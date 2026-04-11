@@ -252,6 +252,24 @@ func (m *PaletteModel) refilter() {
 	m.cursor = 0
 }
 
+// visibleWindow returns the [start, end) slice of items to display so that
+// cursor stays visible within a viewport of maxVisible rows.
+func visibleWindow(cursor, total, maxVisible int) (start, end int) {
+	if total <= maxVisible || maxVisible <= 0 {
+		return 0, total
+	}
+	start = cursor - maxVisible/2
+	if start < 0 {
+		start = 0
+	}
+	end = start + maxVisible
+	if end > total {
+		end = total
+		start = end - maxVisible
+	}
+	return start, end
+}
+
 func (m PaletteModel) View() tea.View {
 	outerWidth := m.width
 	if outerWidth <= 0 || outerWidth > 80 {
@@ -284,18 +302,36 @@ func renderPaletteTool(m PaletteModel, innerWidth int) string {
 	b.WriteString(promptStyle.Render("> "))
 	b.WriteString(inputStyle.Render(m.input))
 	b.WriteString("█\n\n")
-	for i, t := range m.filtered {
+
+	total := len(m.filtered)
+	// prompt(1) + blank(1) + border(PanelChromeRows)
+	maxVisible := m.height - PanelChromeRows - 2
+	start, end := 0, total
+	if maxVisible >= 3 && total > maxVisible {
+		start, end = visibleWindow(m.cursor, total, maxVisible-2)
+	}
+
+	if start > 0 {
+		b.WriteString(descStyle.Render(fmt.Sprintf("  ↑ %d more", start)))
+		b.WriteString("\n")
+	}
+	for i := start; i < end; i++ {
+		t := m.filtered[i]
 		desc := descStyle.Render("  " + t.Description)
 		if i == m.cursor {
-			b.WriteString(selItemStyle.Width(innerWidth).Render(fmt.Sprintf("▸ %s", t.Name)+desc))
+			b.WriteString(selItemStyle.Width(innerWidth).MaxHeight(1).Render(fmt.Sprintf("▸ %s", t.Name) + desc))
 		} else {
-			b.WriteString(itemStyle.Width(innerWidth).Render(fmt.Sprintf("  %s", t.Name)+desc))
+			b.WriteString(itemStyle.Width(innerWidth).MaxHeight(1).Render(fmt.Sprintf("  %s", t.Name) + desc))
 		}
-		if i < len(m.filtered)-1 {
+		if i < end-1 || end < total {
 			b.WriteString("\n")
 		}
 	}
-	if len(m.filtered) == 0 {
+	if end < total {
+		b.WriteString(descStyle.Render(fmt.Sprintf("  ↓ %d more", total-end)))
+	}
+
+	if total == 0 {
 		b.WriteString(descStyle.Render("(no matching tools)"))
 	}
 	return b.String()
@@ -312,18 +348,33 @@ func renderPaletteParam(m PaletteModel, innerWidth int) string {
 		return b.String()
 	}
 	filtered := m.filterParamOptions()
-	for i, o := range filtered {
-		display := tools.ProjectDisplayName(o)
+	total := len(filtered)
+	maxVisible := m.height - PanelChromeRows - 2
+	start, end := 0, total
+	if maxVisible >= 3 && total > maxVisible {
+		start, end = visibleWindow(m.paramCursor, total, maxVisible-2)
+	}
+
+	if start > 0 {
+		b.WriteString(descStyle.Render(fmt.Sprintf("  ↑ %d more", start)))
+		b.WriteString("\n")
+	}
+	for i := start; i < end; i++ {
+		display := tools.ProjectDisplayName(filtered[i])
 		if i == m.paramCursor {
-			b.WriteString(selItemStyle.Width(innerWidth).Render(fmt.Sprintf("▸ %s", display)))
+			b.WriteString(selItemStyle.Width(innerWidth).MaxHeight(1).Render(fmt.Sprintf("▸ %s", display)))
 		} else {
-			b.WriteString(itemStyle.Width(innerWidth).Render(fmt.Sprintf("  %s", display)))
+			b.WriteString(itemStyle.Width(innerWidth).MaxHeight(1).Render(fmt.Sprintf("  %s", display)))
 		}
-		if i < len(filtered)-1 {
+		if i < end-1 || end < total {
 			b.WriteString("\n")
 		}
 	}
-	if len(filtered) == 0 {
+	if end < total {
+		b.WriteString(descStyle.Render(fmt.Sprintf("  ↓ %d more", total-end)))
+	}
+
+	if total == 0 {
 		b.WriteString(descStyle.Render("(no matching items)"))
 	}
 	return b.String()
