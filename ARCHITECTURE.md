@@ -65,9 +65,10 @@ Code dependency direction:
 - `proto` → `state` (carries Status enum, View/ConnectorSection types on wire)
 - `tools` → `proto` (Client calls)
 - `tui` → `proto` (Client + SessionInfo + ConnectorInfo), `state` (Status/View/ConnectorSection/TabRenderer types), `tools` (ToolRegistry). Does not import driver/connector/lib
-- `lib/claude/command.go` (hook bridge) → `proto` (sends CmdHook), `config`
+- `lib/claude/command.go` (hook bridge) → `event` (sends CmdEvent via event.Send), `config`
 - `lib/claude/transcript` → `state` (registers TabRenderer factory via RegisterTabRenderer)
-- `lib/subcommand.go` provides a subcommand registry. Each lib package registers in `init()`, and `main` dispatches via `lib.Dispatch`
+- `cli/subcommand.go` provides a subcommand registry. Each lib package registers in `init()`, and `main` dispatches via `cli.Dispatch`
+- `event/send.go` (event subcommand) → `proto` (sends CmdEvent), `cli` (registers "event" subcommand)
 - `state.Session` holds static metadata and DriverState (dynamic state) in a single struct. Reduce routes by sessionID and passes to Driver.Step
 - `state.State.Connectors` holds per-daemon ConnectorState. Reduce routes by connector name and passes to Connector.Step
 

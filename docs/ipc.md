@@ -70,9 +70,20 @@ Command / Response / ServerEvent are closed sum types. See [interfaces.md](inter
 
 ### Commands (Client → Server)
 
-| Command | Parameters | Function |
+Only 3 wire command types exist. All domain operations are multiplexed through `CmdEvent`:
+
+| Wire Command | Parameters | Function |
 |---------|------------|----------|
-| `subscribe` | - | Start receiving broadcasts |
+| `subscribe` | filters (optional) | Start receiving broadcasts |
+| `unsubscribe` | - | Stop receiving broadcasts |
+| `event` | event, timestamp, sender_id, payload | Unified event envelope (see below) |
+
+#### Event Types (via `CmdEvent.Event`)
+
+Domain operations and driver hooks are dispatched via `CmdEvent`. TUI/tool operations are registered via `RegisterEvent[T]` and dispatched to typed handlers. Driver hook events (those with `SenderID` set) are routed as `EvDriverEvent` to the session's driver.
+
+| Event Type | Payload | Function |
+|------------|---------|----------|
 | `create-session` | project, command | Create a session |
 | `stop-session` | session_id | Stop a session |
 | `list-sessions` | - | Retrieve session list |
@@ -81,9 +92,9 @@ Command / Response / ServerEvent are closed sum types. See [interfaces.md](inter
 | `switch-session` | session_id | Switch to Pane 0.0 + focus |
 | `focus-pane` | pane | Focus pane. Broadcasts `pane-focused` event |
 | `launch-tool` | tool | Launch palette popup |
-| `agent-event` | type, (type-specific args) | Event notification from agent. Delegated to Service |
 | `shutdown` | - | Shutdown all |
 | `detach` | - | Detach |
+| *(driver hooks)* | driver-specific | Hook events from agent (e.g., `state-change`, `session-start`). Routed via `SenderID` |
 
 ### Client Message Routing
 
@@ -104,7 +115,7 @@ The server side of agent-roost is composed of a **single event loop + fixed-size
 ```
 runtime.Runtime.Run() — single goroutine
 ├── select {
-│   ├── eventCh     — Events from IPC reader / hook bridge
+│   ├── eventCh     — Events from IPC reader / event bridge
 │   ├── internalCh  — conn open/close (runtime internal events)
 │   ├── ticker.C    — EvTick at 1-second intervals
 │   ├── workers.Results() — EvJobResult from worker pool
@@ -232,9 +243,9 @@ sequenceDiagram
     participant Drv as Driver.Step<br/>(claudeDriver)
 
     Bridge->>Reader: proto.CmdEvent{Event, Timestamp, SenderID, Payload}
-    Reader->>EL: EvEvent (eventCh)
-    EL->>Red: Reduce(state, EvEvent)
-    Note over Red: reduceEvent: session lookup →<br/>Driver.Step(driverState, DEvHook{...})
+    Reader->>EL: EvDriverEvent (eventCh)
+    EL->>Red: Reduce(state, EvDriverEvent)
+    Note over Red: reduceDriverHook: session lookup →<br/>Driver.Step(driverState, DEvHook{...})
     Red->>Drv: Step(prev, DEvHook{Event, Payload})
     Drv-->>Red: (next, [EffEventLogAppend, EffStartJob{Haiku}], view)
     Red-->>EL: (state', effects + EffSendResponse + EffBroadcastSessionsChanged)

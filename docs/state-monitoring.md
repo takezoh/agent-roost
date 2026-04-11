@@ -19,7 +19,7 @@ The Driver plugin's `Step` method is responsible for status updates. For the Dri
 | `NewState(now)` | `reduceCreateSession` | Generates a new DriverState value. Initial values are Idle / now |
 | `Restore(bag, now)` | `runtime.Bootstrap` | Reconstructs DriverState from the previously saved opaque map on warm/cold restart |
 | `Step(prev, DEvTick)` | `reduceTick` → `stepAllSessions` | Periodic polling. Claude gates on `DEvTick.Active`, emitting transcript parse jobs only when active. Generic emits capture-pane jobs |
-| `Step(prev, DEvHook)` | `reduceEvent` | Receives hook events and updates DriverState. Claude performs status transitions + event log append effects |
+| `Step(prev, DEvHook)` | `reduceDriverHook` | Receives hook events and updates DriverState. Claude performs status transitions + event log append effects |
 | `Step(prev, DEvJobResult)` | `reduceJobResult` | Reflects results from the worker pool into DriverState. Transcript parse results such as title / lastPrompt |
 | `Step(prev, DEvFileChanged)` | `reduceFileChanged` | File change notification from fsnotify. Emits transcript parse job |
 | `View(driverState)` | runtime's `broadcastSessionsChanged` / `activeStatusLine` | Pure getter that returns display payloads for the TUI (Card / LogTabs / InfoExtras / StatusLine) |
@@ -53,7 +53,7 @@ Hook event → driver.Status mapping:
 | SessionStart | Idle |
 | SessionEnd | Stopped |
 
-The `roost event <eventType>` subcommand repackages the Claude hook payload into `proto.CmdEvent` and sends it via IPC. The runtime's IPC reader converts it into an `EvEvent` and feeds it into the event loop. `reduceEvent` performs a single-level lookup with `Sessions[ev.SessionID]` and calls `Driver.Step(driverState, DEvHook{...})`. Neither the state layer nor the runtime layer holds any Claude-specific state logic.
+The `roost event <eventType>` subcommand repackages the Claude hook payload into `proto.CmdEvent` and sends it via IPC. The runtime's IPC reader converts it into an `EvDriverEvent` and feeds it into the event loop. `reduceDriverHook` performs a single-level lookup with `Sessions[ev.SenderID]` and calls `Driver.Step(driverState, DEvHook{...})`. Neither the state layer nor the runtime layer holds any Claude-specific state logic.
 
 ### Hook event routing and race-free identification
 
@@ -103,7 +103,7 @@ sequenceDiagram
     participant Interp as Effect interpreter
     participant JSON as sessions.json<br/>(single SoT)
 
-    Note over Red: EvTick or EvEvent
+    Note over Red: EvTick or EvDriverEvent
     Red->>Drv: Driver.Step(driverState, driverEvent)
     Drv-->>Red: (driverState', effects, view)
     Note over Red: state.Session.Driver = driverState'
@@ -151,11 +151,22 @@ SpawnCommand is called only on cold boot (on warm restart, the existing agent pr
 `claudeDriver.PersistedState()`:
 ```
 {
-  "session_id":         "abc-123",
-  "working_dir":        "/path/to/workdir",
-  "transcript_path":    "/path/to/transcript.jsonl",
-  "status":             "running",
-  "status_changed_at":  "2026-04-09T12:34:56Z"
+  "roost_session_id":     "abc-123",
+  "claude_session_id":    "def-456",
+  "working_dir":          "/path/to/workdir",
+  "transcript_path":      "/path/to/transcript.jsonl",
+  "status":               "running",
+  "status_changed_at":    "2026-04-09T12:34:56Z",
+  "branch_tag":           "feature/foo",
+  "branch_bg":            "#334455",
+  "branch_fg":            "#ffffff",
+  "branch_target":        "/path/to/repo",
+  "branch_at":            "2026-04-09T12:00:00Z",
+  "branch_is_worktree":   "1",
+  "branch_parent_branch": "main",
+  "summary":              "haiku summary text",
+  "title":                "conversation title",
+  "last_prompt":          "most recent user prompt"
 }
 ```
 
@@ -166,8 +177,6 @@ SpawnCommand is called only on cold boot (on warm restart, the existing agent pr
   "status_changed_at":  "2026-04-09T12:34:56Z"
 }
 ```
-
-Title / LastPrompt are not persisted (they can be reconstructed from the transcript).
 
 | Scenario | Behavior |
 |---------|------|

@@ -129,11 +129,22 @@ type Envelope struct {
     Error  *ErrorBody      `json:"error,omitempty"`
 }
 
-// Command / Response / ServerEvent are closed sum types
+// Command — closed sum type. Only 3 wire commands: subscribe, unsubscribe, event.
+// All domain operations (create-session, stop-session, etc.) are dispatched via
+// CmdEvent with Event field discriminator + RegisterEvent[T] typed handler lookup.
 type Command interface { isCommand(); CommandName() string }
+
+// CmdEvent is the unified envelope for all domain events.
+// TUI/tool operations (create-session, etc.) and driver hooks both use this.
+type CmdEvent struct {
+    Event     string          `json:"event"`
+    Timestamp time.Time       `json:"timestamp"`
+    SenderID  string          `json:"sender_id"`
+    Payload   json.RawMessage `json:"payload,omitempty"`
+}
 ```
 
-Driver-specific hook payloads are passed through typed IPC as `proto.CmdEvent{Event, Timestamp, SenderID, Payload}`. Each driver subcommand (e.g., `roost event <eventType>`) packs its own hook payload into `CmdEvent` and sends it. The runtime's IPC reader converts it into an `EvEvent` Event and feeds it into the event loop. `reduceEvent` performs a single lookup via `Sessions[ev.SessionID]` and calls `Driver.Step(driverState, DEvHook{...})`. Neither the state layer nor the runtime layer hardcodes any driver-specific key names.
+Driver-specific hook payloads are passed through typed IPC as `proto.CmdEvent{Event, Timestamp, SenderID, Payload}`. Each driver subcommand (e.g., `roost event <eventType>`) packs its own hook payload into `CmdEvent` and sends it. The runtime's IPC reader converts it into an `EvDriverEvent` Event and feeds it into the event loop. `reduceDriverHook` performs a single lookup via `Sessions[ev.SenderID]` and calls `Driver.Step(driverState, DEvHook{...})`. Neither the state layer nor the runtime layer hardcodes any driver-specific key names.
 
 `Driver.SpawnCommand` is called from `runtime.Bootstrap` during cold start restoration, assembling the command string using driver-specific resume methods. The Claude driver holds the `session_id` received via `Restore` in DriverState and delegates to `lib/claude/cli.ResumeCommand` to return `claude --resume <id>`. The Generic driver returns the base command as-is.
 
@@ -151,44 +162,58 @@ Base path can be changed via `Config.DataDir` (set to TempDir during tests).
 
 All fields in `settings.toml` (default values in parentheses):
 
+- Top-level: `language` (`"english"`), `theme` (`"default"`)
 - `tmux`: `session_name` (`"roost"`), `prefix` (`"C-b"`), `pane_ratio_horizontal` (`75`), `pane_ratio_vertical` (`70`)
 - `monitor`: `poll_interval_ms` (`1000`), `idle_threshold_sec` (`30`)
-- `session`: `auto_name` (`true`), `default_command` (`"claude"`), `commands` (`["claude","gemini","codex"]`)
-- `projects`: `project_roots` (`["~/dev","~/work"]`)
+- `session`: `auto_name` (`true`), `default_command` (`"claude"`), `commands` (`["claude","gemini","codex"]`), `aliases` (map)
+- `projects`: `project_roots` (`["~/dev","~/work"]`), `project_paths` (`[]`)
 
 ## File Structure
 
 ```
 src/
-├── main.go              daemon / TUI mode branching (subcommand delegation via lib.Dispatch)
+├── main.go              daemon / TUI mode branching (subcommand delegation via cli.Dispatch)
+├── cli/
+│   └── subcommand.go    Subcommand registry (Register, Dispatch)
+├── event/
+│   └── send.go          Event sender (registers "event" subcommand in init)
 ├── state/               Pure domain layer (no I/O, no goroutine)
 │   ├── state.go         State, Session, Subscriber, JobMeta — plain value types
-│   ├── event.go         Event closed sum type (EvCmdCreateSession, EvTick, EvJobResult, ...)
+│   ├── event.go         Event closed sum type (EvEvent, EvDriverEvent, EvTick, EvJobResult, ...)
+│   ├── event_dispatch.go  RegisterEvent[T] registry + dispatch lookup
 │   ├── effect.go        Effect closed sum type (EffSpawnTmuxWindow, EffStartJob, EffBroadcast, ...)
 │   ├── reduce.go        Reduce(State, Event) → (State, []Effect) — pure state transition function
-│   ├── reduce_session.go  session lifecycle reducers
-│   ├── reduce_hook.go   hook event → Driver.Step routing
+│   ├── reduce_event.go  EvEvent → registered handler dispatch, EvDriverEvent → Driver.Step routing
+│   ├── reduce_session.go  session lifecycle reducers (registered via RegisterEvent)
 │   ├── reduce_tick.go   EvTick → stepAllSessions → Driver.Step(DEvTick)
 │   ├── reduce_job.go    EvJobResult → Driver.Step(DEvJobResult)
 │   ├── reduce_conn.go   IPC connection lifecycle
 │   ├── reduce_lifecycle.go  shutdown / detach
+│   ├── reduce_helpers.go  shared reducer helpers
 │   ├── driver_iface.go  Driver interface (Step, View, Persist, Restore, SpawnCommand)
 │   │                    DriverState / DriverEvent / DriverStateBase marker
 │   ├── status.go        Status enum (Running/Waiting/Idle/Stopped/Pending)
 │   ├── view.go          View / Card / Tag — display value types for TUI
-│   ├── clone.go         Copy-on-write helpers for State
-│   └── driver/          Driver implementations — value-type plugins (no goroutines, no I/O)
-│       ├── claude.go    claudeDriver — event-driven status + transcript job emit
-│       ├── claude_event.go  DEvHook dispatch (state-change, session-start, ...)
-│       ├── claude_tick.go   DEvTick: active gate + transcript parse job emit
-│       ├── claude_view.go   View() — Card, LogTabs, InfoExtras, StatusLine
-│       ├── claude_persist.go  Persist / Restore — opaque bag round-trip
-│       ├── generic.go   genericDriver — polling-driven (capture-pane job emit + hash comparison)
-│       ├── generic_view.go  View()
-│       ├── jobs.go      Job input/output types (TranscriptParseInput, CapturePaneInput, ...)
-│       ├── poll.go      capture-pane shared helper for drivers
-│       ├── tags.go      CommandTag helper
-│       └── register.go  init() registers with state.Register
+│   └── clone.go         Copy-on-write helpers for State
+├── driver/              Driver implementations — value-type plugins (no goroutines, no I/O)
+│   ├── claude.go        claudeDriver — event-driven status + transcript job emit
+│   ├── claude_event.go  DEvHook dispatch (state-change, session-start, ...)
+│   ├── claude_tick.go   DEvTick: active gate + transcript parse job emit
+│   ├── claude_view.go   View() — Card, LogTabs, InfoExtras, StatusLine
+│   ├── claude_persist.go  Persist / Restore — opaque bag round-trip
+│   ├── generic.go       genericDriver — polling-driven (capture-pane job emit + hash comparison)
+│   ├── generic_view.go  View()
+│   ├── jobs.go          Job input/output types (TranscriptParseInput, CapturePaneInput, ...)
+│   ├── poll.go          capture-pane shared helper for drivers
+│   ├── runners.go       built-in runners (TranscriptParse, HaikuSummary, GitBranch, CapturePane)
+│   ├── tags.go          CommandTag helper
+│   └── register.go      init() registers with state.Register
+├── connector/           Connector plugin system (external service integration)
+│   ├── github.go        GitHub connector — issues, PRs, workflow runs
+│   ├── github_state.go  GitHub connector state types
+│   ├── jobs.go          Connector job input/output types
+│   ├── runners.go       Connector worker pool runners
+│   └── register.go      init() registers connectors
 ├── runtime/             Imperative shell — event loop + Effect interpreter
 │   ├── runtime.go       Runtime.Run() — single event loop (select)
 │   ├── interpret.go     execute(Effect) — interpreter for all side effects
@@ -198,6 +223,7 @@ src/
 │   ├── persist.go       PersistBackend concrete implementation (sessions.json)
 │   ├── eventlog.go      EventLogBackend concrete implementation
 │   ├── fsnotify.go      FSWatcher concrete implementation
+│   ├── convert.go       state.View → proto.SessionInfo conversion
 │   ├── proto_bridge.go  proto.Command → state.Event conversion
 │   ├── bootstrap.go     Initial State construction for warm/cold restart
 │   ├── filerelay.go     File relay
@@ -208,27 +234,30 @@ src/
 │       └── runners.go   built-in runners (TranscriptParse, HaikuSummary, GitBranch, CapturePane)
 ├── proto/               Typed IPC — Command / Response / ServerEvent sum types
 │   ├── envelope.go      Envelope wire format ({type, req_id, cmd|name, data})
-│   ├── command.go       Command closed sum type
+│   ├── command.go       Command closed sum type (CmdSubscribe, CmdUnsubscribe, CmdEvent)
 │   ├── response.go      Response closed sum type
 │   ├── event.go         ServerEvent closed sum type
 │   ├── codec.go         NDJSON encode/decode
 │   ├── client.go        proto.Client (for TUI / palette / hook bridge)
-│   ├── client_helpers.go  typed helpers (CreateSession, StopSession, ...)
-│   ├── convert.go       state.View → proto.SessionInfo conversion
+│   ├── client_helpers.go  typed helpers (SendEvent, ...)
 │   ├── reqid.go         Request ID generation
 │   └── errors.go        ErrCode enum
 ├── tools/
 │   └── tools.go         Tool + Param + ToolContext + Registry + DefaultRegistry
 ├── lib/
-│   ├── subcommand.go    Subcommand registry (Register, Dispatch)
+│   ├── claude/
+│   │   ├── command.go   Claude subcommand handler (registers "claude" in init)
+│   │   ├── cli/         Claude CLI launch command assembly (ResumeCommand etc.)
+│   │   ├── setup.go     Hook registration/removal in Claude settings.json
+│   │   └── transcript/  Claude JSONL transcript parsing + diff tracking
 │   ├── git/
 │   │   └── git.go       Git branch detection (DetectBranch)
-│   └── claude/
-│       ├── command.go   Claude subcommand handler (registers "claude" in init)
-│       ├── hook.go      Claude hook event parsing
-│       ├── setup.go     Hook registration/removal in Claude settings.json
-│       ├── transcript/  Claude JSONL transcript parsing + diff tracking
-│       └── cli/         Claude CLI launch command assembly (ResumeCommand etc.)
+│   ├── github/
+│   │   └── github.go    GitHub API client
+│   ├── vcs/
+│   │   └── vcs.go       VCS abstraction
+│   └── plastic/
+│       └── plastic.go   Plastic SCM integration
 ├── config/
 │   └── config.go        TOML configuration loading
 ├── tmux/
@@ -240,10 +269,17 @@ src/
 │   ├── view.go          Session list rendering
 │   ├── mouse.go         Mouse input handler
 │   ├── keys.go          Keybinding definitions + keyboard input handler
-│   ├── main_model.go    Main TUI Model
+│   ├── main_model.go    Main TUI Model (viewport scrolling)
 │   ├── main_view.go     Main TUI rendering
 │   ├── palette.go       Command palette
-│   └── log_model.go     Log TUI (dynamic session tabs)
+│   ├── log_model.go     Log TUI (dynamic session tabs)
+│   ├── log_view.go      Log TUI rendering
+│   ├── log_info.go      INFO tab rendering
+│   ├── log_io.go        Log file I/O
+│   ├── filter.go        Session list filtering
+│   ├── layout.go        Layout calculation
+│   ├── panes.go         Pane management
+│   └── theme.go         Theme (state color mapping)
 └── logger/
     └── logger.go        slog initialization
 ```
