@@ -15,8 +15,6 @@ func TestFilePersistRoundTrip(t *testing.T) {
 			ID:        "abc",
 			Project:   "/foo",
 			Command:   "claude",
-			WindowID:  "@5",
-			PaneID:    "%10",
 			CreatedAt: "2026-04-10T12:00:00Z",
 			Driver:    "claude",
 			DriverState: map[string]string{

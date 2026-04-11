@@ -24,18 +24,18 @@ func (c *Client) Subscribe() error {
 }
 
 // CreateSession asks the daemon to spawn a new session. Returns
-// the freshly assigned session id and window id, or an error.
-func (c *Client) CreateSession(project, command string) (sessionID, windowID string, err error) {
+// the freshly assigned session id, or an error.
+func (c *Client) CreateSession(project, command string) (sessionID string, err error) {
 	payload, _ := json.Marshal(map[string]string{"project": project, "command": command})
 	resp, err := c.sendDefault(CmdEvent{Event: state.EventCreateSession, Payload: json.RawMessage(payload)})
 	if err != nil {
-		return "", "", err
+		return "", err
 	}
 	r, ok := resp.(RespCreateSession)
 	if !ok {
-		return "", "", errors.New("proto: unexpected response type for create-session")
+		return "", errors.New("proto: unexpected response type for create-session")
 	}
-	return r.SessionID, r.WindowID, nil
+	return r.SessionID, nil
 }
 
 // StopSession kills a session by id.
@@ -45,7 +45,7 @@ func (c *Client) StopSession(id string) error {
 	return err
 }
 
-// ListSessions returns the current session table, active window id,
+// ListSessions returns the current session table, active session id,
 // and connector info.
 func (c *Client) ListSessions() ([]SessionInfo, string, []ConnectorInfo, error) {
 	resp, err := c.sendDefault(CmdEvent{Event: state.EventListSessions})
@@ -56,31 +56,33 @@ func (c *Client) ListSessions() ([]SessionInfo, string, []ConnectorInfo, error) 
 	if !ok {
 		return nil, "", nil, errors.New("proto: unexpected response type for list-sessions")
 	}
-	return r.Sessions, r.ActiveWindowID, r.Connectors, nil
+	return r.Sessions, r.ActiveSessionID, r.Connectors, nil
 }
 
 // PreviewSession swaps a session into pane 0.0 without focusing it.
+// Returns the active session id.
 func (c *Client) PreviewSession(sessionID string) (string, error) {
 	payload, _ := json.Marshal(map[string]string{"session_id": sessionID})
 	resp, err := c.sendDefault(CmdEvent{Event: state.EventPreviewSession, Payload: json.RawMessage(payload)})
 	if err != nil {
 		return "", err
 	}
-	if r, ok := resp.(RespActiveWindow); ok {
-		return r.ActiveWindowID, nil
+	if r, ok := resp.(RespActiveSession); ok {
+		return r.ActiveSessionID, nil
 	}
 	return "", nil
 }
 
 // SwitchSession swaps a session into pane 0.0 and focuses it.
+// Returns the active session id.
 func (c *Client) SwitchSession(sessionID string) (string, error) {
 	payload, _ := json.Marshal(map[string]string{"session_id": sessionID})
 	resp, err := c.sendDefault(CmdEvent{Event: state.EventSwitchSession, Payload: json.RawMessage(payload)})
 	if err != nil {
 		return "", err
 	}
-	if r, ok := resp.(RespActiveWindow); ok {
-		return r.ActiveWindowID, nil
+	if r, ok := resp.(RespActiveSession); ok {
+		return r.ActiveSessionID, nil
 	}
 	return "", nil
 }

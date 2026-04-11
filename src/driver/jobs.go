@@ -14,8 +14,8 @@ import "github.com/takezoh/agent-roost/state"
 // NLines lines. Used by polling drivers (e.g. genericDriver) to
 // detect activity.
 type CapturePaneInput struct {
-	WindowID state.WindowID
-	NLines   int
+	WindowTarget string
+	NLines       int
 }
 
 // CapturePaneResult carries the captured content. Hash is the SHA256

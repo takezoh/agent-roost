@@ -47,13 +47,12 @@ func (r *Runtime) translateResponseBody(body any) proto.Response {
 	case state.CreateSessionReply:
 		return proto.RespCreateSession{
 			SessionID: b.SessionID,
-			WindowID:  b.WindowID,
 		}
 	case state.SessionsReply:
 		infos, active := r.buildSessionInfos()
-		return proto.RespSessions{Sessions: infos, ActiveWindowID: active, Connectors: r.buildConnectorInfos()}
-	case state.ActiveWindowReply:
-		return proto.RespActiveWindow{ActiveWindowID: b.ActiveWindowID}
+		return proto.RespSessions{Sessions: infos, ActiveSessionID: active, Connectors: r.buildConnectorInfos()}
+	case state.ActiveSessionReply:
+		return proto.RespActiveSession{ActiveSessionID: b.ActiveSessionID}
 	}
 	slog.Warn("runtime: unknown response body type, sending RespOK",
 		"type", typeNameOf(body))
@@ -78,10 +77,10 @@ func (r *Runtime) sendError(e state.EffSendError) {
 func (r *Runtime) broadcastSessionsChanged(preview bool) {
 	infos, active := r.buildSessionInfos()
 	ev := proto.EvtSessionsChanged{
-		Sessions:       infos,
-		ActiveWindowID: active,
-		IsPreview:      preview,
-		Connectors:     r.buildConnectorInfos(),
+		Sessions:        infos,
+		ActiveSessionID: active,
+		IsPreview:       preview,
+		Connectors:      r.buildConnectorInfos(),
 	}
 	wire, err := proto.EncodeEvent(ev)
 	if err != nil {
@@ -185,21 +184,19 @@ func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
 			view = drv.View(sess.Driver)
 		}
 		info := proto.SessionInfo{
-			ID:          string(sess.ID),
-			Project:     sess.Project,
-			Command:     sess.Command,
-			WindowID:    string(sess.WindowID),
-			PaneID: sess.PaneID,
-			CreatedAt:   sess.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			State:       view.Status,
-			View:        view,
+			ID:        string(sess.ID),
+			Project:   sess.Project,
+			Command:   sess.Command,
+			CreatedAt: sess.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+			State:     view.Status,
+			View:      view,
 		}
 		if !view.StatusChangedAt.IsZero() {
 			info.StateChangedAt = view.StatusChangedAt.Format("2006-01-02T15:04:05Z07:00")
 		}
 		infos = append(infos, info)
 	}
-	return infos, string(r.state.Active)
+	return infos, string(r.activeSession)
 }
 
 // buildConnectorInfos materializes the current connector states into
@@ -239,8 +236,8 @@ func typeNameOf(v any) string {
 		return "state.CreateSessionReply"
 	case state.SessionsReply:
 		return "state.SessionsReply"
-	case state.ActiveWindowReply:
-		return "state.ActiveWindowReply"
+	case state.ActiveSessionReply:
+		return "state.ActiveSessionReply"
 	}
 	return "unknown"
 }

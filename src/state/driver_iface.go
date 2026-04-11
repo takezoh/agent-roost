@@ -51,13 +51,13 @@ func (DEvHook) isDriverEvent() {}
 
 // DEvTick is the periodic tick. Active reflects whether this session is
 // currently swapped into pane 0.0 — drivers use it to gate expensive
-// work that only matters when the user is looking. WindowID lets
-// pollers schedule capture-pane jobs against the right tmux window.
+// work that only matters when the user is looking. WindowTarget is the
+// tmux window index (e.g. "1", "2") for capture-pane polling.
 type DEvTick struct {
-	Now      time.Time
-	Active   bool
-	Project  string
-	WindowID WindowID
+	Now          time.Time
+	Active       bool
+	Project      string
+	WindowTarget string
 }
 
 func (DEvTick) isDriverEvent() {}

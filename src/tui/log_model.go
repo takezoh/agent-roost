@@ -164,7 +164,7 @@ func (m LogModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m LogModel) handleLogEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 	switch e := ev.(type) {
 	case proto.EvtSessionsChanged:
-		m.currentSession = pickActiveSession(e.Sessions, e.ActiveWindowID)
+		m.currentSession = pickActiveSession(e.Sessions, e.ActiveSessionID)
 		sessionChanged := m.rebuildTabs(m.currentSession)
 		if e.IsPreview {
 			if idx, ok := m.tabIndexByLabel("INFO"); ok {
@@ -221,12 +221,12 @@ func (m LogModel) handleLogEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func pickActiveSession(sessions []proto.SessionInfo, activeWID string) *proto.SessionInfo {
-	if activeWID == "" {
+func pickActiveSession(sessions []proto.SessionInfo, activeID string) *proto.SessionInfo {
+	if activeID == "" {
 		return nil
 	}
 	for i := range sessions {
-		if sessions[i].WindowID == activeWID {
+		if sessions[i].ID == activeID {
 			s := sessions[i]
 			return &s
 		}

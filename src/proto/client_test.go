@@ -86,7 +86,7 @@ func TestClientSendRoundTrip(t *testing.T) {
 	if env.Type != TypeCommand {
 		t.Errorf("type = %q", env.Type)
 	}
-	wire, _ := EncodeResponse(env.ReqID, RespCreateSession{SessionID: "abc", WindowID: "@5"})
+	wire, _ := EncodeResponse(env.ReqID, RespCreateSession{SessionID: "abc"})
 	server.send(wire)
 
 	r := <-resCh
@@ -97,7 +97,7 @@ func TestClientSendRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatalf("resp type = %T", r.resp)
 	}
-	if got.SessionID != "abc" || got.WindowID != "@5" {
+	if got.SessionID != "abc" {
 		t.Errorf("got = %+v", got)
 	}
 }
@@ -136,8 +136,8 @@ func TestClientReceivesEvents(t *testing.T) {
 	defer c.Close()
 
 	wire, _ := EncodeEvent(EvtSessionsChanged{
-		Sessions:       []SessionInfo{{ID: "abc"}},
-		ActiveWindowID: "@5",
+		Sessions:        []SessionInfo{{ID: "abc"}},
+		ActiveSessionID: "abc",
 	})
 	server.send(wire)
 
@@ -147,7 +147,7 @@ func TestClientReceivesEvents(t *testing.T) {
 		if !ok {
 			t.Fatalf("event type = %T", ev)
 		}
-		if got.ActiveWindowID != "@5" || len(got.Sessions) != 1 {
+		if got.ActiveSessionID != "abc" || len(got.Sessions) != 1 {
 			t.Errorf("event = %+v", got)
 		}
 	case <-time.After(time.Second):
@@ -187,7 +187,7 @@ func TestDecodeResponseByCommandHeuristics(t *testing.T) {
 	}{
 		{
 			name: "create-session",
-			data: mustMarshal(RespCreateSession{SessionID: "x", WindowID: "@1"}),
+			data: mustMarshal(RespCreateSession{SessionID: "x"}),
 			want: "RespCreateSession",
 		},
 		{
@@ -196,9 +196,9 @@ func TestDecodeResponseByCommandHeuristics(t *testing.T) {
 			want: "RespSessions",
 		},
 		{
-			name: "active-window",
-			data: mustMarshal(RespActiveWindow{ActiveWindowID: "@1"}),
-			want: "RespActiveWindow",
+			name: "active-session",
+			data: mustMarshal(RespActiveSession{ActiveSessionID: "abc"}),
+			want: "RespActiveSession",
 		},
 		{
 			name: "empty",
@@ -237,8 +237,8 @@ func typeName(r Response) string {
 		return "RespCreateSession"
 	case RespSessions:
 		return "RespSessions"
-	case RespActiveWindow:
-		return "RespActiveWindow"
+	case RespActiveSession:
+		return "RespActiveSession"
 	}
 	return "unknown"
 }

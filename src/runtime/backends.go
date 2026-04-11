@@ -14,8 +14,8 @@ import (
 // follow-up event).
 type TmuxBackend interface {
 	// SpawnWindow creates a new tmux window for a session. Returns the
-	// fresh window id and the pane id.
-	SpawnWindow(name, command, startDir string, env map[string]string) (windowID, paneID string, err error)
+	// window index (e.g. "1") and the pane id (e.g. "%5").
+	SpawnWindow(name, command, startDir string, env map[string]string) (windowIndex, paneID string, err error)
 
 	// KillWindow destroys a tmux window.
 	KillWindow(windowID string) error
@@ -46,6 +46,14 @@ type TmuxBackend interface {
 	// pane content. Used by polling drivers via the worker pool.
 	CapturePane(windowID string, nLines int) (string, error)
 
+	// ListWindowIndexes returns the window indexes of the roost tmux
+	// session (e.g. ["1", "2", "3"]).
+	ListWindowIndexes() ([]string, error)
+
+	// ShowEnvironment returns the tmux session environment as a
+	// newline-delimited KEY=VALUE string (output of show-environment).
+	ShowEnvironment() (string, error)
+
 	// DetachClient detaches the current tmux client (used by Detach /
 	// Shutdown commands).
 	DetachClient() error
@@ -66,13 +74,12 @@ type PersistBackend interface {
 
 // SessionSnapshot is the on-disk format for one session in
 // sessions.json. Includes the static metadata + the driver's persisted
-// bag (opaque map of strings).
+// bag (opaque map of strings). Window/pane IDs are not persisted; the
+// window map is stored in tmux session env vars (ROOST_W_*).
 type SessionSnapshot struct {
 	ID          string            `json:"id"`
 	Project     string            `json:"project"`
 	Command     string            `json:"command"`
-	WindowID    string            `json:"window_id"`
-	PaneID string            `json:"pane_id"`
 	CreatedAt   string            `json:"created_at"`
 	Driver      string            `json:"driver"`
 	DriverState map[string]string `json:"driver_state"`
@@ -120,8 +127,10 @@ func (noopTmux) UnsetEnv(string) error                    { return nil }
 func (noopTmux) PaneAlive(string) (bool, error)           { return true, nil }
 func (noopTmux) RespawnPane(string, string) error         { return nil }
 func (noopTmux) CapturePane(string, int) (string, error)  { return "", nil }
-func (noopTmux) DetachClient() error                      { return nil }
-func (noopTmux) KillSession() error                       { return nil }
+func (noopTmux) ListWindowIndexes() ([]string, error)      { return nil, nil }
+func (noopTmux) ShowEnvironment() (string, error)          { return "", nil }
+func (noopTmux) DetachClient() error                       { return nil }
+func (noopTmux) KillSession() error                        { return nil }
 func (noopTmux) DisplayPopup(string, string, string) error { return nil }
 
 type noopPersist struct{}

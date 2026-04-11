@@ -8,7 +8,7 @@ import (
 )
 
 // renderInfoContent builds the INFO tab body. The TUI prepends a generic
-// header from SessionInfo (ID / Project / WindowID / Command / State /
+// header from SessionInfo (ID / Project / Command / State /
 // Created / StateChanged) and then appends the driver-specific
 // View.InfoExtras lines, followed by the driver's Indicators / Tags
 // chips for at-a-glance debugging. Driver-side rendering is
@@ -28,7 +28,6 @@ func renderInfoContent(s *proto.SessionInfo) string {
 
 	writeField("ID", s.ID)
 	writeField("Project", s.Project)
-	writeField("WindowID", s.WindowID)
 	writeField("Command", s.DisplayCommand())
 	writeField("State", s.State.Symbol()+" "+s.State.String())
 	if t := s.CreatedAtTime(); !t.IsZero() {

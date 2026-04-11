@@ -20,7 +20,7 @@ func (m Model) handleMouseLeave(msg mouseLeaveMsg) (tea.Model, tea.Cmd) {
 	if m.anchored == "" || m.anchored == m.active {
 		return m, nil
 	}
-	idx := m.findSessionCursorByWindowID(m.anchored)
+	idx := m.findSessionCursorByID(m.anchored)
 	if idx < 0 {
 		m.anchored = ""
 		return m, nil
@@ -88,7 +88,7 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	}
 	m.cursor = idx
 	if s := m.cursorSession(); s != nil {
-		m.anchored = s.WindowID
+		m.anchored = s.ID
 		return m, m.focusCmd(mainPane)
 	}
 	return m, nil

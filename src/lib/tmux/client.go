@@ -123,6 +123,23 @@ func (c *Client) ListWindowIDs() ([]string, error) {
 	return ids, nil
 }
 
+// ListWindowIndexes returns the numeric window indexes ("0", "1", "2", ...)
+// for all windows in the session. Used for reconciliation against ROOST_W_*
+// env vars.
+func (c *Client) ListWindowIndexes() ([]string, error) {
+	out, err := c.Run("list-windows", "-t", c.SessionName, "-F", "#{window_index}")
+	if err != nil {
+		return nil, err
+	}
+	var indexes []string
+	for _, line := range strings.Split(out, "\n") {
+		if line != "" {
+			indexes = append(indexes, line)
+		}
+	}
+	return indexes, nil
+}
+
 func (c *Client) RunChain(commands ...[]string) error {
 	var args []string
 	for i, cmd := range commands {

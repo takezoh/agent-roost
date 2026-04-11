@@ -85,22 +85,15 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 }
 
 func reduceTmuxWindowSpawned(s State, e EvTmuxWindowSpawned) (State, []Effect) {
-	sess, ok := s.Sessions[e.SessionID]
-	if !ok {
+	if _, ok := s.Sessions[e.SessionID]; !ok {
 		return s, nil
 	}
-	s.Sessions = cloneSessions(s.Sessions)
-	sess.WindowID = e.WindowID
-	sess.PaneID = e.PaneID
-	s.Sessions[e.SessionID] = sess
-
-	chain := buildSwapChain(s.Active, e.WindowID)
-	s.Active = e.WindowID
+	s.ActiveSession = e.SessionID
 
 	effs := []Effect{
-		EffSwapPane{ChainOps: chain},
+		EffRegisterWindow{SessionID: e.SessionID, WindowTarget: e.WindowTarget},
+		EffActivateSession{SessionID: e.SessionID},
 		EffSelectPane{Target: "{sessionName}:0.0"},
-		EffSetTmuxEnv{Key: "ROOST_ACTIVE_WINDOW", Value: string(e.WindowID)},
 		EffSyncStatusLine{Line: ""},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
@@ -108,7 +101,6 @@ func reduceTmuxWindowSpawned(s State, e EvTmuxWindowSpawned) (State, []Effect) {
 	if e.ReplyConn != 0 {
 		effs = append(effs, okResp(e.ReplyConn, e.ReplyReqID, CreateSessionReply{
 			SessionID: string(e.SessionID),
-			WindowID:  string(e.WindowID),
 		}))
 	}
 	return s, effs
@@ -116,7 +108,6 @@ func reduceTmuxWindowSpawned(s State, e EvTmuxWindowSpawned) (State, []Effect) {
 
 type CreateSessionReply struct {
 	SessionID string
-	WindowID  string
 }
 
 func reduceTmuxSpawnFailed(s State, e EvTmuxSpawnFailed) (State, []Effect) {
@@ -135,17 +126,17 @@ func reduceTmuxSpawnFailed(s State, e EvTmuxSpawnFailed) (State, []Effect) {
 
 func reduceStopSession(s State, connID ConnID, reqID string, p StopSessionParams) (State, []Effect) {
 	sid := SessionID(p.SessionID)
-	sess, ok := s.Sessions[sid]
-	if !ok {
+	if _, ok := s.Sessions[sid]; !ok {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
 	s.Sessions = cloneSessions(s.Sessions)
 	delete(s.Sessions, sid)
-	if s.Active == sess.WindowID {
-		s.Active = ""
+	if s.ActiveSession == sid {
+		s.ActiveSession = ""
 	}
 	return s, []Effect{
-		EffKillTmuxWindow{WindowID: sess.WindowID},
+		EffKillSessionWindow{SessionID: sid},
+		EffUnregisterWindow{SessionID: sid},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
 		okResp(connID, reqID, nil),
@@ -154,60 +145,44 @@ func reduceStopSession(s State, connID ConnID, reqID string, p StopSessionParams
 
 func reducePreviewSession(s State, connID ConnID, reqID string, p PreviewSessionParams) (State, []Effect) {
 	sid := SessionID(p.SessionID)
-	sess, ok := s.Sessions[sid]
-	if !ok {
+	if _, ok := s.Sessions[sid]; !ok {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
-	if sess.WindowID == "" {
-		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, "session has no tmux window yet")}
-	}
-
-	chain := buildSwapChain(s.Active, sess.WindowID)
-	s.Active = sess.WindowID
+	s.ActiveSession = sid
 
 	return s, []Effect{
-		EffSwapPane{ChainOps: chain},
-		EffSetTmuxEnv{Key: "ROOST_ACTIVE_WINDOW", Value: string(sess.WindowID)},
+		EffActivateSession{SessionID: sid},
 		EffSyncStatusLine{Line: ""},
 		EffBroadcastSessionsChanged{IsPreview: true},
-		okResp(connID, reqID, ActiveWindowReply{ActiveWindowID: string(sess.WindowID)}),
+		okResp(connID, reqID, ActiveSessionReply{ActiveSessionID: string(sid)}),
 	}
 }
 
 func reduceSwitchSession(s State, connID ConnID, reqID string, p SwitchSessionParams) (State, []Effect) {
 	sid := SessionID(p.SessionID)
-	sess, ok := s.Sessions[sid]
-	if !ok {
+	if _, ok := s.Sessions[sid]; !ok {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
-	if sess.WindowID == "" {
-		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, "session has no tmux window yet")}
-	}
-
-	chain := buildSwapChain(s.Active, sess.WindowID)
-	s.Active = sess.WindowID
+	s.ActiveSession = sid
 
 	return s, []Effect{
-		EffSwapPane{ChainOps: chain},
+		EffActivateSession{SessionID: sid},
 		EffSelectPane{Target: "{sessionName}:0.0"},
-		EffSetTmuxEnv{Key: "ROOST_ACTIVE_WINDOW", Value: string(sess.WindowID)},
 		EffSyncStatusLine{Line: ""},
 		EffBroadcastSessionsChanged{},
-		okResp(connID, reqID, ActiveWindowReply{ActiveWindowID: string(sess.WindowID)}),
+		okResp(connID, reqID, ActiveSessionReply{ActiveSessionID: string(sid)}),
 	}
 }
 
-type ActiveWindowReply struct {
-	ActiveWindowID string
+type ActiveSessionReply struct {
+	ActiveSessionID string
 }
 
 func reducePreviewProject(s State, connID ConnID, reqID string, p PreviewProjectParams) (State, []Effect) {
 	var effs []Effect
-	if s.Active != "" {
-		chain := buildDeactivateChain(s.Active)
-		effs = append(effs, EffSwapPane{ChainOps: chain})
-		effs = append(effs, EffUnsetTmuxEnv{Key: "ROOST_ACTIVE_WINDOW"})
-		s.Active = ""
+	if s.ActiveSession != "" {
+		effs = append(effs, EffDeactivateSession{})
+		s.ActiveSession = ""
 	}
 	effs = append(effs, okResp(connID, reqID, nil))
 	effs = append(effs, EffBroadcastEvent{
@@ -265,24 +240,5 @@ func reduceLaunchTool(s State, connID ConnID, reqID string, raw json.RawMessage)
 			Args:   m,
 		},
 		okResp(connID, reqID, nil),
-	}
-}
-
-// === Swap-chain builders ===
-
-func buildSwapChain(active, target WindowID) [][]string {
-	pane0 := "{sessionName}:0.0"
-	var cmds [][]string
-	if active != "" {
-		cmds = append(cmds, []string{"swap-pane", "-d", "-s", pane0, "-t", string(active) + ".0"})
-	}
-	cmds = append(cmds, []string{"swap-pane", "-d", "-s", pane0, "-t", string(target) + ".0"})
-	return cmds
-}
-
-func buildDeactivateChain(active WindowID) [][]string {
-	pane0 := "{sessionName}:0.0"
-	return [][]string{
-		{"swap-pane", "-d", "-s", pane0, "-t", string(active) + ".0"},
 	}
 }

@@ -66,18 +66,16 @@ func runCoordinator() {
 		if err := rt.LoadSnapshot(); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
-		rt.RescueActiveSession(client)
-		if err := rt.ReconcileWarm(); err != nil {
-			slog.Error("reconcile failed", "err", err)
+		if err := rt.LoadWindowMap(); err != nil {
+			slog.Warn("window map load failed", "err", err)
 		}
-		rt.DeactivateOnStartup(client)
+		rt.ReconcileOrphans()
 	} else {
 		slog.Info("creating new session")
 		setupNewSession(client, cfg, sessionName)
 		if err := rt.LoadSnapshot(); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
-		rt.ClearStaleWindowIDs()
 		if err := rt.RecreateAll(); err != nil {
 			slog.Error("recreate failed", "err", err)
 		}
@@ -107,15 +105,14 @@ func runCoordinator() {
 		rt.SetRelay(relay)
 	}
 
-	if warmRestart {
-		respawnMainPane(client, sessionName)
-	}
+	respawnMainPane(client, sessionName)
 	respawnSessionsPane(client, sessionName)
 	respawnLogPane(client, sessionName)
 
 	slog.Info("attaching to tmux session")
 	client.Attach()
 
+	rt.DeactivateBeforeExit()
 	cancel()
 	<-rt.Done()
 

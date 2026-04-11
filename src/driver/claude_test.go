@@ -1076,7 +1076,7 @@ func TestClaudeTickEmitsCapturePaneWhenBackgroundRunning(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.Status = state.StatusRunning
 	next, effs := d.handleTick(cs, state.DEvTick{
-		Now: now, Active: false, WindowID: "@42",
+		Now: now, Active: false, WindowTarget: "42",
 	})
 	if !next.CaptureInFlight {
 		t.Error("CaptureInFlight should be true")
@@ -1089,8 +1089,8 @@ func TestClaudeTickEmitsCapturePaneWhenBackgroundRunning(t *testing.T) {
 	if !ok {
 		t.Fatalf("job input type = %T, want CapturePaneInput", job.Input)
 	}
-	if cp.WindowID != "@42" {
-		t.Errorf("WindowID = %q, want @42", cp.WindowID)
+	if cp.WindowTarget != "42" {
+		t.Errorf("WindowTarget = %q, want 42", cp.WindowTarget)
 	}
 }
 
@@ -1098,7 +1098,7 @@ func TestClaudeTickSkipsCaptureWhenActive(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.Status = state.StatusRunning
 	_, effs := d.handleTick(cs, state.DEvTick{
-		Now: now, Active: true, WindowID: "@42",
+		Now: now, Active: true, WindowTarget: "42",
 	})
 	for _, e := range effs {
 		if j, ok := e.(state.EffStartJob); ok {
@@ -1113,7 +1113,7 @@ func TestClaudeTickSkipsCaptureWhenNotRunning(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.Status = state.StatusWaiting
 	_, effs := d.handleTick(cs, state.DEvTick{
-		Now: now, Active: false, WindowID: "@42",
+		Now: now, Active: false, WindowTarget: "42",
 	})
 	for _, e := range effs {
 		if j, ok := e.(state.EffStartJob); ok {
@@ -1129,7 +1129,7 @@ func TestClaudeTickSkipsCaptureWhenInFlight(t *testing.T) {
 	cs.Status = state.StatusRunning
 	cs.CaptureInFlight = true
 	_, effs := d.handleTick(cs, state.DEvTick{
-		Now: now, Active: false, WindowID: "@42",
+		Now: now, Active: false, WindowTarget: "42",
 	})
 	for _, e := range effs {
 		if j, ok := e.(state.EffStartJob); ok {
@@ -1206,7 +1206,7 @@ func TestClaudeHangDetectionTriggersIdle(t *testing.T) {
 	// Tick at threshold+1s
 	now := cs.StatusChangedAt.Add(claudeHangThreshold + time.Second)
 	next, effs := d.handleTick(cs, state.DEvTick{
-		Now: now, Active: false, WindowID: "@42",
+		Now: now, Active: false, WindowTarget: "42",
 	})
 	if next.Status != state.StatusIdle {
 		t.Errorf("Status = %v, want Idle", next.Status)
@@ -1232,7 +1232,7 @@ func TestClaudeHangDetectionSuppressedBySubagents(t *testing.T) {
 
 	now := cs.StatusChangedAt.Add(claudeHangThreshold + time.Minute)
 	next, _ := d.handleTick(cs, state.DEvTick{
-		Now: now, Active: false, WindowID: "@42",
+		Now: now, Active: false, WindowTarget: "42",
 	})
 	if next.Status != state.StatusRunning {
 		t.Errorf("Status = %v, want Running (subagents active)", next.Status)

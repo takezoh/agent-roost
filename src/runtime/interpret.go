@@ -24,21 +24,36 @@ func (r *Runtime) execute(eff state.Effect) {
 	case state.EffSpawnTmuxWindow:
 		go r.spawnTmuxWindowAsync(e)
 
-	case state.EffKillTmuxWindow:
-		if err := r.cfg.Tmux.KillWindow(string(e.WindowID)); err != nil {
-			slog.Error("runtime: kill window failed", "window", e.WindowID, "err", err)
+	case state.EffKillSessionWindow:
+		target, ok := r.windowMap[e.SessionID]
+		if !ok {
+			slog.Debug("runtime: kill window — no mapping for session", "session", e.SessionID)
+			break
+		}
+		if err := r.cfg.Tmux.KillWindow(target); err != nil {
+			slog.Error("runtime: kill window failed", "target", target, "err", err)
 		}
 
-	case state.EffSwapPane:
-		ops := substitutePlaceholders(e.ChainOps, r.cfg.SessionName, r.cfg.RoostExe)
-		// Execute each swap-pane independently. The old active may be
-		// a dead window (agent exited, remain-on-exit off); if the
-		// first swap (return old active) fails, the second swap
-		// (bring in target) must still run. RunChain uses ";" which
-		// aborts the entire chain on the first failure.
-		for _, op := range ops {
-			if err := r.cfg.Tmux.RunChain(op); err != nil {
-				slog.Warn("runtime: swap-pane step failed", "op", op, "err", err)
+	case state.EffActivateSession:
+		r.activateSession(e.SessionID)
+
+	case state.EffDeactivateSession:
+		r.deactivateSession()
+
+	case state.EffRegisterWindow:
+		r.windowMap[e.SessionID] = e.WindowTarget
+		envKey := windowEnvKey(e.WindowTarget)
+		if err := r.cfg.Tmux.SetEnv(envKey, string(e.SessionID)); err != nil {
+			slog.Debug("runtime: set window env failed", "key", envKey, "err", err)
+		}
+
+	case state.EffUnregisterWindow:
+		target, ok := r.windowMap[e.SessionID]
+		if ok {
+			delete(r.windowMap, e.SessionID)
+			envKey := windowEnvKey(target)
+			if err := r.cfg.Tmux.UnsetEnv(envKey); err != nil {
+				slog.Debug("runtime: unset window env failed", "key", envKey, "err", err)
 			}
 		}
 
@@ -184,7 +199,7 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	if isShellCommand(e.Command) {
 		spawnCmd = ""
 	}
-	wid, paneID, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, e.StartDir, e.Env)
+	target, _, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, e.StartDir, e.Env)
 	if err != nil {
 		r.Enqueue(state.EvTmuxSpawnFailed{
 			SessionID:  e.SessionID,
@@ -195,11 +210,10 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 		return
 	}
 	r.Enqueue(state.EvTmuxWindowSpawned{
-		SessionID:   e.SessionID,
-		WindowID:    state.WindowID(wid),
-		PaneID: paneID,
-		ReplyConn:   e.ReplyConn,
-		ReplyReqID:  e.ReplyReqID,
+		SessionID:    e.SessionID,
+		WindowTarget: target,
+		ReplyConn:    e.ReplyConn,
+		ReplyReqID:   e.ReplyReqID,
 	})
 }
 
@@ -294,8 +308,6 @@ func (r *Runtime) snapshotSessions() []SessionSnapshot {
 			ID:          string(sess.ID),
 			Project:     sess.Project,
 			Command:     sess.Command,
-			WindowID:    string(sess.WindowID),
-			PaneID: sess.PaneID,
 			CreatedAt:   sess.CreatedAt.UTC().Format(time.RFC3339),
 			Driver:      driverName,
 			DriverState: bag,
@@ -308,86 +320,106 @@ func (r *Runtime) snapshotSessions() []SessionSnapshot {
 // is currently swapped into pane 0.0. Empty when no session is active
 // or no driver matches.
 func (r *Runtime) activeStatusLine() string {
-	if r.state.Active == "" {
+	if r.activeSession == "" {
 		return ""
 	}
-	for _, sess := range r.state.Sessions {
-		if sess.WindowID != r.state.Active {
-			continue
-		}
-		drv := state.GetDriver(sess.Command)
-		if drv == nil {
-			return ""
-		}
-		return drv.View(sess.Driver).StatusLine
+	sess, ok := r.state.Sessions[r.activeSession]
+	if !ok {
+		return ""
 	}
-	return ""
+	drv := state.GetDriver(sess.Command)
+	if drv == nil {
+		return ""
+	}
+	return drv.View(sess.Driver).StatusLine
 }
 
-// reconcileWindows compares live tmux windows with state sessions.
-// Sessions whose windows have vanished are reported via
-// EvTmuxWindowVanished so the reducer evicts them. Orphaned windows
-// (carrying @roost_id but not tracked in state.Sessions) are killed.
+// reconcileWindows compares the runtime windowMap with live tmux windows.
+// Sessions whose windows have vanished are reported via EvTmuxWindowVanished.
+// Orphaned windows (in windowMap but not alive in tmux) are cleaned up.
 func (r *Runtime) reconcileWindows() {
-	list, err := r.listRoostWindows()
+	liveIndexes, err := r.listWindowIndexes()
 	if err != nil {
 		slog.Debug("runtime: reconcile list-windows failed", "err", err)
 		return
 	}
-	live := make(map[string]struct{}, len(list))
-	for _, w := range list {
-		live[w.WindowID] = struct{}{}
-	}
-	for _, sess := range r.state.Sessions {
-		if sess.WindowID == "" {
-			continue
-		}
-		if _, ok := live[string(sess.WindowID)]; !ok {
-			r.Enqueue(state.EvTmuxWindowVanished{WindowID: sess.WindowID})
-		}
+	live := make(map[string]struct{}, len(liveIndexes))
+	for _, idx := range liveIndexes {
+		live[idx] = struct{}{}
 	}
 
-	// Reverse check: kill orphaned windows whose @roost_id has no
-	// matching session in state. Window 0 (TUI panes) never carries
-	// @roost_id, so it is never affected.
-	tracked := make(map[string]struct{}, len(r.state.Sessions))
-	for _, sess := range r.state.Sessions {
-		tracked[string(sess.ID)] = struct{}{}
-	}
-	for _, w := range list {
-		if _, ok := tracked[w.ID]; !ok {
-			slog.Info("runtime: killing orphaned window", "window", w.WindowID, "roost_id", w.ID)
-			if err := r.cfg.Tmux.KillWindow(w.WindowID); err != nil {
-				slog.Warn("runtime: kill orphaned window failed", "window", w.WindowID, "err", err)
-			}
+	for sessID, target := range r.windowMap {
+		if _, ok := live[target]; !ok {
+			r.Enqueue(state.EvTmuxWindowVanished{SessionID: sessID})
 		}
 	}
 }
 
-// findPaneOwner queries the pane_id of a tmux pane and maps it back
-// to the owning session via PaneID. Used when pane 0.0 is dead to
-// find which session's agent process exited.
-func (r *Runtime) findPaneOwner(paneTarget string) state.SessionID {
-	type displayer interface {
-		DisplayMessage(target, format string) (string, error)
-	}
-	d, ok := r.cfg.Tmux.(displayer)
+// findPaneOwner returns the SessionID currently active (swapped into
+// pane 0.0). When pane 0.0 is dead, the active session's agent exited.
+func (r *Runtime) findPaneOwner(_ string) state.SessionID {
+	return r.activeSession
+}
+
+// activateSession swaps a session's agent pane into pane 0.0. If another
+// session is currently active it is swapped back to its own window first.
+func (r *Runtime) activateSession(sessID state.SessionID) {
+	target, ok := r.windowMap[sessID]
 	if !ok {
-		return ""
+		slog.Warn("runtime: activate session — no window target", "session", sessID)
+		return
 	}
-	out, err := d.DisplayMessage(paneTarget, "#{pane_id}")
-	if err != nil {
-		return ""
-	}
-	paneID := strings.TrimSpace(out)
-	if paneID == "" {
-		return ""
-	}
-	for _, sess := range r.state.Sessions {
-		if sess.PaneID == paneID {
-			return sess.ID
+	pane0 := r.cfg.SessionName + ":0.0"
+	// Swap previous active back first (may fail if window is dead; that's ok).
+	if r.activeSession != "" && r.activeSession != sessID {
+		prev, hasPrev := r.windowMap[r.activeSession]
+		if hasPrev {
+			op := []string{"swap-pane", "-d", "-s", pane0, "-t", prev + ".0"}
+			if err := r.cfg.Tmux.RunChain(op); err != nil {
+				slog.Warn("runtime: swap-pane back failed", "prev", prev, "err", err)
+			}
 		}
 	}
-	return ""
+	// Bring target into pane 0.0.
+	op := []string{"swap-pane", "-d", "-s", pane0, "-t", target + ".0"}
+	if err := r.cfg.Tmux.RunChain(op); err != nil {
+		slog.Warn("runtime: swap-pane in failed", "target", target, "err", err)
+		return
+	}
+	r.activeSession = sessID
+}
+
+// deactivateSession swaps the current active session back to its window,
+// leaving pane 0.0 showing the main TUI.
+func (r *Runtime) deactivateSession() {
+	if r.activeSession == "" {
+		return
+	}
+	prev, ok := r.windowMap[r.activeSession]
+	if ok {
+		pane0 := r.cfg.SessionName + ":0.0"
+		op := []string{"swap-pane", "-d", "-s", pane0, "-t", prev + ".0"}
+		if err := r.cfg.Tmux.RunChain(op); err != nil {
+			slog.Warn("runtime: deactivate swap-pane failed", "prev", prev, "err", err)
+		}
+	}
+	r.activeSession = ""
+}
+
+// listWindowIndexes returns the live window indexes (e.g. ["0","1","2"])
+// from the configured tmux backend.
+func (r *Runtime) listWindowIndexes() ([]string, error) {
+	type indexLister interface {
+		ListWindowIndexes() ([]string, error)
+	}
+	if l, ok := r.cfg.Tmux.(indexLister); ok {
+		return l.ListWindowIndexes()
+	}
+	return nil, nil
+}
+
+// windowEnvKey returns the tmux session-level env var name for a window index.
+func windowEnvKey(windowIndex string) string {
+	return "ROOST_W_" + windowIndex
 }
 

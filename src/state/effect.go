@@ -24,14 +24,33 @@ type EffSpawnTmuxWindow struct {
 	ReplyReqID string
 }
 
-// EffKillTmuxWindow destroys a tmux window.
-type EffKillTmuxWindow struct {
-	WindowID WindowID
+// EffKillSessionWindow destroys the tmux window owned by the given session.
+// The runtime looks up the window target from its windowMap.
+type EffKillSessionWindow struct {
+	SessionID SessionID
 }
 
-// EffSwapPane runs a chain of swap-pane operations atomically.
-type EffSwapPane struct {
-	ChainOps [][]string
+// EffActivateSession swaps a session's agent pane into pane 0.0.
+// The runtime resolves the window target from its windowMap.
+type EffActivateSession struct {
+	SessionID SessionID
+}
+
+// EffDeactivateSession swaps the currently active session back to its
+// own window, leaving pane 0.0 showing the main TUI.
+type EffDeactivateSession struct{}
+
+// EffRegisterWindow records the window target for a session in the
+// runtime's windowMap and saves it as a tmux session-level env var.
+type EffRegisterWindow struct {
+	SessionID    SessionID
+	WindowTarget string
+}
+
+// EffUnregisterWindow removes a session from the runtime's windowMap
+// and deletes the corresponding tmux session-level env var.
+type EffUnregisterWindow struct {
+	SessionID SessionID
 }
 
 // EffSelectPane focuses a tmux pane.
@@ -177,8 +196,11 @@ type EffStartJob struct {
 // === isEffect markers ===
 
 func (EffSpawnTmuxWindow) isEffect()          {}
-func (EffKillTmuxWindow) isEffect()           {}
-func (EffSwapPane) isEffect()                 {}
+func (EffKillSessionWindow) isEffect()        {}
+func (EffActivateSession) isEffect()          {}
+func (EffDeactivateSession) isEffect()        {}
+func (EffRegisterWindow) isEffect()           {}
+func (EffUnregisterWindow) isEffect()         {}
 func (EffSelectPane) isEffect()               {}
 func (EffSyncStatusLine) isEffect()           {}
 func (EffSetTmuxEnv) isEffect()               {}

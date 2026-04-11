@@ -230,7 +230,7 @@ func (c *Client) dispatchResponse(env Envelope) {
 // decodeResponseByCommand picks the right Response variant for the
 // envelope's data. Without the original command name in the response
 // envelope, we use a heuristic: try the richest variants first
-// (RespCreateSession / RespSessions / RespActiveWindow), fall back
+// (RespCreateSession / RespSessions / RespActiveSession), fall back
 // to RespOK on empty data.
 func decodeResponseByCommand(env Envelope) (Response, error) {
 	if len(env.Data) == 0 {
@@ -245,7 +245,7 @@ func decodeResponseByCommand(env Envelope) (Response, error) {
 		return RespOK{}, nil
 	}
 	switch {
-	case has(probe, "session_id") && has(probe, "window_id"):
+	case has(probe, "session_id"):
 		var r RespCreateSession
 		if err := json.Unmarshal(env.Data, &r); err != nil {
 			return nil, err
@@ -257,8 +257,8 @@ func decodeResponseByCommand(env Envelope) (Response, error) {
 			return nil, err
 		}
 		return r, nil
-	case has(probe, "active_window_id"):
-		var r RespActiveWindow
+	case has(probe, "active_session_id"):
+		var r RespActiveSession
 		if err := json.Unmarshal(env.Data, &r); err != nil {
 			return nil, err
 		}

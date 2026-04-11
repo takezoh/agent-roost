@@ -74,7 +74,7 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor--
 		}
 		if s := m.cursorSession(); s != nil {
-			m.anchored = s.WindowID
+			m.anchored = s.ID
 		}
 		return m, m.cursorPreviewCmd()
 	case key.Matches(msg, m.keys.Down):
@@ -82,12 +82,12 @@ func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			m.cursor++
 		}
 		if s := m.cursorSession(); s != nil {
-			m.anchored = s.WindowID
+			m.anchored = s.ID
 		}
 		return m, m.cursorPreviewCmd()
 	case key.Matches(msg, m.keys.Enter):
 		if s := m.cursorSession(); s != nil {
-			m.anchored = s.WindowID
+			m.anchored = s.ID
 			return m, m.focusCmd(mainPane)
 		}
 	case key.Matches(msg, m.keys.New):

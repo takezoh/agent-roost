@@ -50,13 +50,13 @@ type serverEventMsg struct{ event proto.ServerEvent }
 type disconnectMsg struct{}
 
 type previewDoneMsg struct {
-	windowID string
-	err      error
+	sessionID string
+	err       error
 }
 
 type switchDoneMsg struct {
-	windowID string
-	err      error
+	sessionID string
+	err       error
 }
 
 type deactivateDoneMsg struct {
@@ -95,15 +95,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleServerEvent(msg.event)
 
 	case previewDoneMsg:
-		if msg.err == nil && msg.windowID != "" {
-			m.active = msg.windowID
+		if msg.err == nil && msg.sessionID != "" {
+			m.active = msg.sessionID
 		}
 		return m, m.focusCmd(sidebarPane)
 
 	case switchDoneMsg:
-		if msg.err == nil && msg.windowID != "" {
-			m.active = msg.windowID
-			m.anchored = msg.windowID
+		if msg.err == nil && msg.sessionID != "" {
+			m.active = msg.sessionID
+			m.anchored = msg.sessionID
 		}
 		return m, m.focusCmd(mainPane)
 
@@ -137,15 +137,15 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 		m.sessions = e.Sessions
 		m.connectors = e.Connectors
 		m.rebuildItems()
-		if e.ActiveWindowID != "" && e.ActiveWindowID != m.active {
-			m.active = e.ActiveWindowID
-			m.anchored = e.ActiveWindowID
-			if sc := m.findSessionCursorByWindowID(e.ActiveWindowID); sc >= 0 {
+		if e.ActiveSessionID != "" && e.ActiveSessionID != m.active {
+			m.active = e.ActiveSessionID
+			m.anchored = e.ActiveSessionID
+			if sc := m.findSessionCursorByID(e.ActiveSessionID); sc >= 0 {
 				m.cursor = sc
 			}
 			return m, tea.Batch(m.listenEvents(), m.focusCmd(mainPane))
 		}
-		if e.ActiveWindowID == "" && m.active == "" {
+		if e.ActiveSessionID == "" && m.active == "" {
 			m.cursor = m.firstSessionIndex()
 		}
 	}
@@ -156,14 +156,14 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 
 func (m Model) requestSessions() tea.Cmd {
 	return func() tea.Msg {
-		sessions, activeWID, connectors, err := m.client.ListSessions()
+		sessions, activeID, connectors, err := m.client.ListSessions()
 		if err != nil {
 			return nil
 		}
 		return serverEventMsg{event: proto.EvtSessionsChanged{
-			Sessions:       sessions,
-			ActiveWindowID: activeWID,
-			Connectors:     connectors,
+			Sessions:        sessions,
+			ActiveSessionID: activeID,
+			Connectors:      connectors,
 		}}
 	}
 }
@@ -180,27 +180,27 @@ func (m Model) listenEvents() tea.Cmd {
 
 func (m Model) previewCmd(sess *proto.SessionInfo) tea.Cmd {
 	return func() tea.Msg {
-		activeWID, err := m.client.PreviewSession(sess.ID)
-		return previewDoneMsg{windowID: activeWID, err: err}
+		activeID, err := m.client.PreviewSession(sess.ID)
+		return previewDoneMsg{sessionID: activeID, err: err}
 	}
 }
 
 func (m Model) switchCmd(sess *proto.SessionInfo) tea.Cmd {
 	return func() tea.Msg {
-		activeWID, err := m.client.SwitchSession(sess.ID)
-		return switchDoneMsg{windowID: activeWID, err: err}
+		activeID, err := m.client.SwitchSession(sess.ID)
+		return switchDoneMsg{sessionID: activeID, err: err}
 	}
 }
 
 func (m Model) cursorPreviewCmd() tea.Cmd {
-	if s := m.cursorSession(); s != nil && s.WindowID != m.active {
+	if s := m.cursorSession(); s != nil && s.ID != m.active {
 		return m.previewCmd(s)
 	}
 	return nil
 }
 
 func (m Model) anchoredPreviewCmd() tea.Cmd {
-	idx := m.findSessionCursorByWindowID(m.anchored)
+	idx := m.findSessionCursorByID(m.anchored)
 	if idx < 0 {
 		return nil
 	}
@@ -272,7 +272,7 @@ func (m *Model) rebuildItems() {
 func (m *Model) restoreCursor(prev listItem) {
 	if prev.session != nil {
 		for i, item := range m.items {
-			if item.session != nil && item.session.WindowID == prev.session.WindowID {
+			if item.session != nil && item.session.ID == prev.session.ID {
 				m.cursor = i
 				return
 			}
@@ -402,18 +402,9 @@ func (m Model) cursorProjectName() string {
 	return m.items[m.cursor].project
 }
 
-func (m Model) hasWindowID(wid string) bool {
-	for _, s := range m.sessions {
-		if s.WindowID == wid {
-			return true
-		}
-	}
-	return false
-}
-
-func (m Model) findSessionCursorByWindowID(wid string) int {
+func (m Model) findSessionCursorByID(id string) int {
 	for i, item := range m.items {
-		if item.session != nil && item.session.WindowID == wid {
+		if item.session != nil && item.session.ID == id {
 			return i
 		}
 	}

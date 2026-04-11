@@ -26,10 +26,11 @@ func NewRealTmuxBackend(client *tmux.Client) *RealTmuxBackend {
 }
 
 // SpawnWindow creates a new tmux window for a session and returns
-// the freshly assigned window id and pane id. The pane
-// id is queried separately because tmux assigns it after new-window.
+// the freshly assigned window index (e.g. "1", "2") and an empty pane id.
+// The window index is stable across server restarts (unlike window IDs)
+// and is used as the key in the ROOST_W_* session env vars.
 func (b *RealTmuxBackend) SpawnWindow(name, command, startDir string, env map[string]string) (string, string, error) {
-	args := []string{"new-window", "-d", "-t", b.sessionName + ":", "-n", name, "-P", "-F", "#{window_id}"}
+	args := []string{"new-window", "-d", "-t", b.sessionName + ":", "-n", name, "-P", "-F", "#{window_index}"}
 	if startDir != "" {
 		args = append(args, "-c", startDir)
 	}
@@ -39,33 +40,18 @@ func (b *RealTmuxBackend) SpawnWindow(name, command, startDir string, env map[st
 	if command != "" {
 		args = append(args, command)
 	}
-	wid, err := b.client.Run(args...)
+	idx, err := b.client.Run(args...)
 	if err != nil {
 		return "", "", err
 	}
-	if err := b.client.SetOption(wid, "remain-on-exit", "off"); err != nil {
-		return wid, "", err
+	if err := b.client.SetOption(b.sessionName+":"+idx, "remain-on-exit", "off"); err != nil {
+		return idx, "", err
 	}
-	paneID, err := b.client.Run("display-message", "-t", wid+".0", "-p", "#{pane_id}")
-	if err != nil {
-		return wid, "", err
-	}
-	// Stamp the window with @roost_id = session ID so warm-restart
-	// reconciliation can map tmux windows back to sessions.json entries.
-	// The session ID comes from the ROOST_SESSION_ID env var injected
-	// by the reducer.
-	roostID := env["ROOST_SESSION_ID"]
-	if roostID == "" {
-		roostID = name // fallback for non-roost windows (shouldn't happen)
-	}
-	if err := b.client.SetWindowUserOption(wid, "@roost_id", roostID); err != nil {
-		return wid, paneID, err
-	}
-	return wid, paneID, nil
+	return idx, "", nil
 }
 
-func (b *RealTmuxBackend) KillWindow(windowID string) error {
-	_, err := b.client.Run("kill-window", "-t", windowID)
+func (b *RealTmuxBackend) KillWindow(target string) error {
+	_, err := b.client.Run("kill-window", "-t", b.sessionName+":"+target)
 	return err
 }
 
@@ -108,8 +94,19 @@ func (b *RealTmuxBackend) RespawnPane(target, command string) error {
 	return err
 }
 
-func (b *RealTmuxBackend) CapturePane(windowID string, nLines int) (string, error) {
-	return b.client.CapturePaneLines(windowID+".0", nLines)
+func (b *RealTmuxBackend) CapturePane(windowTarget string, nLines int) (string, error) {
+	return b.client.CapturePaneLines(b.sessionName+":"+windowTarget+".0", nLines)
+}
+
+// ListWindowIndexes returns the live window indexes for reconciliation.
+func (b *RealTmuxBackend) ListWindowIndexes() ([]string, error) {
+	return b.client.ListWindowIndexes()
+}
+
+// ShowEnvironment returns the raw tmux show-environment output for the
+// session, used by LoadWindowMap to reconstruct the ROOST_W_* entries.
+func (b *RealTmuxBackend) ShowEnvironment() (string, error) {
+	return b.client.Run("show-environment", "-t", b.sessionName)
 }
 
 func (b *RealTmuxBackend) DetachClient() error {
@@ -129,26 +126,6 @@ func (b *RealTmuxBackend) DisplayPopup(width, height, cmd string) error {
 	}
 	c := exec.Command("tmux", "display-popup", "-E", "-w", width, "-h", height, cmd)
 	return c.Start() // fire-and-forget — popup runs independently
-}
-
-// ListRoostWindows is a convenience pass-through used by the runtime
-// during warm-restart reconciliation. Not part of TmuxBackend (the
-// reducer doesn't need it) — only the bootstrap path calls it.
-func (b *RealTmuxBackend) ListRoostWindows() ([]tmux.RoostWindow, error) {
-	return b.client.ListRoostWindows()
-}
-
-// DisplayMessage runs tmux display-message for the given target and
-// format string. Used by bootstrap's queryPaneID to re-query
-// pane IDs after warm restart.
-func (b *RealTmuxBackend) DisplayMessage(target, format string) (string, error) {
-	return b.client.Run("display-message", "-t", target, "-p", format)
-}
-
-// UnsetWindowUserOption removes a window-scoped user option. Used by
-// Phase 8 cleanup to remove legacy @roost_* keys.
-func (b *RealTmuxBackend) UnsetWindowUserOption(windowID, key string) error {
-	return b.client.UnsetWindowUserOption(windowID, key)
 }
 
 // Underlying returns the wrapped *tmux.Client. Used by main during

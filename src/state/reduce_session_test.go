@@ -113,9 +113,6 @@ func TestCreateSessionAllocatesAndSpawns(t *testing.T) {
 	if sess.Project != "/foo" || sess.Command != "stub" {
 		t.Errorf("session = %+v", sess)
 	}
-	if sess.WindowID != "" {
-		t.Errorf("WindowID should be empty until spawn callback, got %q", sess.WindowID)
-	}
 	spawn, ok := findEff[EffSpawnTmuxWindow](effs)
 	if !ok {
 		t.Fatal("expected EffSpawnTmuxWindow")
@@ -155,22 +152,26 @@ func TestCreateSessionUnknownCommandFallsBackToFallback(t *testing.T) {
 
 // === reduceTmuxWindowSpawned ===
 
-func TestTmuxSpawnedFillsWindow(t *testing.T) {
+func TestTmuxSpawnedRegistersWindowAndActivates(t *testing.T) {
 	s := New()
 	s.Now = time.Now()
 	id := SessionID("abc")
 	s.Sessions[id] = Session{ID: id, Project: "/foo", Command: "stub", Driver: stubDriverState{}}
 
 	next, effs := Reduce(s, EvTmuxWindowSpawned{
-		SessionID:   id,
-		WindowID:    "@5",
-		PaneID: "%10",
-		ReplyConn:   1,
-		ReplyReqID:  "r",
+		SessionID:    id,
+		WindowTarget: "1",
+		ReplyConn:    1,
+		ReplyReqID:   "r",
 	})
-	sess := next.Sessions[id]
-	if sess.WindowID != "@5" || sess.PaneID != "%10" {
-		t.Errorf("session not updated: %+v", sess)
+	if next.ActiveSession != id {
+		t.Errorf("ActiveSession = %q, want %q", next.ActiveSession, id)
+	}
+	if _, ok := findEff[EffRegisterWindow](effs); !ok {
+		t.Error("expected EffRegisterWindow")
+	}
+	if _, ok := findEff[EffActivateSession](effs); !ok {
+		t.Error("expected EffActivateSession")
 	}
 	if _, ok := findEff[EffPersistSnapshot](effs); !ok {
 		t.Error("expected EffPersistSnapshot")
@@ -186,7 +187,7 @@ func TestTmuxSpawnedFillsWindow(t *testing.T) {
 func TestTmuxSpawnedUnknownSessionDropsSilently(t *testing.T) {
 	s := New()
 	_, effs := Reduce(s, EvTmuxWindowSpawned{
-		SessionID: "ghost", WindowID: "@5", ReplyConn: 1, ReplyReqID: "r",
+		SessionID: "ghost", WindowTarget: "1", ReplyConn: 1, ReplyReqID: "r",
 	})
 	if len(effs) != 0 {
 		t.Errorf("expected no effects, got %d", len(effs))
@@ -213,8 +214,8 @@ func TestTmuxSpawnFailedEvictsAndReplies(t *testing.T) {
 func TestStopSessionRemovesAndKills(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, WindowID: "@5", Driver: stubDriverState{}}
-	s.Active = "@5"
+	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.ActiveSession = id
 	next, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "stop-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
@@ -222,11 +223,14 @@ func TestStopSessionRemovesAndKills(t *testing.T) {
 	if _, ok := next.Sessions[id]; ok {
 		t.Error("session should be removed")
 	}
-	if next.Active != "" {
-		t.Errorf("active = %q, want empty", next.Active)
+	if next.ActiveSession != "" {
+		t.Errorf("ActiveSession = %q, want empty", next.ActiveSession)
 	}
-	if _, ok := findEff[EffKillTmuxWindow](effs); !ok {
-		t.Error("expected EffKillTmuxWindow")
+	if _, ok := findEff[EffKillSessionWindow](effs); !ok {
+		t.Error("expected EffKillSessionWindow")
+	}
+	if _, ok := findEff[EffUnregisterWindow](effs); !ok {
+		t.Error("expected EffUnregisterWindow")
 	}
 	mustOK(t, effs)
 }
@@ -244,22 +248,19 @@ func TestStopSessionUnknownReturnsError(t *testing.T) {
 
 // === reducePreviewSession / reduceSwitchSession ===
 
-func TestPreviewSessionSwapsAndUpdatesActive(t *testing.T) {
+func TestPreviewSessionActivatesAndBroadcasts(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, WindowID: "@5", Driver: stubDriverState{}}
+	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
 	next, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "preview-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
 	})
-	if next.Active != "@5" {
-		t.Errorf("active = %q, want @5", next.Active)
+	if next.ActiveSession != id {
+		t.Errorf("ActiveSession = %q, want %q", next.ActiveSession, id)
 	}
-	if _, ok := findEff[EffSwapPane](effs); !ok {
-		t.Error("expected EffSwapPane")
-	}
-	if _, ok := findEff[EffSetTmuxEnv](effs); !ok {
-		t.Error("expected EffSetTmuxEnv")
+	if _, ok := findEff[EffActivateSession](effs); !ok {
+		t.Error("expected EffActivateSession")
 	}
 	mustOK(t, effs)
 }
@@ -275,23 +276,10 @@ func TestPreviewSessionUnknownErrors(t *testing.T) {
 	}
 }
 
-func TestPreviewSessionWithoutWindowErrors(t *testing.T) {
-	s := New()
-	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Driver: stubDriverState{}}
-	_, effs := Reduce(s, EvEvent{
-		ConnID: 1, ReqID: "r", Event: "preview-session",
-		Payload: mustPayload(map[string]string{"session_id": string(id)}),
-	})
-	if _, ok := findEff[EffSendError](effs); !ok {
-		t.Error("expected EffSendError")
-	}
-}
-
 func TestSwitchSessionAlsoSelectsPane(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, WindowID: "@5", Driver: stubDriverState{}}
+	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
 	_, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "switch-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
@@ -306,16 +294,16 @@ func TestSwitchSessionAlsoSelectsPane(t *testing.T) {
 
 func TestPreviewProjectDeactivatesActive(t *testing.T) {
 	s := New()
-	s.Active = "@5"
+	s.ActiveSession = "abc"
 	next, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "preview-project",
 		Payload: mustPayload(map[string]string{"project": "/foo"}),
 	})
-	if next.Active != "" {
-		t.Errorf("active = %q, want empty", next.Active)
+	if next.ActiveSession != "" {
+		t.Errorf("ActiveSession = %q, want empty", next.ActiveSession)
 	}
-	if _, ok := findEff[EffSwapPane](effs); !ok {
-		t.Error("expected EffSwapPane to swap back")
+	if _, ok := findEff[EffDeactivateSession](effs); !ok {
+		t.Error("expected EffDeactivateSession to swap back")
 	}
 	if _, ok := findEff[EffBroadcastEvent](effs); !ok {
 		t.Error("expected EffBroadcastEvent")
@@ -414,17 +402,20 @@ func TestDetach(t *testing.T) {
 func TestTmuxWindowVanishedEvicts(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, WindowID: "@5", Driver: stubDriverState{}}
-	s.Active = "@5"
-	next, effs := Reduce(s, EvTmuxWindowVanished{WindowID: "@5"})
+	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.ActiveSession = id
+	next, effs := Reduce(s, EvTmuxWindowVanished{SessionID: id})
 	if _, ok := next.Sessions[id]; ok {
 		t.Error("session should be evicted")
 	}
-	if next.Active != "" {
-		t.Errorf("active not cleared: %q", next.Active)
+	if next.ActiveSession != "" {
+		t.Errorf("ActiveSession not cleared: %q", next.ActiveSession)
 	}
 	if _, ok := findEff[EffBroadcastSessionsChanged](effs); !ok {
 		t.Error("expected broadcast")
+	}
+	if _, ok := findEff[EffUnregisterWindow](effs); !ok {
+		t.Error("expected EffUnregisterWindow")
 	}
 }
 
@@ -492,9 +483,9 @@ func TestPaneDiedUnknownPaneIsNoop(t *testing.T) {
 func TestPaneDiedEvictsSessionByOwnerID(t *testing.T) {
 	s := New()
 	s.Sessions = map[SessionID]Session{
-		"s1": {ID: "s1", WindowID: "@5", PaneID: "%10", Command: "stub-x"},
+		"s1": {ID: "s1", Command: "stub", Driver: stubDriverState{}},
 	}
-	s.Active = "@5"
+	s.ActiveSession = "s1"
 
 	next, effs := Reduce(s, EvPaneDied{
 		Pane:           "{sessionName}:0.0",
@@ -503,14 +494,11 @@ func TestPaneDiedEvictsSessionByOwnerID(t *testing.T) {
 	if _, ok := next.Sessions["s1"]; ok {
 		t.Fatal("session should be deleted")
 	}
-	if next.Active != "" {
-		t.Errorf("Active = %q, want empty", next.Active)
+	if next.ActiveSession != "" {
+		t.Errorf("ActiveSession = %q, want empty", next.ActiveSession)
 	}
-	if _, ok := findEff[EffSwapPane](effs); !ok {
-		t.Error("expected EffSwapPane")
-	}
-	if _, ok := findEff[EffKillTmuxWindow](effs); !ok {
-		t.Error("expected EffKillTmuxWindow")
+	if _, ok := findEff[EffKillSessionWindow](effs); !ok {
+		t.Error("expected EffKillSessionWindow")
 	}
 	if _, ok := findEff[EffBroadcastSessionsChanged](effs); !ok {
 		t.Error("expected EffBroadcastSessionsChanged")
@@ -523,22 +511,22 @@ func TestPaneDiedEvictsSessionByOwnerID(t *testing.T) {
 	}
 }
 
-func TestPaneDiedFallbackViaActive(t *testing.T) {
+func TestPaneDiedFallbackViaActiveSession(t *testing.T) {
 	s := New()
 	s.Sessions = map[SessionID]Session{
-		"s1": {ID: "s1", WindowID: "@5", PaneID: "%10", Command: "stub-x"},
+		"s1": {ID: "s1", Command: "stub", Driver: stubDriverState{}},
 	}
-	s.Active = "@5"
+	s.ActiveSession = "s1"
 
 	next, effs := Reduce(s, EvPaneDied{
 		Pane:           "{sessionName}:0.0",
 		OwnerSessionID: "", // runtime couldn't identify owner
 	})
 	if _, ok := next.Sessions["s1"]; ok {
-		t.Fatal("session should be deleted via Active fallback")
+		t.Fatal("session should be deleted via ActiveSession fallback")
 	}
-	if _, ok := findEff[EffKillTmuxWindow](effs); !ok {
-		t.Error("expected EffKillTmuxWindow")
+	if _, ok := findEff[EffKillSessionWindow](effs); !ok {
+		t.Error("expected EffKillSessionWindow")
 	}
 	if _, ok := findEff[EffRespawnPane](effs); !ok {
 		t.Error("expected EffRespawnPane for main TUI after fallback eviction")
@@ -548,7 +536,7 @@ func TestPaneDiedFallbackViaActive(t *testing.T) {
 func TestPaneDiedNoActiveRespawnsMainTUI(t *testing.T) {
 	s := New()
 	s.Sessions = map[SessionID]Session{
-		"s1": {ID: "s1", WindowID: "@5", PaneID: "%10", Command: "stub-x"},
+		"s1": {ID: "s1", Command: "stub", Driver: stubDriverState{}},
 	}
 
 	_, effs := Reduce(s, EvPaneDied{

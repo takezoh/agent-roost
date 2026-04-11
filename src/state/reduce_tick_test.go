@@ -43,12 +43,11 @@ func TestTickProcessesRunningSessions(t *testing.T) {
 	now := time.Now()
 	s := New()
 	s.Sessions["run1"] = Session{
-		ID:       "run1",
-		Command:  "stub",
-		WindowID: "@1",
-		Driver:   stubDriverState{status: StatusRunning},
+		ID:      "run1",
+		Command: "stub",
+		Driver:  stubDriverState{status: StatusRunning},
 	}
-	s.Active = "@1"
+	s.ActiveSession = "run1"
 
 	_, effs := Reduce(s, EvTick{Now: now})
 

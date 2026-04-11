@@ -141,8 +141,7 @@ func sessionWithTranscript(t *testing.T) proto.SessionInfo {
 		t.Fatalf("write events: %v", err)
 	}
 	return proto.SessionInfo{
-		ID:       "s1",
-		WindowID: "w1",
+		ID: "s1",
 		View: state.View{
 			LogTabs: []state.LogTab{
 				{Label: "TRANSCRIPT", Path: transcriptPath, Kind: testKindTranscript},
@@ -158,7 +157,7 @@ func TestHandleLogEvent_PreviewActivatesInfoTab(t *testing.T) {
 
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
 		Sessions:       []proto.SessionInfo{sess},
-		ActiveWindowID: sess.WindowID,
+		ActiveSessionID: sess.ID,
 		IsPreview:      true,
 	})
 	lm := model.(LogModel)
@@ -174,7 +173,7 @@ func TestHandleLogEvent_PaneFocusedActivatesTranscript(t *testing.T) {
 	// Step 1: preview → INFO becomes active.
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
 		Sessions:       []proto.SessionInfo{sess},
-		ActiveWindowID: sess.WindowID,
+		ActiveSessionID: sess.ID,
 		IsPreview:      true,
 	})
 	lm := model.(LogModel)
@@ -195,12 +194,12 @@ func TestHandleLogEvent_PaneFocusedActivatesTranscript(t *testing.T) {
 func TestHandleLogEvent_PaneFocusedWithoutTranscriptKeepsInfo(t *testing.T) {
 	m := NewLogModel("/var/log/roost.log", nil)
 	// Session with no driver-provided log tabs (only INFO + LOG will be built).
-	sess := proto.SessionInfo{ID: "s1", WindowID: "w1"}
+	sess := proto.SessionInfo{ID: "s1"}
 
 	// First preview to land on INFO.
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
 		Sessions:       []proto.SessionInfo{sess},
-		ActiveWindowID: sess.WindowID,
+		ActiveSessionID: sess.ID,
 		IsPreview:      true,
 	})
 	lm := model.(LogModel)
@@ -228,7 +227,7 @@ func TestHandleLogEvent_NonPreviewSessionsChangedKeepsCurrentTab(t *testing.T) {
 	// Preview → INFO is active.
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
 		Sessions:       []proto.SessionInfo{sess},
-		ActiveWindowID: sess.WindowID,
+		ActiveSessionID: sess.ID,
 		IsPreview:      true,
 	})
 	lm := model.(LogModel)
@@ -239,7 +238,7 @@ func TestHandleLogEvent_NonPreviewSessionsChangedKeepsCurrentTab(t *testing.T) {
 	// Simulate a Tick-driven broadcast (IsPreview=false) for the same session.
 	model, _ = lm.handleLogEvent(proto.EvtSessionsChanged{
 		Sessions:       []proto.SessionInfo{sess},
-		ActiveWindowID: sess.WindowID,
+		ActiveSessionID: sess.ID,
 		IsPreview:      false,
 	})
 	lm = model.(LogModel)
@@ -255,7 +254,7 @@ func TestHandleLogEvent_PaneFocusedNonMainPaneIgnored(t *testing.T) {
 	// Preview → INFO active.
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
 		Sessions:       []proto.SessionInfo{sess},
-		ActiveWindowID: sess.WindowID,
+		ActiveSessionID: sess.ID,
 		IsPreview:      true,
 	})
 	lm := model.(LogModel)
@@ -294,7 +293,7 @@ func TestSwitchToTab_RebuildRendererOnTabChange(t *testing.T) {
 	// Set the active session → TRANSCRIPT tab active, renderer is set.
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
 		Sessions:       []proto.SessionInfo{sess},
-		ActiveWindowID: sess.WindowID,
+		ActiveSessionID: sess.ID,
 	})
 	lm := model.(LogModel)
 	if lm.renderer == nil {
@@ -328,7 +327,7 @@ func TestAppendContent_PlainTextWhenNoRenderer(t *testing.T) {
 
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
 		Sessions:       []proto.SessionInfo{sess},
-		ActiveWindowID: sess.WindowID,
+		ActiveSessionID: sess.ID,
 	})
 	lm := model.(LogModel)
 

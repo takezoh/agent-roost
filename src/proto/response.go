@@ -25,30 +25,28 @@ func (RespOK) isResponse() {}
 // fills it in after the tmux spawn callback completes.
 type RespCreateSession struct {
 	SessionID string `json:"session_id"`
-	WindowID  string `json:"window_id"`
 }
 
 func (RespCreateSession) isResponse() {}
 
 // RespSessions is the response to list-sessions and the body of
 // EvtSessionsChanged. Carries the full session table + the active
-// window id.
+// session id.
 type RespSessions struct {
-	Sessions       []SessionInfo   `json:"sessions"`
-	ActiveWindowID string          `json:"active_window_id,omitempty"`
-	Connectors     []ConnectorInfo `json:"connectors,omitempty"`
+	Sessions        []SessionInfo   `json:"sessions"`
+	ActiveSessionID string          `json:"active_session_id,omitempty"`
+	Connectors      []ConnectorInfo `json:"connectors,omitempty"`
 }
 
 func (RespSessions) isResponse() {}
 
-// RespActiveWindow is the response to preview-session and
-// switch-session. Just the new active window id (the broadcast that
-// follows carries the full session list).
-type RespActiveWindow struct {
-	ActiveWindowID string `json:"active_window_id"`
+// RespActiveSession is the response to preview-session and
+// switch-session. Returns the new active session id.
+type RespActiveSession struct {
+	ActiveSessionID string `json:"active_session_id"`
 }
 
-func (RespActiveWindow) isResponse() {}
+func (RespActiveSession) isResponse() {}
 
 // SessionInfo is the per-session payload shipped on the wire. Mirrors
 // state.Session + the driver's View output. Carried inside
@@ -60,8 +58,6 @@ type SessionInfo struct {
 	ID             string       `json:"id"`
 	Project        string       `json:"project"`
 	Command        string       `json:"command"`
-	WindowID       string       `json:"window_id"`
-	PaneID    string       `json:"pane_id,omitempty"`
 	CreatedAt      string       `json:"created_at"`
 	State          state.Status `json:"state,omitempty"`
 	StateChangedAt string       `json:"state_changed_at,omitempty"`

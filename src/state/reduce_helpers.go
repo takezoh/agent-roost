@@ -104,7 +104,7 @@ func postProcessEffect(s State, sessID SessionID, eff Effect) (Effect, State) {
 // Idle and Stopped sessions are skipped (hook events will wake them).
 // Returns whether any session emitted effects, so the caller can
 // decide whether to broadcast/persist.
-func stepActiveSessions(s State, makeEv func(sess Session, active bool) DriverEvent) (State, []Effect, bool) {
+func stepActiveSessions(s State, makeEv func(sessID SessionID, sess Session, active bool) DriverEvent) (State, []Effect, bool) {
 	if len(s.Sessions) == 0 {
 		return s, nil, false
 	}
@@ -126,8 +126,8 @@ func stepActiveSessions(s State, makeEv func(sess Session, active bool) DriverEv
 		if status == StatusIdle || status == StatusStopped {
 			continue
 		}
-		active := sess.WindowID != "" && sess.WindowID == s.Active
-		ev := makeEv(sess, active)
+		active := sessID == s.ActiveSession
+		ev := makeEv(sessID, sess, active)
 		next, sessEffs, _, ok := stepDriver(s, sessID, ev)
 		if !ok {
 			continue

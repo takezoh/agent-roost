@@ -76,9 +76,13 @@ type EvConnClosed struct {
 // === Timer / I/O feedback ===
 
 // EvTick is the periodic tick fired by runtime's ticker. Drivers run
-// their Step{DEvTick} on every tick.
+// their Step{DEvTick} on every tick. WindowTargets maps each SessionID
+// to its tmux window target (index-based, e.g. "1", "2"), pre-filled
+// by the runtime so reducers can forward it to drivers without touching
+// the windowMap directly.
 type EvTick struct {
-	Now time.Time
+	Now           time.Time
+	WindowTargets map[SessionID]string
 }
 
 // EvFileChanged is fired by runtime's fsnotify watcher when a
@@ -98,9 +102,8 @@ type EvJobResult struct {
 // EvPaneDied is fired when the runtime detects via tmux display-message
 // that a pane is dead. For control panes (0.1 / 0.2) the reducer
 // respawns them. For pane 0.0 (active agent), the reducer evicts the
-// owning session. OwnerSessionID is set by the runtime when checking
-// pane 0.0 — it maps the dead pane's pane_id back to a session via
-// state.Session.PaneID.
+// owning session. OwnerSessionID is set by the runtime (currently
+// the active session) when it detects pane 0.0 is dead.
 type EvPaneDied struct {
 	Pane           string
 	OwnerSessionID SessionID // set for pane 0.0 dead detection
@@ -109,20 +112,17 @@ type EvPaneDied struct {
 // EvTmuxWindowVanished is fired by ReconcileWindows when a session
 // window has disappeared (agent process exited).
 type EvTmuxWindowVanished struct {
-	WindowID WindowID
+	SessionID SessionID
 }
 
 // EvTmuxWindowSpawned is the async result of a tmux new-window call
-// initiated by EffSpawnTmuxWindow. It carries the freshly assigned
-// window id and pane id back to the reducer, plus the original
-// caller's reply context so the reducer can finish the create-session
-// round trip.
+// initiated by EffSpawnTmuxWindow. WindowTarget is the window index
+// (e.g. "1", "2") the runtime uses to route activate/kill effects.
 type EvTmuxWindowSpawned struct {
-	SessionID   SessionID
-	WindowID    WindowID
-	PaneID string
-	ReplyConn   ConnID
-	ReplyReqID  string
+	SessionID    SessionID
+	WindowTarget string
+	ReplyConn    ConnID
+	ReplyReqID   string
 }
 
 // EvTmuxSpawnFailed is the async failure of a tmux new-window call.

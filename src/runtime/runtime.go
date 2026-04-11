@@ -44,6 +44,14 @@ type Runtime struct {
 
 	state state.State
 
+	// windowMap maps each SessionID to its tmux window index ("1", "2", ...).
+	// Managed by EffRegisterWindow / EffUnregisterWindow effects; lives in
+	// Runtime (not State) because it is pure tmux runtime topology.
+	windowMap map[state.SessionID]string
+	// activeSession is the SessionID currently swapped into pane 0.0, or "".
+	// Kept in Runtime (not State) for the same reason: it's tmux runtime state.
+	activeSession state.SessionID
+
 	eventCh    chan state.Event   // public events from any goroutine
 	internalCh chan internalEvent // runtime-internal lifecycle (conn open/close)
 
@@ -84,6 +92,7 @@ func New(cfg Config) *Runtime {
 	r := &Runtime{
 		cfg:        cfg,
 		state:      state.New(),
+		windowMap:  map[state.SessionID]string{},
 		eventCh:    make(chan state.Event, 256),
 		internalCh: make(chan internalEvent, 64),
 		conns:      map[state.ConnID]*ipcConn{},
@@ -157,7 +166,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 			r.dispatchInternal(iev)
 
 		case t := <-ticker.C:
-			r.dispatch(state.EvTick{Now: t})
+			r.dispatch(state.EvTick{Now: t, WindowTargets: r.snapshotWindowTargets()})
 
 		case res := <-r.workers.Results():
 			r.dispatch(res)
@@ -181,6 +190,20 @@ func (r *Runtime) dispatch(ev state.Event) {
 	for _, eff := range effects {
 		r.execute(eff)
 	}
+}
+
+// snapshotWindowTargets returns a copy of windowMap for inclusion in
+// EvTick so reducers can forward window targets to drivers without
+// accessing the runtime directly.
+func (r *Runtime) snapshotWindowTargets() map[state.SessionID]string {
+	if len(r.windowMap) == 0 {
+		return nil
+	}
+	out := make(map[state.SessionID]string, len(r.windowMap))
+	for k, v := range r.windowMap {
+		out[k] = v
+	}
+	return out
 }
 
 // errClosed is returned when the runtime has already shut down.

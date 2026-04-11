@@ -56,7 +56,7 @@ func TestDecodeCommandWrongType(t *testing.T) {
 }
 
 func TestEncodeDecodeResponse(t *testing.T) {
-	r := RespCreateSession{SessionID: "abc", WindowID: "@5"}
+	r := RespCreateSession{SessionID: "abc"}
 	wire, err := EncodeResponse("r1", r)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
@@ -99,7 +99,7 @@ func TestEncodeError(t *testing.T) {
 
 func TestEncodeDecodeEvent(t *testing.T) {
 	cases := []ServerEvent{
-		EvtSessionsChanged{Sessions: []SessionInfo{{ID: "abc"}}, ActiveWindowID: "@5"},
+		EvtSessionsChanged{Sessions: []SessionInfo{{ID: "abc"}}, ActiveSessionID: "abc"},
 		EvtProjectSelected{Project: "/foo"},
 		EvtPaneFocused{Pane: "0.1"},
 		EvtLogLine{Path: "/var/log", Line: "hello"},

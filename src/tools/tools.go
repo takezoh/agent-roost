@@ -100,7 +100,7 @@ func DefaultRegistry() *Registry {
 			{Name: "command", Options: func(ctx *ToolContext) []string { return ctx.Config.Commands }},
 		},
 		Run: func(ctx *ToolContext, args map[string]string) (*ToolInvocation, error) {
-			_, _, err := ctx.Client.CreateSession(args["project"], args["command"])
+			_, err := ctx.Client.CreateSession(args["project"], args["command"])
 			return nil, err
 		},
 	})
