@@ -96,7 +96,8 @@ func (d ClaudeDriver) handleJobResult(cs ClaudeState, e state.DEvJobResult) (Cla
 			return cs, nil
 		}
 		cs.BranchTag = r.Branch
-		cs.BranchVCS = r.VCS
+		cs.BranchBG = r.Background
+		cs.BranchFG = r.Foreground
 		cs.BranchAt = e.Now
 		return cs, nil
 	}

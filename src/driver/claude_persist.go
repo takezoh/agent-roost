@@ -33,8 +33,11 @@ func (ClaudeDriver) Persist(s state.DriverState) map[string]string {
 	if cs.BranchTag != "" {
 		out[claudeKeyBranchTag] = cs.BranchTag
 	}
-	if cs.BranchVCS != "" {
-		out[claudeKeyBranchVCS] = cs.BranchVCS
+	if cs.BranchBG != "" {
+		out[claudeKeyBranchBG] = cs.BranchBG
+	}
+	if cs.BranchFG != "" {
+		out[claudeKeyBranchFG] = cs.BranchFG
 	}
 	if cs.BranchTarget != "" {
 		out[claudeKeyBranchTarget] = cs.BranchTarget
@@ -78,7 +81,8 @@ func (d ClaudeDriver) Restore(bag map[string]string, now time.Time) state.Driver
 		}
 	}
 	cs.BranchTag = bag[claudeKeyBranchTag]
-	cs.BranchVCS = bag[claudeKeyBranchVCS]
+	cs.BranchBG = bag[claudeKeyBranchBG]
+	cs.BranchFG = bag[claudeKeyBranchFG]
 	cs.BranchTarget = bag[claudeKeyBranchTarget]
 	if v := bag[claudeKeyBranchAt]; v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {

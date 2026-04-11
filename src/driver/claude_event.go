@@ -157,6 +157,18 @@ func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, payload
 		}
 	}
 	effs = append(effs, state.EffEventLogAppend{Line: "SessionStart"})
+
+	// Trigger branch detection immediately so the tag appears before
+	// the user types anything (Idle sessions are skipped by tick).
+	target := cs.WorkingDir
+	if target != "" && !cs.BranchInFlight {
+		cs.BranchInFlight = true
+		cs.BranchTarget = target
+		effs = append(effs, state.EffStartJob{
+			Input: BranchDetectInput{WorkingDir: target},
+		})
+	}
+
 	return cs, effs
 }
 

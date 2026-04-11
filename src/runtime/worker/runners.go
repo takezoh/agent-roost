@@ -59,7 +59,7 @@ func newCapturePane(captureFunc func(string, int) (string, error)) func(driver.C
 func newBranchDetect() func(driver.BranchDetectInput) (driver.BranchDetectResult, error) {
 	return func(in driver.BranchDetectInput) (driver.BranchDetectResult, error) {
 		r := vcs.DetectBranch(in.WorkingDir)
-		return driver.BranchDetectResult{Branch: r.Branch, VCS: r.VCS}, nil
+		return driver.BranchDetectResult{Branch: r.Branch, Background: r.Background, Foreground: r.Foreground}, nil
 	}
 }
 

@@ -68,9 +68,10 @@ type BranchDetectInput struct {
 	WorkingDir string
 }
 
-// BranchDetectResult carries the detected branch name and VCS type.
-// Both fields are empty when no VCS is detected.
+// BranchDetectResult carries the detected branch name and brand colors.
+// All fields are empty when no VCS is detected.
 type BranchDetectResult struct {
-	Branch string
-	VCS    string // "git", "plastic", or ""
+	Branch     string
+	Background string // brand color hex
+	Foreground string // text color hex
 }

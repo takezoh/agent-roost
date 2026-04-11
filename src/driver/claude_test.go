@@ -83,6 +83,61 @@ func TestClaudeSessionStartAbsorbsIdentityAndWatches(t *testing.T) {
 	if _, ok := findEffect[state.EffEventLogAppend](effs); !ok {
 		t.Error("expected EffEventLogAppend")
 	}
+	// Branch detection should be dispatched immediately on SessionStart.
+	if !next.BranchInFlight {
+		t.Error("BranchInFlight should be true after SessionStart with cwd")
+	}
+	if next.BranchTarget != "/work" {
+		t.Errorf("BranchTarget = %q, want /work", next.BranchTarget)
+	}
+	foundBranch := false
+	for _, e := range effs {
+		if j, ok := e.(state.EffStartJob); ok {
+			if _, ok := j.Input.(BranchDetectInput); ok {
+				foundBranch = true
+			}
+		}
+	}
+	if !foundBranch {
+		t.Error("expected BranchDetectInput job in SessionStart effects")
+	}
+}
+
+func TestClaudeSessionStartSkipsBranchDetectWhenInFlight(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.BranchInFlight = true
+	next, effs := d.handleHook(cs, state.DEvHook{
+		Event: "SessionStart",
+		Payload: hookPayloadRaw(map[string]string{
+			"session_id":      "uuid",
+			"cwd":             "/work",
+			"hook_event_name": "SessionStart",
+		}, now),
+	})
+	if !next.BranchInFlight {
+		t.Error("BranchInFlight should remain true")
+	}
+	for _, e := range effs {
+		if j, ok := e.(state.EffStartJob); ok {
+			if _, ok := j.Input.(BranchDetectInput); ok {
+				t.Error("should not dispatch BranchDetect while in-flight")
+			}
+		}
+	}
+}
+
+func TestClaudeSessionStartNoCwdSkipsBranchDetect(t *testing.T) {
+	d, cs, now := newClaude(t)
+	next, _ := d.handleHook(cs, state.DEvHook{
+		Event: "SessionStart",
+		Payload: hookPayloadRaw(map[string]string{
+			"session_id":      "uuid",
+			"hook_event_name": "SessionStart",
+		}, now),
+	})
+	if next.BranchInFlight {
+		t.Error("BranchInFlight should be false when cwd is empty")
+	}
 }
 
 func TestClaudeStateChangeStopSetsWaiting(t *testing.T) {
@@ -380,7 +435,7 @@ func TestClaudeBranchResultMerges(t *testing.T) {
 	now := time.Now()
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
 		Now:    now,
-		Result: BranchDetectResult{Branch: "main", VCS: "git"},
+		Result: BranchDetectResult{Branch: "main", Background: "#F05032", Foreground: "#FFFFFF"},
 	})
 	if next.BranchInFlight {
 		t.Error("BranchInFlight should be false")
@@ -388,8 +443,11 @@ func TestClaudeBranchResultMerges(t *testing.T) {
 	if next.BranchTag != "main" {
 		t.Errorf("BranchTag = %q", next.BranchTag)
 	}
-	if next.BranchVCS != "git" {
-		t.Errorf("BranchVCS = %q, want %q", next.BranchVCS, "git")
+	if next.BranchBG != "#F05032" {
+		t.Errorf("BranchBG = %q", next.BranchBG)
+	}
+	if next.BranchFG != "#FFFFFF" {
+		t.Errorf("BranchFG = %q", next.BranchFG)
 	}
 	if !next.BranchAt.Equal(now) {
 		t.Error("BranchAt not stamped")
@@ -408,7 +466,8 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 		Status:          state.StatusRunning,
 		StatusChangedAt: now,
 		BranchTag:       "main",
-		BranchVCS:       "git",
+		BranchBG:        "#F05032",
+		BranchFG:        "#FFFFFF",
 		BranchTarget:    "/work",
 		BranchAt:        now,
 		Summary:         "summary",
@@ -435,8 +494,11 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 	if restored.BranchTag != "main" {
 		t.Errorf("restored BranchTag = %q", restored.BranchTag)
 	}
-	if restored.BranchVCS != "git" {
-		t.Errorf("restored BranchVCS = %q", restored.BranchVCS)
+	if restored.BranchBG != "#F05032" {
+		t.Errorf("restored BranchBG = %q", restored.BranchBG)
+	}
+	if restored.BranchFG != "#FFFFFF" {
+		t.Errorf("restored BranchFG = %q", restored.BranchFG)
 	}
 	if restored.Summary != "summary" {
 		t.Errorf("restored Summary = %q", restored.Summary)

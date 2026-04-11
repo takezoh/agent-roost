@@ -21,7 +21,7 @@ func testRunners() Runners {
 			return driver.HaikuSummaryResult{Summary: "short summary"}, nil
 		},
 		BranchDetect: func(in driver.BranchDetectInput) (driver.BranchDetectResult, error) {
-			return driver.BranchDetectResult{Branch: "feature/x", VCS: "git"}, nil
+			return driver.BranchDetectResult{Branch: "feature/x", Background: "#F05032", Foreground: "#FFFFFF"}, nil
 		},
 		TranscriptParse: func(in driver.TranscriptParseInput) (driver.TranscriptParseResult, error) {
 			return driver.TranscriptParseResult{Title: "test"}, nil
@@ -93,8 +93,8 @@ func TestPoolBranchDetect(t *testing.T) {
 		if bdr.Branch != "feature/x" {
 			t.Errorf("Branch = %q", bdr.Branch)
 		}
-		if bdr.VCS != "git" {
-			t.Errorf("VCS = %q", bdr.VCS)
+		if bdr.Background != "#F05032" {
+			t.Errorf("Background = %q", bdr.Background)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("timeout")

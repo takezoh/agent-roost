@@ -29,7 +29,7 @@ import (
 // StatusLine: cached from the transcript parse result.
 func (d ClaudeDriver) view(cs ClaudeState) state.View {
 	tags := []state.Tag{CommandTag("claude")}
-	if t := BranchTag(cs.BranchTag, cs.BranchVCS); t.Text != "" {
+	if t := BranchTag(cs.BranchTag, cs.BranchBG, cs.BranchFG); t.Text != "" {
 		tags = append(tags, t)
 	}
 

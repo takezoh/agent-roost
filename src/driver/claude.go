@@ -27,7 +27,8 @@ const (
 	claudeKeyStatus          = "status"
 	claudeKeyStatusChangedAt = "status_changed_at"
 	claudeKeyBranchTag       = "branch_tag"
-	claudeKeyBranchVCS       = "branch_vcs"
+	claudeKeyBranchBG        = "branch_bg"
+	claudeKeyBranchFG        = "branch_fg"
 	claudeKeyBranchTarget    = "branch_target"
 	claudeKeyBranchAt        = "branch_at"
 	claudeKeySummary         = "summary"
@@ -62,7 +63,8 @@ type ClaudeState struct {
 
 	// Branch tag cache
 	BranchTag    string
-	BranchVCS    string // "git", "plastic", or ""
+	BranchBG     string // brand background color hex
+	BranchFG     string // brand foreground color hex
 	BranchTarget string
 	BranchAt     time.Time
 

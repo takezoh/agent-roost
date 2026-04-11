@@ -35,8 +35,11 @@ func TestDetectBranchGitRepo(t *testing.T) {
 	if r.Branch != "test-branch" {
 		t.Errorf("Branch = %q, want %q", r.Branch, "test-branch")
 	}
-	if r.VCS != "git" {
-		t.Errorf("VCS = %q, want %q", r.VCS, "git")
+	if r.Background != gitBG {
+		t.Errorf("Background = %q, want %q", r.Background, gitBG)
+	}
+	if r.Foreground != defaultFG {
+		t.Errorf("Foreground = %q, want %q", r.Foreground, defaultFG)
 	}
 }
 
@@ -46,7 +49,7 @@ func TestDetectBranchNoVCS(t *testing.T) {
 	if r.Branch != "" {
 		t.Errorf("Branch = %q, want empty", r.Branch)
 	}
-	if r.VCS != "" {
-		t.Errorf("VCS = %q, want empty", r.VCS)
+	if r.Background != "" {
+		t.Errorf("Background = %q, want empty", r.Background)
 	}
 }
