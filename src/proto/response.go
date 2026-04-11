@@ -3,7 +3,7 @@ package proto
 import (
 	"time"
 
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/state"
 )
 
 // Response is the closed sum type of every successful reply the

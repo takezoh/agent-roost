@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/state"
 )
 
 // Generic driver: polling-driven status producer for non-event-driven

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"charm.land/lipgloss/v2"
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/state"
 )
 
 func TestOverlayCardBorderTitle_BothFit(t *testing.T) {

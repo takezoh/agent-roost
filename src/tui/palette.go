@@ -9,7 +9,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
-	"github.com/take/agent-roost/tools"
+	"github.com/takezoh/agent-roost/tools"
 )
 
 type palettePhase int

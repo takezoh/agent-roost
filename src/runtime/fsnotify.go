@@ -6,7 +6,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/state"
 )
 
 // RealFSWatcher is the production FSWatcher backed by fsnotify. It

@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/take/agent-roost/config"
-	"github.com/take/agent-roost/lib"
-	"github.com/take/agent-roost/lib/claude/hookevent"
-	"github.com/take/agent-roost/proto"
+	"github.com/takezoh/agent-roost/config"
+	"github.com/takezoh/agent-roost/lib"
+	"github.com/takezoh/agent-roost/lib/claude/hookevent"
+	"github.com/takezoh/agent-roost/proto"
 )
 
 func init() {

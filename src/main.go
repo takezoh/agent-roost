@@ -14,17 +14,17 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"golang.org/x/term"
 
-	"github.com/take/agent-roost/config"
-	"github.com/take/agent-roost/lib"
-	_ "github.com/take/agent-roost/lib/claude" // registers the "claude" subcommand
-	"github.com/take/agent-roost/logger"
-	"github.com/take/agent-roost/proto"
-	"github.com/take/agent-roost/runtime"
-	"github.com/take/agent-roost/runtime/worker"
-	statedriver "github.com/take/agent-roost/driver"
-	"github.com/take/agent-roost/tmux"
-	"github.com/take/agent-roost/tools"
-	"github.com/take/agent-roost/tui"
+	"github.com/takezoh/agent-roost/config"
+	"github.com/takezoh/agent-roost/lib"
+	_ "github.com/takezoh/agent-roost/lib/claude" // registers the "claude" subcommand
+	"github.com/takezoh/agent-roost/logger"
+	"github.com/takezoh/agent-roost/proto"
+	"github.com/takezoh/agent-roost/runtime"
+	"github.com/takezoh/agent-roost/runtime/worker"
+	statedriver "github.com/takezoh/agent-roost/driver"
+	"github.com/takezoh/agent-roost/tmux"
+	"github.com/takezoh/agent-roost/tools"
+	"github.com/takezoh/agent-roost/tui"
 )
 
 func main() {

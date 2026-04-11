@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/take/agent-roost/runtime/worker"
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/runtime/worker"
+	"github.com/takezoh/agent-roost/state"
 )
 
 // execute is the side-effect interpreter. Each Effect type has a

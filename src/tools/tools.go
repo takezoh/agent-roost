@@ -12,7 +12,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/take/agent-roost/proto"
+	"github.com/takezoh/agent-roost/proto"
 )
 
 // Param describes one input the palette must collect before running

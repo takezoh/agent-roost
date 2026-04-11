@@ -6,9 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/take/agent-roost/config"
-	"github.com/take/agent-roost/proto"
-	"github.com/take/agent-roost/tools"
+	"github.com/takezoh/agent-roost/config"
+	"github.com/takezoh/agent-roost/proto"
+	"github.com/takezoh/agent-roost/tools"
 )
 
 type listItem struct {

@@ -1,6 +1,6 @@
 package driver
 
-import "github.com/take/agent-roost/state"
+import "github.com/takezoh/agent-roost/state"
 
 // view returns the minimal View for a generic (non-Claude) session.
 // Driver-specific UI elements are DisplayName and BorderTitle.

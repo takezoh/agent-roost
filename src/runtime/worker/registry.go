@@ -3,7 +3,7 @@ package worker
 import (
 	"log/slog"
 
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/state"
 )
 
 var registry = map[string]func(*Pool, state.JobID, state.JobInput){}

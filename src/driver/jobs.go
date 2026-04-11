@@ -1,6 +1,6 @@
 package driver
 
-import "github.com/take/agent-roost/state"
+import "github.com/takezoh/agent-roost/state"
 
 // Job input/output types passed through state.EffStartJob.Input and
 // state.EvJobResult.Result. Defined here (driver pkg) because both

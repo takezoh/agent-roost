@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/take/agent-roost/state"
+	"github.com/takezoh/agent-roost/state"
 )
 
 type testInput struct{ Val string }
