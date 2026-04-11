@@ -111,7 +111,7 @@ func runCoordinator() {
 		if err := rt.ReconcileWarm(); err != nil {
 			slog.Error("reconcile failed", "err", err)
 		}
-		rt.RestoreActiveWindow(client)
+		rt.DeactivateOnStartup(client)
 	} else {
 		slog.Info("creating new session")
 		setupNewSession(client, cfg, sessionName)

@@ -134,24 +134,33 @@ func (r *Runtime) cleanupLegacyUserOptions(windows []tmux.RoostWindow) {
 	}
 }
 
-// RestoreActiveWindow reads ROOST_ACTIVE_WINDOW from the tmux env
-// and sets state.Active if the window still belongs to a known
-// session. Must be called after ReconcileWarm (so WindowIDs are
-// up to date). Without this, warm start doesn't know which session
-// is currently swapped into pane 0.0.
-func (r *Runtime) RestoreActiveWindow(tmuxClient interface{ GetEnv(string) (string, error) }) {
+// DeactivateOnStartup swaps the previously active session back out
+// of pane 0.0 so the main TUI (keybind help) is shown on startup.
+// Must be called after ReconcileWarm (so WindowIDs are up to date).
+func (r *Runtime) DeactivateOnStartup(tmuxClient interface{ GetEnv(string) (string, error) }) {
 	wid, _ := tmuxClient.GetEnv("ROOST_ACTIVE_WINDOW")
 	if wid == "" {
 		return
 	}
+	found := false
 	for _, sess := range r.state.Sessions {
 		if string(sess.WindowID) == wid {
-			r.state.Active = state.WindowID(wid)
-			slog.Info("bootstrap: restored active window", "window", wid)
-			return
+			found = true
+			break
 		}
 	}
-	slog.Info("bootstrap: stale active window, clearing", "window", wid)
+	if !found {
+		return
+	}
+	pane0 := r.cfg.SessionName + ":0.0"
+	op := []string{"swap-pane", "-d", "-s", pane0, "-t", wid + ".0"}
+	if err := r.cfg.Tmux.RunChain(op); err != nil {
+		slog.Warn("bootstrap: swap-pane failed during deactivate", "window", wid, "err", err)
+	}
+	_ = r.cfg.Tmux.UnsetEnv("ROOST_ACTIVE_WINDOW")
+	_ = r.cfg.Tmux.SetStatusLine("")
+	r.state.Active = ""
+	slog.Info("bootstrap: deactivated session on startup", "window", wid)
 }
 
 // ClearStaleWindowIDs zeroes out WindowID and PaneID on every
