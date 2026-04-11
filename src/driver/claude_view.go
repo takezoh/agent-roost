@@ -60,7 +60,7 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 			Subtitle:    firstNonEmpty(cs.Summary, cs.LastPrompt),
 			Tags:        tags,
 			Indicators:  claudeIndicators(cs),
-			BorderTitle: "claude",
+			BorderTitle: CommandTag("claude"),
 			BorderBadge: shortenHome(cs.WorkingDir, d.home),
 		},
 		LogTabs:         logTabs,

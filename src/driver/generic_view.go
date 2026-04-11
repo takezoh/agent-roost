@@ -10,11 +10,14 @@ import "github.com/take/agent-roost/state"
 // rather than an empty colored chip.
 func (d GenericDriver) view(gs GenericState) state.View {
 	var tags []state.Tag
+	var borderTitle state.Tag
 	if d.displayName != "" {
-		tags = []state.Tag{CommandTag(d.displayName)}
+		tag := CommandTag(d.displayName)
+		tags = []state.Tag{tag}
+		borderTitle = tag
 	}
 	return state.View{
-		Card:            state.Card{Tags: tags, BorderTitle: d.displayName},
+		Card:            state.Card{Tags: tags, BorderTitle: borderTitle},
 		Status:          gs.Status,
 		StatusChangedAt: gs.StatusChangedAt,
 	}

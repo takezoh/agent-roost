@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/take/agent-roost/state"
 )
 
 // Panel renders body inside a rounded border, with title on the top-left
@@ -32,7 +33,7 @@ func Panel(title, badge, body string, outerWidth int) string {
 // Card wraps body in a small rounded border. When selected, the border color
 // is switched to the accent color instead of a dim line.
 // outerWidth is the total width including borders + padding.
-func Card(body string, selected bool, outerWidth int, borderTitle, borderBadge string) string {
+func Card(body string, selected bool, outerWidth int, borderTitle state.Tag, borderBadge string) string {
 	if outerWidth < 8 {
 		outerWidth = 8
 	}
@@ -41,7 +42,7 @@ func Card(body string, selected bool, outerWidth int, borderTitle, borderBadge s
 		style = cardSelStyle
 	}
 	rendered := style.Width(outerWidth).Render(body)
-	if borderTitle != "" || borderBadge != "" {
+	if borderTitle.Text != "" || borderBadge != "" {
 		fg := Active.Dim
 		if selected {
 			fg = Active.Primary
@@ -116,7 +117,7 @@ func overlayBorderTitle(rendered, title, badge string, outerWidth int) string {
 // border foreground color instead of the shared sectionStyle/titleStyle.
 // This lets Card() match the overlay color to the card's border
 // (Dim for normal, Primary for selected).
-func overlayCardBorderTitle(rendered, title, badge string, outerWidth int, fg color.Color) string {
+func overlayCardBorderTitle(rendered string, title state.Tag, badge string, outerWidth int, fg color.Color) string {
 	lines := strings.Split(rendered, "\n")
 	if len(lines) == 0 {
 		return rendered
@@ -128,8 +129,8 @@ func overlayCardBorderTitle(rendered, title, badge string, outerWidth int, fg co
 	}
 
 	titleW := 1
-	if title != "" {
-		titleW = 3 + lipgloss.Width(title)
+	if title.Text != "" {
+		titleW = 3 + lipgloss.Width(title.Text)
 	}
 	badgeW := 1
 	if badge != "" {
@@ -157,14 +158,12 @@ func overlayCardBorderTitle(rendered, title, badge string, outerWidth int, fg co
 	}
 
 	border := lipgloss.NewStyle().Foreground(fg)
-	label := lipgloss.NewStyle().Bold(true).Foreground(fg)
 
 	var b strings.Builder
 	b.WriteString(border.Render("╭"))
-	if title != "" {
-		b.WriteString(border.Render("─ "))
-		b.WriteString(label.Render(title))
-		b.WriteString(border.Render(" "))
+	if title.Text != "" {
+		b.WriteString(border.Render("─"))
+		b.WriteString(renderTag(title))
 	} else {
 		b.WriteString(border.Render("─"))
 	}

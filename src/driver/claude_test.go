@@ -783,8 +783,8 @@ func TestClaudeViewIncludesCommandTag(t *testing.T) {
 func TestClaudeViewBorderTitle(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	v := d.view(cs)
-	if v.Card.BorderTitle != "claude" {
-		t.Errorf("BorderTitle = %q, want claude", v.Card.BorderTitle)
+	if v.Card.BorderTitle.Text != "claude" {
+		t.Errorf("BorderTitle.Text = %q, want claude", v.Card.BorderTitle.Text)
 	}
 }
 

@@ -35,7 +35,7 @@ type Card struct {
 	Subtitle    string   `json:"subtitle,omitempty"`
 	Tags        []Tag    `json:"tags,omitempty"`
 	Indicators  []string `json:"indicators,omitempty"`
-	BorderTitle string   `json:"border_title,omitempty"`
+	BorderTitle Tag      `json:"border_title,omitempty"`
 	BorderBadge string   `json:"border_badge,omitempty"`
 }
 
