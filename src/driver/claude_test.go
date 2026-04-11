@@ -815,14 +815,21 @@ func TestClaudeSpawnCommandAlreadyHasResume(t *testing.T) {
 
 // === View ===
 
-func TestClaudeViewIncludesCommandTag(t *testing.T) {
+func TestClaudeViewNoCommandTag(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	v := d.view(cs)
-	if len(v.Card.Tags) == 0 {
-		t.Fatal("expected at least one tag")
+	for _, tag := range v.Card.Tags {
+		if tag.Text == "claude" {
+			t.Error("Tags should not contain command tag")
+		}
 	}
-	if v.Card.Tags[0].Text != "claude" {
-		t.Errorf("first tag = %q, want claude", v.Card.Tags[0].Text)
+}
+
+func TestClaudeViewDisplayName(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	v := d.view(cs)
+	if v.DisplayName != "claude" {
+		t.Errorf("DisplayName = %q, want claude", v.DisplayName)
 	}
 }
 
@@ -897,7 +904,7 @@ func TestClaudeViewBranchTagWhenSet(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.BranchTag = "feat-x"
 	v := d.view(cs)
-	if len(v.Card.Tags) < 2 || v.Card.Tags[1].Text != "feat-x" {
+	if len(v.Card.Tags) < 1 || v.Card.Tags[0].Text != "feat-x" {
 		t.Errorf("branch tag missing: %+v", v.Card.Tags)
 	}
 }
@@ -1017,8 +1024,8 @@ func TestClaudeStepRoundTripSessionStartThenView(t *testing.T) {
 	if len(effs) == 0 {
 		t.Error("Step returned no effects")
 	}
-	if len(view.Card.Tags) == 0 {
-		t.Error("Step returned empty view tags")
+	if view.DisplayName != "claude" {
+		t.Errorf("Step returned DisplayName = %q, want claude", view.DisplayName)
 	}
 }
 

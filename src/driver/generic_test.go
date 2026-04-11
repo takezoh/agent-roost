@@ -186,14 +186,19 @@ func TestGenericHookEventNoOp(t *testing.T) {
 	}
 }
 
-func TestGenericViewHasCommandTag(t *testing.T) {
+func TestGenericViewNoCommandTag(t *testing.T) {
 	d, s, _ := newGenericState(t, 0)
 	v := d.view(s)
-	if len(v.Card.Tags) != 1 {
-		t.Fatalf("tags = %d, want 1", len(v.Card.Tags))
+	if len(v.Card.Tags) != 0 {
+		t.Errorf("tags = %d, want 0", len(v.Card.Tags))
 	}
-	if v.Card.Tags[0].Text != "bash" {
-		t.Errorf("tag text = %q, want bash", v.Card.Tags[0].Text)
+}
+
+func TestGenericViewDisplayName(t *testing.T) {
+	d, s, _ := newGenericState(t, 0)
+	v := d.view(s)
+	if v.DisplayName != "bash" {
+		t.Errorf("DisplayName = %q, want bash", v.DisplayName)
 	}
 }
 
@@ -221,6 +226,9 @@ func TestGenericFallbackHasNoCommandTag(t *testing.T) {
 	if len(v.Card.Tags) != 0 {
 		t.Errorf("fallback tags = %d, want 0", len(v.Card.Tags))
 	}
+	if v.DisplayName != "" {
+		t.Errorf("fallback DisplayName = %q, want empty", v.DisplayName)
+	}
 }
 
 func TestGenericRegisteredViaInit(t *testing.T) {
@@ -243,8 +251,11 @@ func TestWithDisplayName(t *testing.T) {
 	}
 	s := d.NewState(time.Now()).(GenericState)
 	v := d.view(s)
-	if len(v.Card.Tags) != 1 || v.Card.Tags[0].Text != "zsh" {
-		t.Errorf("tag text = %q, want zsh", v.Card.Tags[0].Text)
+	if len(v.Card.Tags) != 0 {
+		t.Errorf("tags = %d, want 0", len(v.Card.Tags))
+	}
+	if v.DisplayName != "zsh" {
+		t.Errorf("DisplayName = %q, want zsh", v.DisplayName)
 	}
 	if v.Card.BorderTitle.Text != "zsh" {
 		t.Errorf("BorderTitle = %q, want zsh", v.Card.BorderTitle.Text)

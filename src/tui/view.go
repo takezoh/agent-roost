@@ -260,11 +260,8 @@ func renderTags(s *proto.SessionInfo) string {
 	}
 	if Active.Minimal {
 		var parts []string
-		for i, tag := range tags {
+		for _, tag := range tags {
 			prefix := minimalTagBranchPrefixStyle.Render("⎇")
-			if i == 0 {
-				prefix = minimalTagDriverPrefixStyle.Render("▸")
-			}
 			parts = append(parts, prefix+" "+minimalTagTextStyle.Render(tag.Text))
 		}
 		return strings.Join(parts, "  ")

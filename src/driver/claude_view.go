@@ -23,12 +23,12 @@ import (
 //                UserPromptSubmit hook payload directly so it's
 //                populated even on the first turn of a brand-new
 //                session before Claude has flushed anything to JSONL.
-//   - Tags     = [CommandTag("claude"), BranchTag(BranchTag?)]
+//   - Tags     = [BranchTag?]
 //   - Indicators = derived from CurrentTool / SubagentCounts
 //
 // StatusLine: cached from the transcript parse result.
 func (d ClaudeDriver) view(cs ClaudeState) state.View {
-	tags := []state.Tag{CommandTag("claude")}
+	var tags []state.Tag
 	if t := BranchTag(cs.BranchTag, cs.BranchBG, cs.BranchFG); t.Text != "" {
 		tags = append(tags, t)
 	}
@@ -63,6 +63,7 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 			BorderTitle: CommandTag("claude"),
 			BorderBadge: shortenPath(shortenHome(cs.WorkingDir, d.home)),
 		},
+		DisplayName: "claude",
 		LogTabs:         logTabs,
 		InfoExtras:      claudeInfoExtras(cs),
 		StatusLine:      cs.StatusLine,

@@ -11,9 +11,8 @@ const (
 	commandTagFg = "#FFFFFF" // white text
 )
 
-// CommandTag returns the canonical command tag for a driver name. Every
-// built-in driver puts this as the first entry in View().Card.Tags so
-// the user always sees which agent runs in a session.
+// CommandTag returns the canonical command tag for a driver name, used
+// as BorderTitle in session cards.
 func CommandTag(name string) state.Tag {
 	return state.Tag{
 		Text:       name,
