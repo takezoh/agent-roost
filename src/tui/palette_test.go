@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -87,6 +89,111 @@ func TestPaletteQuitsWithoutChain(t *testing.T) {
 	msg := cmd()
 	if _, ok := msg.(tea.QuitMsg); !ok {
 		t.Errorf("expected QuitMsg, got %T", msg)
+	}
+}
+
+func TestVisibleWindow(t *testing.T) {
+	tests := []struct {
+		name                       string
+		cursor, total, maxVisible  int
+		wantStart, wantEnd         int
+	}{
+		{"all fit", 0, 5, 10, 0, 5},
+		{"maxVisible zero", 3, 10, 0, 0, 10},
+		{"maxVisible negative", 3, 10, -1, 0, 10},
+		{"cursor at start", 0, 20, 8, 0, 8},
+		{"cursor at end", 19, 20, 8, 12, 20},
+		{"cursor in middle", 10, 20, 8, 6, 14},
+		{"cursor near start", 2, 20, 8, 0, 8},
+		{"cursor near end", 18, 20, 8, 12, 20},
+		{"exact fit", 0, 5, 5, 0, 5},
+		{"one over", 3, 6, 5, 1, 6},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			start, end := visibleWindow(tt.cursor, tt.total, tt.maxVisible)
+			if start != tt.wantStart || end != tt.wantEnd {
+				t.Errorf("visibleWindow(%d, %d, %d) = (%d, %d), want (%d, %d)",
+					tt.cursor, tt.total, tt.maxVisible, start, end, tt.wantStart, tt.wantEnd)
+			}
+		})
+	}
+}
+
+func TestRenderPaletteToolScroll(t *testing.T) {
+	registry := tools.NewRegistry()
+	for i := 0; i < 30; i++ {
+		name := fmt.Sprintf("tool-%02d", i)
+		registry.Register(tools.Tool{
+			Name:        name,
+			Description: "desc",
+			Run: func(ctx *tools.ToolContext, args map[string]string) (*tools.ToolInvocation, error) {
+				return nil, nil
+			},
+		})
+	}
+
+	m := NewPaletteModel(registry, &tools.ToolContext{}, "")
+	m.width = 60
+	m.height = 15 // maxVisible = 15 - PanelChromeRows(2) - 2(prompt+blank) = 11; items = 11 - 2(indicators) = 9
+
+	// cursor at 0: no top indicator, bottom indicator
+	m.cursor = 0
+	out := renderPaletteTool(m, 56)
+	if !strings.Contains(out, "▸ tool-00") {
+		t.Error("cursor item tool-00 should be visible")
+	}
+	if strings.Contains(out, "↑") {
+		t.Error("should not show top indicator when cursor at 0")
+	}
+	if !strings.Contains(out, "↓") {
+		t.Error("should show bottom indicator")
+	}
+
+	// cursor at 15: both indicators
+	m.cursor = 15
+	out = renderPaletteTool(m, 56)
+	if !strings.Contains(out, "▸ tool-15") {
+		t.Error("cursor item tool-15 should be visible")
+	}
+	if !strings.Contains(out, "↑") {
+		t.Error("should show top indicator")
+	}
+	if !strings.Contains(out, "↓") {
+		t.Error("should show bottom indicator")
+	}
+
+	// cursor at 29 (last): top indicator, no bottom
+	m.cursor = 29
+	out = renderPaletteTool(m, 56)
+	if !strings.Contains(out, "▸ tool-29") {
+		t.Error("cursor item tool-29 should be visible")
+	}
+	if !strings.Contains(out, "↑") {
+		t.Error("should show top indicator")
+	}
+	if strings.Contains(out, "↓") {
+		t.Error("should not show bottom indicator when cursor at end")
+	}
+}
+
+func TestRenderPaletteToolNoScrollWhenFits(t *testing.T) {
+	registry := tools.NewRegistry()
+	for i := 0; i < 3; i++ {
+		registry.Register(tools.Tool{
+			Name: fmt.Sprintf("t%d", i),
+			Run: func(ctx *tools.ToolContext, args map[string]string) (*tools.ToolInvocation, error) {
+				return nil, nil
+			},
+		})
+	}
+
+	m := NewPaletteModel(registry, &tools.ToolContext{}, "")
+	m.width = 60
+	m.height = 20
+	out := renderPaletteTool(m, 56)
+	if strings.Contains(out, "↑") || strings.Contains(out, "↓") {
+		t.Error("should not show scroll indicators when all items fit")
 	}
 }
 
