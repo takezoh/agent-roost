@@ -110,7 +110,7 @@ func TestPaneDiedActiveSessionEmitsDeactivate(t *testing.T) {
 	}
 }
 
-func TestTmuxWindowVanishedActiveSessionEmitsDeactivate(t *testing.T) {
+func TestTmuxWindowVanishedActiveSessionEmitsDeactivateAndRespawn(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
@@ -118,6 +118,9 @@ func TestTmuxWindowVanishedActiveSessionEmitsDeactivate(t *testing.T) {
 	_, effs := Reduce(s, EvTmuxWindowVanished{SessionID: id})
 	if _, ok := findEff[EffDeactivateSession](effs); !ok {
 		t.Error("expected EffDeactivateSession when active session's window vanishes")
+	}
+	if _, ok := findEff[EffRespawnPane](effs); !ok {
+		t.Error("expected EffRespawnPane to restore main TUI when active session's window vanishes")
 	}
 }
 
