@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/takezoh/agent-roost/state"
-	"github.com/takezoh/agent-roost/tmux"
+	"github.com/takezoh/agent-roost/lib/tmux"
 )
 
 // Bootstrap helpers used at startup before the event loop starts.

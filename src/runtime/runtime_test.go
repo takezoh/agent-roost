@@ -12,7 +12,7 @@ import (
 
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/state"
-	"github.com/takezoh/agent-roost/tmux"
+	"github.com/takezoh/agent-roost/lib/tmux"
 	"github.com/takezoh/agent-roost/driver"
 )
 
