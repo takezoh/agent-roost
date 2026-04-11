@@ -61,6 +61,12 @@ func runEvent() {
 		return
 	}
 
+	// Capture timestamp before stdin read. Each hook fires as a
+	// separate process; stdin read latency varies with payload size.
+	// Timestamping after the read lets a fast-reading later event get
+	// a lower timestamp than a slow-reading earlier event, causing the
+	// driver to drop the later event as stale.
+	bridgeTS := time.Now().UnixNano()
 	input, _ := io.ReadAll(os.Stdin)
 	event, err := hookevent.ParseHookEvent(input)
 	if err != nil {
@@ -92,7 +98,7 @@ func runEvent() {
 	// HookEventName).
 	payload := map[string]any{
 		"raw":       string(input),
-		"bridge_ts": time.Now().UnixNano(),
+		"bridge_ts": bridgeTS,
 	}
 	if err := client.SendHook("claude", event.HookEventName, sessionID, payload); err != nil {
 		slog.Debug("claude hook: send failed", "session", sessionID, "err", err)

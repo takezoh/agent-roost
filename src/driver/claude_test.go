@@ -364,6 +364,38 @@ func TestClaudeHookAcceptsFloat64BridgeTS(t *testing.T) {
 	}
 }
 
+func TestClaudeHookPreToolUseThenNotification(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.TranscriptPath = "/tmp/t.jsonl"
+
+	// PreToolUse arrives first — status becomes Running.
+	p1 := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "PreToolUse",
+		"tool_name": "Bash",
+	}, now)
+	p1["bridge_ts"] = int64(100)
+	next, _ := d.handleHook(cs, state.DEvHook{Event: "PreToolUse", Payload: p1})
+	if next.Status != state.StatusRunning {
+		t.Fatalf("Status = %v, want Running", next.Status)
+	}
+
+	// Notification (permission_prompt) arrives with a higher bridge_ts
+	// — must NOT be dropped. Before the bridge_ts-before-stdin fix,
+	// the Notification process could get a lower timestamp than the
+	// PreToolUse process due to stdin read latency, causing it to be
+	// dropped as stale and leaving the session stuck at Running.
+	p2 := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "Notification",
+		"notification_type": "permission_prompt",
+	}, now)
+	p2["bridge_ts"] = int64(150)
+	next2, _ := d.handleHook(next, state.DEvHook{Event: "Notification", Payload: p2})
+	if next2.Status != state.StatusPending {
+		t.Errorf("Notification should advance to Pending, got %v", next2.Status)
+	}
+}
+
 // === Tick handling (branch detection) ===
 
 func TestClaudeTickInactiveDoesNothing(t *testing.T) {
