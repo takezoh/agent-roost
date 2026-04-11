@@ -71,9 +71,11 @@ type BranchDetectInput struct {
 // BranchDetectResult carries the detected branch name and brand colors.
 // All fields are empty when no VCS is detected.
 type BranchDetectResult struct {
-	Branch     string
-	Background string // brand color hex
-	Foreground string // text color hex
+	Branch       string
+	Background   string // brand color hex
+	Foreground   string // text color hex
+	IsWorktree   bool   // true when dir is a linked worktree
+	ParentBranch string // branch of the main working tree
 }
 
 func (CapturePaneInput) JobKind() string     { return "capture_pane" }

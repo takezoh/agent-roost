@@ -135,6 +135,8 @@ func (d ClaudeDriver) handleJobResult(cs ClaudeState, e state.DEvJobResult) (Cla
 		cs.BranchBG = r.Background
 		cs.BranchFG = r.Foreground
 		cs.BranchAt = e.Now
+		cs.BranchIsWorktree = r.IsWorktree
+		cs.BranchParentBranch = r.ParentBranch
 		return cs, nil
 
 	case CapturePaneResult:

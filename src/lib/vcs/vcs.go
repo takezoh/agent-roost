@@ -7,9 +7,11 @@ import (
 
 // Result holds the detected branch name and brand colors for display.
 type Result struct {
-	Branch     string // branch name (empty if no VCS detected)
-	Background string // brand color hex (e.g. "#F05032")
-	Foreground string // text color hex (e.g. "#FFFFFF")
+	Branch       string // branch name (empty if no VCS detected)
+	Background   string // brand color hex (e.g. "#F05032")
+	Foreground   string // text color hex (e.g. "#FFFFFF")
+	IsWorktree   bool   // true when dir is a linked git worktree
+	ParentBranch string // branch of the main working tree (only set when IsWorktree)
 }
 
 // Brand colors per VCS.
@@ -39,7 +41,12 @@ func resolveGitBackground(dir string) string {
 // successful result. Order: git → Plastic SCM.
 func DetectBranch(dir string) Result {
 	if b := git.DetectBranch(dir); b != "" {
-		return Result{Branch: b, Background: resolveGitBackground(dir), Foreground: defaultFG}
+		r := Result{Branch: b, Background: resolveGitBackground(dir), Foreground: defaultFG}
+		if git.IsWorktree(dir) {
+			r.IsWorktree = true
+			r.ParentBranch = git.DetectMainBranch(dir)
+		}
+		return r
 	}
 	if b := plastic.DetectBranch(dir); b != "" {
 		return Result{Branch: b, Background: plasticBG, Foreground: defaultFG}
