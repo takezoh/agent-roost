@@ -113,6 +113,7 @@ func runCoordinator() {
 		if err := rt.LoadSnapshot(); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
+		rt.RescueActiveSession(client)
 		if err := rt.ReconcileWarm(); err != nil {
 			slog.Error("reconcile failed", "err", err)
 		}

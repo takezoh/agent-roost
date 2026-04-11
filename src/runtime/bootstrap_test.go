@@ -65,6 +65,133 @@ func TestDeactivateOnStartup_NoActiveWindow(t *testing.T) {
 	}
 }
 
+func TestRescueActiveSession_WindowGone(t *testing.T) {
+	ftmux := newFakeTmux()
+	ftmux.spawnWID = "@20"
+	ftmux.spawnPane = "%5"
+	ftmux.alive["roost-test:0.0"] = true
+	// displayMsgs does NOT contain "@10" → windowExists returns false
+
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         ftmux,
+	})
+	r.state.Sessions[state.SessionID("s1")] = state.Session{
+		ID:       state.SessionID("s1"),
+		Project:  "/tmp/proj",
+		WindowID: state.WindowID("@10"),
+	}
+
+	env := &fakeEnvClient{envs: map[string]string{"ROOST_ACTIVE_WINDOW": "@10"}}
+	r.RescueActiveSession(env)
+
+	sess := r.state.Sessions[state.SessionID("s1")]
+	if sess.WindowID != "@20" {
+		t.Errorf("WindowID = %q, want @20", sess.WindowID)
+	}
+	if sess.PaneID != "%5" {
+		t.Errorf("PaneID = %q, want %%5", sess.PaneID)
+	}
+	ftmux.mu.Lock()
+	defer ftmux.mu.Unlock()
+	if ftmux.spawnCalls != 1 {
+		t.Errorf("spawnCalls = %d, want 1", ftmux.spawnCalls)
+	}
+	if ftmux.swapCalls != 1 {
+		t.Errorf("swapCalls = %d, want 1", ftmux.swapCalls)
+	}
+}
+
+func TestRescueActiveSession_WindowSurvives(t *testing.T) {
+	ftmux := newFakeTmux()
+	ftmux.displayMsgs["@10"] = "@10" // window exists
+
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         ftmux,
+	})
+	r.state.Sessions[state.SessionID("s1")] = state.Session{
+		ID:       state.SessionID("s1"),
+		WindowID: state.WindowID("@10"),
+	}
+
+	env := &fakeEnvClient{envs: map[string]string{"ROOST_ACTIVE_WINDOW": "@10"}}
+	r.RescueActiveSession(env)
+
+	if r.state.Sessions[state.SessionID("s1")].WindowID != "@10" {
+		t.Error("WindowID should be unchanged")
+	}
+	ftmux.mu.Lock()
+	defer ftmux.mu.Unlock()
+	if ftmux.spawnCalls != 0 {
+		t.Errorf("spawnCalls = %d, want 0", ftmux.spawnCalls)
+	}
+}
+
+func TestRescueActiveSession_NoActiveWindow(t *testing.T) {
+	ftmux := newFakeTmux()
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         ftmux,
+	})
+
+	env := &fakeEnvClient{envs: map[string]string{}}
+	r.RescueActiveSession(env)
+
+	ftmux.mu.Lock()
+	defer ftmux.mu.Unlock()
+	if ftmux.spawnCalls != 0 {
+		t.Errorf("spawnCalls = %d, want 0", ftmux.spawnCalls)
+	}
+}
+
+func TestRescueActiveSession_SessionDeletedFromJSON(t *testing.T) {
+	ftmux := newFakeTmux()
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         ftmux,
+	})
+	// No session with WindowID "@10"
+
+	env := &fakeEnvClient{envs: map[string]string{"ROOST_ACTIVE_WINDOW": "@10"}}
+	r.RescueActiveSession(env)
+
+	ftmux.mu.Lock()
+	defer ftmux.mu.Unlock()
+	if ftmux.spawnCalls != 0 {
+		t.Errorf("spawnCalls = %d, want 0", ftmux.spawnCalls)
+	}
+}
+
+func TestRescueActiveSession_AgentDead(t *testing.T) {
+	ftmux := newFakeTmux()
+	ftmux.alive["roost-test:0.0"] = false
+	// displayMsgs does NOT contain "@10" → window gone
+
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         ftmux,
+	})
+	r.state.Sessions[state.SessionID("s1")] = state.Session{
+		ID:       state.SessionID("s1"),
+		WindowID: state.WindowID("@10"),
+	}
+
+	env := &fakeEnvClient{envs: map[string]string{"ROOST_ACTIVE_WINDOW": "@10"}}
+	r.RescueActiveSession(env)
+
+	ftmux.mu.Lock()
+	defer ftmux.mu.Unlock()
+	if ftmux.spawnCalls != 0 {
+		t.Errorf("spawnCalls = %d, want 0 (agent dead)", ftmux.spawnCalls)
+	}
+}
+
 func TestDeactivateOnStartup_StaleWindow(t *testing.T) {
 	tmux := newFakeTmux()
 	r := New(Config{
