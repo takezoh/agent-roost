@@ -1,112 +1,112 @@
 # Agent Roost
 
-複数の AI エージェントセッションを tmux 上で一元管理する TUI ツール。
+Launch AI agent sessions in seconds, see at a glance which ones need your attention, and switch to them instantly — even with dozens running in parallel. A tmux-native TUI for managing agent sessions across all your projects.
 
-## 特徴
+## Features
 
-- tmux のセッション管理をそのまま活用し、エージェントの UI がそのまま動作
-- プロジェクト別にセッションをグルーピング表示
-- メインペインに常時フォーカス、`prefix Space` で TUI にトグル
-- カーソル移動でセッションをメインペインにプレビュー
-- セッション一覧は終了不可のサーバー。crash 時は自動復帰
-- `remain-on-exit` でペイン終了時もレイアウト維持
+- Leverages tmux session management directly, so agent UIs work as-is
+- Groups sessions by project for display
+- Main pane always has focus; toggle to TUI with `prefix Space`
+- Preview sessions in the main pane by moving the cursor
+- Session list runs as an unkillable server; auto-recovers on crash
+- `remain-on-exit` preserves layout when a pane exits
 
-## レイアウト
+## Layout
 
 ```
 ┌───────────────────┬────────┐
 │                   │ TUI    │
 │  Pane 0: Agent    │ ▼ atlas│
-│  (常時フォーカス)  │  #1 ● │
+│  (always focused) │  #1 ● │
 │                   │  #2 ◆ │
-├───────���───────────┤ ▼ forge│
-│  Pane 1: ログ     │  #1 ○ │
+├───────────────────┤ ▼ forge│
+│  Pane 1: Log      │  #1 ○ │
 └───────────────────┴────────┘
 ```
 
-## 要件
+## Requirements
 
-- Go 1.22+
+- Go 1.26+
 - tmux 3.2+
 
-## インストール
+## Installation
 
 ```bash
 make install
 ```
 
-`~/.local/bin/roost` にインストールされます。
+Installs to `~/.local/bin/roost`.
 
-## 使い方
+## Usage
 
 ```bash
 roost
 ```
 
-tmux セッションを作成（または既存にアタッチ）し、3ペインレイアウトで起動します。
+Creates a tmux session (or attaches to an existing one) and launches with a 3-pane layout.
 
-### prefix キー
+### Prefix Key
 
-デフォルト: `Ctrl+b`（tmux と同じ）。config で変更可能。
+Default: `Ctrl+b` (same as tmux). Configurable via config.
 
-| キー | アクション |
+| Key | Action |
 |------|-----------|
-| `prefix Space` | メインペイン ↔ TUI をトグル |
-| `prefix d` | detach（tmux 生存、`roost` 再実行で復帰） |
-| `prefix q` | 全終了（tmux セッション消滅） |
-| `prefix p` | コマンドパレット（ツール一覧を補完付きで表示） |
+| `prefix Space` | Toggle main pane ↔ TUI |
+| `prefix d` | Detach (tmux stays alive; re-run `roost` to resume) |
+| `prefix q` | Quit all (tmux session is destroyed) |
+| `prefix p` | Command palette (shows tools with completion) |
 
-### コマンドパレット
+### Command Palette
 
-`prefix p` でポップアップ表示。テキスト入力でツールを絞り込み、Enter で実行。
+Displayed as a popup with `prefix p`. Filter tools by typing, press Enter to execute.
 
 ```
 > new█
-▸ new-session       セッション作成
-  create-project    プロジェクト作成+セッション開始
+▸ new-session       Create session
+  create-project    Create project + start session
 ```
 
-| ツール | 説明 |
+| Tool | Description |
 |--------|------|
-| `new-session` | セッション作成（プロジェクト・コマンド選択） |
-| `create-project` | プロジェクトディレクトリを作成しセッションを開始 |
-| `stop-session` | セッションを停止 |
-| `detach` | デタッチ（セッション維持） |
-| `shutdown` | 全終了（セッション破棄） |
+| `new-session` | Create a session (select project and command) |
+| `create-project` | Create a project directory and start a session |
+| `stop-session` | Stop a session |
+| `detach` | Detach (session stays alive) |
+| `shutdown` | Quit all (sessions are destroyed) |
 
-### TUI キーバインド（TUI フォーカス時）
+### TUI Key Bindings (when TUI is focused)
 
-| キー | アクション |
+| Key | Action |
 |------|-----------|
-| `j`/`k` or `↑`/`↓` | セッション選択（メインペインにプレビュー） |
-| `Enter` | 選択セッションに切替 → メインに戻る |
-| `n` | クイック起動（デフォルトコマンド） |
-| `N` | コマンド選択起動 |
-| `d` | セッション停止（確認あり） |
-| `Tab` | プロジェクト折りたたみ |
-| `1`-`5` | ステータスフィルタ切替 |
-| `0` | フィルタリセット |
+| `j`/`k` or `↑`/`↓` | Select session (previews in main pane) |
+| `Enter` | Switch to selected session → return to main |
+| `n` | Quick launch (default command) |
+| `N` | Launch with command selection |
+| `d` | Stop session (with confirmation) |
+| `Tab` | Collapse/expand project |
+| `1`-`5` | Toggle status filter |
+| `0` | Reset filter |
 
-### セッション状態
+### Session States
 
-| 表示 | 状態 |
+| Display | State |
 |------|------|
-| `●` 緑 | 稼働中（出力中） |
-| `◆` 黄 | 待機中（入力待ち） |
-| `◇` 黄 | 承認待ち（ツール実行の許可待ち） |
-| `○` 灰 | アイドル（30秒以上無出力） |
-| `■` 赤 | 停止 |
+| `●` green | Running (producing output) |
+| `◆` yellow | Waiting (awaiting input) |
+| `◇` yellow | Pending approval (awaiting tool execution permission) |
+| `○` gray | Idle (no output for 30+ seconds) |
+| `■` red | Stopped |
 
-## 設定
+## Configuration
 
 ```toml
 # ~/.roost/settings.toml
 
 [tmux]
 session_name = "roost"
-prefix = "C-Space"              # prefix キー（デフォルト: C-b）
-pane_ratio_horizontal = 75      # メインペイン幅 %（デフォルト: 75）
-pane_ratio_vertical = 70        # メインペイン高さ %（デフォルト: 70）
+prefix = "C-Space"              # Prefix key (default: C-b)
+pane_ratio_horizontal = 75      # Main pane width % (default: 75)
+pane_ratio_vertical = 70        # Main pane height % (default: 70)
 
 [monitor]
 poll_interval_ms = 1000
@@ -125,4 +125,4 @@ project_roots = ["~/dev", "~/work"]
 project_paths = ["~/dotfiles"]
 ```
 
-設定ファイルがなくてもデフォルト値で動作します。
+Works with default values even without a config file.

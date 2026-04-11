@@ -1,151 +1,135 @@
 # Architecture
 
-本ドキュメントは開発者向けに roost の内部アーキテクチャを説明する。
+This document describes the internal architecture of roost for developers.
 
-**roost** は tmux 上で複数の AI エージェントセッションを一元管理する TUI ツールである。
+**roost** is a TUI tool that centrally manages multiple AI agent sessions on tmux.
 
-## 詳細ドキュメント
+## Detailed Documentation
 
-- [プロセスモデル・tmux レイアウト・描画責務](docs/process-model.md) — Daemon/TUI プロセス構成、ペインレイアウト、Driver と TUI の描画境界
-- [プロセス間通信・ツールシステム](docs/ipc.md) — IPC メッセージ形式、コマンド一覧、並行性モデル (event loop + worker pool)、Tool 抽象
-- [状態監視・UX 処理パイプライン](docs/state-monitoring.md) — Driver plugin による状態検出、Claude/Generic driver、永続化/復元、UX フロー
-- [インターフェース・ファイルリファレンス](docs/interfaces.md) — Go 型定義、データファイル、ソースツリー
+- [Process Model, tmux Layout, Rendering Responsibilities](docs/process-model.md) — Daemon/TUI process structure, pane layout, rendering boundary between Driver and TUI
+- [Inter-Process Communication and Tool System](docs/ipc.md) — IPC message format, command list, concurrency model (event loop + worker pool), Tool abstraction
+- [State Monitoring](docs/state-monitoring.md) — State detection via Driver plugins, Claude/Generic driver, persistence/restoration
+- [Interface and File Reference](docs/interfaces.md) — Go type definitions, data files, source tree
 
-## ビジョン
+## Vision
 
-AI エージェントを複数プロジェクトで並行稼働させると、tmux の素の操作ではセッションの把握・切替が煩雑になり、各エージェントが idle/running/waiting のどの状態かも見えない。これを解決する。
+When running AI agents concurrently across multiple projects, raw tmux operations make it cumbersome to track and switch between sessions, and there is no visibility into whether each agent is idle/running/waiting. roost solves this.
 
-- 複数の AI エージェントセッションを、プロジェクトを跨いで一元管理する操作パネル
-- エージェント自体のオーケストレーションには踏み込まず、セッションのライフサイクル管理に徹する薄い TUI
-- 最小操作でセッションの起動・切替ができる
+- An operation panel that centrally manages multiple AI agent sessions across projects
+- A thin TUI focused on session lifecycle management, without venturing into agent orchestration itself
+- Start and switch sessions with minimal operations
 
-## 設計原則
+## Design Principles
 
-- **Functional Core / Imperative Shell**: 全状態遷移は純関数 `state.Reduce(state, event) → (state', effects)` で表現する。I/O は `Effect` 値として external に出し、単一の event loop (runtime) が interpret する。goroutine・mutex・actor は state 層に存在しない
-- **tmux ネイティブ**: tmux のセッション/window/pane をそのまま活用。エージェントの PTY を再実装しない
-- **高レベル操作はツール**: セッション作成・停止・終了など、副作用を伴う高レベル操作を Tool として抽象化 (`tools` パッケージ)。TUI・コマンドパレットから同じ Tool を実行できる
-- **TUI にビジネスロジックを置かない**: TUI は表示とキー入力のみ。ロジックは `state.Reduce` + `runtime` に集約
-- **Typed messages**: 全境界 (IPC command/response/event, state Event/Effect, driver DriverEvent) は closed sum type。closure を message にしない
-- **Driver は値型**: Driver は per-session state を持たない stateless plugin。per-session state は `DriverState` 値として `state.Session.Driver` に埋め込まれ、`Driver.Step` の引数と戻り値として round-trip する。goroutine も I/O も持たない
-- **Effects are auditable**: 全 side-effect は `state.Effect` enum の constructor として `grep` 可能。driver が直接ファイルに書いたり subprocess を spawn したりしない — 全て runtime の interpreter が実行する
-- **Single event loop**: daemon の全状態は 1 つの goroutine (runtime event loop) が単独所有する。mutex 不要 (worker pool 内部を除く)。session 数に依存しない固定 goroutine 数 (~16)
-- **Worker pool for slow I/O**: transcript parse、haiku summary、git branch detect、capture-pane は fixed-size worker pool (4 goroutine) で off-loop 実行。結果は `EvJobResult` として event loop に feed back
-- **Single persistence store**: `sessions.json` が唯一の真実。tmux user options は `@roost_id` (window-to-session marker) のみ。二重管理しない
-- **フォールバック禁止**: 「情報源 A が無ければ B」という合成は行わない。Driver の Step が状態を更新しない限り、status は変わらない
-- **テスト可能な設計**: state.Reduce は pure function test で 90%+ coverage。runtime は interface 経由の fake backend で E2E test。mock 不要
-- **Driver 固有概念の隔離**: `driver/` と `lib/` の固有概念（型名、定数、インターフェイス、設定）は `state/`, `runtime/`, `tui/`, `proto/`, `config/` に露出させない。driver 固有の TabKind 定数は各 driver パッケージで定義する。driver 固有の config は `[drivers.<name>]` TOML セクションで driver が自身の型に decode する。main.go だけがワイヤリングとして driver/lib を import する
-- **Connector 固有概念の隔離**: Driver と同じ原則を Connector にも適用する。`connector/` と `lib/` の固有概念は `state/`, `runtime/`, `tui/`, `proto/` に露出させない。TUI から connector 名で分岐しない (`if name == "github"` 禁止)。connector は I/O を持たない (Effect で runtime に委譲)。Job input/output 型と runner は `connector/` パッケージ内で定義・登録する
-- **プラガブル登録パターン**: driver のプラグイン登録は `RegisterTabRenderer[C]`, `RegisterRunner[In,Out]`, `state.Register(Driver)` の 3 つの init 時レジストリで行う。connector のプラグイン登録は `RegisterRunner[In,Out]`, `state.RegisterConnector(Connector)` で行う。runtime/tui は具体的な driver/connector を知らずにレジストリ経由で dispatch する
+- **Functional Core / Imperative Shell**: All state transitions are expressed as a pure function `state.Reduce(state, event) → (state', effects)`. I/O is emitted as `Effect` values externally, and a single event loop (runtime) interprets them. No goroutines, mutexes, or actors exist in the state layer
+- **tmux Native**: Directly leverage tmux sessions/windows/panes. Do not reimplement agent PTY
+- **High-Level Operations as Tools**: Abstract high-level operations with side effects (session creation, stopping, termination) as Tools (`tools` package). The same Tool can be executed from both the TUI and the command palette
+- **No Business Logic in TUI**: TUI handles display and key input only. Logic is consolidated in `state.Reduce` + `runtime`
+- **Typed messages**: All boundaries (IPC command/response/event, state Event/Effect, driver DriverEvent) are closed sum types. Do not use closures as messages
+- **Driver as Value Type**: Drivers are stateless plugins with no per-session state. Per-session state is embedded as a `DriverState` value in `state.Session.Driver` and round-trips as arguments and return values of `Driver.Step`. No goroutines or I/O
+- **Effects are auditable**: All side-effects are `grep`-able as `state.Effect` enum constructors. Drivers do not directly write files or spawn subprocesses — the runtime interpreter executes everything
+- **Single event loop**: All daemon state is exclusively owned by a single goroutine (the runtime event loop). No mutexes needed (except inside the worker pool). Fixed goroutine count (~16) independent of session count
+- **Worker pool for slow I/O**: Transcript parse, haiku summary, git branch detect, and capture-pane run off-loop in a fixed-size worker pool (4 goroutines). Results feed back to the event loop as `EvJobResult`
+- **Single persistence store**: `sessions.json` is the single source of truth. The only tmux user option is `@roost_id` (window-to-session marker). No dual bookkeeping
+- **No fallbacks**: Do not synthesize "if source A is unavailable, use B". Until the Driver's Step updates the state, the status does not change
+- **Testable design**: state.Reduce is tested with pure function tests at 90%+ coverage. Runtime is E2E tested with fake backends injected via interfaces. No mocks needed
+- **Isolation of Driver-Specific Concepts**: Concepts specific to `driver/` and `lib/` (type names, constants, interfaces, configuration) must not be exposed to `state/`, `runtime/`, `tui/`, `proto/`, `config/`. Driver-specific TabKind constants are defined in each driver package. Driver-specific config is decoded by the driver into its own type from the `[drivers.<name>]` TOML section. Only main.go imports driver/lib as wiring
+- **Isolation of Connector-Specific Concepts**: The same principle as Driver applies to Connectors. Concepts specific to `connector/` and `lib/` must not be exposed to `state/`, `runtime/`, `tui/`, `proto/`. Do not branch on connector name in TUI (`if name == "github"` is forbidden). Connectors hold no I/O (delegated to runtime via Effects). Job input/output types and runners are defined and registered within the `connector/` package
+- **Pluggable Registration Pattern**: Driver plugin registration uses three init-time registries: `RegisterTabRenderer[C]`, `RegisterRunner[In,Out]`, and `state.Register(Driver)`. Connector plugin registration uses `RegisterRunner[In,Out]` and `state.RegisterConnector(Connector)`. runtime/tui dispatches via registries without knowing specific drivers/connectors
 
-## 用語
+## Terminology
 
-| 用語 | 意味 | tmux 上の実体 |
-|------|------|--------------|
-| **セッション** | AI エージェントの作業単位。`state.Session` (静的メタデータ + DriverState) を sessionID で管理する | tmux **window**（Window 1+、単一ペイン構成） |
-| **制御セッション** | roost 全体を収容する tmux セッション | tmux **session**（`roost`） |
-| **ペイン** | Window 0 内の制御ペイン | tmux **pane**（`0.0`, `0.1`, `0.2`） |
-| **コネクター** | デーモン単位の外部サービス連携プラグイン。GitHub/Linear/Jira 等の外部サービスからデータを取得し TUI に表示する。Driver がセッション単位なのに対し、Connector はデーモン全体で各1インスタンス | なし（tmux リソースを持たない） |
-| **Warm start (温起動)** | tmux session 生存状態での Runtime 起動。sessions.json + tmux `@roost_id` から状態を復元 | 既存の tmux session/window/pane を再利用 |
-| **Cold start (冷起動)** | tmux session 消滅状態 (PC 再起動 / tmux server 死亡) での Runtime 起動。`sessions.json` から tmux session/window を再作成 | tmux session/window を新規作成 |
+| Term | Meaning | tmux Entity |
+|------|---------|-------------|
+| **Session** | A unit of work for an AI agent. Managed by sessionID as `state.Session` (static metadata + DriverState) | tmux **window** (Window 1+, single pane configuration) |
+| **Control Session** | The tmux session that houses all of roost | tmux **session** (`roost`) |
+| **Pane** | Control panes within Window 0 | tmux **pane** (`0.0`, `0.1`, `0.2`) |
+| **Connector** | A per-daemon external service integration plugin. Fetches data from external services like GitHub/Linear/Jira and displays it in the TUI. While Drivers are per-session, Connectors have one instance per daemon | None (holds no tmux resources) |
+| **Warm start** | Runtime startup while a tmux session is alive. Restores state from sessions.json + tmux `@roost_id` | Reuses existing tmux session/window/pane |
+| **Cold start** | Runtime startup when the tmux session is gone (PC reboot / tmux server death). Recreates tmux session/window from `sessions.json` | Creates new tmux session/window |
 
-以降「セッション」は roost セッションを指す。tmux セッションには「tmux セッション」と明記する。
+Hereafter, "session" refers to a roost session. tmux sessions are explicitly noted as "tmux session."
 
-Runtime の起動は必ず Warm start か Cold start のどちらかで、初回起動という分岐は持たない (sessions.json が存在しなければ空のセッション一覧で Cold start するだけ)。
+Runtime startup is always either a Warm start or a Cold start; there is no separate first-launch branch (if sessions.json does not exist, it simply Cold starts with an empty session list).
 
-## レイヤー構成
+## Layer Structure
 
 ```
-state/         純粋ドメイン層 — State, Event, Effect, Reduce (no I/O, no goroutine)
-driver/        Driver 実装 — 値型 Driver plugin + per-session DriverState。I/O 持たない
-connector/     Connector 実装 — 値型 Connector plugin + per-daemon ConnectorState。I/O 持たない
-runtime/       Imperative shell — 単一 event loop, Effect interpreter, backend 抽象
-runtime/worker/ Worker pool — slow I/O job 実行 (haiku, transcript parse, git, capture-pane, github fetch)
-proto/         Typed IPC — Command / Response / ServerEvent の sum type + wire codec
-tools/         パレットツール — TUI 向け Tool 抽象 + DefaultRegistry
-tui/           表示層 — Bubbletea UI 状態管理、レンダリング、キー入力
-tmux/          インフラ層 — tmux コマンド実行ラッパー
-lib/           ユーティリティ — 外部ツール連携 (lib/git/, lib/claude/, lib/github/)
-config/        設定 — TOML 読み込み、DataDir 注入
-logger/        ログ — slog 初期化、ログファイル管理
+state/         Pure domain layer — State, Event, Effect, Reduce (no I/O, no goroutine)
+driver/        Driver implementations — value-type Driver plugins + per-session DriverState. No I/O
+connector/     Connector implementations — value-type Connector plugins + per-daemon ConnectorState. No I/O
+runtime/       Imperative shell — single event loop, Effect interpreter, backend abstraction
+runtime/worker/ Worker pool — slow I/O job execution (haiku, transcript parse, git, capture-pane, github fetch)
+proto/         Typed IPC — Command / Response / ServerEvent sum types + wire codec
+tools/         Palette tools — Tool abstraction for TUI + DefaultRegistry
+tui/           Presentation layer — Bubbletea UI state management, rendering, key input
+tmux/          Infrastructure layer — tmux command execution wrapper
+lib/           Utilities — external tool integration (lib/git/, lib/claude/, lib/github/)
+config/        Configuration — TOML loading, DataDir injection
+logger/        Logging — slog initialization, log file management
 ```
 
-daemon プロセスと TUI プロセスは別プロセスで、Unix socket 経由の typed IPC (`proto` パッケージ) で通信する。
+The daemon process and TUI process are separate processes that communicate via typed IPC (`proto` package) over a Unix socket.
 
-コード依存方向:
+Code dependency direction:
 - `main` → `runtime`, `driver`, `connector`, `proto`, `tools`, `tmux`, `config`, `logger`
-- `runtime` → `state` (Reduce 呼び出し), `proto` (wire encode/decode), `runtime/worker` (Pool + Dispatch)
-- `runtime/worker` → `state` (JobID, JobInput, EvJobResult)。driver/connector/lib を import しない
-- `state` は自己完結 — 外部パッケージを一切 import しない (pure functional core)
-- `driver` → `state` (DriverStateBase embed, Effect/View 型), `runtime/worker` (RegisterRunner), `lib/*` (実装)
-- `connector` → `state` (ConnectorStateBase embed, Effect 型), `runtime/worker` (RegisterRunner), `lib/*` (実装)
-- `proto` → `state` (Status enum, View/ConnectorSection 型を wire に乗せる)
-- `tools` → `proto` (Client 呼び出し)
-- `tui` → `proto` (Client + SessionInfo + ConnectorInfo), `state` (Status/View/ConnectorSection/TabRenderer 型), `tools` (ToolRegistry)。driver/connector/lib を import しない
-- `lib/claude/command.go` (hook bridge) → `proto` (CmdHook 送信), `config`
-- `lib/claude/transcript` → `state` (RegisterTabRenderer で TabRenderer factory を登録)
-- `lib/subcommand.go` でサブコマンドレジストリを提供。各 lib パッケージが `init()` で登録し、`main` は `lib.Dispatch` でディスパッチ
-- `state.Session` が静的メタデータと DriverState (動的状態) を 1 つの struct に保持。Reduce が sessionID で routing し、Driver.Step に渡す
-- `state.State.Connectors` がデーモン単位の ConnectorState を保持。Reduce が connector name で routing し、Connector.Step に渡す
+- `runtime` → `state` (calls Reduce), `proto` (wire encode/decode), `runtime/worker` (Pool + Dispatch)
+- `runtime/worker` → `state` (JobID, JobInput, EvJobResult). Does not import driver/connector/lib
+- `state` is self-contained — imports no external packages (pure functional core)
+- `driver` → `state` (DriverStateBase embed, Effect/View types), `runtime/worker` (RegisterRunner), `lib/*` (implementation)
+- `connector` → `state` (ConnectorStateBase embed, Effect types), `runtime/worker` (RegisterRunner), `lib/*` (implementation)
+- `proto` → `state` (carries Status enum, View/ConnectorSection types on wire)
+- `tools` → `proto` (Client calls)
+- `tui` → `proto` (Client + SessionInfo + ConnectorInfo), `state` (Status/View/ConnectorSection/TabRenderer types), `tools` (ToolRegistry). Does not import driver/connector/lib
+- `lib/claude/command.go` (hook bridge) → `proto` (sends CmdHook), `config`
+- `lib/claude/transcript` → `state` (registers TabRenderer factory via RegisterTabRenderer)
+- `lib/subcommand.go` provides a subcommand registry. Each lib package registers in `init()`, and `main` dispatches via `lib.Dispatch`
+- `state.Session` holds static metadata and DriverState (dynamic state) in a single struct. Reduce routes by sessionID and passes to Driver.Step
+- `state.State.Connectors` holds per-daemon ConnectorState. Reduce routes by connector name and passes to Connector.Step
 
-## 設計判断
+## Design Decisions
 
-| 判断 | 選択 | 理由 |
-|------|------|------|
-| パレットの実装方式 | tmux popup (独立プロセス) | crash 分離。Bubbletea サブモデルでは TUI 内で panic を共有する |
-| Ctrl+C の無効化 | KeyPressMsg を consume | 常駐プロセスの誤終了防止。ヘルスモニタの respawn まで操作不能になる |
-| 楽観的更新をしない | IPC エラー時に UI 状態を変更しない | 次回ポーリングで自動回復。状態不整合のリスクを回避 |
-| 状態遷移の表現 | 純関数 `state.Reduce(state, event) → (state', effects)` | 全状態遷移が 1 関数に集約され、テストは pure function test で 90%+ coverage。goroutine / channel / timing 依存なし |
-| 並行性モデル | Single event loop + fixed-size worker pool | per-session goroutine を排除。goroutine 数は固定 (~16)。デッドロック不在 (actor 間通信が存在しない) |
-| Driver の設計 | 値型 plugin: `Step(prev DriverState, ev DriverEvent) → (next, effects, view)` | goroutine なし、I/O なし、mutex なし。副作用は Effect 値として runtime に委譲。テストは入力と出力の比較だけで完結 |
-| セッションメタデータの永続化 | `sessions.json` が唯一の永続化先 (Single persistence store)。tmux user options は `@roost_id` のみ | tmux user options に `@roost_persisted_state` を二重管理しない。`@roost_id` は window-to-session marker としてのみ使い、Driver 状態は `sessions.json` の `driver_state` bag に一元化 |
-| shutdown (`C-b q`) の挙動 | `EffKillSession` のみで sessions.json は残す | 次回起動時に `runtime.Bootstrap` でセッションを復元できるようにするため |
-| Cold start 復元時の Claude 起動コマンド | `claude --resume <id>` を `Driver.SpawnCommand` で組立て | 過去の会話 transcript を新しい Claude プロセスにそのまま引き継ぐ。Claude 固有の `--resume` フラグ知識は `lib/claude/cli` に閉じ、`driver/claude.go` から委譲する |
-| swap-pane チェーンのロールバック | しない | tmux の `;` 連結はアトミックではなく途中ロールバック不可。Reduce は State を変更するだけで tmux を直接触らないので、Effect 失敗時も State の整合性は保たれる |
-| IPC タイムアウト | 設定しない | event loop のデッドロックは daemon 全体の障害を意味し、Client 側のタイムアウトでは回復できない。外部からの再起動が唯一の復帰手段であるため優先度は低い |
-| IPC wire format | `proto` パッケージの typed sum type (Command / Response / ServerEvent) + NDJSON envelope | 全境界メッセージが closed sum type で型安全。`{type, req_id, cmd|name, data}` envelope で拡張可能 |
-| Session と Driver の責務分離 | `state.Session` が静的メタデータ + `DriverState` を 1 struct に保持。Reduce が sessionID で routing し Driver.Step に渡す | 1 つの session に対して 1 つの真実。Reduce の中で Session と DriverState が同時に更新されるので状態不整合が原理的に発生しない |
-| エージェント状態検出 | Driver.Step が DEvHook / DEvTick / DEvJobResult を受けて DriverState を更新する純関数 | Observer 抽象は廃止。フォールバック禁止: Driver.Step が走らない限り status は変わらない |
-| エージェントイベント連携 | `roost claude event` → `proto.CmdHook` → `EvCmdHook` → `reduceHook` → `Driver.Step(DEvHook)` | hook bridge が `$ROOST_SESSION_ID` env var で race-free に sessionID を特定。reducer は `Sessions[ev.SessionID]` で 1 段ルックアップ。詳細は [hook event ルーティングと race-free identification](docs/state-monitoring.md#hook-event-ルーティングと-race-free-identification) |
-| driver hook payload の抽象化 | `CmdHook.Payload` を不透明 `map[string]any` バッグとして運ぶ | 各 driver subcommand が tool 固有の hook field を CmdHook に packing する。reducer は中身を見ずに `DEvHook.Payload` として Driver.Step に転送するだけ。固有 field を増やしても state / runtime / proto には一切手が入らない |
-| Session ランタイム情報の永続化 | `Driver.Persist(driverState)` が opaque `map[string]string` を返し、`EffPersistSnapshot` が sessions.json に書き出す | driver 固有のキーを増やしても runtime 層は触らない。永続化先は sessions.json の 1 箇所のみ |
-| Connector のスコープ | デーモン単位 (各 Connector につき 1 インスタンス) | GitHub/Linear 等の外部サービス情報はセッション単位でもプロジェクト単位でもなく、ユーザーアカウント全体に紐づく。Driver (セッション単位) に組み込むと同一プロジェクトの複数セッションで重複取得が発生する。デーモン単位なら全セッションで 1 回の API コールで済む |
-| Connector の状態永続化 | しない (キャッシュ TTL ベース) | Connector のデータは 2 分の TTL で再取得するため、再起動時に即座に取得し直せばよい。sessions.json に Connector 状態を混ぜると永続化スキーマが複雑化する |
-| Connector の初期化タイミング | 最初の EvTick で ConnectorsReady フラグ付き | runtime.Bootstrap ではなく reducer 内で初期化することで、初期化ロジックが pure function test でカバーできる。ConnectorsReady bool フラグで冪等性を保証 |
-| 動的ステータスの永続化 | Status は DriverState に含まれ、`Driver.Persist` → sessions.json → `Driver.Restore` で round-trip | Warm/Cold restart 後、`Driver.Restore(bag, now)` で前回値を復元。Idle にリセットされない |
-| polling と event 駆動の統一インターフェース | `Driver.Step` が `DEvTick` (polling) と `DEvHook` (event) の両方を受ける | Claude の status は DEvHook 駆動 (新 event が来るまで status 不変)。Generic は DEvTick で capture-pane job を emit。reducer は Driver を区別せず `Driver.Step(driverState, driverEvent)` を呼ぶだけ。新 driver 追加は Driver interface を 1 つ実装すればよい |
-| Driver の active 判定 | `DEvTick.Active` フラグで push | 真実は `state.State.Active` の 1 点のみ。reducer が DEvTick 構築時に `sess.WindowID == state.Active` を評価して Driver.Step に渡す。Driver 側は pull も callback も不要 |
-| transcript パースの off-loop 実行 | Worker pool の `TranscriptParse` runner が `transcript.Tracker` を保持。Driver.Step は `EffStartJob{TranscriptParseInput}` を emit するだけ | event loop をブロックしない。結果は `EvJobResult{TranscriptParseResult}` で戻り、`Driver.Step(DEvJobResult)` で DriverState に反映。Tracker は worker pool 内に閉じ、state 層は transcript 形式を知らない |
-| 初回 Tick で status を触らない | `genericDriver.Step(DEvTick)` は `primed=false` のとき hash baseline を設定するだけで status を更新しない | restart 直後の最初のポーリングで `Driver.Restore` で復元した status を上書きしないため。次の Tick で実際に hash 変化を観測したときだけ status を更新する |
-| Worker pool の runner dispatch | `worker.Dispatch` が `JobInput.JobKind()` で登録済み runner を lookup して dispatch | switch 文不要。新 job 型の追加は `RegisterRunner[In,Out]` 1 行 + `JobKind()` メソッドだけ |
-| StatusLine の表示 | Worker pool `TranscriptParse` runner → `TranscriptParseResult.StatusLine` → `DriverState` → `Driver.View().StatusLine` → `EffSyncStatusLine` → tmux status-left | transcript 差分読みから tmux 反映まで全て Effect 経由。state 層は tmux を直接触らない |
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Palette implementation approach | tmux popup (separate process) | Crash isolation. As a Bubbletea submodel, panics would be shared within the TUI |
+| Ctrl+C disabling | Consume KeyPressMsg | Prevents accidental termination of the resident process. Pane becomes inoperable until respawn |
+| No optimistic updates | Do not modify UI state on IPC error | Auto-recovers on next poll. Avoids risk of state inconsistency |
+| shutdown (`C-b q`) behavior | Only `EffKillSession`; sessions.json is preserved | To restore from sessions.json on next startup |
+| Claude startup on Cold start | Assemble `claude --resume <id>` via `Driver.SpawnCommand` | Claude-specific `--resume` knowledge is confined to `lib/claude/cli` |
+| swap-pane rollback | Not performed | tmux's `;` chaining is not atomic and mid-rollback is impossible. State consistency is maintained even on Effect failure |
+| IPC timeout | Not set | When the event loop deadlocks, external restart is the only recovery method |
+| Session and Driver responsibility separation | `state.Session` holds static metadata + `DriverState` in a single struct | Since they are updated simultaneously within Reduce, state inconsistency is structurally impossible |
+| Identifying sessionID for hook events | Inject env var via `tmux new-window -e ROOST_SESSION_ID=<id>` | Env var is set at kernel exec level and is race-free. Details in [state-monitoring.md](docs/state-monitoring.md#hook-event-routing-and-race-free-identification) |
+| Hook payload abstraction | Carry `CmdHook.Payload` as an opaque `map[string]any` | Adding driver-specific fields requires no changes to state / runtime / proto |
+| Connector scope | Per-daemon (one instance each), no state persistence (TTL-based), initialization on first EvTick | External service information is tied to the entire user account. Embedding in Driver would cause duplicate fetching. Initializing within the reducer enables pure function test coverage |
 
-## 副作用の命名規約
+## Side-Effect Naming Convention
 
-パス計算と副作用を関数名で区別する。
+Distinguish path computation from side effects by function name.
 
-| パターン | 副作用 | 例 |
-|---------|--------|-----|
-| `XxxPath()` | なし (純粋) | `LogDirPath`, `ConfigDirPath`, `LogPath` |
-| `EnsureXxx()` | ディレクトリ作成 | `EnsureLogDir`, `EnsureConfigDir` |
-| `LoadFrom(path)` | ファイル読込のみ | `config.LoadFrom` |
-| `Load()` | ディレクトリ作成 + ファイル読込 | `config.Load` (convenience wrapper) |
+| Pattern | Side Effect | Example |
+|---------|-------------|---------|
+| `XxxPath()` | None (pure) | `LogDirPath`, `ConfigDirPath`, `LogPath` |
+| `EnsureXxx()` | Directory creation | `EnsureLogDir`, `EnsureConfigDir` |
+| `LoadFrom(path)` | File read only | `config.LoadFrom` |
+| `Load()` | Directory creation + file read | `config.Load` (convenience wrapper) |
 
-## テスト方針
+## Testing Strategy
 
-テストファイルは対象ファイルと同じディレクトリに `*_test.go` として配置。
+Test files are placed in the same directory as the target file as `*_test.go`.
 
-- **state.Reduce のテスト**: mock 不要。`Reduce(state, event)` の戻り値 `(state', effects)` を直接検証する pure function test。goroutine / channel / timing 依存なし
-- **Driver.Step のテスト**: mock 不要。`Step(prev, driverEvent)` の戻り値 `(next, effects, view)` を直接検証
-- **runtime のテスト**: backend interface の fake を注入。`runtime.Config` に `noopTmux` / `noopPersist` 等を設定してテスト。`Config.DataDir` に `t.TempDir()` を注入してファイル I/O を分離
-- **TUI テスト**: Bubbletea の `Model.Update` にメッセージを直接渡し、返り値の Model 状態を検証。実際のターミナルは不要
+- **state.Reduce tests**: No mocks needed. Pure function tests that directly verify the return value `(state', effects)` of `Reduce(state, event)`. No goroutine / channel / timing dependencies
+- **Driver.Step tests**: No mocks needed. Directly verify the return value `(next, effects, view)` of `Step(prev, driverEvent)`
+- **runtime tests**: Inject fakes for backend interfaces. Set `noopTmux` / `noopPersist` etc. in `runtime.Config` for testing. Inject `t.TempDir()` into `Config.DataDir` to isolate file I/O
+- **TUI tests**: Pass messages directly to Bubbletea's `Model.Update` and verify the returned Model state. No actual terminal required
 
-## 依存
+## Dependencies
 
-| パッケージ | バージョン | 用途 |
-|-----------|-----------|------|
-| `charm.land/bubbletea/v2` | v2.0.2 | TUI フレームワーク |
-| `charm.land/lipgloss/v2` | v2.0.2 | スタイリング |
-| `charm.land/bubbles/v2` | v2.1.0 | キーバインド |
-| `github.com/BurntSushi/toml` | v1.6.0 | 設定ファイル |
-| `github.com/fsnotify/fsnotify` | v1.9.0 | ファイル監視 |
-| `golang.org/x/term` | v0.41.0 | ターミナルサイズ取得 |
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `charm.land/bubbletea/v2` | v2.0.2 | TUI framework |
+| `charm.land/lipgloss/v2` | v2.0.2 | Styling |
+| `charm.land/bubbles/v2` | v2.1.0 | Key bindings |
+| `github.com/BurntSushi/toml` | v1.6.0 | Configuration file |
+| `github.com/fsnotify/fsnotify` | v1.9.0 | File watching |
+| `golang.org/x/term` | v0.41.0 | Terminal size detection |

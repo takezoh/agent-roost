@@ -1,11 +1,11 @@
-# インターフェース・データファイル・ファイル構成
+# Interfaces, Data Files, and File Structure
 
-## インターフェース
+## Interfaces
 
-テスト可能性のために state 層・runtime 層・driver 層をすべてインターフェース化。state 層は純粋な値型と pure function で構成され、runtime 層は backend interface 経由でテスト時に fake 差し替えが可能。
+All state, runtime, and driver layers are defined as interfaces for testability. The state layer consists of pure value types and pure functions, while the runtime layer can be swapped with fakes during testing via backend interfaces.
 
 ```go
-// state/state.go — 全ドメイン状態 (plain data, no methods)
+// state/state.go — All domain state (plain data, no methods)
 type State struct {
     Sessions    map[SessionID]Session
     Active      WindowID
@@ -25,12 +25,12 @@ type Session struct {
     WindowID  WindowID
     PaneID    string
     CreatedAt time.Time
-    Driver    DriverState   // sum type: driver impl ごとの concrete state
+    Driver    DriverState   // sum type: concrete state per driver impl
 }
 ```
 
 ```go
-// state/driver_iface.go — Driver interface (値型 plugin)
+// state/driver_iface.go — Driver interface (value-type plugin)
 type Driver interface {
     Name() string
     DisplayName() string
@@ -42,16 +42,16 @@ type Driver interface {
     Restore(bag map[string]string, now time.Time) DriverState
 }
 
-// DriverState — per-session state の closed sum type marker
+// DriverState — closed sum type marker for per-session state
 type DriverState interface {
     driverStateMarker()
 }
 
-// DriverEvent — Driver.Step への入力 (closed sum type)
+// DriverEvent — input to Driver.Step (closed sum type)
 // DEvTick, DEvHook, DEvJobResult, DEvFileChanged
 ```
 
-Driver は**値型 plugin**: goroutine なし、I/O なし、mutex なし。per-session state は `DriverState` 値として `state.Session.Driver` に埋め込まれ、`Driver.Step` の引数と戻り値として round-trip する。副作用は `[]Effect` として返し、runtime の Effect interpreter が実行する。
+Driver is a **value-type plugin**: no goroutines, no I/O, no mutexes. Per-session state is embedded in `state.Session.Driver` as a `DriverState` value, and round-trips as arguments and return values of `Driver.Step`. Side effects are returned as `[]Effect` and executed by the runtime's Effect interpreter.
 
 ```go
 // state/status.go — Status enum
@@ -66,18 +66,18 @@ const (
 ```
 
 ```go
-// state/reduce.go — 純粋状態遷移関数
+// state/reduce.go — Pure state transition function
 func Reduce(s State, ev Event) (State, []Effect)
 ```
 
-`Reduce` が全状態遷移の唯一のエントリポイント。Event / Effect は closed sum type (`isEvent()` / `isEffect()` marker)。
+`Reduce` is the sole entry point for all state transitions. Event / Effect are closed sum types (`isEvent()` / `isEffect()` markers).
 
 ```go
 // runtime/runtime.go — Imperative shell
 type Runtime struct {
     cfg     Config
-    state   state.State        // event loop goroutine が単独所有
-    eventCh chan state.Event    // 外部 goroutine からの Event 投入
+    state   state.State        // solely owned by the event loop goroutine
+    eventCh chan state.Event    // Event submission from external goroutines
     workers *worker.Pool
     conns   map[state.ConnID]*ipcConn
     // ...
@@ -88,7 +88,7 @@ func (r *Runtime) Enqueue(ev state.Event)          // goroutine-safe
 ```
 
 ```go
-// runtime/backends.go — テスト差し替え可能な backend interface
+// runtime/backends.go — Backend interfaces swappable for testing
 type TmuxBackend interface {
     SpawnWindow(name, cmd, startDir string, env map[string]string) (windowID, paneID string, err error)
     KillWindow(windowID string) error
@@ -129,43 +129,43 @@ type Envelope struct {
     Error  *ErrorBody      `json:"error,omitempty"`
 }
 
-// Command / Response / ServerEvent は closed sum type
+// Command / Response / ServerEvent are closed sum types
 type Command interface { isCommand(); CommandName() string }
 ```
 
-driver-specific な hook payload は `proto.CmdHook{Driver, Event, SessionID, Payload}` として typed IPC を渡る。各 driver subcommand (`roost claude event` 等) が自分の hook payload を `CmdHook` に詰め替えて送信し、runtime の IPC reader が `EvCmdHook` Event に変換して event loop に投入する。`reduceHook` が `Sessions[ev.SessionID]` で 1 段ルックアップして `Driver.Step(driverState, DEvHook{...})` を呼ぶだけ。state 層も runtime 層も driver 固有のキー名を一切ハードコードしない。
+Driver-specific hook payloads are passed through typed IPC as `proto.CmdHook{Driver, Event, SessionID, Payload}`. Each driver subcommand (e.g., `roost claude event`) packs its own hook payload into `CmdHook` and sends it. The runtime's IPC reader converts it into an `EvCmdHook` Event and feeds it into the event loop. `reduceHook` performs a single lookup via `Sessions[ev.SessionID]` and calls `Driver.Step(driverState, DEvHook{...})`. Neither the state layer nor the runtime layer hardcodes any driver-specific key names.
 
-`Driver.SpawnCommand` は Cold start 復元時に `runtime.Bootstrap` から呼ばれ、ドライバごとに固有の resume 方法でコマンド文字列を組み立てる。Claude ドライバは `Restore` で受け取った `session_id` を DriverState に保持しており、`lib/claude/cli.ResumeCommand` に委譲して `claude --resume <id>` を返す。Generic ドライバは base コマンドをそのまま返す。
+`Driver.SpawnCommand` is called from `runtime.Bootstrap` during cold start restoration, assembling the command string using driver-specific resume methods. The Claude driver holds the `session_id` received via `Restore` in DriverState and delegates to `lib/claude/cli.ResumeCommand` to return `claude --resume <id>`. The Generic driver returns the base command as-is.
 
-## データファイル
+## Data Files
 
-| パス | 形式 | 内容 | ライフサイクル |
-|------|------|------|--------------|
-| `~/.roost/config.toml` | TOML | ユーザー設定（下記参照） | ユーザーが作成。存在しなければデフォルト値で動作 |
-| `~/.roost/sessions.json` | JSON | セッション静的メタデータと Driver の `driver_state` (opaque map。status を含む) — 唯一の永続化先 (Single persistence store) | `EffPersistSnapshot` で書き出し (Tick / Hook event / session lifecycle 変更時)。読まれるのは daemon 起動時の `runtime.Bootstrap` のみ。`driver_state` の中身は driver が解釈する opaque な key/value で、runtime は key 名を一切知らない |
-| `~/.roost/events/{sessionID}.log` | テキスト | エージェント hook イベントログ | `EffEventLogAppend` で追記。runtime の EventLogBackend が lazy-open でファイルハンドルを管理 |
-| `~/.roost/roost.log` | slog | アプリケーションログ | daemon 起動時に作成/追記 |
-| `~/.roost/roost.sock` | Unix socket | プロセス間通信 | daemon 起動時に作成。終了時に削除 |
+| Path | Format | Contents | Lifecycle |
+|------|--------|----------|-----------|
+| `~/.roost/config.toml` | TOML | User settings (see below) | Created by user. Falls back to default values if absent |
+| `~/.roost/sessions.json` | JSON | Session static metadata and Driver's `driver_state` (opaque map including status) — the single persistence store | Written on `EffPersistSnapshot` (on Tick / Hook event / session lifecycle changes). Read only at daemon startup via `runtime.Bootstrap`. Contents of `driver_state` are opaque key/value pairs interpreted by the driver; runtime knows none of the key names |
+| `~/.roost/events/{sessionID}.log` | Text | Agent hook event log | Appended via `EffEventLogAppend`. The runtime's EventLogBackend manages file handles with lazy-open |
+| `~/.roost/roost.log` | slog | Application log | Created/appended at daemon startup |
+| `~/.roost/roost.sock` | Unix socket | Inter-process communication | Created at daemon startup. Deleted on exit |
 
-`Config.DataDir` でベースパスを変更可能（テスト時に TempDir 指定）。
+Base path can be changed via `Config.DataDir` (set to TempDir during tests).
 
-`settings.toml` の全フィールド（括弧内はデフォルト値）:
+All fields in `settings.toml` (default values in parentheses):
 
 - `tmux`: `session_name` (`"roost"`), `prefix` (`"C-b"`), `pane_ratio_horizontal` (`75`), `pane_ratio_vertical` (`70`)
 - `monitor`: `poll_interval_ms` (`1000`), `idle_threshold_sec` (`30`)
 - `session`: `auto_name` (`true`), `default_command` (`"claude"`), `commands` (`["claude","gemini","codex"]`)
 - `projects`: `project_roots` (`["~/dev","~/work"]`)
 
-## ファイル構成
+## File Structure
 
 ```
 src/
-├── main.go              daemon / TUI モード分岐 (lib.Dispatch でサブコマンド委譲)
-├── state/               純粋ドメイン層 (no I/O, no goroutine)
+├── main.go              daemon / TUI mode branching (subcommand delegation via lib.Dispatch)
+├── state/               Pure domain layer (no I/O, no goroutine)
 │   ├── state.go         State, Session, Subscriber, JobMeta — plain value types
 │   ├── event.go         Event closed sum type (EvCmdCreateSession, EvTick, EvJobResult, ...)
 │   ├── effect.go        Effect closed sum type (EffSpawnTmuxWindow, EffStartJob, EffBroadcast, ...)
-│   ├── reduce.go        Reduce(State, Event) → (State, []Effect) — 純粋状態遷移関数
+│   ├── reduce.go        Reduce(State, Event) → (State, []Effect) — pure state transition function
 │   ├── reduce_session.go  session lifecycle reducers
 │   ├── reduce_hook.go   hook event → Driver.Step routing
 │   ├── reduce_tick.go   EvTick → stepAllSessions → Driver.Step(DEvTick)
@@ -174,34 +174,34 @@ src/
 │   ├── reduce_lifecycle.go  shutdown / detach
 │   ├── driver_iface.go  Driver interface (Step, View, Persist, Restore, SpawnCommand)
 │   │                    DriverState / DriverEvent / DriverStateBase marker
-│   ├── status.go        Status 列挙型 (Running/Waiting/Idle/Stopped/Pending)
-│   ├── view.go          View / Card / Tag — TUI 向け表示値型
-│   ├── clone.go         State の copy-on-write ヘルパー
-│   └── driver/          Driver 実装 — 値型 plugin (goroutine なし, I/O なし)
-│       ├── claude.go    claudeDriver — event 駆動 status + transcript job emit
+│   ├── status.go        Status enum (Running/Waiting/Idle/Stopped/Pending)
+│   ├── view.go          View / Card / Tag — display value types for TUI
+│   ├── clone.go         Copy-on-write helpers for State
+│   └── driver/          Driver implementations — value-type plugins (no goroutines, no I/O)
+│       ├── claude.go    claudeDriver — event-driven status + transcript job emit
 │       ├── claude_event.go  DEvHook dispatch (state-change, session-start, ...)
 │       ├── claude_tick.go   DEvTick: active gate + transcript parse job emit
 │       ├── claude_view.go   View() — Card, LogTabs, InfoExtras, StatusLine
 │       ├── claude_persist.go  Persist / Restore — opaque bag round-trip
-│       ├── generic.go   genericDriver — polling 駆動 (capture-pane job emit + hash 比較)
+│       ├── generic.go   genericDriver — polling-driven (capture-pane job emit + hash comparison)
 │       ├── generic_view.go  View()
-│       ├── jobs.go      Job input/output 型 (TranscriptParseInput, CapturePaneInput, ...)
-│       ├── poll.go      capture-pane driver 共通ヘルパー
-│       ├── tags.go      CommandTag ヘルパー
-│       └── register.go  init() で state.Register
+│       ├── jobs.go      Job input/output types (TranscriptParseInput, CapturePaneInput, ...)
+│       ├── poll.go      capture-pane shared helper for drivers
+│       ├── tags.go      CommandTag helper
+│       └── register.go  init() registers with state.Register
 ├── runtime/             Imperative shell — event loop + Effect interpreter
 │   ├── runtime.go       Runtime.Run() — single event loop (select)
-│   ├── interpret.go     execute(Effect) — 全副作用の interpreter
+│   ├── interpret.go     execute(Effect) — interpreter for all side effects
 │   ├── ipc.go           IPC server (accept, readLoop, writeLoop)
 │   ├── backends.go      TmuxBackend, PersistBackend, EventLogBackend, FSWatcher interface
-│   ├── tmux_real.go     TmuxBackend 具象実装
-│   ├── persist.go       PersistBackend 具象実装 (sessions.json)
-│   ├── eventlog.go      EventLogBackend 具象実装
-│   ├── fsnotify.go      FSWatcher 具象実装
-│   ├── proto_bridge.go  proto.Command → state.Event 変換
-│   ├── bootstrap.go     warm/cold restart の初期 State 構築
-│   ├── filerelay.go     ファイルリレー
-│   ├── testing.go       テスト用 helper (fake backend)
+│   ├── tmux_real.go     TmuxBackend concrete implementation
+│   ├── persist.go       PersistBackend concrete implementation (sessions.json)
+│   ├── eventlog.go      EventLogBackend concrete implementation
+│   ├── fsnotify.go      FSWatcher concrete implementation
+│   ├── proto_bridge.go  proto.Command → state.Event conversion
+│   ├── bootstrap.go     Initial State construction for warm/cold restart
+│   ├── filerelay.go     File relay
+│   ├── testing.go       Test helper (fake backend)
 │   └── worker/          Worker pool
 │       ├── pool.go      Pool + Submit[In,Out] (typed job submission)
 │       ├── registry.go  RegisterRunner[In,Out] + Dispatch (JobKind-based runner registry)
@@ -212,38 +212,38 @@ src/
 │   ├── response.go      Response closed sum type
 │   ├── event.go         ServerEvent closed sum type
 │   ├── codec.go         NDJSON encode/decode
-│   ├── client.go        proto.Client (TUI / パレット / hook bridge 用)
-│   ├── client_helpers.go  typed helper (CreateSession, StopSession, ...)
-│   ├── convert.go       state.View → proto.SessionInfo 変換
-│   ├── reqid.go         request ID 生成
+│   ├── client.go        proto.Client (for TUI / palette / hook bridge)
+│   ├── client_helpers.go  typed helpers (CreateSession, StopSession, ...)
+│   ├── convert.go       state.View → proto.SessionInfo conversion
+│   ├── reqid.go         Request ID generation
 │   └── errors.go        ErrCode enum
 ├── tools/
 │   └── tools.go         Tool + Param + ToolContext + Registry + DefaultRegistry
 ├── lib/
-│   ├── subcommand.go    サブコマンドレジストリ (Register, Dispatch)
+│   ├── subcommand.go    Subcommand registry (Register, Dispatch)
 │   ├── git/
-│   │   └── git.go       git ブランチ検出 (DetectBranch)
+│   │   └── git.go       Git branch detection (DetectBranch)
 │   └── claude/
-│       ├── command.go   Claude サブコマンドハンドラ (init で "claude" 登録)
-│       ├── hook.go      Claude hook イベントのパース
-│       ├── setup.go     Claude settings.json への hook 登録/解除
-│       ├── transcript/  Claude JSONL トランスクリプトのパース + 差分追跡
-│       └── cli/         Claude CLI 起動コマンド組立て (ResumeCommand など)
+│       ├── command.go   Claude subcommand handler (registers "claude" in init)
+│       ├── hook.go      Claude hook event parsing
+│       ├── setup.go     Hook registration/removal in Claude settings.json
+│       ├── transcript/  Claude JSONL transcript parsing + diff tracking
+│       └── cli/         Claude CLI launch command assembly (ResumeCommand etc.)
 ├── config/
-│   └── config.go        TOML 設定読み込み
+│   └── config.go        TOML configuration loading
 ├── tmux/
 │   ├── interfaces.go    PaneOperator
-│   ├── client.go        tmux コマンドラッパー (具象実装)
-│   └── pane.go          ペイン操作
+│   ├── client.go        tmux command wrapper (concrete implementation)
+│   └── pane.go          Pane operations
 ├── tui/
-│   ├── model.go         セッション一覧 Model (UI 状態のみ。state.Status を直接 import)
-│   ├── view.go          セッション一覧レンダリング
-│   ├── mouse.go         マウス入力ハンドラ
-│   ├── keys.go          キーバインド定義 + キーボード入力ハンドラ
-│   ├── main_model.go    メイン TUI Model
-│   ├── main_view.go     メイン TUI レンダリング
-│   ├── palette.go       コマンドパレット
-│   └── log_model.go     ログ TUI (動的セッションタブ)
+│   ├── model.go         Session list Model (UI state only. Directly imports state.Status)
+│   ├── view.go          Session list rendering
+│   ├── mouse.go         Mouse input handler
+│   ├── keys.go          Keybinding definitions + keyboard input handler
+│   ├── main_model.go    Main TUI Model
+│   ├── main_view.go     Main TUI rendering
+│   ├── palette.go       Command palette
+│   └── log_model.go     Log TUI (dynamic session tabs)
 └── logger/
-    └── logger.go        slog 初期化
+    └── logger.go        slog initialization
 ```

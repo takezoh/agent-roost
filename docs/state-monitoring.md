@@ -1,171 +1,51 @@
-# 状態監視・UX 処理パイプライン
+# State monitoring
 
-## UX 処理パイプライン
+For the interactive operation processing flow (TUI → IPC → Reduce → Effect), see [ipc.md](ipc.md). The following describes the background status update pipeline and state monitoring by Drivers.
 
-ユーザー操作はすべて同一のパイプラインを通過する。
+## Background pipeline
 
-### インタラクティブパイプライン
+Every tick (1s), `reduceTick` calls `Driver.Step(driverState, DEvTick{...})` for all sessions and aggregates the returned Effects (EffStartJob, etc.). Reconcile (`EffReconcileWindows`) and health check (`EffCheckPaneAlive`) are also emitted on the same tick. For the detailed tick processing sequence, see [ipc.md](ipc.md#tick-processing-sequence).
 
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant M as TUI (Model)
-    participant C as proto.Client
-    participant EL as Runtime event loop
-    participant Red as state.Reduce
-    participant Interp as Effect interpreter
-    participant T as tmux
+Driver.Step returns `EffStartJob`, which is submitted to the worker pool. The result is fed back to the event loop via `EvJobResult` → `Driver.Step(DEvJobResult)` reflects it in DriverState.
 
-    rect rgb(240, 240, 255)
-    Note over U,M: ① 入力検知
-    U->>M: KeyPress
-    M->>M: handleKey() / キーバインド照合
-    end
+## State monitoring
 
-    rect rgb(240, 255, 240)
-    Note over M,C: ② IPC 送信
-    M->>M: Action → proto.Command 変換<br/>(直接実行 or パレット経由)
-    M->>C: Client.SwitchSession(id) 等
-    C->>EL: proto.Envelope{type: "cmd", cmd: "switch-session"}
-    end
+The Driver plugin's `Step` method is responsible for status updates. For the Driver interface definition, see [interfaces.md](interfaces.md#interfaces).
 
-    rect rgb(255, 240, 240)
-    Note over EL,T: ③ Reduce + Effect 実行
-    EL->>Red: Reduce(state, EvCmdSwitchSession)
-    Red-->>EL: (state', [EffSwapPane, EffSelectPane,<br/>EffSendResponse, EffBroadcastSessionsChanged])
-    EL->>Interp: execute(effects...)
-    Interp->>T: swap-pane / select-pane
-    end
+### Lifecycle:
 
-    rect rgb(255, 255, 230)
-    Note over M,EL: ④ 結果反映
-    Interp-->>C: proto.Envelope{type: "resp", status: "ok"}
-    C-->>M: doneMsg
-    M->>M: UI状態更新 → View() 再描画
-    end
-```
-
-**パレット経由の場合**: ②で tmux popup を起動。Palette が独立 `proto.Client` としてパラメータ補完→③のコマンド送信を行い、結果は broadcast 経由で TUI に到達する。
-
-**エラー時**: ③で Reduce がエラー Effect (`EffSendError`) を返した場合、response の `error` フィールドに詳細が格納される。TUI 側は slog にログ出力し、UI 状態は変更しない（楽観的更新をしない）。tmux 操作の失敗（例: swap-pane 対象の window が消失）は Effect interpreter がエラーログを出力する。
-
-### バックグラウンドパイプライン（ステータス更新）
-
-```mermaid
-sequenceDiagram
-    participant Tk as ticker.C
-    participant EL as Event loop
-    participant Red as state.Reduce
-    participant Drv as Driver.Step (pure)
-    participant Interp as Effect interpreter
-    participant Pool as Worker pool
-    participant M as TUI (Model)
-
-    loop ticker (1s)
-        Tk->>EL: EvTick{Now}
-        EL->>Red: Reduce(state, EvTick)
-        Note over Red: reduceTick:<br/>EffReconcileWindows +<br/>EffCheckPaneAlive +<br/>stepAllSessions
-        loop 各 Session
-            Red->>Drv: Driver.Step(driverState, DEvTick{Active, WindowID})
-            Note over Drv: Claude → active gate, transcript parse job emit<br/>Generic → capture-pane job emit
-            Drv-->>Red: (driverState', effects, view)
-        end
-        Red-->>EL: (state', [EffReconcileWindows, EffCheckPaneAlive,<br/>EffStartJob×N, EffBroadcastSessionsChanged,<br/>EffPersistSnapshot])
-
-        EL->>Interp: execute(effects...)
-        Interp->>Pool: Submit(CapturePaneInput / TranscriptParseInput)
-        Interp-->>M: broadcast sessions-changed
-        M->>M: View() 再描画
-    end
-
-    Note over Pool,EL: 後続: worker 完了 → EvJobResult → Reduce → Driver.Step(DEvJobResult) → state 更新
-```
-
-**責務分離**:
-- **`reduceTick`**: 全セッションを回して `Driver.Step(driverState, DEvTick{...})` を呼ぶ。返された effects (EffStartJob 等) を集約して返す。reconcile と health check も同じ tick で emit
-- **`Driver.Step` (pure)**: goroutine なし、I/O なし。capture-pane や transcript parse が必要な場合は `EffStartJob` を返すだけ。active/inactive は `DEvTick.Active` フラグで判定
-- **Worker pool**: EffStartJob の input 型 (`CapturePaneInput`, `TranscriptParseInput` 等) を `Dispatch` が `JobInput.JobKind()` で登録済み runner に dispatch。結果は `EvJobResult` で event loop に feed back
-- **EffBroadcastSessionsChanged**: runtime が `state.Sessions` から `proto.SessionInfo` を組み立てて全 subscriber に配信。状態合成 / フォールバックは存在しない
-
-## 状態監視
-
-ステータス更新を担うのは **値型の Driver plugin** の `Step` メソッド。`state.State.Sessions` が sessionID ごとに `DriverState` を保持し、`Reduce` が `Driver.Step(driverState, driverEvent)` を呼んで新しい `DriverState` を得る。Driver.Step は capture-pane でも hook event でも副作用を Effect として返すだけの純関数。runtime / state 層は Driver の中身を知らず、Driver interface 経由でしかアクセスしない。
-
-### Driver interface (動的状態関連)
-
-```go
-// state/driver_iface.go
-type Driver interface {
-    Name() string
-    DisplayName() string
-
-    NewState(now time.Time) DriverState
-    Step(prev DriverState, ev DriverEvent) (DriverState, []Effect, View)
-    View(s DriverState) View
-
-    SpawnCommand(s DriverState, baseCommand string) string
-    Persist(s DriverState) map[string]string
-    Restore(bag map[string]string, now time.Time) DriverState
-}
-
-// DriverState — per-session state value (closed sum type marker)
-type DriverState interface { driverStateMarker() }
-
-// DriverEvent — Driver.Step への入力 (closed sum type)
-type DEvTick struct { Now time.Time; Active bool; Project string; WindowID WindowID }
-type DEvHook struct { Event string; Payload map[string]any }
-type DEvJobResult struct { Result any; Err error; Now time.Time }
-type DEvFileChanged struct { Path string }
-```
-
-ライフサイクル:
-
-| メソッド | 呼び出し元 | 用途 |
+| Method | Caller | Purpose |
 |---------|-----------|------|
-| `NewState(now)` | `reduceCreateSession` | 新しい DriverState 値を生成。初期値は Idle / now |
-| `Restore(bag, now)` | `runtime.Bootstrap` | warm/cold restart で前回保存した opaque map から DriverState を再構築 |
-| `Step(prev, DEvTick)` | `reduceTick` → `stepAllSessions` | 定期 polling。Claude は `DEvTick.Active` で gate し、active 時のみ transcript parse job を emit。Generic は capture-pane job を emit |
-| `Step(prev, DEvHook)` | `reduceHook` | hook event を受けて DriverState を更新。Claude は status 遷移 + event log append effect |
-| `Step(prev, DEvJobResult)` | `reduceJobResult` | worker pool からの結果を DriverState に反映。transcript parse result の title / lastPrompt 等 |
-| `Step(prev, DEvFileChanged)` | `reduceFileChanged` | fsnotify からのファイル変更通知。transcript parse job を emit |
-| `View(driverState)` | runtime の `broadcastSessionsChanged` / `activeStatusLine` | TUI 向け表示ペイロード (Card / LogTabs / InfoExtras / StatusLine) を返す pure getter |
-| `Persist(driverState)` | runtime の `snapshotSessions` | DriverState を opaque map に serialize。sessions.json に書き出す |
-| `SpawnCommand(driverState, base)` | `runtime.Bootstrap` (cold boot のみ) | resume コマンドを組み立て (例: `claude --resume <id>`) |
+| `NewState(now)` | `reduceCreateSession` | Generates a new DriverState value. Initial values are Idle / now |
+| `Restore(bag, now)` | `runtime.Bootstrap` | Reconstructs DriverState from the previously saved opaque map on warm/cold restart |
+| `Step(prev, DEvTick)` | `reduceTick` → `stepAllSessions` | Periodic polling. Claude gates on `DEvTick.Active`, emitting transcript parse jobs only when active. Generic emits capture-pane jobs |
+| `Step(prev, DEvHook)` | `reduceHook` | Receives hook events and updates DriverState. Claude performs status transitions + event log append effects |
+| `Step(prev, DEvJobResult)` | `reduceJobResult` | Reflects results from the worker pool into DriverState. Transcript parse results such as title / lastPrompt |
+| `Step(prev, DEvFileChanged)` | `reduceFileChanged` | File change notification from fsnotify. Emits transcript parse job |
+| `View(driverState)` | runtime's `broadcastSessionsChanged` / `activeStatusLine` | Pure getter that returns display payloads for the TUI (Card / LogTabs / InfoExtras / StatusLine) |
+| `Persist(driverState)` | runtime's `snapshotSessions` | Serializes DriverState to an opaque map. Written to sessions.json |
+| `SpawnCommand(driverState, base)` | `runtime.Bootstrap` (cold boot only) | Assembles a resume command (e.g., `claude --resume <id>`) |
 
-### Active/Inactive と DEvTick.Active (push 型)
+### Active/Inactive and DEvTick.Active (push model)
 
-「session が active」とは tmux window が pane 0.0 (メイン) に swap-pane されている状態を指す。**唯一の真実は `state.State.Active`** (WindowID) で、`reduceTick` が `DEvTick` を構築する際に `sess.WindowID == state.Active` を評価して `DEvTick.Active` フラグに設定する。
+"Session is active" means the tmux window is swap-paned to pane 0.0 (main). The single source of truth is `state.State.Active` (WindowID), and `reduceTick` evaluates `sess.WindowID == state.Active` when constructing `DEvTick` to set the `DEvTick.Active` flag. Step is called for all sessions on every tick, passing `DEvTick{Active: false}` to inactive Drivers. Activation is detected on the next tick (within 1 second).
 
-設計上のポイント:
+### Claude driver (event-driven + active-gated transcript sync)
 
-- **状態の単一化**: `active` 状態は `state.State.Active` だけが持つ。Driver 側に capture せず、毎 tick Reduce が評価して push する → 通知漏れ / 順序問題が原理的に発生しない
-- **Driver は state パッケージ以外を import しない**: `DEvTick.Active` は plain bool。SessionContext のような interface 注入は不要
-- **全 session に毎 tick Step を呼ぶ**: inactive Driver にも `DEvTick{Active: false}` を渡す。Driver 側で `Active` フラグを見て早期 return する。これにより active 化は次の Tick (≤ 1 秒以内) で自然に検出される
+`claudeDriver`'s status is **fully event-driven**: the status in DriverState is updated only at the moment `Step(prev, DEvHook{Event: "state-change"})` receives a state-change event. If no new event arrives, the status does not change (= the previously restored status continues to be displayed).
 
-### Claude driver (event 駆動 + active gate 付き transcript 同期)
+Transcript metadata (title / lastPrompt, etc.) is incrementally parsed by `transcript.Tracker` inside the worker pool's `TranscriptParse` runner:
 
-`claudeDriver` の status は **完全に event 駆動** で、`Step(prev, DEvHook{Event: "state-change"})` が state-change event を受け取った瞬間だけ DriverState の status を更新する。新しい event が来なければ status は変わらない (= 復元された前回 status がそのまま表示され続ける)。
+- `Step(prev, DEvTick{Active: true})`: Emits transcript parse job only when active. Returns immediately when inactive
+- `Step(prev, DEvHook)`: Always updates DriverState regardless of active/inactive. Also emits transcript parse job
+- `Step(prev, DEvJobResult{TranscriptParseResult})`: Reflects parse results (title / lastPrompt / statusLine) into DriverState
+- `Step(prev, DEvFileChanged)`: File change notification from fsnotify. Emits transcript parse job
 
-一方 transcript メタ (title / lastPrompt / subjects / insight) は worker pool の `TranscriptParse` runner 内の `transcript.Tracker` が増分パースする。Driver.Step は `EffStartJob{TranscriptParseInput}` を emit するだけで、I/O は一切行わない:
+`lastPrompt` is obtained by `transcript.Tracker` walking the parentUuid chain backwards from the tail and returning the text of the first non-synthetic `KindUser` entry.
 
-- `Step(prev, DEvTick{Active: true})`: active 時のみ transcript parse job を emit。inactive (この session の tmux window が pane 0.0 に swap されていない) 状態では `DEvTick.Active == false` で即 return — reducer は全 session に毎 tick Step を呼び続ける (chicken-and-egg を避けるため)
-- `Step(prev, DEvHook)`: active/inactive を問わず常に DriverState を更新。Hook event は鮮度の高い情報源なので、background session でも status はその都度更新される。transcript parse job も emit する
-- `Step(prev, DEvJobResult{TranscriptParseResult})`: worker pool から戻った transcript parse 結果 (title / lastPrompt / statusLine / insight) を DriverState に反映
-- `Step(prev, DEvFileChanged)`: fsnotify からのファイル変更通知。transcript parse job を emit
-- ファイル truncation 検出: `claude --resume` で transcript が巻き戻されたとき、worker pool の Tracker が `Stat().Size() < offset` を検出して state を全リセットして再パースする
+Hook event → driver.Status mapping:
 
-#### lastPrompt の決定
-
-`lastPrompt` は `transcript.Tracker` が保持する **parentUuid チェーン**を `tailUUID` から逆向きに辿り、最初に出会う非 synthetic な `KindUser` エントリの text を返すことで決定する。
-
-- **rewind+resubmit の自然な扱い**: ユーザが Esc-Esc で巻き戻して別文言を再送信すると、Claude は同じ親 uuid を持つ user 子を 2 つ書く (実 transcript で観測済み)。新 branch のエントリだけが新 tail から到達可能なので、walk すれば自然に古い branch を無視する
-- **synthetic block-text の除外**: skill bootstrap (`Base directory for this skill: ...`)、interrupt marker (`[Request interrupted by user]`)、bang command の `<bash-input>` / `<bash-stdout>` 系の合成 user content は CLI からのユーザ入力ではないので、parser が `Synthetic` フラグを立てた KindUser として emit し、Tracker はこれらを userPrompts map に登録しない (チェーンは延ばす)
-- **チェーンスタブ**: 表示可能 entry を 0 個しか生成しない `assistant` 行 (例: `thinking` ブロックのみで `ShowThinking` が `RendererCfg` で false) でも parser は `KindUnknown` のチェーンスタブを emit する。これがなければ後続の tail から walk しても uuid が parentOf に登録されておらず、chain が切れて lastPrompt が空になる
-- **`{"type":"last-prompt"}` イベントは使わない**: Claude Code がこのイベントを書くのは session resume の meta block (`last-prompt → custom-title → agent-name → permission-mode` 順) の中だけで、per-turn には emit されない。`parseLastPromptEntry` と `KindLastPrompt` 定数は dead code として残してあるが (将来の互換性 + 過去 transcript)、`applyEntryToMeta` / `applyMetaEntry` からは参照されない
-
-hook event → driver.Status マッピング:
-
-| hook イベント | Status |
+| Hook event | Status |
 |--------------|--------|
 | UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart | Running |
 | Stop, StopFailure, Notification(idle_prompt) | Waiting |
@@ -173,76 +53,48 @@ hook event → driver.Status マッピング:
 | SessionStart | Idle |
 | SessionEnd | Stopped |
 
-`roost claude event` サブコマンドが Claude hook payload を `proto.CmdHook` に詰め替えて IPC で送り、runtime の IPC reader が `EvCmdHook` に変換して event loop に投入する。`reduceHook` が `Sessions[ev.SessionID]` で 1 段ルックアップして `Driver.Step(driverState, DEvHook{...})` を呼ぶ。state 層も runtime 層も Claude 固有の状態ロジックを一切持たない。
+The `roost claude event` subcommand repackages the Claude hook payload into `proto.CmdHook` and sends it via IPC. `reduceHook` performs a single-level lookup with `Sessions[ev.SessionID]` and calls `Driver.Step(driverState, DEvHook{...})`.
 
-ルーティングは sessionID で 1 段ルックアップ。詳細は [hook event ルーティングと race-free identification](#hook-event-ルーティングと-race-free-identification) を参照。
+### Hook event routing and race-free identification
 
-### hook event ルーティングと race-free identification
+A mechanism for the hook subprocess to identify its owning roost session in a race-free manner.
 
-agent (Claude 等) の hook subprocess が `roost <agent> event` として起動されたとき、自分がどの roost セッションに属するかを **race-free に** 識別する仕組み。
+**Problem**: There is a 20-50ms window after `tmux new-window` before `SetWindowUserOptions` sets `@roost_id`. If a hook fires during this window, `@roost_id` is unset and the event is discarded.
 
-#### 問題
+**Solution**: Inject the env var via `tmux new-window -e ROOST_SESSION_ID=<sess.ID>`. The env var is set at the kernel exec level simultaneously with `new-window`, so no race occurs. The hook bridge (`lib/claude/command.go`) simply reads `os.Getenv("ROOST_SESSION_ID")`, requiring no round-trip to tmux. The reducer identifies the session with a single-level lookup via `Sessions[ev.SessionID]`.
 
-runtime の spawn 処理は `tmux new-window` で agent プロセスを起動した **後** に `SetWindowUserOptions` で `@roost_id` などの user option を設定する。各 tmux 呼び出しは独立した `exec.Command` で 5-20ms かかるため、`new-window` から `SetWindowUserOptions` 完了まで 20-50ms の窓が開く。この間に agent が SessionStart hook を発火すると、hook subprocess が pane 経由で `@roost_id` を問い合わせても **未設定** の値しか返らず、event が破棄される (origin: commit `7e541ad` の "外部 claude を排除する" ガード)。
+### Generic driver (polling-driven)
 
-#### 解決: env var による atomic injection
-
-`tmux new-window -e ROOST_SESSION_ID=<sess.ID>` で **新ウィンドウのプロセス環境変数として sessionID を注入する**。env var は `new-window` と同時に kernel exec レベルで設定されるので、後続の `set-option` 呼び出しを待たない:
-
-```
-T+0ms   roost: tmux new-window -e ROOST_SESSION_ID=abc123 'exec claude'
-        → claude プロセス起動 (env に ROOST_SESSION_ID=abc123 が既に入っている)
-T+5ms   claude が SessionStart hook を発火
-T+5ms   roost claude event 起動 (環境変数を継承)
-T+5ms   currentRoostSessionID() → os.Getenv("ROOST_SESSION_ID") == "abc123" → 即 OK
-T+5ms   → SendAgentEvent({SessionID: "abc123", ...}) ✓
-T+5ms   server: HandleHookEvent → Sessions.FindByID("abc123") → 該当 → drv.HandleEvent
-```
-
-`lib/claude/command.go` の `currentRoostSessionID()` は env var を読むだけのトリビアル関数で、tmux への往復を一切しない。
-
-#### 副次効果
-
-- **間接参照の削除**: 旧設計は AgentEvent に `Pane` (tmux pane id) を載せ、runtime が `findSessionByPane` で pane → window → session の 3 段 fallback を辿っていた。新設計では AgentEvent.SessionID を `state.Sessions.FindByID` する 1 段ルックアップ。
-- **roost cross-talk の防止**: 同じ tmux サーバー内で複数 roost インスタンスが動いていても、各 roost は自分の知っている sessionID しか受理しないので hook event の cross-talk が起きない。
-- **セキュリティ**: 攻撃者が env var を spoof しても、`Sessions.FindByID` は実在しない ID には nil を返すので event は破棄される。socket access も user-private で従来通りのガードが効く。
-
-#### 補足: 残存する微小な race
-
-`tmux new-window` が返ってから `EvTmuxWindowSpawned` が State に Session を追加するまでに <1ms の窓が残る (この間に hook が届くと `FindByID` が空振り)。ただし agent の bootstrap latency (~100ms+) >> このギャップなので実用上踏むことはほぼ無い。完全に解消するには session を spawn の前に reservation で登録する restructure が必要だが、本設計では deferred している。
-
-### Generic driver (polling 駆動)
-
-`genericDriver` は capture-pane の hash 比較で状態判定する。`Step(prev, DEvTick)` の挙動 (capture-pane 結果は worker pool からの `DEvJobResult{CapturePaneResult}` で受信):
+`genericDriver` determines state by comparing capture-pane hashes. Behavior of `Step(prev, DEvTick)` (capture-pane results are received from the worker pool via `DEvJobResult{CapturePaneResult}`):
 
 ```mermaid
 flowchart TD
-    cap["CapturePaneResult<br/>(worker pool から受信)"] --> primed{primed?}
-    primed -->|No| baseline["baseline 設定のみ<br/>(status 触らない)"]
-    primed -->|Yes| hash[SHA256 ハッシュ比較]
-    hash --> changed{ハッシュ変化?}
-    changed -->|変化あり| prompt{プロンプト検出?}
-    prompt -->|Yes| waiting["StatusWaiting (◆ 黄)"]
-    prompt -->|No| running["StatusRunning (● 緑)"]
-    changed -->|変化なし| threshold{idle 閾値超過?}
-    threshold -->|No| keep[何もしない]
-    threshold -->|Yes| idle["StatusIdle (○ 灰)"]
-    cap -.->|エラー| log[debug ログのみ<br/>status 変更なし]
+    cap["CapturePaneResult<br/>(received from worker pool)"] --> primed{primed?}
+    primed -->|No| baseline["Set baseline only<br/>(status unchanged)"]
+    primed -->|Yes| hash[SHA256 hash comparison]
+    hash --> changed{Hash changed?}
+    changed -->|Changed| prompt{Prompt detected?}
+    prompt -->|Yes| waiting["StatusWaiting (◆ yellow)"]
+    prompt -->|No| running["StatusRunning (● green)"]
+    changed -->|Unchanged| threshold{Idle threshold exceeded?}
+    threshold -->|No| keep[No action]
+    threshold -->|Yes| idle["StatusIdle (○ gray)"]
+    cap -.->|Error| log[Debug log only<br/>no status change]
 ```
 
-**第 1 回 Tick は status を触らない**。内部 hash baseline を設定するだけで、`Driver.Restore` で復元された前回 status は次の Tick まで保持される。第 2 回 Tick 以降のみ実際の遷移を観測したときに status を更新する。
+**The first tick does not change status**. It only sets the internal hash baseline, and the previous status restored by `Driver.Restore` is preserved until the next tick. Only from the second tick onward is the status updated when an actual transition is observed.
 
-`Driver.Restore` が呼ばれた時点で `lastActivity` も `status_changed_at` から seed し、idle countdown が再起動を跨いで継続する。
+When `Driver.Restore` is called, `lastActivity` is also seeded from `status_changed_at`, allowing the idle countdown to continue across restarts.
 
-idle 閾値は `settings.toml` の `IdleThresholdSec` で変更可能 (デフォルト 30 秒)。ポーリング間隔は `PollIntervalMs` (デフォルト 1000ms)。プロンプト検出は driver ごとに自前の正規表現を持つ。汎用パターン `` (?m)(^>|[>$❯]\s*$) `` を基本とし、claude は `$` を除外した `` (?m)(^>|❯\s*$) `` を使用して bash シェルとの誤検知を防ぐ。
+The idle threshold can be changed via `IdleThresholdSec` in `settings.toml` (default 30 seconds). The polling interval is `PollIntervalMs` (default 1000ms). Prompt detection uses per-driver regular expressions. The generic pattern `` (?m)(^>|[>$❯]\s*$) `` serves as the base, while claude uses `` (?m)(^>|❯\s*$) `` excluding `$` to prevent false positives with bash shells.
 
-### 状態の永続化と復元
+### State persistence and restoration
 
-`Driver.Persist(driverState)` は driver が解釈する opaque な `map[string]string` を返し、`EffPersistSnapshot` が `sessions.json` に書き出す。`sessions.json` が唯一の永続化先 (Single persistence store)。tmux user options は `@roost_id` (window-to-session marker) のみ。
+`Driver.Persist(driverState)` returns an opaque `map[string]string` interpreted by the driver, and `EffPersistSnapshot` writes it to `sessions.json`. The only tmux user option is `@roost_id` (window-to-session marker).
 
-#### 書き込み (runtime)
+#### Writing (runtime)
 
-各 Tick / Hook event で Driver.Step が DriverState を更新すると、reducer が `EffPersistSnapshot` を emit し、runtime の Effect interpreter が `sessions.json` に書き出す:
+When Driver.Step updates DriverState on each tick / hook event, the reducer emits `EffPersistSnapshot`, and the runtime's Effect interpreter writes it to `sessions.json`:
 
 ```mermaid
 sequenceDiagram
@@ -256,14 +108,14 @@ sequenceDiagram
     Drv-->>Red: (driverState', effects, view)
     Note over Red: state.Session.Driver = driverState'
     Red-->>Interp: [EffPersistSnapshot, ...]
-    Interp->>Interp: snapshotSessions():<br/>Driver.Persist(driverState) で<br/>opaque map を取得
-    Interp->>JSON: sessions.json に書き出し
-    Note over JSON: sessions.json が唯一の永続化先<br/>tmux user options は @roost_id のみ
+    Interp->>Interp: snapshotSessions():<br/>Obtains opaque map via<br/>Driver.Persist(driverState)
+    Interp->>JSON: Write to sessions.json
+    Note over JSON: sessions.json is the sole persistence target<br/>tmux user options: @roost_id only
 ```
 
-#### 復元 (warm restart / cold boot)
+#### Restoration (warm restart / cold boot)
 
-復元経路は 2 つ。**warm restart** (tmux server 生存) は tmux の `@roost_id` user option で window-to-session を対応付け、`sessions.json` の `driver_state` bag から `Driver.Restore` で DriverState を復元する。**cold boot** (tmux server も死亡) は sessions.json から session + tmux window を再作成する:
+There are two restoration paths. **Warm restart** (tmux server alive) associates windows to sessions via the tmux `@roost_id` user option and restores DriverState from the `driver_state` bag in `sessions.json` using `Driver.Restore`. **Cold boot** (tmux server also dead) recreates sessions + tmux windows from sessions.json:
 
 ```mermaid
 sequenceDiagram
@@ -273,31 +125,28 @@ sequenceDiagram
     participant Red as state.Reduce
     participant Drv as Driver
 
-    alt warm restart (tmux server 生存)
+    alt warm restart (tmux server alive)
         Boot->>Tmux: ListRoostWindows()
-        Tmux-->>Boot: window 一覧 + @roost_id
+        Tmux-->>Boot: window list + @roost_id
         Boot->>JSON: Load()
-        JSON-->>Boot: SessionSnapshot 一覧<br/>(driver_state bag 含む)
+        JSON-->>Boot: SessionSnapshot list<br/>(including driver_state bag)
         Boot->>Drv: Driver.Restore(bag, now)
-        Drv-->>Boot: DriverState (復元済み)
-        Boot->>Red: 初期 State に Session を追加<br/>(既存 tmux window に re-binding)
-    else cold boot (tmux server も死亡)
+        Drv-->>Boot: DriverState (restored)
+        Boot->>Red: Add Session to initial State<br/>(re-binding to existing tmux window)
+    else cold boot (tmux server also dead)
         Boot->>JSON: Load()
-        JSON-->>Boot: SessionSnapshot 一覧
+        JSON-->>Boot: SessionSnapshot list
         Boot->>Drv: Driver.Restore(bag, now)
         Drv-->>Boot: DriverState
         Boot->>Drv: Driver.SpawnCommand(driverState, baseCommand)
-        Drv-->>Boot: 例: "claude --resume <id>"
-        Note over Boot: 初期 State に Session を追加<br/>→ 最初の Reduce で EffSpawnTmuxWindow emit
+        Drv-->>Boot: e.g., "claude --resume <id>"
+        Note over Boot: Add Session to initial State<br/>→ First Reduce emits EffSpawnTmuxWindow
     end
 ```
 
-ポイント:
-- **Driver.Restore は純関数**: persisted bag から DriverState 値を再構築する。goroutine も I/O もない
-- **sessions.json が唯一の永続化先**: tmux user options に `@roost_persisted_state` を書き込まない。`@roost_id` だけが window-to-session の marker
-- **SpawnCommand は cold boot だけ**: warm restart は既存 agent process が生きているので新 spawn しない
+SpawnCommand is called only on cold boot (on warm restart, the existing agent process is still alive).
 
-#### Driver ごとの PersistedState スキーマ
+#### PersistedState schema per Driver
 
 `claudeDriver.PersistedState()`:
 ```
@@ -318,18 +167,16 @@ sequenceDiagram
 }
 ```
 
-Title / LastPrompt / Subjects / Insight は **永続化対象ではない** (transcript から再構築可能、または Tick / HandleEvent で再取得)。
+Title / LastPrompt are not persisted (they can be reconstructed from the transcript).
 
-| シナリオ | 挙動 |
+| Scenario | Behavior |
 |---------|------|
-| **新規セッション作成** | `EvCmdCreateSession` → `reduceCreateSession` が State に Session を追加 (Driver.NewState で初期 DriverState 生成) + `EffSpawnTmuxWindow` emit → runtime が tmux window を spawn → `EvTmuxWindowSpawned` で WindowID/PaneID を反映 |
-| **warm restart (daemon のみ再起動)** | `runtime.Bootstrap` が tmux `@roost_id` + sessions.json から Session を再構築。`Driver.Restore(bag, now)` で DriverState を復元 → 初期 State に設定 |
-| **cold boot (tmux server も死亡)** | `runtime.Bootstrap` が sessions.json から SessionSnapshot を読む → `Driver.Restore(bag, now)` + `Driver.SpawnCommand(driverState, baseCommand)` で resume コマンド組み立て → 初期 State に Session 追加 → 最初の Reduce で EffSpawnTmuxWindow emit |
-| **セッション停止** | `EvCmdStopSession` → `reduceStopSession` が State から Session 削除 + `EffKillTmuxWindow` + `EffPersistSnapshot` emit |
-| **dead pane reap** | `EvTick` → `reduceTick` が `EffReconcileWindows` + `EffCheckPaneAlive` emit → runtime が tmux に問い合わせ → `EvTmuxWindowVanished` / `EvPaneDied` で State から Session 削除 |
+| **New session creation** | `EvCmdCreateSession` → `reduceCreateSession` adds Session to State (generates initial DriverState via Driver.NewState) + emits `EffSpawnTmuxWindow` → runtime spawns tmux window → `EvTmuxWindowSpawned` reflects WindowID/PaneID |
+| **Warm restart (daemon only restarts)** | `runtime.Bootstrap` reconstructs Sessions from tmux `@roost_id` + sessions.json. Restores DriverState via `Driver.Restore(bag, now)` → sets in initial State |
+| **Cold boot (tmux server also dead)** | `runtime.Bootstrap` reads SessionSnapshots from sessions.json → `Driver.Restore(bag, now)` + `Driver.SpawnCommand(driverState, baseCommand)` assembles resume command → adds Session to initial State → first Reduce emits EffSpawnTmuxWindow |
+| **Session stop** | `EvCmdStopSession` → `reduceStopSession` removes Session from State + emits `EffKillTmuxWindow` + `EffPersistSnapshot` |
+| **Dead pane reap** | `EvTick` → `reduceTick` emits `EffReconcileWindows` + `EffCheckPaneAlive` → runtime queries tmux → `EvTmuxWindowVanished` / `EvPaneDied` removes Session from State |
 
-永続化は `EffPersistSnapshot` が `sessions.json` に書き出すだけ。tmux user options への `@roost_persisted_state` 書き込みは廃止され、`@roost_id` のみ。
+### Cost extraction
 
-### コスト抽出
-
-Claude セッションのモデル名・累計トークン量・派生 Insight (現在使用中のツール名・サブエージェント数・エラー数など) は transcript JSONL から `transcript.Tracker` (`lib/claude/transcript`) が抽出する。`Tracker` は worker pool の `TranscriptParse` runner 内で保持され、`Driver.Step` は `EffStartJob{TranscriptParseInput}` を emit するだけ。結果は `EvJobResult{TranscriptParseResult}` として event loop に戻り、`Driver.Step(DEvJobResult)` で DriverState に反映される。state 層も runtime 層も Claude 固有の transcript 形式を直接知らない。
+Tool names, subagent counts, error counts, and other metrics from Claude sessions are extracted from the transcript JSONL by `transcript.Tracker` (`lib/claude/transcript`). `Tracker` is held within the worker pool's `TranscriptParse` runner, and results are returned to Driver.Step as `TranscriptParseResult`.

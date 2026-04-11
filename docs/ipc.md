@@ -1,16 +1,16 @@
-# プロセス間通信 (IPC) ・ツールシステム
+# Inter-Process Communication (IPC) and Tool System
 
-## プロセス間通信 (IPC)
+## Inter-Process Communication (IPC)
 
-Unix domain socket (`~/.roost/roost.sock`) による JSON メッセージング。
+JSON messaging over a Unix domain socket (`~/.roost/roost.sock`).
 
-### トポロジ
+### Topology
 
 ```mermaid
 flowchart TB
     subgraph daemon["Daemon process (runtime.Runtime)"]
         EL["Event loop<br/>select { eventCh | internalCh | ticker | workers.Results | watcher.Events }"]
-        Reduce["state.Reduce(state, event)<br/>→ (state', []Effect)<br/>純関数: goroutine なし、I/O なし"]
+        Reduce["state.Reduce(state, event)<br/>→ (state', []Effect)<br/>pure function: no goroutine, no I/O"]
         Interp["Effect interpreter<br/>runtime.execute(eff)<br/>tmux / IPC / persist / worker"]
         Pool["Worker pool (4 goroutine)<br/>worker.Dispatch<br/>JobKind-based runner registry"]
 
@@ -20,10 +20,10 @@ flowchart TB
         Pool -->|EvJobResult| EL
     end
 
-    subgraph tui["セッション一覧 TUI"]
-        Client["proto.Client<br/>Envelope 送受信 / responses ch / events ch"]
-        Model["Model<br/>UI状態管理 / キー入力 / Cmd発行"]
-        View["View<br/>レンダリング"]
+    subgraph tui["Session list TUI"]
+        Client["proto.Client<br/>Envelope send/receive / responses ch / events ch"]
+        Model["Model<br/>UI state management / key input / Cmd dispatch"]
+        View["View<br/>Rendering"]
 
         Client --> Model --> View
     end
@@ -31,98 +31,96 @@ flowchart TB
     Client <-->|"Unix socket<br/>NDJSON (proto.Envelope)"| EL
 ```
 
-`runtime.Runtime` が唯一の状態所有者。`state.State` は純粋な値型で、`Reduce` の引数と戻り値としてのみ round-trip する。Effect interpreter が tmux 操作・IPC 送信・永続化・worker pool submit を実行し、結果を `Event` として event loop に feed back する。
+`runtime.Runtime` is the sole state owner. `state.State` is a pure value type that only round-trips as an argument and return value of `Reduce`. The effect interpreter performs tmux operations, IPC sends, persistence, and worker pool submits, feeding results back to the event loop as `Event`s.
 
-**Runtime の構成**:
-- `state`: `state.State` — 全ドメイン状態 (Sessions map, Active, Subscribers, Jobs)。event loop goroutine が単独所有
-- `eventCh`: 外部 goroutine (IPC reader, worker pool, fsnotify watcher) が Event を投入するチャネル
-- `workers`: `worker.Pool` — fixed-size (4) goroutine pool。`worker.Dispatch` が `JobInput.JobKind()` で登録済み runner を dispatch
-- `conns`: `map[ConnID]*ipcConn` — 接続管理。event loop goroutine が単独所有
-- `cfg.Tmux` / `cfg.Persist` / `cfg.EventLog` / `cfg.Watcher`: backend interface (テスト時に fake 差し替え可能)
+**Runtime composition**:
+- `state`: `state.State` — all domain state (Sessions map, Active, Subscribers, Jobs). Solely owned by the event loop goroutine
+- `eventCh`: channel where external goroutines (IPC reader, worker pool, fsnotify watcher) submit Events
+- `workers`: `worker.Pool` — fixed-size (4) goroutine pool. `worker.Dispatch` dispatches via registered runner lookup using `JobInput.JobKind()`
+- `conns`: `map[ConnID]*ipcConn` — connection management. Solely owned by the event loop goroutine
+- `cfg.Tmux` / `cfg.Persist` / `cfg.EventLog` / `cfg.Watcher`: backend interfaces (replaceable with fakes during testing)
 
-### 通信パターン
+### Communication Patterns
 
-| パターン | 方向 | 特徴 | 例 |
-|---------|------|------|-----|
-| **Request-Response** | TUI → Server → TUI | 同期。Client が response ch でブロック待ち | `switch-session`, `preview-session` |
-| **Event Broadcast** | Server → 全クライアント | 非同期。subscribe 済みクライアントに一斉配信 | `sessions-changed`, `project-selected`, `pane-focused` |
-| **Tool Launch** | TUI → Server → tmux popup → Palette → Server | 間接通信。popup が独立クライアントとしてコマンド送信 | `new-session` |
+| Pattern | Direction | Characteristics | Example |
+|---------|-----------|-----------------|---------|
+| **Request-Response** | TUI → Server → TUI | Synchronous. Client blocks waiting on response ch | `switch-session`, `preview-session` |
+| **Event Broadcast** | Server → all clients | Asynchronous. Delivered to all subscribed clients | `sessions-changed`, `project-selected`, `pane-focused` |
+| **Tool Launch** | TUI → Server → tmux popup → Palette → Server | Indirect communication. Popup sends commands as an independent client | `new-session` |
 
-`SessionInfo` は静的メタデータと動的状態を 1 メッセージで運ぶ統合型: runtime の `broadcastSessionsChanged` が `state.Sessions` の各 Session について `Driver.View(sess.Driver)` から status / title / insight 等を取得して `proto.SessionInfo` に詰め込む。状態専用イベント (`states-updated`) は廃止された — `reduceTick` が毎 tick `EffBroadcastSessionsChanged` を emit する。
+`SessionInfo` is a unified type that carries static metadata and dynamic state in a single message: the runtime's `broadcastSessionsChanged` retrieves status / title etc. from each Session's `Driver.View(sess.Driver)` and packs them into `proto.SessionInfo`. `reduceTick` emits `EffBroadcastSessionsChanged` on every tick, delivering to all subscribers.
 
-Response は `sendResponse` メソッドで統一送信。Broadcast は `subscribe` コマンドを送信したクライアントのみに配信。
+Responses are sent uniformly via the `sendResponse` method. Broadcasts are delivered only to clients that have sent the `subscribe` command.
 
-### メッセージ形式
+### Message Format
 
-全メッセージは Go の `Message` 構造体で表現し、JSON にシリアライズして送受信する。`Type` フィールドで方向を判定する。フレーミングは改行区切り JSON (NDJSON)。`json.Encoder` / `json.Decoder` がストリーム上で 1 メッセージ = 1 行として読み書きする。`Message` は全フィールドをフラットに持つ単一構造体で、`omitempty` で不要フィールドを省略する。パース側で union type の分岐が不要になる。
+All messages are represented as `proto.Envelope` structs, serialized as newline-delimited JSON (NDJSON). The `Type` field discriminates the message type.
 
-| フィールド | Go 型 | JSON 型 | 用途 |
-|-----------|-------|---------|------|
-| `type` | string | string | `"command"`, `"response"`, `"event"` |
-| `command` | string | string | コマンド名 (client → server) |
-| `args` | map[string]string | object | コマンド引数 |
-| `event` | string | string | イベント名 (server → client) |
-| `sessions` | []SessionInfo | array | セッション一覧（`SessionInfo.State` は `driver.Status` 型） |
-| `error` | string | string | エラーメッセージ |
-| `active_window_id` | string | string | アクティブ window ID |
-| `session_log_path` | string | string | セッションログパス |
-| `selected_project` | string | string | 選択中プロジェクトパス |
+| Field | Purpose |
+|-------|---------|
+| `type` | `"cmd"` / `"resp"` / `"evt"` |
+| `req_id` | Correlates request-response pairs |
+| `cmd` | Command name (when type=cmd) |
+| `name` | Event name (when type=evt) |
+| `status` | `"ok"` / `"error"` (when type=resp) |
+| `data` | Typed payload (`json.RawMessage`) |
+| `error` | Error details (when status=error) |
 
-生成ヘルパー: `NewCommand(cmd, args)` / `NewEvent(event)`。エラーは `Message.Error` に文字列を格納し、クライアント側で `error` に変換する。
+Command / Response / ServerEvent are closed sum types. See [interfaces.md](interfaces.md#interfaces) for detailed Go type definitions.
 
-### コマンド (クライアント → サーバー)
+### Commands (Client → Server)
 
-| コマンド | パラメータ | 機能 |
-|---------|-----------|------|
-| `subscribe` | - | ブロードキャストの受信を開始 |
-| `create-session` | project, command | セッション作成 |
-| `stop-session` | session_id | セッション停止 |
-| `list-sessions` | - | セッション一覧取得 |
-| `preview-session` | session_id | Pane 0.0 にプレビュー |
-| `preview-project` | project | アクティブセッションを退避し `project-selected` イベントを broadcast |
-| `switch-session` | session_id | Pane 0.0 に切替 + フォーカス |
-| `focus-pane` | pane | ペインフォーカス。`pane-focused` イベントを broadcast |
-| `launch-tool` | tool | パレット popup 起動 |
-| `agent-event` | type, (type 別引数) | エージェントからのイベント通知。Service に委譲 |
-| `shutdown` | - | 全終了 |
-| `detach` | - | デタッチ |
+| Command | Parameters | Function |
+|---------|------------|----------|
+| `subscribe` | - | Start receiving broadcasts |
+| `create-session` | project, command | Create a session |
+| `stop-session` | session_id | Stop a session |
+| `list-sessions` | - | Retrieve session list |
+| `preview-session` | session_id | Preview in Pane 0.0 |
+| `preview-project` | project | Stash the active session and broadcast `project-selected` event |
+| `switch-session` | session_id | Switch to Pane 0.0 + focus |
+| `focus-pane` | pane | Focus pane. Broadcasts `pane-focused` event |
+| `launch-tool` | tool | Launch palette popup |
+| `agent-event` | type, (type-specific args) | Event notification from agent. Delegated to Service |
+| `shutdown` | - | Shutdown all |
+| `detach` | - | Detach |
 
-### Client のメッセージ振り分け
+### Client Message Routing
 
 ```mermaid
 flowchart LR
-    sock[Unix socket 受信] --> decode[json.Decode]
+    sock[Unix socket receive] --> decode[json.Decode]
     decode --> check{msg.Type?}
-    check -->|response| resp[responses ch] --> cmd[送信元の Cmd が受信]
-    check -->|event| evt[events ch] --> listen["listenEvents() が tea.Msg に変換"]
+    check -->|response| resp[responses ch] --> cmd[Received by the sending Cmd]
+    check -->|event| evt[events ch] --> listen["listenEvents() converts to tea.Msg"]
 ```
 
-### 並行性モデル — Single event loop + Worker pool
+### Concurrency Model — Single Event Loop + Worker Pool
 
-agent-roost のサーバ側は **単一の event loop + 固定サイズ worker pool** で構成される。全ドメイン状態 (`state.State`) は event loop goroutine が単独所有し、状態遷移は純関数 `state.Reduce(state, event) → (state', []Effect)` で表現される。`sync.Mutex` はドメイン層に存在しない (worker pool 内部を除く)。
+The server side of agent-roost is composed of a **single event loop + fixed-size worker pool**. All domain state (`state.State`) is solely owned by the event loop goroutine, and state transitions are expressed as the pure function `state.Reduce(state, event) → (state', []Effect)`. No `sync.Mutex` exists in the domain layer (except inside the worker pool).
 
-#### Event loop と状態所有
+#### Event Loop and State Ownership
 
 ```
-runtime.Runtime.Run() — 単一 goroutine
+runtime.Runtime.Run() — single goroutine
 ├── select {
-│   ├── eventCh     — IPC reader / hook bridge からの Event
-│   ├── internalCh  — conn open/close (runtime 内部イベント)
-│   ├── ticker.C    — 1 秒周期の EvTick
-│   ├── workers.Results() — worker pool からの EvJobResult
-│   └── watcher.Events()  — fsnotify からの EvFileChanged
+│   ├── eventCh     — Events from IPC reader / hook bridge
+│   ├── internalCh  — conn open/close (runtime internal events)
+│   ├── ticker.C    — EvTick at 1-second intervals
+│   ├── workers.Results() — EvJobResult from worker pool
+│   └── watcher.Events()  — EvFileChanged from fsnotify
 │   }
 ├── dispatch(ev):
 │   ├── state.Reduce(r.state, ev) → (next, effects)
 │   ├── r.state = next
 │   └── for _, eff := range effects { r.execute(eff) }
-└── 状態: state.State (Sessions, Active, Subscribers, Jobs, ...)
-    → event loop goroutine が単独所有。mutex 不要
+└── state: state.State (Sessions, Active, Subscribers, Jobs, ...)
+    → solely owned by event loop goroutine. No mutex needed
 ```
 
-#### Effect interpreter のディスパッチ
+#### Effect Interpreter Dispatch
 
-`runtime.execute(eff)` が各 Effect 型を backend I/O にマッピングする。Effect は closed sum type なので `grep` で全副作用を列挙可能:
+`runtime.execute(eff)` maps each Effect type to backend I/O. Since Effect is a closed sum type, all side effects can be enumerated via `grep`:
 
 ```mermaid
 flowchart LR
@@ -147,13 +145,13 @@ flowchart LR
     Watcher -->|EvFileChanged| EL
 ```
 
-凡例:
-- **実線枠** = event loop goroutine 上で同期実行
-- **破線枠** = 別 goroutine で非同期実行。結果は Event として event loop に feed back
+Legend:
+- **Solid border** = executed synchronously on the event loop goroutine
+- **Dashed border** = executed asynchronously in a separate goroutine. Results are fed back to the event loop as Events
 
-#### Worker pool (slow I/O の off-loop 実行)
+#### Worker Pool (Off-Loop Execution of Slow I/O)
 
-重い I/O (transcript parse、haiku summary、git branch detect、capture-pane) は fixed-size worker pool (`worker.Pool`, 4 goroutine) で event loop 外で実行する。runner は `RegisterRunner[In,Out]` で driver が init 時に登録し、`Dispatch` が `JobInput.JobKind()` で lookup する:
+Heavy I/O (transcript parse, haiku summary, git branch detect, capture-pane) is executed outside the event loop in a fixed-size worker pool (`worker.Pool`, 4 goroutines). Runners are registered via `RegisterRunner[In,Out]` by the driver at init time, and `Dispatch` looks them up by `JobInput.JobKind()`:
 
 ```mermaid
 sequenceDiagram
@@ -167,24 +165,24 @@ sequenceDiagram
     Red-->>EL: (state', [EffStartJob{input: CapturePaneInput}])
     EL->>Interp: execute(EffStartJob)
     Interp->>Pool: Submit(Job{ID, Input})
-    Note over EL: event loop は即座に次の select へ
+    Note over EL: event loop proceeds immediately to next select
 
-    Pool->>Runner: Dispatch(pool, jobID, input)<br/>JobKind() で runner lookup
+    Pool->>Runner: Dispatch(pool, jobID, input)<br/>runner lookup by JobKind()
     Runner-->>Pool: (CapturePaneResult, nil)
     Pool->>EL: EvJobResult{JobID, Result}
 
     EL->>Red: Reduce(state, EvJobResult)
-    Red-->>EL: (state', effects)<br/>Driver.Step で DriverState 更新
+    Red-->>EL: (state', effects)<br/>DriverState updated via Driver.Step
 ```
 
-ポイント:
-- **event loop は一切ブロックしない**: EffStartJob は worker pool に submit するだけ。結果は EvJobResult として非同期に戻る
-- **goroutine 数は固定 (~16)**: event loop (1) + IPC accept (1) + worker pool (4) + IPC reader (M, per client) + health monitor (1)。session 数に依存しない
-- **Runner 登録は型ベース**: `worker.RegisterRunner("capture_pane", runner)` — 新 job 型の追加は RegisterRunner 1 行 + runner 関数 + JobKind() メソッドだけ
+Key points:
+- **The event loop never blocks**: EffStartJob only submits to the worker pool. Results return asynchronously as EvJobResult
+- **Fixed goroutine count**: event loop (1) + IPC accept (1) + worker pool (4) + IPC reader/writer (per client). Independent of session count
+- **Type-based runner registration**: `worker.RegisterRunner("capture_pane", runner)` — adding a new job type requires only one RegisterRunner call + a runner function + a JobKind() method
 
-#### Tick 処理のシーケンス
+#### Tick Processing Sequence
 
-各 tick で `state.Reduce` が全セッションの Driver.Step を呼び、必要な Effect (capture-pane job, transcript parse job, broadcast, persist) を返す:
+On each tick, `state.Reduce` calls Driver.Step for all sessions and returns the necessary Effects (capture-pane job, transcript parse job, broadcast, persist):
 
 ```mermaid
 sequenceDiagram
@@ -204,76 +202,28 @@ sequenceDiagram
     D2-->>Red: (driverState2', [EffStartJob{CapturePane}], view2)
     Red-->>EL: (state', [EffReconcileWindows, EffCheckPaneAlive,<br/>EffStartJob×2, EffBroadcastSessionsChanged,<br/>EffPersistSnapshot])
     EL->>Interp: execute(effects...)
-    Note over Interp: 各 Effect を順に解釈<br/>EffStartJob → worker pool submit<br/>EffBroadcast → IPC 送信<br/>EffPersist → sessions.json 書き出し
+    Note over Interp: Interprets each Effect in order<br/>EffStartJob → worker pool submit<br/>EffBroadcast → IPC send<br/>EffPersist → write sessions.json
 ```
 
-ポイント:
-- **Driver.Step は純関数**: goroutine なし、I/O なし。capture-pane や transcript parse が必要な場合は EffStartJob を返すだけ
-- **全セッションの Step を同期的に回す**: Driver.Step は純関数なので ~µs で完了する。重い I/O は EffStartJob で worker pool に委譲済み
-- **reconcile + health check も同じ tick**: EvTick の reducer が EffReconcileWindows と EffCheckPaneAlive を emit し、effect interpreter が tmux に問い合わせる
+#### Hook Event Routing
 
-#### Hook event ルーティング
+Hook events are processed in a straight line: IPC reader → event loop → Reduce → Driver.Step. See [state-monitoring.md](state-monitoring.md#hook-event-routing-and-race-free-identification) for details.
 
-hook event は IPC reader → event loop → Reduce → Driver.Step の一直線:
+#### Resident Goroutines
 
-```mermaid
-sequenceDiagram
-    participant Bridge as roost claude event<br/>(hook bridge)
-    participant Reader as IPC reader goroutine
-    participant EL as Event loop
-    participant Red as state.Reduce
-    participant Drv as Driver.Step<br/>(claudeDriver)
+| Goroutine | Count | Role |
+|-----------|-------|------|
+| `Runtime.Run` (event loop) | 1 | State ownership + Reduce + Effect interpretation |
+| `acceptLoop` | 1 | Accepts new connections from the unix socket |
+| `ipcConn.readLoop` | M (1 / client) | IPC reader. Converts Commands to Events and submits to eventCh |
+| `ipcConn.writeLoop` | M (1 / client) | IPC writer. Drains outbox and writes to socket |
+| `worker.Pool.run` | 4 (fixed) | Worker pool goroutines |
 
-    Bridge->>Reader: proto.CmdHook{Driver, Event, SessionID, Payload}
-    Reader->>EL: EvCmdHook (eventCh)
-    EL->>Red: Reduce(state, EvCmdHook)
-    Note over Red: reduceHook: session lookup →<br/>Driver.Step(driverState, DEvHook{...})
-    Red->>Drv: Step(prev, DEvHook{Event, Payload})
-    Drv-->>Red: (next, [EffEventLogAppend, EffStartJob{Haiku}], view)
-    Red-->>EL: (state', effects + EffSendResponse + EffBroadcastSessionsChanged)
-    EL->>EL: execute(effects...)
-```
+Only IPC reader/writer scales with client count (one per TUI client). No per-session goroutines exist.
 
-全処理が event loop goroutine 上で同期実行される。Driver.Step は純関数なので重い処理は EffStartJob で worker pool に委譲する (haiku summary など)。
+## Tool System
 
-#### 残存する同期プリミティブ
-
-state 層には sync primitive が一切存在しない。runtime 層に残るのは **worker pool 内部のみ**:
-
-| 場所 | プリミティブ | 用途 |
-|------|------------|------|
-| `worker.Pool` | `sync.Mutex` | `closed` フラグの保護 (Submit/Stop の競合防止) |
-| `worker.Pool` | `sync.WaitGroup` | worker goroutine の join (Stop 時に全 worker の完了を待つ) |
-| runner 内の shared Tracker | `sync.Mutex` | TranscriptParse と HaikuSummary runner 間の Tracker 共有 |
-| `proto.Client` | `sync.Mutex` | TUI プロセス側の encoder 排他 (サーバ側ではない) |
-
-ドメイン状態 (`state.State`) は event loop goroutine 単独所有で、`sync.Mutex` / `sync.RWMutex` は不要。
-
-#### 常駐 goroutine
-
-| goroutine | 数 | 役割 |
-|-----------|----|------|
-| `Runtime.Run` (event loop) | 1 | 状態所有 + Reduce + Effect 解釈 |
-| `acceptLoop` | 1 | unix socket からの新規接続を受け付ける |
-| `ipcConn.readLoop` | M (1 / client) | IPC reader。Command を Event に変換して eventCh に投入 |
-| `ipcConn.writeLoop` | M (1 / client) | IPC writer。outbox を drain して socket 書き出し |
-| `worker.Pool.run` | 4 (固定) | worker pool goroutine |
-| `healthMonitor` | 1 | tmux pane 0.1/0.2 の死活監視 (eventCh 経由で event loop に通知) |
-
-session 数に依存するのは IPC reader/writer (TUI client 数分) だけ。10 セッション運用時でも常駐 goroutine 数は ~16 で、Go ランタイム上の負荷は無視できる。
-
-#### 設計上の利点
-
-- **データ競合不在**: race detector で `go test -race ./...` がすべてパスする。ドメイン状態は event loop goroutine が単独所有
-- **デッドロック不在**: actor 間通信が存在しない。全状態遷移は単一の goroutine 上で Reduce → execute の直列実行
-- **テスト容易性**: `state.Reduce` は pure function test で検証。goroutine / channel / timing 依存なし
-- **slow I/O の隔離**: transcript parse / haiku summary / git / capture-pane は worker pool で event loop 外実行。event loop は EffStartJob で submit → EvJobResult で結果受信するだけ
-- **goroutine 数が固定**: session 追加で goroutine が増えない (~16)。per-session goroutine は存在しない
-- **全副作用が grep 可能**: `grep 'type Eff' src/state/effect.go` で全副作用を列挙できる。Driver が直接 I/O を呼ぶことはない
-
-## ツールシステム
-
-ユーザーが行う高レベル操作を `Tool` として抽象化。TUI・パレットから同じインターフェースで実行可能。
+High-level user operations are abstracted as `Tool`s. Executable from the same interface via both TUI and palette.
 
 ```go
 // tools/tools.go
@@ -286,31 +236,31 @@ type Tool struct {
 
 type Param struct {
     Name    string
-    Options func(ctx *ToolContext) []string  // 実行時に選択肢を生成
+    Options func(ctx *ToolContext) []string  // generates choices at runtime
 }
 
 type ToolContext struct {
-    Client *proto.Client   // daemon との typed IPC 接続
+    Client *proto.Client   // typed IPC connection to daemon
     Config ToolConfig      // palette config (commands, projects)
     Args   map[string]string
 }
 ```
 
-### Tool → IPC コマンドの対応
+### Tool to IPC Command Mapping
 
-Tool の `Run` は `ToolContext.Client` (`proto.Client`) 経由で typed IPC コマンドを送信する。1 Tool = 1 IPC コマンドの対応。`ToolInvocation` を返すことで同一 popup 内での tool chain (例: create-project → new-session) を実現する。
+A Tool's `Run` sends typed IPC commands via `ToolContext.Client` (`proto.Client`). Each Tool corresponds to one IPC command. By returning a `ToolInvocation`, tool chaining within the same popup (e.g., create-project → new-session) is achieved.
 
-| Tool | IPC コマンド | パラメータ |
-|------|-------------|-----------|
+| Tool | IPC Command | Parameters |
+|------|-------------|------------|
 | `new-session` | `create-session` | project, command |
 | `stop-session` | `stop-session` | session_id |
 | `detach` | `detach` | - |
 | `shutdown` | `shutdown` | - |
 
-Tool は副作用を伴う高レベル操作（作成・停止・終了等）を対象とする。`switch-session`, `preview-session`, `focus-pane` 等の低レベルなナビゲーション操作は Tool を経由せず、TUI が直接 IPC コマンドを送信する。
+Tools target high-level operations with side effects (create, stop, shutdown, etc.). Low-level navigation operations such as `switch-session`, `preview-session`, and `focus-pane` bypass Tools and are sent directly as IPC commands by the TUI.
 
-### パレットによるパラメータ補完
+### Parameter Completion via Palette
 
-パレットは tmux popup として起動する独立プロセス。TUI のイベントループをブロックせず、crash しても TUI に影響しない。
+The palette is an independent process launched as a tmux popup. It does not block the TUI's event loop, and a crash does not affect the TUI.
 
-補完フロー: ツール選択 → 各 `Param` の `Options` コールバックで選択肢を動的生成 → ユーザー入力でインクリメンタルフィルタ → 全パラメータ確定後に `Tool.Run` 実行。結果は broadcast 経由で TUI に到達する。
+Completion flow: tool selection → dynamically generate choices via each `Param`'s `Options` callback → incremental filtering by user input → execute `Tool.Run` after all parameters are resolved. Results reach the TUI via broadcast.
