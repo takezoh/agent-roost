@@ -72,7 +72,7 @@ func TestDeriveState(t *testing.T) {
 		{"UserPromptSubmit", "", "running"},
 		{"PreToolUse", "", "running"},
 		{"PostToolUse", "", "running"},
-		{"SubagentStart", "", "running"},
+		{"SubagentStart", "", ""},
 		{"Stop", "", "waiting"},
 		{"StopFailure", "", "waiting"},
 		{"SessionEnd", "", "stopped"},

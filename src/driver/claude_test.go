@@ -396,6 +396,52 @@ func TestClaudeHookPreToolUseThenNotification(t *testing.T) {
 	}
 }
 
+func TestClaudeHookSubagentEventsDoNotChangeStatus(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.TranscriptPath = "/tmp/t.jsonl"
+
+	// Set pending via permission_prompt.
+	p0 := hookPayloadRaw(map[string]string{
+		"session_id": "uuid", "hook_event_name": "Notification",
+		"notification_type": "permission_prompt",
+	}, now)
+	p0["bridge_ts"] = int64(100)
+	cs, _ = d.handleHook(cs, state.DEvHook{Event: "Notification", Payload: p0})
+	if cs.Status != state.StatusPending {
+		t.Fatalf("Status = %v, want Pending", cs.Status)
+	}
+
+	tests := []struct {
+		event    string
+		toolName string
+	}{
+		{"SubagentStart", ""},
+		{"PostToolUse", "Agent"},
+		{"PreToolUse", "Agent"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.event+tt.toolName, func(t *testing.T) {
+			fields := map[string]string{
+				"session_id":      "uuid",
+				"hook_event_name": tt.event,
+			}
+			if tt.toolName != "" {
+				fields["tool_name"] = tt.toolName
+			}
+			p := hookPayloadRaw(fields, now)
+			p["bridge_ts"] = int64(200)
+			next, effs := d.handleHook(cs, state.DEvHook{Event: tt.event, Payload: p})
+			if next.Status != state.StatusPending {
+				t.Errorf("%s %s: Status = %v, want Pending", tt.event, tt.toolName, next.Status)
+			}
+			if _, ok := findEffect[state.EffEventLogAppend](effs); !ok {
+				t.Errorf("%s %s: expected EffEventLogAppend", tt.event, tt.toolName)
+			}
+		})
+	}
+}
+
 // === Tick handling (branch detection) ===
 
 func TestClaudeTickInactiveIdleDoesNothing(t *testing.T) {
