@@ -19,20 +19,55 @@ import (
 // risking deadlock on the channel.
 func (r *Runtime) execute(eff state.Effect) {
 	switch e := eff.(type) {
+	case state.EffSpawnTmuxWindow, state.EffKillSessionWindow, state.EffActivateSession,
+		state.EffDeactivateSession, state.EffRegisterWindow, state.EffUnregisterWindow,
+		state.EffSelectPane, state.EffSyncStatusLine, state.EffSetTmuxEnv,
+		state.EffUnsetTmuxEnv, state.EffCheckPaneAlive, state.EffRespawnPane,
+		state.EffDetachClient, state.EffDisplayPopup, state.EffKillSession,
+		state.EffReconcileWindows:
+		r.executeTmuxEffect(e)
 
-	// === tmux ops ===
+	case state.EffSendResponse, state.EffSendResponseSync, state.EffSendError,
+		state.EffBroadcastSessionsChanged, state.EffBroadcastEvent, state.EffCloseConn:
+		r.executeIPCEffect(e)
 
+	case state.EffPersistSnapshot:
+		if err := r.cfg.Persist.Save(r.snapshotSessions()); err != nil {
+			slog.Error("runtime: persist failed", "err", err)
+		}
+
+	case state.EffWatchFile, state.EffUnwatchFile:
+		r.executeFSEffect(e)
+
+	case state.EffEventLogAppend:
+		if err := r.cfg.EventLog.Append(e.SessionID, e.Line); err != nil {
+			slog.Debug("runtime: event log append failed", "session", e.SessionID, "err", err)
+		}
+
+	case state.EffRemoveManagedWorktree:
+		if err := roostgit.RemoveWorktree(e.Path); err != nil {
+			slog.Warn("runtime: remove managed worktree failed", "path", e.Path, "err", err)
+		}
+
+	case state.EffStartJob:
+		r.submitJob(e)
+
+	default:
+		slog.Warn("runtime: unhandled effect type", "type", fmt.Sprintf("%T", eff))
+	}
+}
+
+func (r *Runtime) executeTmuxEffect(eff state.Effect) {
+	switch e := eff.(type) {
 	case state.EffSpawnTmuxWindow:
 		go r.spawnTmuxWindowAsync(e)
 
 	case state.EffKillSessionWindow:
 		target, ok := r.windowMap[e.SessionID]
-		if !ok {
-			slog.Debug("runtime: kill window — no mapping for session", "session", e.SessionID)
-			break
-		}
-		if err := r.cfg.Tmux.KillWindow(target); err != nil {
-			slog.Error("runtime: kill window failed", "target", target, "err", err)
+		if ok {
+			if err := r.cfg.Tmux.KillWindow(target); err != nil {
+				slog.Error("runtime: kill window failed", "target", target, "err", err)
+			}
 		}
 
 	case state.EffActivateSession:
@@ -44,61 +79,36 @@ func (r *Runtime) execute(eff state.Effect) {
 	case state.EffRegisterWindow:
 		r.windowMap[e.SessionID] = e.WindowTarget
 		envKey := windowEnvKey(e.WindowTarget)
-		if err := r.cfg.Tmux.SetEnv(envKey, string(e.SessionID)); err != nil {
-			slog.Debug("runtime: set window env failed", "key", envKey, "err", err)
-		}
+		r.cfg.Tmux.SetEnv(envKey, string(e.SessionID))
 
 	case state.EffUnregisterWindow:
-		target, ok := r.windowMap[e.SessionID]
-		if ok {
+		if target, ok := r.windowMap[e.SessionID]; ok {
 			delete(r.windowMap, e.SessionID)
 			envKey := windowEnvKey(target)
-			if err := r.cfg.Tmux.UnsetEnv(envKey); err != nil {
-				slog.Debug("runtime: unset window env failed", "key", envKey, "err", err)
-			}
+			r.cfg.Tmux.UnsetEnv(envKey)
 		}
 
 	case state.EffSelectPane:
 		target := substitutePlaceholdersString(e.Target, r.cfg.SessionName, r.cfg.RoostExe)
-		if err := r.cfg.Tmux.SelectPane(target); err != nil {
-			slog.Error("runtime: select pane failed", "target", target, "err", err)
-		}
+		r.cfg.Tmux.SelectPane(target)
 
 	case state.EffSyncStatusLine:
-		// Empty line means "look up the active session's view and
-		// flush its StatusLine". Non-empty means "use this exact
-		// string". This indirection lets reducers schedule a status
-		// line refresh without depending on the proto-side
-		// SessionInfo materialization.
 		line := e.Line
 		if line == "" {
 			line = r.activeStatusLine()
 		}
-		if err := r.cfg.Tmux.SetStatusLine(line); err != nil {
-			slog.Debug("runtime: set status line failed", "err", err)
-		}
+		r.cfg.Tmux.SetStatusLine(line)
 
 	case state.EffSetTmuxEnv:
-		if err := r.cfg.Tmux.SetEnv(e.Key, e.Value); err != nil {
-			slog.Debug("runtime: set env failed", "key", e.Key, "err", err)
-		}
+		r.cfg.Tmux.SetEnv(e.Key, e.Value)
 
 	case state.EffUnsetTmuxEnv:
-		if err := r.cfg.Tmux.UnsetEnv(e.Key); err != nil {
-			slog.Debug("runtime: unset env failed", "key", e.Key, "err", err)
-		}
+		r.cfg.Tmux.UnsetEnv(e.Key)
 
 	case state.EffCheckPaneAlive:
 		target := substitutePlaceholdersString(e.Pane, r.cfg.SessionName, r.cfg.RoostExe)
-		alive, err := r.cfg.Tmux.PaneAlive(target)
-		if err != nil {
-			slog.Debug("runtime: pane-alive check failed", "pane", target, "err", err)
-			return
-		}
-		if !alive {
+		if alive, err := r.cfg.Tmux.PaneAlive(target); err == nil && !alive {
 			ev := state.EvPaneDied{Pane: e.Pane}
-			// For pane 0.0: identify which session owns the dead pane
-			// by querying its pane_id and matching against state.
 			if e.Pane == "{sessionName}:0.0" {
 				ev.OwnerSessionID = r.findPaneOwner(target)
 			}
@@ -108,31 +118,26 @@ func (r *Runtime) execute(eff state.Effect) {
 	case state.EffRespawnPane:
 		target := substitutePlaceholdersString(e.Pane, r.cfg.SessionName, r.cfg.RoostExe)
 		cmd := substitutePlaceholdersString(e.Cmd, r.cfg.SessionName, r.cfg.RoostExe)
-		if err := r.cfg.Tmux.RespawnPane(target, cmd); err != nil {
-			slog.Error("runtime: respawn-pane failed", "pane", target, "err", err)
-		}
+		r.cfg.Tmux.RespawnPane(target, cmd)
 
 	case state.EffDetachClient:
-		// Delay so the preceding response has time to reach the client
-		// before the tmux detach severs the connection.
 		time.Sleep(50 * time.Millisecond)
-		if err := r.cfg.Tmux.DetachClient(); err != nil {
-			slog.Error("runtime: detach failed", "err", err)
-		}
+		r.cfg.Tmux.DetachClient()
 
 	case state.EffDisplayPopup:
 		cmd := buildPaletteCmd(r.cfg.RoostExe, e.Tool, e.Args)
-		if err := r.cfg.Tmux.DisplayPopup(e.Width, e.Height, cmd); err != nil {
-			slog.Error("runtime: display-popup failed", "err", err)
-		}
+		r.cfg.Tmux.DisplayPopup(e.Width, e.Height, cmd)
 
 	case state.EffKillSession:
-		if err := r.cfg.Tmux.KillSession(); err != nil {
-			slog.Error("runtime: kill session failed", "err", err)
-		}
+		r.cfg.Tmux.KillSession()
 
-	// === IPC (filled in Phase 5) ===
+	case state.EffReconcileWindows:
+		r.reconcileWindows()
+	}
+}
 
+func (r *Runtime) executeIPCEffect(eff state.Effect) {
+	switch e := eff.(type) {
 	case state.EffSendResponse:
 		r.sendResponse(e)
 	case state.EffSendResponseSync:
@@ -145,58 +150,25 @@ func (r *Runtime) execute(eff state.Effect) {
 		r.broadcastGenericEvent(e)
 	case state.EffCloseConn:
 		r.closeConn(e.ConnID)
+	}
+}
 
-	// === Persistence ===
-
-	case state.EffPersistSnapshot:
-		if err := r.cfg.Persist.Save(r.snapshotSessions()); err != nil {
-			slog.Error("runtime: persist failed", "err", err)
-		}
-
-	// === Reconciliation ===
-
-	case state.EffReconcileWindows:
-		r.reconcileWindows()
-
-	// === fsnotify ===
-
+func (r *Runtime) executeFSEffect(eff state.Effect) {
+	switch e := eff.(type) {
 	case state.EffWatchFile:
-		if err := r.cfg.Watcher.Watch(e.SessionID, e.Path); err != nil {
-			slog.Debug("runtime: watch failed", "path", e.Path, "err", err)
-		}
+		r.cfg.Watcher.Watch(e.SessionID, e.Path)
 		if r.relay != nil {
 			r.relay.WatchFile(e.SessionID, e.Path, e.Kind)
 		}
 
 	case state.EffUnwatchFile:
-		if err := r.cfg.Watcher.Unwatch(e.SessionID); err != nil {
-			slog.Debug("runtime: unwatch failed", "session", e.SessionID, "err", err)
-		}
+		r.cfg.Watcher.Unwatch(e.SessionID)
 		if r.relay != nil {
 			r.relay.UnwatchFile(e.SessionID)
 		}
-
-	// === Event log ===
-
-	case state.EffEventLogAppend:
-		if err := r.cfg.EventLog.Append(e.SessionID, e.Line); err != nil {
-			slog.Debug("runtime: event log append failed", "session", e.SessionID, "err", err)
-		}
-
-	case state.EffRemoveManagedWorktree:
-		if err := roostgit.RemoveWorktree(e.Path); err != nil {
-			slog.Warn("runtime: remove managed worktree failed", "path", e.Path, "err", err)
-		}
-
-	// === Async work ===
-
-	case state.EffStartJob:
-		r.submitJob(e)
-
-	default:
-		slog.Warn("runtime: unhandled effect type", "type", fmt.Sprintf("%T", eff))
 	}
 }
+
 
 // spawnTmuxWindowAsync runs a tmux new-window in a goroutine so the
 // event loop is not blocked on subprocess wait time. Posts back via

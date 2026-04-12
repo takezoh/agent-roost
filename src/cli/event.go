@@ -1,4 +1,4 @@
-package event
+package cli
 
 import (
 	"encoding/json"
@@ -10,20 +10,19 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/takezoh/agent-roost/cli"
 	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/proto"
 	"golang.org/x/term"
 )
 
 func init() {
-	cli.Register("event", "Send an event to the daemon", Run)
+	Register("event", "Send an event to the daemon", RunEvent)
 }
 
-// Run implements `roost event <eventType>`.
+// RunEvent implements `roost event <eventType>`.
 // Reads stdin (if piped), captures ROOST_SESSION_ID and a timestamp,
 // then sends a CmdEvent to the daemon.
-func Run(args []string) error {
+func RunEvent(args []string) error {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: roost event <event-type>")
 		return errors.New("event: missing event type")
@@ -47,21 +46,26 @@ func Run(args []string) error {
 		"input_len", len(input),
 	)
 
+	if err := sendToDaemon(eventType, ts, senderID, json.RawMessage(input)); err != nil {
+		slog.Warn("event: send failed", "err", err)
+	}
+	return nil
+}
+
+func sendToDaemon(eventType string, ts time.Time, senderID string, payload json.RawMessage) error {
 	cfg, err := config.Load()
 	if err != nil {
-		slog.Warn("event: config load failed", "err", err)
-		return nil
+		return fmt.Errorf("config load: %w", err)
 	}
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	client, err := proto.Dial(sockPath)
 	if err != nil {
-		slog.Warn("event: dial failed", "sock", sockPath, "err", err)
-		return nil
+		return fmt.Errorf("dial: %w", err)
 	}
 	defer client.Close()
 
-	if err := client.SendEvent(eventType, ts, senderID, json.RawMessage(input)); err != nil {
-		slog.Warn("event: send failed", "type", eventType, "sender", senderID, "err", err)
+	if err := client.SendEvent(eventType, ts, senderID, payload); err != nil {
+		return fmt.Errorf("send: %w", err)
 	}
 	return nil
 }

@@ -5,8 +5,8 @@ import (
 	"io"
 
 	"github.com/takezoh/agent-roost/cli"
-	_ "github.com/takezoh/agent-roost/event"
 	_ "github.com/takezoh/agent-roost/lib/claude"
+
 	_ "github.com/takezoh/agent-roost/lib/codex"
 	_ "github.com/takezoh/agent-roost/lib/gemini"
 )

@@ -45,40 +45,16 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 	if p.Project == "" {
 		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, "project arg required")}
 	}
-	command := p.Command
-	if command == "" {
-		command = s.DefaultCommand
-	}
-	if command == "" {
-		command = "shell"
-	}
-	if expanded, ok := s.Aliases[command]; ok {
-		command = expanded
-	}
-
+	command := resolveCreateCommand(s, p.Command)
 	sessID := allocSessionID()
 	drv := GetDriver(command)
 	if drv == nil {
 		return s, []Effect{errResp(connID, reqID, ErrCodeUnsupported, "no driver registered for command "+command)}
 	}
 
-	driverState := drv.NewState(s.Now)
-	launch := CreateLaunch{Command: command, StartDir: p.Project}
-	var setupJob JobInput
-	if planner, ok := drv.(CreateSessionPlanner); ok {
-		var plan CreatePlan
-		var err error
-		driverState, plan, err = planner.PrepareCreate(driverState, sessID, p.Project, command)
-		if err != nil {
-			return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, err.Error())}
-		}
-		if plan.Launch.Command != "" {
-			launch.Command = plan.Launch.Command
-		}
-		if plan.Launch.StartDir != "" {
-			launch.StartDir = plan.Launch.StartDir
-		}
-		setupJob = plan.SetupJob
+	driverState, launch, setupJob, err := prepareSessionDriver(s, drv, sessID, p.Project, command)
+	if err != nil {
+		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, err.Error())}
 	}
 
 	session := Session{
@@ -120,6 +96,42 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 		},
 	}
 }
+
+func resolveCreateCommand(s State, command string) string {
+	if command == "" {
+		command = s.DefaultCommand
+	}
+	if command == "" {
+		command = "shell"
+	}
+	if expanded, ok := s.Aliases[command]; ok {
+		command = expanded
+	}
+	return command
+}
+
+func prepareSessionDriver(s State, drv Driver, sessID SessionID, project, command string) (DriverState, CreateLaunch, JobInput, error) {
+	driverState := drv.NewState(s.Now)
+	launch := CreateLaunch{Command: command, StartDir: project}
+	var setupJob JobInput
+	if planner, ok := drv.(CreateSessionPlanner); ok {
+		var plan CreatePlan
+		var err error
+		driverState, plan, err = planner.PrepareCreate(driverState, sessID, project, command)
+		if err != nil {
+			return nil, launch, nil, err
+		}
+		if plan.Launch.Command != "" {
+			launch.Command = plan.Launch.Command
+		}
+		if plan.Launch.StartDir != "" {
+			launch.StartDir = plan.Launch.StartDir
+		}
+		setupJob = plan.SetupJob
+	}
+	return driverState, launch, setupJob, nil
+}
+
 
 func reduceTmuxWindowSpawned(s State, e EvTmuxWindowSpawned) (State, []Effect) {
 	if _, ok := s.Sessions[e.SessionID]; !ok {

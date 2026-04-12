@@ -7,42 +7,30 @@ package state
 // event), and the immutability guarantee makes equality testing in
 // reducers trivial.
 
-func cloneSessions(in map[SessionID]Session) map[SessionID]Session {
-	out := make(map[SessionID]Session, len(in)+1)
+func cloneMap[K comparable, V any](in map[K]V) map[K]V {
+	out := make(map[K]V, len(in)+1)
 	for k, v := range in {
 		out[k] = v
 	}
 	return out
+}
+
+func cloneSessions(in map[SessionID]Session) map[SessionID]Session {
+	return cloneMap(in)
 }
 
 func clonePendingCreates(in map[JobID]PendingCreate) map[JobID]PendingCreate {
-	out := make(map[JobID]PendingCreate, len(in)+1)
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
+	return cloneMap(in)
 }
 
 func cloneSubscribers(in map[ConnID]Subscriber) map[ConnID]Subscriber {
-	out := make(map[ConnID]Subscriber, len(in)+1)
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
+	return cloneMap(in)
 }
 
 func cloneJobs(in map[JobID]JobMeta) map[JobID]JobMeta {
-	out := make(map[JobID]JobMeta, len(in)+1)
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
+	return cloneMap(in)
 }
 
 func cloneConnectors(in map[string]ConnectorState) map[string]ConnectorState {
-	out := make(map[string]ConnectorState, len(in)+1)
-	for k, v := range in {
-		out[k] = v
-	}
-	return out
+	return cloneMap(in)
 }

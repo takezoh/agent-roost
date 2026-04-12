@@ -84,6 +84,38 @@ type DEvFileChanged struct {
 
 func (DEvFileChanged) isDriverEvent() {}
 
+// ViewProvider is an optional capability for drivers that provide a
+// custom TUI view.
+type ViewProvider interface {
+	// View is a pure getter for the current TUI payload. Same View
+	// that Step returns, but callable without an event — used by the
+	// runtime when serializing SessionInfo for broadcasts and when
+	// flushing the active session's status line to tmux.
+	View(s DriverState) View
+}
+
+// Persister is an optional capability for drivers that support
+// session persistence across daemon restarts.
+type Persister interface {
+	// Persist serializes the driver state into a JSON-friendly map for
+	// sessions.json. The reverse is Restore.
+	Persist(s DriverState) map[string]string
+
+	// Restore deserializes the persisted bag back into a DriverState.
+	// Empty / unknown bags must return a usable zero-state value.
+	Restore(bag map[string]string, now time.Time) DriverState
+}
+
+// Spawnable is an optional capability for drivers that need to
+// customize the agent process launch command (e.g. for resume).
+type Spawnable interface {
+	// SpawnCommand returns the shell command for (re)starting the agent
+	// process during cold-boot recovery. Drivers that support resume
+	// (e.g. mydriver --resume <id>) augment the base command using their
+	// own keys recovered from the persisted state.
+	SpawnCommand(s DriverState, baseCommand string) string
+}
+
 // Driver is the interface every per-driver-type plugin implements. Each
 // impl is a stateless value type registered once at init time; the
 // per-session state lives in DriverState values returned by NewState.
@@ -107,26 +139,11 @@ type Driver interface {
 	// full View. Used by the tick reducer to skip idle/stopped sessions.
 	Status(s DriverState) Status
 
-	// View is a pure getter for the current TUI payload. Same View
-	// that Step returns, but callable without an event — used by the
-	// runtime when serializing SessionInfo for broadcasts and when
-	// flushing the active session's status line to tmux.
-	View(s DriverState) View
-
-	// SpawnCommand returns the shell command for (re)starting the agent
-	// process during cold-boot recovery. Drivers that support resume
-	// (e.g. mydriver --resume <id>) augment the base command using their
-	// own keys recovered from the persisted state.
-	SpawnCommand(s DriverState, baseCommand string) string
-
-	// Persist serializes the driver state into a JSON-friendly map for
-	// sessions.json. The reverse is Restore.
-	Persist(s DriverState) map[string]string
-
-	// Restore deserializes the persisted bag back into a DriverState.
-	// Empty / unknown bags must return a usable zero-state value.
-	Restore(bag map[string]string, now time.Time) DriverState
+	ViewProvider
+	Persister
+	Spawnable
 }
+
 
 // CreateLaunch is the fully resolved process launch information for a
 // newly created session: command string plus tmux start directory.
