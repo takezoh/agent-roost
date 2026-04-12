@@ -24,6 +24,9 @@ type TmuxBackend interface {
 	// a single tmux invocation. Used for the swap-pane preview chain.
 	RunChain(ops ...[]string) error
 
+	// SwapPane exchanges two pane positions without changing pane ids.
+	SwapPane(srcPane, dstPane string) error
+
 	// BreakPane moves a pane into another window.
 	BreakPane(srcPane, dstWindow string) error
 
@@ -146,6 +149,7 @@ func (noopTmux) SpawnWindow(name, command, startDir string, env map[string]strin
 }
 func (noopTmux) KillPaneWindow(string) error    { return nil }
 func (noopTmux) RunChain(...[]string) error     { return nil }
+func (noopTmux) SwapPane(string, string) error  { return nil }
 func (noopTmux) BreakPane(string, string) error { return nil }
 func (noopTmux) BreakPaneToNewWindow(string, string) (string, error) {
 	return "", nil

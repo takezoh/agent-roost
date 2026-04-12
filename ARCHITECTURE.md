@@ -25,7 +25,7 @@ roost is a session lifecycle manager — not an agent orchestrator. It does not 
 
 | Term | Meaning | tmux Entity |
 |------|---------|-------------|
-| **Session** | A unit of work for an AI agent. Managed by sessionID as `state.Session` (static metadata + DriverState) | tmux **pane** (parked in a background window, joined into `0.0` when active) |
+| **Session** | A unit of work for an AI agent. Managed by sessionID as `state.Session` (static metadata + DriverState) | tmux **pane** (parked in a background window, swapped into `0.0` when active) |
 | **Control Session** | The tmux session that houses all of roost | tmux **session** (`roost`) |
 | **Pane** | Control panes within Window 0 | tmux **pane** (`0.0`, `0.1`, `0.2`) |
 | **Connector** | A per-daemon external service integration plugin. Fetches data from external services like GitHub/Linear/Jira and displays it in the TUI. While Drivers are per-session, Connectors have one instance per daemon | None (holds no tmux resources) |
@@ -81,7 +81,7 @@ Code dependency direction:
 | No optimistic updates | Do not modify UI state on IPC error | Auto-recovers on next poll. Avoids risk of state inconsistency |
 | shutdown (`C-b q`) behavior | Only `EffKillSession`; sessions.json is preserved | To restore from sessions.json on next startup |
 | Claude startup on Cold start | Assemble `claude --resume <id>` via `Driver.SpawnCommand` | Claude-specific `--resume` knowledge is confined to `lib/claude/cli` |
-| Resident tracking | `SessionID -> PaneID` | Pane identity survives `join-pane` / `break-pane`, unlike parked window indexes |
+| Resident tracking | `SessionID -> PaneID` | Pane identity survives `swap-pane`; no parked window index tracking is needed |
 | IPC timeout | Not set | When the event loop deadlocks, external restart is the only recovery method |
 | Session and Driver responsibility separation | `state.Session` holds static metadata + `DriverState` in a single struct | Since they are updated simultaneously within Reduce, state inconsistency is structurally impossible |
 | Identifying sessionID for hook events | Inject env var via `tmux new-window -e ROOST_SESSION_ID=<id>` | Env var is set at kernel exec level and is race-free. Details in [state-monitoring.md](docs/state-monitoring.md#hook-event-routing-and-race-free-identification) |

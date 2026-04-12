@@ -108,11 +108,8 @@ func TestDeactivateBeforeExit_SwapsBack(t *testing.T) {
 	}
 	ftmux.mu.Lock()
 	defer ftmux.mu.Unlock()
-	if ftmux.breakNewCalls != 1 {
-		t.Errorf("breakNewCalls = %d, want 1", ftmux.breakNewCalls)
-	}
-	if ftmux.joinCalls != 1 {
-		t.Errorf("joinCalls = %d, want 1", ftmux.joinCalls)
+	if ftmux.swapCalls != 1 {
+		t.Errorf("swapCalls = %d, want 1", ftmux.swapCalls)
 	}
 }
 
@@ -128,8 +125,8 @@ func TestDeactivateBeforeExit_NoActive(t *testing.T) {
 
 	ftmux.mu.Lock()
 	defer ftmux.mu.Unlock()
-	if ftmux.breakCalls != 0 || ftmux.breakNewCalls != 0 || ftmux.joinCalls != 0 {
-		t.Errorf("unexpected pane move calls: break=%d breakNew=%d join=%d",
-			ftmux.breakCalls, ftmux.breakNewCalls, ftmux.joinCalls)
+	if ftmux.breakCalls != 0 || ftmux.breakNewCalls != 0 || ftmux.joinCalls != 0 || ftmux.swapCalls != 0 {
+		t.Errorf("unexpected pane move calls: break=%d breakNew=%d join=%d swap=%d",
+			ftmux.breakCalls, ftmux.breakNewCalls, ftmux.joinCalls, ftmux.swapCalls)
 	}
 }

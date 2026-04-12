@@ -69,6 +69,10 @@ func (b *RealTmuxBackend) RunChain(ops ...[]string) error {
 	return b.client.RunChain(ops...)
 }
 
+func (b *RealTmuxBackend) SwapPane(srcPane, dstPane string) error {
+	return b.client.SwapPane(srcPane, dstPane)
+}
+
 func (b *RealTmuxBackend) BreakPane(srcPane, dstWindow string) error {
 	target := ""
 	if dstWindow != "" {

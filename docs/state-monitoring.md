@@ -28,7 +28,7 @@ The Driver plugin's `Step` method is responsible for status updates. For the Dri
 
 ### Active/Inactive and DEvTick.Active (push model)
 
-"Session is active" means the session pane is joined into pane 0.0 (main). The single source of truth is `state.State.ActiveSession` (SessionID), and `reduceTick` evaluates `sessID == state.ActiveSession` when constructing `DEvTick` to set the `DEvTick.Active` flag. Step is called for all sessions on every tick, passing `DEvTick{Active: false}` to inactive Drivers. Activation is detected on the next tick (within 1 second).
+"Session is active" means the session pane is swapped into pane 0.0 (main). The single source of truth is `state.State.ActiveSession` (SessionID), and `reduceTick` evaluates `sessID == state.ActiveSession` when constructing `DEvTick` to set the `DEvTick.Active` flag. Step is called for all sessions on every tick, passing `DEvTick{Active: false}` to inactive Drivers. Activation is detected on the next tick (within 1 second).
 
 ### Claude driver (event-driven + active-gated transcript sync)
 

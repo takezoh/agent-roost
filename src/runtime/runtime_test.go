@@ -41,6 +41,9 @@ type fakeTmuxBackend struct {
 	joinCalls        int
 	joinSources      []string
 	joinTargets      []string
+	swapCalls        int
+	swapSources      []string
+	swapTargets      []string
 	resizeCalls      int
 	resizeTargets    []string
 	resizeWidths     []int
@@ -107,6 +110,14 @@ func (f *fakeTmuxBackend) BreakPane(srcPane, dstWindow string) error {
 	defer f.mu.Unlock()
 	f.breakCalls++
 	f.breakTargets = append(f.breakTargets, dstWindow)
+	return nil
+}
+func (f *fakeTmuxBackend) SwapPane(srcPane, dstPane string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.swapCalls++
+	f.swapSources = append(f.swapSources, srcPane)
+	f.swapTargets = append(f.swapTargets, dstPane)
 	return nil
 }
 func (f *fakeTmuxBackend) BreakPaneToNewWindow(srcPane, name string) (string, error) {
@@ -432,7 +443,7 @@ func TestRuntimeRespawnsDeadPane(t *testing.T) {
 	}
 }
 
-func TestActivateSessionInspectsPanesAroundJoin(t *testing.T) {
+func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
 	tmux := newFakeTmux()
 	r := New(Config{
 		SessionName:       "roost-test",
@@ -448,19 +459,16 @@ func TestActivateSessionInspectsPanesAroundJoin(t *testing.T) {
 
 	tmux.mu.Lock()
 	defer tmux.mu.Unlock()
-	if tmux.breakNewCalls != 1 {
-		t.Fatalf("breakNewCalls = %d, want 1", tmux.breakNewCalls)
+	if tmux.swapCalls != 1 {
+		t.Fatalf("swapCalls = %d, want 1", tmux.swapCalls)
 	}
-	if tmux.joinCalls != 1 {
-		t.Fatalf("joinCalls = %d, want 1", tmux.joinCalls)
+	if tmux.swapSources[0] != "%3" || tmux.swapTargets[0] != "roost-test:0.0" {
+		t.Fatalf("swap = %q -> %q, want %%3 -> roost-test:0.0", tmux.swapSources[0], tmux.swapTargets[0])
 	}
-	if tmux.resizeCalls == 0 {
-		t.Fatal("expected parked window to be resized to main pane size")
+	if len(tmux.inspectCalls) != 3 {
+		t.Fatalf("inspectCalls = %d, want 3", len(tmux.inspectCalls))
 	}
-	if len(tmux.inspectCalls) != 5 {
-		t.Fatalf("inspectCalls = %d, want 5", len(tmux.inspectCalls))
-	}
-	wantTargets := []string{"roost-test:0.0", "%3", "%1", "%1", "roost-test:0.0"}
+	wantTargets := []string{"roost-test:0.0", "%3", "roost-test:0.0"}
 	for i, want := range wantTargets {
 		if tmux.inspectCalls[i] != want {
 			t.Fatalf("inspectCalls[%d] = %q, want %q", i, tmux.inspectCalls[i], want)

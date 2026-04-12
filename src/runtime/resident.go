@@ -20,13 +20,7 @@ func (r *Runtime) activateSession(sessID state.SessionID, reason string) {
 	r.logPaneSnapshot(reason, "before-main", main)
 	r.logPaneSnapshot(reason, "before-target", paneID)
 
-	if r.activeSession != "" && r.activeSession != sessID && !r.parkSessionFromMain(r.activeSession) {
-		return
-	}
-	if r.activeSession == "" && !r.parkMainFromMain() {
-		return
-	}
-	if !r.joinSessionIntoMain(sessID) {
+	if !r.swapSessionIntoMain(sessID) {
 		return
 	}
 	r.logPaneSnapshot(reason, "after-main", main)
@@ -36,67 +30,29 @@ func (r *Runtime) deactivateSession() {
 	if r.activeSession == "" {
 		return
 	}
-	if !r.parkSessionFromMain(r.activeSession) {
-		return
-	}
-	r.joinMainIntoMain()
+	r.swapMainIntoMain()
 }
 
-func (r *Runtime) parkSessionFromMain(sessID state.SessionID) bool {
+func (r *Runtime) swapSessionIntoMain(sessID state.SessionID) bool {
 	paneID := r.sessionPanes[sessID]
 	if paneID == "" {
 		return false
 	}
-	r.logPaneSnapshot("park-session", "before-break", paneID)
-	size := r.mainPaneSize()
-	target, err := r.cfg.Tmux.BreakPaneToNewWindow(paneID, windowNameForSession(r.state.Sessions, sessID))
-	if err != nil {
-		slog.Warn("runtime: break-pane session failed", "session", sessID, "err", err)
-		return false
-	}
-	r.resizeWindowToMain(target, size)
-	r.logPaneSnapshot("park-session", "after-break", paneID)
-	r.activeSession = ""
-	return true
-}
-
-func (r *Runtime) parkMainFromMain() bool {
-	paneID, ok := r.ensureMainPaneID()
-	if !ok {
-		return false
-	}
-	r.logPaneSnapshot("park-main", "before-break", paneID)
-	size := r.mainPaneSize()
-	target, err := r.cfg.Tmux.BreakPaneToNewWindow(paneID, "main")
-	if err != nil {
-		slog.Warn("runtime: break-pane main failed", "err", err)
-		return false
-	}
-	r.resizeWindowToMain(target, size)
-	r.logPaneSnapshot("park-main", "after-break", paneID)
-	return true
-}
-
-func (r *Runtime) joinSessionIntoMain(sessID state.SessionID) bool {
-	paneID := r.sessionPanes[sessID]
-	if paneID == "" {
-		return false
-	}
-	if err := r.cfg.Tmux.JoinPane(paneID, r.mainPaneTarget(), true, r.cfg.MainPaneHeightPct); err != nil {
-		slog.Warn("runtime: join-pane session failed", "session", sessID, "pane", paneID, "err", err)
+	if err := r.cfg.Tmux.SwapPane(paneID, r.mainPaneTarget()); err != nil {
+		slog.Warn("runtime: swap-pane session failed", "session", sessID, "pane", paneID, "err", err)
 		return false
 	}
 	r.activeSession = sessID
 	return true
 }
 
-func (r *Runtime) joinMainIntoMain() bool {
+func (r *Runtime) swapMainIntoMain() bool {
 	paneID, ok := r.ensureMainPaneID()
 	if !ok {
 		return false
 	}
-	if err := r.cfg.Tmux.JoinPane(paneID, r.mainPaneTarget(), true, r.cfg.MainPaneHeightPct); err != nil {
-		slog.Warn("runtime: join-pane main failed", "pane", paneID, "err", err)
+	if err := r.cfg.Tmux.SwapPane(paneID, r.mainPaneTarget()); err != nil {
+		slog.Warn("runtime: swap-pane main failed", "pane", paneID, "err", err)
 		return false
 	}
 	r.activeSession = ""

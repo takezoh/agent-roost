@@ -90,9 +90,12 @@ type TmuxBackend interface {
     SpawnWindow(name, cmd, startDir string, env map[string]string) (windowIndex, paneID string, err error)
     KillPaneWindow(paneTarget string) error
     ShowEnvironment() (string, error)
-    RunChain(args ...string) error
+    RunChain(ops ...[]string) error
+    SwapPane(srcPane, dstPane string) error
     PaneID(target string) (string, error)
+    PaneSize(target string) (width, height int, err error)
     SelectPane(target string) error
+    ResizeWindow(target string, width, height int) error
     SetStatusLine(line string) error
     PaneAlive(target string) (bool, error)
     // ...
