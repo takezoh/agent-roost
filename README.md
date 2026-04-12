@@ -1,26 +1,26 @@
 # Agent Roost
 
-Launch AI agent sessions in seconds, see at a glance which ones need your attention, and switch to them instantly — even with dozens running in parallel. A tmux-native TUI for managing agent sessions across all your projects.
+**"Command your agent fleet with zero friction."**
 
-## Features
+Agent Roost is your mission control for orchestrating multiple AI agents and maximizing developer creativity. Stop wasting time managing terminal tabs or polling for progress, and transform your workflow into a seamless commanding experience.
 
-- Leverages tmux session management directly, so agent UIs work as-is
-- Groups sessions by project for display
-- Main pane always has focus; toggle to TUI with `prefix Space`
-- Preview sessions in the main pane by moving the cursor
-- Session list runs as an unkillable server; auto-recovers on crash
-- `remain-on-exit` preserves layout when a pane exits
+### Value & Experience
+
+- **Deploy Agents with Minimal Steps**: Break free from "launch rituals" like directory hopping, environment activation, or long command strings. Just pick a project and hit a key. Send your agents into the field with the absolute minimum of friction.
+- **Turn Wait Time into Free Time**: See at a glance whether an agent is working, waiting for your input, or pending tool approval. Visualize the status of your entire fleet across all projects without ever having to wander through multiple terminals.
+- **Zero-Friction Context Switching**: Jump into any session the instant intervention is needed. With high-speed previews just by moving your cursor, you can oversee dozens of concurrent tasks without breaking your cognitive flow.
+- **An Unshakeable Foundation for Agents**: Built on the rock-solid architecture of tmux, your agents' thoughts never stop even if you close the UI or lose your connection. Roost provides the most stable "ground" for autonomous agents to keep running until the job is done.
 
 ## Layout
 
-```
+```text
 ┌───────────────────┬────────┐
-│                   │ TUI    │
-│  Pane 0: Agent    │ ▼ atlas│
+│                   │SESSIONS│
+│  Pane 0: MAIN     │ ▼ projA│
 │  (always focused) │  #1 ● │
 │                   │  #2 ◆ │
-├───────────────────┤ ▼ forge│
-│  Pane 1: Log      │  #1 ○ │
+├───────────────────┤ ▼ projB│
+│  Pane 1: LOG      │  #1 ○ │
 └───────────────────┴────────┘
 ```
 
@@ -51,7 +51,9 @@ Default: `Ctrl+b` (same as tmux). Configurable via config.
 
 | Key | Action |
 |------|-----------|
-| `prefix Space` | Toggle main pane ↔ TUI |
+| `prefix Space` | Toggle MAIN ↔ SESSIONS pane |
+| `prefix Escape`| Preview project |
+| `prefix z` | Zoom MAIN pane |
 | `prefix d` | Detach (tmux stays alive; re-run `roost` to resume) |
 | `prefix q` | Quit all (tmux session is destroyed) |
 | `prefix p` | Command palette (shows tools with completion) |
@@ -60,29 +62,29 @@ Default: `Ctrl+b` (same as tmux). Configurable via config.
 
 Displayed as a popup with `prefix p`. Filter tools by typing, press Enter to execute.
 
-```
+```text
 > new█
 ▸ new-session       Create session
-  create-project    Create project + start session
+  create-project    Create new project dir and start session
 ```
 
 | Tool | Description |
 |--------|------|
-| `new-session` | Create a session (select project and command) |
-| `create-project` | Create a project directory and start a session |
-| `stop-session` | Stop a session |
-| `detach` | Detach (session stays alive) |
-| `shutdown` | Quit all (tmux session is destroyed) |
+| `new-session` | Create session |
+| `create-project` | Create new project dir and start session |
+| `stop-session` | Stop session |
+| `detach` | Detach (keep session) |
+| `shutdown` | Shutdown (discard sessions) |
 
-### TUI Key Bindings (when TUI is focused)
+### TUI Key Bindings (when SESSIONS pane is focused)
 
 | Key | Action |
 |------|-----------|
-| `j`/`k` or `↑`/`↓` | Select session (previews in main pane) |
-| `Enter` | Switch to selected session → return to main |
+| `j`/`k` or `↑`/`↓` | Select session (previews in MAIN pane) |
+| `Enter` | Switch to selected session → return to MAIN |
 | `n` | Quick launch (default command) |
 | `N` | Launch with command selection |
-| `d` | Stop session (with confirmation) |
+| `d` | Stop session |
 | `Tab` | Collapse/expand project |
 | `1`-`5` | Toggle status filter |
 | `0` | Reset filter |
