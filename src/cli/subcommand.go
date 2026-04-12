@@ -4,28 +4,32 @@ import "sort"
 
 // Subcommand holds a registered subcommand.
 type Subcommand struct {
-	Run  func(args []string)
+	Run  func(args []string) error
 	Help string // one-line description
 }
 
 var commands = map[string]Subcommand{}
 
+func Has(name string) bool {
+	_, ok := commands[name]
+	return ok
+}
+
 // Register adds a subcommand to the registry.
-func Register(name string, help string, fn func(args []string)) {
+func Register(name string, help string, fn func(args []string) error) {
 	commands[name] = Subcommand{Run: fn, Help: help}
 }
 
-// Dispatch tries to run a registered subcommand. Returns true if handled.
-func Dispatch(args []string) bool {
+// Dispatch tries to run a registered subcommand.
+func Dispatch(args []string) (bool, error) {
 	if len(args) == 0 {
-		return false
+		return false, nil
 	}
 	cmd, ok := commands[args[0]]
 	if !ok {
-		return false
+		return false, nil
 	}
-	cmd.Run(args[1:])
-	return true
+	return true, cmd.Run(args[1:])
 }
 
 // RegisteredHelp returns sorted name-help pairs for all registered subcommands.

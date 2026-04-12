@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"os"
 
 	"log/slog"
 
@@ -16,12 +15,11 @@ const paneLabel = `#{?#{==:#{window_index},0},` +
 	`#{?#{==:#{pane_index},0},[MAIN],#{?#{==:#{pane_index},1},[LOG],[SESSIONS]}},` +
 	`[#{window_name}]}`
 
-func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
-	w, h, _ := term.GetSize(int(os.Stdout.Fd()))
+func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) error {
+	w, h, _ := term.GetSize(1)
 	slog.Info("setup new session", "width", w, "height", h)
 	if err := client.CreateSession(w, h); err != nil {
-		fmt.Fprintf(os.Stderr, "roost: create session: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("create session: %w", err)
 	}
 
 	client.SetOption(sn+":0", "remain-on-exit", "on")
@@ -31,12 +29,10 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
 	tuiWidth := 100 - cfg.Tmux.PaneRatioHorizontal
 	logHeight := 100 - cfg.Tmux.PaneRatioVertical
 	if err := client.SplitWindow(sn+":0", true, tuiWidth); err != nil {
-		fmt.Fprintf(os.Stderr, "roost: split horizontal: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("split horizontal: %w", err)
 	}
 	if err := client.SplitWindow(sn+":0.0", false, logHeight); err != nil {
-		fmt.Fprintf(os.Stderr, "roost: split vertical: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("split vertical: %w", err)
 	}
 
 	exePath := resolveExe()
@@ -51,6 +47,7 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) {
 	setupKeyBindings(client, sn)
 	setupStatusBar(client, sn, cfg.Tmux.Prefix)
 	client.SelectPane(sn + ":0.0")
+	return nil
 }
 
 func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {

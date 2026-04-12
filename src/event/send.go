@@ -2,6 +2,7 @@ package event
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -22,16 +23,16 @@ func init() {
 // Run implements `roost event <eventType>`.
 // Reads stdin (if piped), captures ROOST_SESSION_ID and a timestamp,
 // then sends a CmdEvent to the daemon.
-func Run(args []string) {
+func Run(args []string) error {
 	if len(args) == 0 {
 		fmt.Fprintln(os.Stderr, "usage: roost event <event-type>")
-		os.Exit(1)
+		return errors.New("event: missing event type")
 	}
 	eventType := args[0]
 
 	senderID := os.Getenv("ROOST_SESSION_ID")
 	if senderID == "" {
-		return
+		return nil
 	}
 	ts := time.Now()
 
@@ -49,17 +50,18 @@ func Run(args []string) {
 	cfg, err := config.Load()
 	if err != nil {
 		slog.Warn("event: config load failed", "err", err)
-		return
+		return nil
 	}
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	client, err := proto.Dial(sockPath)
 	if err != nil {
 		slog.Warn("event: dial failed", "sock", sockPath, "err", err)
-		return
+		return nil
 	}
 	defer client.Close()
 
 	if err := client.SendEvent(eventType, ts, senderID, json.RawMessage(input)); err != nil {
 		slog.Warn("event: send failed", "type", eventType, "sender", senderID, "err", err)
 	}
+	return nil
 }

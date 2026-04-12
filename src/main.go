@@ -1,7 +1,10 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -14,51 +17,149 @@ import (
 	"github.com/takezoh/agent-roost/logger"
 )
 
+type commandKind int
+
+const (
+	commandKindCLI commandKind = iota
+	commandKindDaemon
+	commandKindRoost
+)
+
+var (
+	loadBootstrapConfig   = config.Load
+	initLoggerWithDataDir = logger.InitWithDataDir
+	closeLogger           = logger.Close
+	redirectStderr        = logger.RedirectStderr
+	runCoordinatorFn      = runCoordinator
+	runMainTUIFn          = runMainTUI
+	runSessionListFn      = runSessionList
+	runLogViewerFn        = runLogViewer
+	runPaletteFn          = runPalette
+)
+
 func main() {
-	cfg, _ := config.Load()
+	os.Exit(runMain(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+func runMain(args []string, stdout, stderr io.Writer) (code int) {
+	kind := classifyCommand(args)
+	cfg, cfgErr := loadBootstrapConfig()
+	loggerReady, loggerErr := initMainLogger(cfg)
+	if loggerReady {
+		defer closeLogger()
+	}
+	defer func() {
+		if rec := recover(); rec != nil {
+			err := fmt.Errorf("panic: %v", rec)
+			if loggerReady {
+				slog.Error("panic recovered", "err", err)
+			}
+			code = finishMain(kind, err, loggerReady, loggerErr, stdout, stderr)
+		}
+	}()
+
+	if loggerErr != nil {
+		return finishMain(kind, loggerErr, false, loggerErr, stdout, stderr)
+	}
+	if cfgErr != nil {
+		slog.Error("config load failed during logger bootstrap", "err", cfgErr)
+	}
+
+	err := runCommand(args, stdout)
+	if err != nil {
+		slog.Error("main failed", "err", err)
+	}
+	return finishMain(kind, err, true, nil, stdout, stderr)
+}
+
+func finishMain(kind commandKind, err error, loggerReady bool, loggerErr error, stdout, stderr io.Writer) int {
+	if kind == commandKindRoost {
+		if err != nil {
+			fmt.Fprintf(stderr, "roost: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, "roost: exited")
+		return 0
+	}
+	if !loggerReady && loggerErr != nil {
+		return 1
+	}
+	if err != nil {
+		return 1
+	}
+	return 0
+}
+
+func initMainLogger(cfg *config.Config) (bool, error) {
 	level := "info"
 	dataDir := ""
 	if cfg != nil {
 		level = cfg.Log.Level
 		dataDir = cfg.ResolveDataDir()
 	}
-	logger.InitWithDataDir(level, dataDir)
-	defer logger.Close()
-
-	if cli.Dispatch(os.Args[1:]) {
-		return
+	if err := initLoggerWithDataDir(level, dataDir); err != nil {
+		return false, err
 	}
-
-	if len(os.Args) > 1 && (os.Args[1] == "-h" || os.Args[1] == "--help" || os.Args[1] == "help") {
-		printUsage()
-		return
-	}
-
-	if len(os.Args) > 1 && os.Args[1] == "--tui" && len(os.Args) > 2 {
-		logger.RedirectStderr()
-		switch os.Args[2] {
-		case "main":
-			runMainTUI()
-		case "sessions":
-			runSessionList()
-		case "log":
-			runLogViewer()
-		case "palette":
-			runPalette(os.Args[3:])
-		default:
-			fmt.Fprintf(os.Stderr, "roost: unknown tui: %s\n", os.Args[2])
-			os.Exit(1)
-		}
-		return
-	}
-	runCoordinator()
+	return true, nil
 }
 
-func loadConfig() *config.Config {
+func classifyCommand(args []string) commandKind {
+	if len(args) == 0 {
+		return commandKindRoost
+	}
+	if args[0] == "--tui" {
+		return commandKindDaemon
+	}
+	if isHelpCommand(args[0]) {
+		return commandKindCLI
+	}
+	if cli.Has(args[0]) {
+		return commandKindCLI
+	}
+	return commandKindRoost
+}
+
+func runCommand(args []string, stdout io.Writer) error {
+	if len(args) == 0 {
+		return runCoordinatorFn()
+	}
+	if isHelpCommand(args[0]) {
+		printUsage(stdout)
+		return nil
+	}
+	if args[0] == "--tui" {
+		redirectStderr()
+		return runTUI(args[1:])
+	}
+	handled, err := cli.Dispatch(args)
+	if handled {
+		return err
+	}
+	return runCoordinatorFn()
+}
+
+func runTUI(args []string) error {
+	if len(args) == 0 {
+		return errors.New("unknown tui: missing subcommand")
+	}
+	switch args[0] {
+	case "main":
+		return runMainTUIFn()
+	case "sessions":
+		return runSessionListFn()
+	case "log":
+		return runLogViewerFn()
+	case "palette":
+		return runPaletteFn(args[1:])
+	default:
+		return fmt.Errorf("unknown tui: %s", args[0])
+	}
+}
+
+func loadConfig() (*config.Config, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "roost: %v\n", err)
-		os.Exit(1)
+		return nil, err
 	}
 	if cfg.Session.DefaultCommand == "" {
 		cfg.Session.DefaultCommand = "shell"
@@ -66,18 +167,22 @@ func loadConfig() *config.Config {
 	if len(cfg.Session.Commands) == 0 {
 		cfg.Session.Commands = []string{"shell"}
 	}
-	return cfg
+	return cfg, nil
 }
 
-func printUsage() {
-	fmt.Println("roost - AI agent session manager on tmux")
-	fmt.Println()
-	fmt.Println("Usage:")
-	fmt.Println("  roost          Start or attach to the roost tmux session")
+func printUsage(w io.Writer) {
+	fmt.Fprintln(w, "roost - AI agent session manager on tmux")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  roost          Start or attach to the roost tmux session")
 	for _, pair := range cli.RegisteredHelp() {
-		fmt.Printf("  roost %-8s %s\n", pair[0], pair[1])
+		fmt.Fprintf(w, "  roost %-8s %s\n", pair[0], pair[1])
 	}
-	fmt.Println("  roost help     Show this help message")
+	fmt.Fprintln(w, "  roost help     Show this help message")
+}
+
+func isHelpCommand(arg string) bool {
+	return arg == "-h" || arg == "--help" || arg == "help"
 }
 
 func resolveExe() string {

@@ -13,20 +13,21 @@ func init() {
 }
 
 // Run dispatches Claude subcommands.
-func Run(args []string) {
+func Run(args []string) error {
 	if len(args) == 0 {
 		printHelp()
-		os.Exit(1)
+		return fmt.Errorf("claude: missing subcommand")
 	}
 	switch args[0] {
 	case "setup":
-		runSetup()
+		return runSetup()
 	case "help", "-h", "--help":
 		printHelp()
+		return nil
 	default:
 		fmt.Fprintf(os.Stderr, "roost claude: unknown subcommand: %s\n", args[0])
 		printHelp()
-		os.Exit(1)
+		return fmt.Errorf("claude: unknown subcommand: %s", args[0])
 	}
 }
 
@@ -39,11 +40,10 @@ Commands:
 `)
 }
 
-func runSetup() {
+func runSetup() error {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "roost: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	settingsPath := filepath.Join(home, ".claude", "settings.json")
 	roostPath, _ := os.Executable()
@@ -52,13 +52,13 @@ func runSetup() {
 	}
 	events, err := RegisterHooks(settingsPath, roostPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "roost: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 	if len(events) == 0 {
 		fmt.Println("Hooks already registered")
-		return
+		return nil
 	}
 	fmt.Printf("Registered events: %v\n", events)
 	fmt.Printf("  Settings: %s\n", settingsPath)
+	return nil
 }

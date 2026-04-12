@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -16,8 +15,11 @@ import (
 	"github.com/takezoh/agent-roost/tui"
 )
 
-func runMainTUI() {
-	cfg := loadConfig()
+func runMainTUI() error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
 	tui.ApplyTheme(cfg.Theme)
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
@@ -25,23 +27,25 @@ func runMainTUI() {
 	if err != nil {
 		model := tui.NewMainModel(nil)
 		if _, err := tea.NewProgram(model).Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "roost: main: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("main: %w", err)
 		}
-		return
+		return nil
 	}
 	defer client.Close()
 	client.Subscribe()
 
 	model := tui.NewMainModel(client)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "roost: main: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("main: %w", err)
 	}
+	return nil
 }
 
-func runLogViewer() {
-	cfg := loadConfig()
+func runLogViewer() error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
 	tui.ApplyTheme(cfg.Theme)
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
@@ -49,44 +53,48 @@ func runLogViewer() {
 	if err != nil {
 		model := tui.NewLogModel(logger.LogFilePath(), nil)
 		if _, err := tea.NewProgram(model).Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("log: %w", err)
 		}
-		return
+		return nil
 	}
 	defer client.Close()
 	client.Subscribe()
 
 	model := tui.NewLogModel(logger.LogFilePath(), client)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "roost: log: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("log: %w", err)
 	}
+	return nil
 }
 
-func runSessionList() {
-	cfg := loadConfig()
+func runSessionList() error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
 	tui.ApplyTheme(cfg.Theme)
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
 	client, err := proto.Dial(sockPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "roost: connect: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("connect: %w", err)
 	}
 	defer client.Close()
 	client.Subscribe()
 
 	model := tui.NewModel(client, cfg)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "roost: tui: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("tui: %w", err)
 	}
+	return nil
 }
 
-func runPalette(args []string) {
+func runPalette(args []string) error {
 	slog.Info("palette start", "args", args)
-	cfg := loadConfig()
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
 	tui.ApplyTheme(cfg.Theme)
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	slog.Info("palette dial", "sock", sockPath)
@@ -94,8 +102,7 @@ func runPalette(args []string) {
 	client, err := proto.Dial(sockPath)
 	if err != nil {
 		slog.Error("palette connect failed", "err", err)
-		fmt.Fprintf(os.Stderr, "roost: connect: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("connect: %w", err)
 	}
 	slog.Info("palette connected")
 	defer client.Close()
@@ -131,7 +138,7 @@ func runPalette(args []string) {
 
 	model := tui.NewPaletteModel(reg, ctx, toolName)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
-		fmt.Fprintf(os.Stderr, "roost: palette: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("palette: %w", err)
 	}
+	return nil
 }
