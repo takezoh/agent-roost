@@ -26,7 +26,7 @@ type RegisterOptions struct {
 // binaries that import multiple sub-packages don't double-register.
 func RegisterDefaults(opts RegisterOptions) {
 	registerOnce.Do(func() {
-		claudeOpts := decodeConfig[ClaudeOptions](opts.DriverConfigs["claude"])
+		claudeOpts := decodeConfig[ClaudeOptions](opts.DriverConfigs[ClaudeDriverName])
 		state.Register(NewClaudeDriver(opts.Home, opts.EventLogDir, claudeOpts))
 		state.Register(NewGenericDriver("bash", opts.IdleThreshold))
 		state.Register(NewGenericDriver("codex", opts.IdleThreshold))
@@ -42,8 +42,8 @@ func RegisterDefaults(opts RegisterOptions) {
 
 var registerOnce sync.Once
 
-// ParseClaudeOptions decodes the [drivers.claude] section of settings.toml
-// into a ClaudeOptions value. Exported so the runtime coordinator can read
+// ParseClaudeOptions decodes the driver config section keyed by
+// ClaudeDriverName into a ClaudeOptions value. Exported so the runtime coordinator can read
 // it without duplicating the JSON round-trip logic.
 func ParseClaudeOptions(raw map[string]any) ClaudeOptions {
 	return decodeConfig[ClaudeOptions](raw)

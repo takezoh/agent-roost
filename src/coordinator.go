@@ -40,7 +40,7 @@ func runCoordinator() {
 	pollInterval := time.Duration(cfg.Monitor.PollIntervalMs) * time.Millisecond
 	sockPath := filepath.Join(dataDir, "roost.sock")
 
-	claudeOpts := statedriver.ParseClaudeOptions(cfg.Drivers["claude"])
+	claudeOpts := statedriver.ParseClaudeOptions(cfg.Drivers[statedriver.ClaudeDriverName])
 	statedriver.RegisterRunners(tmuxBackend.CapturePane, cfg.Language, claudeOpts.SummarizeCommand)
 	connector.RegisterDefaults()
 	connector.RegisterRunners()

@@ -20,6 +20,8 @@ import (
 // The driver is registered as a value in init(); the same value serves
 // every Claude session in the daemon process.
 const (
+	ClaudeDriverName = "claude"
+
 	// PersistedState bag keys for sessions.json round-trip.
 	claudeKeyClaudeSessionID    = "claude_session_id"
 	claudeKeyWorkingDir         = "working_dir"
@@ -72,6 +74,7 @@ type ClaudeState struct {
 	StatusLine     string
 	CurrentTool    string
 	SubagentCounts map[string]int
+	RecentTurns    []SummaryTurn
 
 	// Branch tag cache
 	BranchTag          string
@@ -120,8 +123,8 @@ func NewClaudeDriver(home, eventLogDir string, opts ClaudeOptions) ClaudeDriver 
 	return ClaudeDriver{home: home, eventLogDir: eventLogDir, showThinking: opts.ShowThinking}
 }
 
-func (ClaudeDriver) Name() string        { return "claude" }
-func (ClaudeDriver) DisplayName() string { return "claude" }
+func (ClaudeDriver) Name() string                            { return ClaudeDriverName }
+func (ClaudeDriver) DisplayName() string                     { return ClaudeDriverName }
 func (ClaudeDriver) Status(s state.DriverState) state.Status { return s.(ClaudeState).Status }
 
 // View returns the cached View for the given ClaudeState. Pure

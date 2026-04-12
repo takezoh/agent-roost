@@ -26,40 +26,45 @@ type CapturePaneResult struct {
 	Hash    string
 }
 
-// HaikuSummaryInput carries everything the haiku worker needs to
-// assemble and run the summary prompt. The worker uses ClaudeUUID
-// to pull recent conversation rounds from its shared transcript
-// Tracker, combines them with PrevSummary + CurrentPrompt, and
-// sends the result to `claude -p --model=haiku`.
-type HaikuSummaryInput struct {
-	ClaudeUUID    string
-	PrevSummary   string
-	CurrentPrompt string
+// SummaryCommandInput is the fully assembled prompt text. Prompt
+// construction is driver-owned; the worker only pipes this prompt
+// into the configured summarize command and returns stdout.
+type SummaryCommandInput struct {
+	Prompt string
 }
 
-// HaikuSummaryResult is the trimmed summary string the haiku worker
+// SummaryCommandResult is the trimmed summary string the summary worker
 // returns. Empty result is treated by the driver as "keep previous".
-type HaikuSummaryResult struct {
+type SummaryCommandResult struct {
 	Summary string
+}
+
+// SummaryTurn is a normalized conversation turn used by summary prompt
+// builders. The driver converts source-specific turn formats into this
+// shape before constructing the prompt.
+type SummaryTurn struct {
+	Role string
+	Text string
 }
 
 // TranscriptParseInput points the worker at a session's transcript
 // JSONL file. The worker maintains its own per-session Tracker and
 // returns only the new content (deltas).
 type TranscriptParseInput struct {
-	SessionID    state.SessionID
-	ClaudeUUID   string
-	Path         string
+	SessionID  state.SessionID
+	ClaudeUUID string
+	Path       string
 }
 
 // TranscriptParseResult is the parsed transcript snapshot the worker
-// returns to the claude driver via DEvJobResult.
+// returns to the transcript-capable driver via DEvJobResult.
 type TranscriptParseResult struct {
 	Title       string
 	LastPrompt  string
 	StatusLine  string
 	CurrentTool string
 	Subagents   map[string]int
+	RecentTurns []SummaryTurn
 }
 
 // BranchDetectInput asks the worker to detect the current VCS branch
@@ -80,5 +85,5 @@ type BranchDetectResult struct {
 
 func (CapturePaneInput) JobKind() string     { return "capture_pane" }
 func (TranscriptParseInput) JobKind() string { return "transcript_parse" }
-func (HaikuSummaryInput) JobKind() string    { return "haiku_summary" }
+func (SummaryCommandInput) JobKind() string  { return "summary_command" }
 func (BranchDetectInput) JobKind() string    { return "branch_detect" }

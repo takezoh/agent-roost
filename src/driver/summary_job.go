@@ -9,25 +9,21 @@ import (
 func enqueueSummaryJob(
 	effs []state.Effect,
 	inFlight bool,
-	conversationID string,
-	prevSummary string,
 	prompt string,
 ) ([]state.Effect, bool) {
 	if inFlight || strings.TrimSpace(prompt) == "" {
 		return effs, inFlight
 	}
 	effs = append(effs, state.EffStartJob{
-		Input: HaikuSummaryInput{
-			ClaudeUUID:    conversationID,
-			PrevSummary:   prevSummary,
-			CurrentPrompt: prompt,
+		Input: SummaryCommandInput{
+			Prompt: prompt,
 		},
 	})
 	return effs, true
 }
 
 func applySummaryJobResult(summary string, inFlight bool, e state.DEvJobResult) (string, bool, bool) {
-	r, ok := e.Result.(HaikuSummaryResult)
+	r, ok := e.Result.(SummaryCommandResult)
 	if !ok {
 		return summary, inFlight, false
 	}

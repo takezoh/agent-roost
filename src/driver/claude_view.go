@@ -19,11 +19,11 @@ import (
 // Card content:
 //   - Title    = transcript title (set by transcript parse result)
 //   - Subtitle = haiku-generated session summary, falling back to
-//                LastPrompt while haiku is still computing or hasn't
-//                run yet. LastPrompt is now seeded from
-//                UserPromptSubmit hook payload directly so it's
-//                populated even on the first turn of a brand-new
-//                session before Claude has flushed anything to JSONL.
+//     LastPrompt while haiku is still computing or hasn't
+//     run yet. LastPrompt is now seeded from
+//     UserPromptSubmit hook payload directly so it's
+//     populated even on the first turn of a brand-new
+//     session before Claude has flushed anything to JSONL.
 //   - Tags     = [BranchTag?]
 //   - Indicators = derived from CurrentTool / SubagentCounts
 //
@@ -61,10 +61,10 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 			Subtitle:    firstNonEmpty(cs.Summary, cs.LastPrompt),
 			Tags:        tags,
 			Indicators:  claudeIndicators(cs),
-			BorderTitle: CommandTag("claude"),
+			BorderTitle: CommandTag(ClaudeDriverName),
 			BorderBadge: fishpath.Shorten(cs.WorkingDir, d.home),
 		},
-		DisplayName: "claude",
+		DisplayName:     ClaudeDriverName,
 		LogTabs:         logTabs,
 		InfoExtras:      claudeInfoExtras(cs),
 		StatusLine:      cs.StatusLine,

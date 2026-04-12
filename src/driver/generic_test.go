@@ -2,6 +2,7 @@ package driver
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -239,15 +240,12 @@ func TestGenericWaitingTransitionStartsSummaryJob(t *testing.T) {
 	if !ok {
 		t.Fatalf("effect type = %T, want EffStartJob", effs[0])
 	}
-	in, ok := job.Input.(HaikuSummaryInput)
+	in, ok := job.Input.(SummaryCommandInput)
 	if !ok {
-		t.Fatalf("job input type = %T, want HaikuSummaryInput", job.Input)
+		t.Fatalf("job input type = %T, want SummaryCommandInput", job.Input)
 	}
-	if in.CurrentPrompt != "user@host:~$" {
-		t.Errorf("CurrentPrompt = %q, want trimmed prompt", in.CurrentPrompt)
-	}
-	if in.PrevSummary != "" {
-		t.Errorf("PrevSummary = %q, want empty", in.PrevSummary)
+	if !strings.Contains(in.Prompt, "user@host:~$") {
+		t.Errorf("Prompt should include trimmed shell prompt: %q", in.Prompt)
 	}
 }
 
@@ -276,7 +274,7 @@ func TestGenericApplySummaryResult(t *testing.T) {
 	s.SummaryInFlight = true
 	next, effs, _ := d.Step(s, state.DEvJobResult{
 		Now:    now,
-		Result: HaikuSummaryResult{Summary: "new summary"},
+		Result: SummaryCommandResult{Summary: "new summary"},
 	})
 	if len(effs) != 0 {
 		t.Fatalf("effects = %d, want 0", len(effs))
@@ -296,7 +294,7 @@ func TestGenericApplySummaryResultErrorKeepsPrevious(t *testing.T) {
 	s.Summary = "old summary"
 	next, _, _ := d.Step(s, state.DEvJobResult{
 		Now:    now,
-		Result: HaikuSummaryResult{Summary: "new summary"},
+		Result: SummaryCommandResult{Summary: "new summary"},
 		Err:    errors.New("failed"),
 	})
 	gs := next.(GenericState)
@@ -340,7 +338,7 @@ func TestGenericFallbackHasNoCommandTag(t *testing.T) {
 
 func TestGenericRegisteredViaInit(t *testing.T) {
 	// Phase 2-A only registers the fallback. Phase 2-B will register
-	// "claude" and the other named generics. For now we just verify
+	// other named drivers and fallback driver. For now we just verify
 	// the fallback resolves.
 	d := state.GetDriver("/usr/bin/bash")
 	if d == nil {

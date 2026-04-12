@@ -2,7 +2,7 @@ package driver
 
 import "github.com/takezoh/agent-roost/state"
 
-// view returns the minimal View for a generic (non-Claude) session.
+// view returns the minimal View for a generic session.
 // Driver-specific UI elements are DisplayName and BorderTitle.
 // Everything else (state symbol, generic INFO header, project name,
 // elapsed time) is rendered by the TUI from proto.SessionInfo.

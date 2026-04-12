@@ -3,6 +3,7 @@ package driver
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -200,15 +201,12 @@ func TestClaudeUserPromptSubmitTriggersHaiku(t *testing.T) {
 	if !ok {
 		t.Fatal("expected EffStartJob")
 	}
-	in, ok := job.Input.(HaikuSummaryInput)
+	in, ok := job.Input.(SummaryCommandInput)
 	if !ok {
-		t.Fatalf("job input type = %T, want HaikuSummaryInput", job.Input)
+		t.Fatalf("job input type = %T, want SummaryCommandInput", job.Input)
 	}
-	if in.CurrentPrompt != "do the thing" {
-		t.Errorf("haiku CurrentPrompt = %q, want %q", in.CurrentPrompt, "do the thing")
-	}
-	if in.ClaudeUUID != "uuid" {
-		t.Errorf("haiku ClaudeUUID = %q, want uuid", in.ClaudeUUID)
+	if !strings.Contains(in.Prompt, "do the thing") {
+		t.Errorf("haiku prompt should include user prompt: %q", in.Prompt)
 	}
 }
 
@@ -615,7 +613,7 @@ func TestClaudeHaikuResultMerges(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.SummaryInFlight = true
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
-		Result: HaikuSummaryResult{Summary: "短い要約"},
+		Result: SummaryCommandResult{Summary: "短い要約"},
 	})
 	if next.SummaryInFlight {
 		t.Error("SummaryInFlight should be false")
@@ -630,7 +628,7 @@ func TestClaudeHaikuEmptyResultKeepsPrev(t *testing.T) {
 	cs.Summary = "前の要約"
 	cs.SummaryInFlight = true
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
-		Result: HaikuSummaryResult{Summary: ""},
+		Result: SummaryCommandResult{Summary: ""},
 	})
 	if next.Summary != "前の要約" {
 		t.Errorf("empty haiku erased prev: %q", next.Summary)
@@ -699,12 +697,12 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	cs := ClaudeState{
-		RoostSessionID:  "roost-1",
-		ClaudeSessionID: "uuid-1",
-		WorkingDir:      "/work",
-		TranscriptPath:  "/tmp/x.jsonl",
-		Status:          state.StatusRunning,
-		StatusChangedAt: now,
+		RoostSessionID:     "roost-1",
+		ClaudeSessionID:    "uuid-1",
+		WorkingDir:         "/work",
+		TranscriptPath:     "/tmp/x.jsonl",
+		Status:             state.StatusRunning,
+		StatusChangedAt:    now,
 		BranchTag:          "main",
 		BranchBG:           "#F05032",
 		BranchFG:           "#FFFFFF",
@@ -712,9 +710,9 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 		BranchAt:           now,
 		BranchIsWorktree:   true,
 		BranchParentBranch: "develop",
-		Summary:         "summary",
-		Title:           "Refactor X",
-		LastPrompt:      "do the thing",
+		Summary:            "summary",
+		Title:              "Refactor X",
+		LastPrompt:         "do the thing",
 	}
 	bag := d.Persist(cs)
 	if bag[claudeKeyRoostSessionID] != "roost-1" {

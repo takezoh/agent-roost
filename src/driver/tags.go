@@ -7,7 +7,7 @@ import "github.com/takezoh/agent-roost/state"
 // the driver package (not in tui/) — Tag colors are driver-owned per
 // ARCHITECTURE.md §描画責務の所在.
 const (
-	commandTagBg = "#D97757" // Claude brand orange
+	commandTagBg = "#D97757" // default command tag background
 	commandTagFg = "#FFFFFF" // white text
 )
 
