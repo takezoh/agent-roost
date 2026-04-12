@@ -11,51 +11,14 @@ import (
 const (
 	GeminiDriverName = "gemini"
 
-	geminiKeyRoostSessionID      = "roost_session_id"
 	geminiKeyGeminiSessionID     = "gemini_session_id"
-	geminiKeyWorkingDir          = "working_dir"
-	geminiKeyTranscriptPath      = "transcript_path"
-	geminiKeyStatus              = "status"
-	geminiKeyStatusChangedAt     = "status_changed_at"
-	geminiKeyBranchTag           = "branch_tag"
-	geminiKeyBranchBG            = "branch_bg"
-	geminiKeyBranchFG            = "branch_fg"
-	geminiKeyBranchTarget        = "branch_target"
-	geminiKeyBranchAt            = "branch_at"
-	geminiKeyBranchIsWorktree    = "branch_is_worktree"
-	geminiKeyBranchParentBranch  = "branch_parent_branch"
-	geminiKeyLastPrompt          = "last_prompt"
-	geminiKeyLastAssistant       = "last_assistant_message"
-	geminiKeyLastHookEvent       = "last_hook_event"
-	geminiKeyLastHookAt          = "last_hook_at"
 	geminiPromptPreviewMaxLength = 80
 )
 
 type GeminiState struct {
-	state.DriverStateBase
+	CommonState
 
-	RoostSessionID  string
 	GeminiSessionID string
-	WorkingDir      string
-	TranscriptPath  string
-
-	Status          state.Status
-	StatusChangedAt time.Time
-
-	BranchTag          string
-	BranchBG           string
-	BranchFG           string
-	BranchTarget       string
-	BranchAt           time.Time
-	BranchIsWorktree   bool
-	BranchParentBranch string
-	BranchInFlight     bool
-
-	LastPrompt           string
-	LastAssistantMessage string
-
-	LastHookEvent string
-	LastHookAt    time.Time
 }
 
 type GeminiDriver struct {
@@ -80,8 +43,10 @@ func (d GeminiDriver) View(s state.DriverState) state.View {
 
 func (d GeminiDriver) NewState(now time.Time) state.DriverState {
 	return GeminiState{
-		Status:          state.StatusIdle,
-		StatusChangedAt: now,
+		CommonState: CommonState{
+			Status:          state.StatusIdle,
+			StatusChangedAt: now,
+		},
 	}
 }
 

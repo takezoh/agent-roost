@@ -23,22 +23,7 @@ const (
 	ClaudeDriverName = "claude"
 
 	// PersistedState bag keys for sessions.json round-trip.
-	claudeKeyClaudeSessionID    = "claude_session_id"
-	claudeKeyWorkingDir         = "working_dir"
-	claudeKeyTranscriptPath     = "transcript_path"
-	claudeKeyStatus             = "status"
-	claudeKeyStatusChangedAt    = "status_changed_at"
-	claudeKeyBranchTag          = "branch_tag"
-	claudeKeyBranchBG           = "branch_bg"
-	claudeKeyBranchFG           = "branch_fg"
-	claudeKeyBranchTarget       = "branch_target"
-	claudeKeyBranchAt           = "branch_at"
-	claudeKeyBranchIsWorktree   = "branch_is_worktree"
-	claudeKeyBranchParentBranch = "branch_parent_branch"
-	claudeKeySummary            = "summary"
-	claudeKeyTitle              = "title"
-	claudeKeyLastPrompt         = "last_prompt"
-	claudeKeyRoostSessionID     = "roost_session_id"
+	claudeKeyClaudeSessionID = "claude_session_id"
 
 	// Re-detect branch at most every N seconds (only when active).
 	claudeBranchRefreshInterval = 30 * time.Second
@@ -50,47 +35,26 @@ const (
 )
 
 // ClaudeState is the per-session private state for the Claude driver.
-// Plain data — no goroutines, no I/O. Embeds state.DriverStateBase to
+// Plain data — no goroutines, no I/O. Embeds CommonState to
 // satisfy the sealed state.DriverState interface.
 type ClaudeState struct {
-	state.DriverStateBase
+	CommonState
 
 	// Identity (set via Restore or DEvHook session-start payload).
-	RoostSessionID  string // roost session id; used to build the event log path
 	ClaudeSessionID string // distinct from roost session id; the *Claude* conversation id
-	WorkingDir      string
-	TranscriptPath  string
-
-	// Status bookkeeping
-	Status          state.Status
-	StatusChangedAt time.Time
 
 	// Hook ordering: stale events (Timestamp <= LastBridgeTS) are dropped.
 	LastBridgeTS time.Time
 
 	// Cached transcript meta (folded in by DEvJobResult{JobTranscriptParse})
-	Title          string
-	LastPrompt     string
 	StatusLine     string
 	CurrentTool    string
 	SubagentCounts map[string]int
 	RecentTurns    []SummaryTurn
 
-	// Branch tag cache
-	BranchTag          string
-	BranchBG           string // brand background color hex
-	BranchFG           string // brand foreground color hex
-	BranchTarget       string
-	BranchAt           time.Time
-	BranchIsWorktree   bool
-	BranchParentBranch string
-
 	// Summary cache + in-flight guards. Each *InFlight bool prevents
 	// duplicate jobs from being scheduled while one is still pending.
-	Summary            string
-	SummaryInFlight    bool
 	TranscriptInFlight bool
-	BranchInFlight     bool
 	CaptureInFlight    bool
 	WatchedFile        string // currently fsnotify-watched path; empty = not watched
 
@@ -140,8 +104,10 @@ func (d ClaudeDriver) View(s state.DriverState) state.View {
 
 func (d ClaudeDriver) NewState(now time.Time) state.DriverState {
 	return ClaudeState{
-		Status:          state.StatusIdle,
-		StatusChangedAt: now,
+		CommonState: CommonState{
+			Status:          state.StatusIdle,
+			StatusChangedAt: now,
+		},
 	}
 }
 

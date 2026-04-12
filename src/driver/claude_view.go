@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/takezoh/agent-roost/lib/claude/transcript"
@@ -29,10 +28,7 @@ import (
 //
 // StatusLine: cached from the transcript parse result.
 func (d ClaudeDriver) view(cs ClaudeState) state.View {
-	var tags []state.Tag
-	if t := BranchTag(cs.BranchTag, cs.BranchBG, cs.BranchFG, cs.BranchParentBranch); t.Text != "" {
-		tags = append(tags, t)
-	}
+	tags := CommonTags(cs.CommonState)
 
 	var logTabs []state.LogTab
 	if transcriptPath := d.resolveTranscriptPath(cs); transcriptPath != "" {
@@ -47,12 +43,8 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 			RendererCfg: rendererCfg,
 		})
 	}
-	if cs.RoostSessionID != "" && d.eventLogDir != "" {
-		logTabs = append(logTabs, state.LogTab{
-			Label: "EVENTS",
-			Path:  filepath.Join(d.eventLogDir, cs.RoostSessionID+".log"),
-			Kind:  state.TabKindText,
-		})
+	if tab := EventLogTab(cs.CommonState, d.eventLogDir); tab != nil {
+		logTabs = append(logTabs, *tab)
 	}
 
 	return state.View{
@@ -118,13 +110,4 @@ func subagentDir(transcriptPath string) string {
 	}
 	base := strings.TrimSuffix(transcriptPath, ".jsonl")
 	return base + string(os.PathSeparator) + "subagents"
-}
-
-func firstNonEmpty(candidates ...string) string {
-	for _, s := range candidates {
-		if s != "" {
-			return s
-		}
-	}
-	return ""
 }

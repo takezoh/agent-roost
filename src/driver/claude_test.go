@@ -697,32 +697,34 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	cs := ClaudeState{
-		RoostSessionID:     "roost-1",
-		ClaudeSessionID:    "uuid-1",
-		WorkingDir:         "/work",
-		TranscriptPath:     "/tmp/x.jsonl",
-		Status:             state.StatusRunning,
-		StatusChangedAt:    now,
-		BranchTag:          "main",
-		BranchBG:           "#F05032",
-		BranchFG:           "#FFFFFF",
-		BranchTarget:       "/work",
-		BranchAt:           now,
-		BranchIsWorktree:   true,
-		BranchParentBranch: "develop",
-		Summary:            "summary",
-		Title:              "Refactor X",
-		LastPrompt:         "do the thing",
+		CommonState: CommonState{
+			RoostSessionID:     "roost-1",
+			WorkingDir:         "/work",
+			TranscriptPath:     "/tmp/x.jsonl",
+			Status:             state.StatusRunning,
+			StatusChangedAt:    now,
+			BranchTag:          "main",
+			BranchBG:           "#F05032",
+			BranchFG:           "#FFFFFF",
+			BranchTarget:       "/work",
+			BranchAt:           now,
+			BranchIsWorktree:   true,
+			BranchParentBranch: "develop",
+			Summary:            "summary",
+			Title:              "Refactor X",
+			LastPrompt:         "do the thing",
+		},
+		ClaudeSessionID: "uuid-1",
 	}
 	bag := d.Persist(cs)
-	if bag[claudeKeyRoostSessionID] != "roost-1" {
-		t.Errorf("persist roost_session_id = %q", bag[claudeKeyRoostSessionID])
+	if bag[keyRoostSessionID] != "roost-1" {
+		t.Errorf("persist roost_session_id = %q", bag[keyRoostSessionID])
 	}
 	if bag[claudeKeyClaudeSessionID] != "uuid-1" {
 		t.Errorf("persist session_id = %q", bag[claudeKeyClaudeSessionID])
 	}
-	if bag[claudeKeyStatus] != "running" {
-		t.Errorf("persist status = %q", bag[claudeKeyStatus])
+	if bag[keyStatus] != "running" {
+		t.Errorf("persist status = %q", bag[keyStatus])
 	}
 	restored := d.Restore(bag, time.Now()).(ClaudeState)
 	if restored.RoostSessionID != "roost-1" {
@@ -1036,8 +1038,10 @@ func TestClaudeStepRoundTripSessionStartThenView(t *testing.T) {
 func TestResolveTranscriptPathFallback(t *testing.T) {
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{
+		CommonState: CommonState{
+			WorkingDir: "/some/work",
+		},
 		ClaudeSessionID: "uuid-Z",
-		WorkingDir:      "/some/work",
 	}
 	got := d.resolveTranscriptPath(cs)
 	want := "/home/test/.claude/projects/-some-work/uuid-Z.jsonl"
@@ -1074,9 +1078,11 @@ func TestClaudeNoStateChangeEventsStillLog(t *testing.T) {
 func TestResolveTranscriptPathPrefersExplicit(t *testing.T) {
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{
-		TranscriptPath:  "/explicit/path.jsonl",
+		CommonState: CommonState{
+			TranscriptPath: "/explicit/path.jsonl",
+			WorkingDir:      "/w",
+		},
 		ClaudeSessionID: "u",
-		WorkingDir:      "/w",
 	}
 	got := d.resolveTranscriptPath(cs)
 	if got != "/explicit/path.jsonl" {

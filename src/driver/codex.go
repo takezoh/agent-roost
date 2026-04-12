@@ -11,53 +11,16 @@ import (
 const (
 	CodexDriverName = "codex"
 
-	codexKeyRoostSessionID      = "roost_session_id"
 	codexKeyCodexSessionID      = "codex_session_id"
-	codexKeyWorkingDir          = "working_dir"
-	codexKeyTranscriptPath      = "transcript_path"
-	codexKeyStatus              = "status"
-	codexKeyStatusChangedAt     = "status_changed_at"
-	codexKeyBranchTag           = "branch_tag"
-	codexKeyBranchBG            = "branch_bg"
-	codexKeyBranchFG            = "branch_fg"
-	codexKeyBranchTarget        = "branch_target"
-	codexKeyBranchAt            = "branch_at"
-	codexKeyBranchIsWorktree    = "branch_is_worktree"
-	codexKeyBranchParentBranch  = "branch_parent_branch"
-	codexKeyLastPrompt          = "last_prompt"
-	codexKeyLastAssistant       = "last_assistant_message"
-	codexKeyLastHookEvent       = "last_hook_event"
-	codexKeyLastHookAt          = "last_hook_at"
+	codexKeyManagedWorkingDir   = "managed_working_dir"
 	codexPromptPreviewMaxLength = 80
 )
 
 type CodexState struct {
-	state.DriverStateBase
+	CommonState
 
-	RoostSessionID    string
 	CodexSessionID    string
-	WorkingDir        string
 	ManagedWorkingDir string
-	TranscriptPath    string
-	WorktreeName      string
-
-	Status          state.Status
-	StatusChangedAt time.Time
-
-	BranchTag          string
-	BranchBG           string
-	BranchFG           string
-	BranchTarget       string
-	BranchAt           time.Time
-	BranchIsWorktree   bool
-	BranchParentBranch string
-	BranchInFlight     bool
-
-	LastPrompt           string
-	LastAssistantMessage string
-
-	LastHookEvent string
-	LastHookAt    time.Time
 }
 
 type CodexDriver struct {
@@ -95,8 +58,10 @@ func (d CodexDriver) View(s state.DriverState) state.View {
 
 func (d CodexDriver) NewState(now time.Time) state.DriverState {
 	return CodexState{
-		Status:          state.StatusIdle,
-		StatusChangedAt: now,
+		CommonState: CommonState{
+			Status:          state.StatusIdle,
+			StatusChangedAt: now,
+		},
 	}
 }
 

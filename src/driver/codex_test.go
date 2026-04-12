@@ -161,25 +161,27 @@ func TestCodexSpawnCommandSkipsNonCodexBaseCommand(t *testing.T) {
 
 func TestCodexPersistRestoreRoundTrip(t *testing.T) {
 	d, cs, now := newCodex(t)
-	cs.RoostSessionID = "r1"
+	cs.CommonState = CommonState{
+		RoostSessionID:     "r1",
+		WorkingDir:         "/repo",
+		TranscriptPath:     "/repo/t.jsonl",
+		WorktreeName:       "codex-abcd",
+		Status:             state.StatusRunning,
+		StatusChangedAt:    now,
+		BranchTag:          "main",
+		BranchBG:           "#111111",
+		BranchFG:           "#ffffff",
+		BranchTarget:       "/repo",
+		BranchAt:           now,
+		BranchIsWorktree:   true,
+		BranchParentBranch: "origin/main",
+		LastPrompt:         "p",
+		LastAssistantMessage: "a",
+		LastHookEvent:      "Stop",
+		LastHookAt:         now,
+	}
 	cs.CodexSessionID = "c1"
-	cs.WorkingDir = "/repo"
 	cs.ManagedWorkingDir = "/repo/.roost/worktrees/codex-abcd"
-	cs.TranscriptPath = "/repo/t.jsonl"
-	cs.WorktreeName = "codex-abcd"
-	cs.Status = state.StatusRunning
-	cs.StatusChangedAt = now
-	cs.BranchTag = "main"
-	cs.BranchBG = "#111111"
-	cs.BranchFG = "#ffffff"
-	cs.BranchTarget = "/repo"
-	cs.BranchAt = now
-	cs.BranchIsWorktree = true
-	cs.BranchParentBranch = "origin/main"
-	cs.LastPrompt = "p"
-	cs.LastAssistantMessage = "a"
-	cs.LastHookEvent = "Stop"
-	cs.LastHookAt = now
 
 	bag := d.Persist(cs)
 	got := d.Restore(bag, now.Add(time.Hour)).(CodexState)

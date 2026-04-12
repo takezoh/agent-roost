@@ -1,8 +1,6 @@
 package driver
 
 import (
-	"errors"
-
 	"github.com/takezoh/agent-roost/state"
 )
 
@@ -11,12 +9,8 @@ func (d ClaudeDriver) PrepareCreate(s state.DriverState, _ state.SessionID, proj
 	if !ok {
 		cs = ClaudeState{}
 	}
-	plan, name, err := managedWorktreePlan(project, command, "--worktree")
-	if err != nil {
-		return cs, state.CreatePlan{}, err
-	}
-	_ = name
-	return cs, plan, nil
+	plan, err := CommonPrepareCreate(&cs.CommonState, project, command, "--worktree")
+	return cs, plan, err
 }
 
 func (d ClaudeDriver) CompleteCreate(s state.DriverState, command string, result any, err error) (state.DriverState, state.CreateLaunch, error) {
@@ -24,16 +18,8 @@ func (d ClaudeDriver) CompleteCreate(s state.DriverState, command string, result
 	if !ok {
 		cs = ClaudeState{}
 	}
-	if err != nil {
-		return cs, state.CreateLaunch{}, err
-	}
-	r, ok := result.(WorktreeSetupResult)
-	if !ok || r.WorkingDir == "" {
-		return cs, state.CreateLaunch{}, errors.New("worktree setup did not return a working directory")
-	}
-	cs.WorkingDir = r.WorkingDir
-	_, stripped := parseWorktreeFlags(command, "--worktree")
-	return cs, state.CreateLaunch{Command: stripped, StartDir: r.WorkingDir}, nil
+	launch, err := CommonCompleteCreate(&cs.CommonState, command, result, err, "--worktree")
+	return cs, launch, err
 }
 
 func (d ClaudeDriver) ManagedWorktreePath(s state.DriverState) string {

@@ -20,14 +20,6 @@ import (
 
 const (
 	genericPromptPattern = `(?m)(^>|[>$❯]\s*$)`
-
-	// genericKeyStatus / genericKeyStatusChangedAt are the persisted
-	// state bag keys for sessions.json round-trip.
-	genericKeyStatus          = "status"
-	genericKeyStatusChangedAt = "status_changed_at"
-	genericKeySummary         = "summary"
-	genericKeyWorkingDir      = "working_dir"
-	genericKeyWorktreeName    = "worktree_name"
 )
 
 // genericPromptRegexp is compiled once per process.
@@ -36,22 +28,12 @@ var genericPromptRegexp = regexp.MustCompile(genericPromptPattern)
 // GenericState is the per-session state for the generic driver. Plain
 // data — no goroutines, no I/O.
 type GenericState struct {
-	state.DriverStateBase
+	CommonState
 
 	// Driver name (e.g. "bash", "codex", "gemini", or "" for fallback).
 	// Stored on the state so the same generic driver impl can serve
 	// multiple registered names.
 	Name string
-
-	// Status bookkeeping
-	Status          state.Status
-	StatusChangedAt time.Time
-
-	// Summary cache for the session card subtitle.
-	Summary         string
-	SummaryInFlight bool
-	WorkingDir      string
-	WorktreeName    string
 
 	// Polling state
 	IdleThreshold time.Duration // 0 = idle threshold disabled
@@ -103,11 +85,13 @@ func (d GenericDriver) View(s state.DriverState) state.View {
 
 func (d GenericDriver) NewState(now time.Time) state.DriverState {
 	return GenericState{
-		Name:            d.name,
-		Status:          state.StatusIdle,
-		StatusChangedAt: now,
-		IdleThreshold:   d.threshold,
-		LastActivity:    now,
+		Name: d.name,
+		CommonState: CommonState{
+			Status:          state.StatusIdle,
+			StatusChangedAt: now,
+		},
+		IdleThreshold: d.threshold,
+		LastActivity:  now,
 	}
 }
 
@@ -122,49 +106,25 @@ func (d GenericDriver) Persist(s state.DriverState) map[string]string {
 	if !ok {
 		return nil
 	}
-	out := map[string]string{
-		genericKeyStatus: gs.Status.String(),
-	}
-	if !gs.StatusChangedAt.IsZero() {
-		out[genericKeyStatusChangedAt] = gs.StatusChangedAt.UTC().Format(time.RFC3339)
-	}
-	if gs.Summary != "" {
-		out[genericKeySummary] = gs.Summary
-	}
-	if gs.WorkingDir != "" {
-		out[genericKeyWorkingDir] = gs.WorkingDir
-	}
-	if gs.WorktreeName != "" {
-		out[genericKeyWorktreeName] = gs.WorktreeName
-	}
+	out := make(map[string]string, 10)
+	gs.PersistCommon(out)
 	return out
 }
 
 func (d GenericDriver) Restore(bag map[string]string, now time.Time) state.DriverState {
 	gs := GenericState{
-		Name:            d.name,
-		Status:          state.StatusIdle,
-		StatusChangedAt: now,
-		IdleThreshold:   d.threshold,
-		LastActivity:    now,
+		Name: d.name,
+		CommonState: CommonState{
+			Status:          state.StatusIdle,
+			StatusChangedAt: now,
+		},
+		IdleThreshold: d.threshold,
+		LastActivity:  now,
 	}
 	if len(bag) == 0 {
 		return gs
 	}
-	if v, ok := bag[genericKeyStatus]; ok && v != "" {
-		if status, ok := state.ParseStatus(v); ok {
-			changedAt, _ := time.Parse(time.RFC3339, bag[genericKeyStatusChangedAt])
-			if changedAt.IsZero() {
-				changedAt = now
-			}
-			gs.Status = status
-			gs.StatusChangedAt = changedAt
-			gs.LastActivity = changedAt
-		}
-	}
-	gs.Summary = bag[genericKeySummary]
-	gs.WorkingDir = bag[genericKeyWorkingDir]
-	gs.WorktreeName = bag[genericKeyWorktreeName]
+	gs.RestoreCommon(bag)
 	return gs
 }
 

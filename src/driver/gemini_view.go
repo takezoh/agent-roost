@@ -1,25 +1,16 @@
 package driver
 
 import (
-	"path/filepath"
-
 	"github.com/takezoh/agent-roost/state"
 	"github.com/takezoh/fishpath-go"
 )
 
 func (d GeminiDriver) view(gs GeminiState) state.View {
-	var tags []state.Tag
-	if t := BranchTag(gs.BranchTag, gs.BranchBG, gs.BranchFG, gs.BranchParentBranch); t.Text != "" {
-		tags = append(tags, t)
-	}
+	tags := CommonTags(gs.CommonState)
 
 	var tabs []state.LogTab
-	if gs.RoostSessionID != "" && d.eventLogDir != "" {
-		tabs = append(tabs, state.LogTab{
-			Label: "EVENTS",
-			Path:  filepath.Join(d.eventLogDir, gs.RoostSessionID+".log"),
-			Kind:  state.TabKindText,
-		})
+	if tab := EventLogTab(gs.CommonState, d.eventLogDir); tab != nil {
+		tabs = append(tabs, *tab)
 	}
 
 	return state.View{

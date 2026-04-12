@@ -1,25 +1,16 @@
 package driver
 
 import (
-	"path/filepath"
-
 	"github.com/takezoh/agent-roost/state"
 	"github.com/takezoh/fishpath-go"
 )
 
 func (d CodexDriver) view(cs CodexState) state.View {
-	var tags []state.Tag
-	if t := BranchTag(cs.BranchTag, cs.BranchBG, cs.BranchFG, cs.BranchParentBranch); t.Text != "" {
-		tags = append(tags, t)
-	}
+	tags := CommonTags(cs.CommonState)
 
 	var tabs []state.LogTab
-	if cs.RoostSessionID != "" && d.eventLogDir != "" {
-		tabs = append(tabs, state.LogTab{
-			Label: "EVENTS",
-			Path:  filepath.Join(d.eventLogDir, cs.RoostSessionID+".log"),
-			Kind:  state.TabKindText,
-		})
+	if tab := EventLogTab(cs.CommonState, d.eventLogDir); tab != nil {
+		tabs = append(tabs, *tab)
 	}
 
 	return state.View{

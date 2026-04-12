@@ -16,14 +16,6 @@ func (hp codexHookPayload) toolInputString(key string) string {
 	return v
 }
 
-func previewText(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= codexPromptPreviewMaxLength {
-		return s
-	}
-	return s[:codexPromptPreviewMaxLength-3] + "..."
-}
-
 func (hp codexHookPayload) formatLog() string {
 	name := hp.HookEventName
 	switch hp.HookEventName {

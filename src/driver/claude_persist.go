@@ -17,51 +17,9 @@ func (ClaudeDriver) Persist(s state.DriverState) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, 10)
-	if cs.RoostSessionID != "" {
-		out[claudeKeyRoostSessionID] = cs.RoostSessionID
-	}
+	cs.PersistCommon(out)
 	if cs.ClaudeSessionID != "" {
 		out[claudeKeyClaudeSessionID] = cs.ClaudeSessionID
-	}
-	if cs.WorkingDir != "" {
-		out[claudeKeyWorkingDir] = cs.WorkingDir
-	}
-	if cs.TranscriptPath != "" {
-		out[claudeKeyTranscriptPath] = cs.TranscriptPath
-	}
-	out[claudeKeyStatus] = cs.Status.String()
-	if !cs.StatusChangedAt.IsZero() {
-		out[claudeKeyStatusChangedAt] = cs.StatusChangedAt.UTC().Format(time.RFC3339)
-	}
-	if cs.BranchTag != "" {
-		out[claudeKeyBranchTag] = cs.BranchTag
-	}
-	if cs.BranchBG != "" {
-		out[claudeKeyBranchBG] = cs.BranchBG
-	}
-	if cs.BranchFG != "" {
-		out[claudeKeyBranchFG] = cs.BranchFG
-	}
-	if cs.BranchTarget != "" {
-		out[claudeKeyBranchTarget] = cs.BranchTarget
-	}
-	if !cs.BranchAt.IsZero() {
-		out[claudeKeyBranchAt] = cs.BranchAt.UTC().Format(time.RFC3339)
-	}
-	if cs.BranchIsWorktree {
-		out[claudeKeyBranchIsWorktree] = "1"
-	}
-	if cs.BranchParentBranch != "" {
-		out[claudeKeyBranchParentBranch] = cs.BranchParentBranch
-	}
-	if cs.Summary != "" {
-		out[claudeKeySummary] = cs.Summary
-	}
-	if cs.Title != "" {
-		out[claudeKeyTitle] = cs.Title
-	}
-	if cs.LastPrompt != "" {
-		out[claudeKeyLastPrompt] = cs.LastPrompt
 	}
 	return out
 }
@@ -70,39 +28,15 @@ func (ClaudeDriver) Persist(s state.DriverState) map[string]string {
 // produce a fresh state stamped with `now`.
 func (d ClaudeDriver) Restore(bag map[string]string, now time.Time) state.DriverState {
 	cs := ClaudeState{
-		Status:          state.StatusIdle,
-		StatusChangedAt: now,
+		CommonState: CommonState{
+			Status:          state.StatusIdle,
+			StatusChangedAt: now,
+		},
 	}
 	if len(bag) == 0 {
 		return cs
 	}
-	cs.RoostSessionID = bag[claudeKeyRoostSessionID]
+	cs.RestoreCommon(bag)
 	cs.ClaudeSessionID = bag[claudeKeyClaudeSessionID]
-	cs.WorkingDir = bag[claudeKeyWorkingDir]
-	cs.TranscriptPath = bag[claudeKeyTranscriptPath]
-	if v := bag[claudeKeyStatus]; v != "" {
-		if status, ok := state.ParseStatus(v); ok {
-			cs.Status = status
-		}
-	}
-	if v := bag[claudeKeyStatusChangedAt]; v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			cs.StatusChangedAt = t
-		}
-	}
-	cs.BranchTag = bag[claudeKeyBranchTag]
-	cs.BranchBG = bag[claudeKeyBranchBG]
-	cs.BranchFG = bag[claudeKeyBranchFG]
-	cs.BranchTarget = bag[claudeKeyBranchTarget]
-	if v := bag[claudeKeyBranchAt]; v != "" {
-		if t, err := time.Parse(time.RFC3339, v); err == nil {
-			cs.BranchAt = t
-		}
-	}
-	cs.BranchIsWorktree = bag[claudeKeyBranchIsWorktree] == "1"
-	cs.BranchParentBranch = bag[claudeKeyBranchParentBranch]
-	cs.Summary = bag[claudeKeySummary]
-	cs.Title = bag[claudeKeyTitle]
-	cs.LastPrompt = bag[claudeKeyLastPrompt]
 	return cs
 }

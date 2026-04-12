@@ -152,17 +152,17 @@ func TestGenericPersistRoundTrip(t *testing.T) {
 	s.WorkingDir = "/repo/.roost/worktrees/alpha-beta"
 	s.WorktreeName = "alpha-beta"
 	bag := d.Persist(s)
-	if bag[genericKeyStatus] != "waiting" {
-		t.Errorf("persisted status = %q, want waiting", bag[genericKeyStatus])
+	if bag[keyStatus] != "waiting" {
+		t.Errorf("persisted status = %q, want waiting", bag[keyStatus])
 	}
-	if bag[genericKeyStatusChangedAt] == "" {
+	if bag[keyStatusChangedAt] == "" {
 		t.Error("persisted changed_at should not be empty")
 	}
-	if bag[genericKeySummary] != "summary text" {
-		t.Errorf("persisted summary = %q, want summary text", bag[genericKeySummary])
+	if bag[keySummary] != "summary text" {
+		t.Errorf("persisted summary = %q, want summary text", bag[keySummary])
 	}
-	if bag[genericKeyWorkingDir] != "/repo/.roost/worktrees/alpha-beta" {
-		t.Errorf("persisted working dir = %q", bag[genericKeyWorkingDir])
+	if bag[keyWorkingDir] != "/repo/.roost/worktrees/alpha-beta" {
+		t.Errorf("persisted working dir = %q", bag[keyWorkingDir])
 	}
 	restored := d.Restore(bag, time.Now()).(GenericState)
 	if restored.Status != state.StatusWaiting {

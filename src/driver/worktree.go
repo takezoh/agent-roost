@@ -98,3 +98,36 @@ func isManagedWorktreePath(path string) bool {
 	grand := filepath.Base(filepath.Dir(filepath.Dir(clean)))
 	return parent == "worktrees" && grand == ".roost"
 }
+
+// CommonPrepareCreate handles the shared logic for preparing a worktree-enabled session.
+func CommonPrepareCreate(c *CommonState, project, command string, flags ...string) (state.CreatePlan, error) {
+	plan, name, err := managedWorktreePlan(project, command, flags...)
+	if err != nil {
+		return state.CreatePlan{}, err
+	}
+	if name != "" {
+		c.WorktreeName = name
+	}
+	return plan, nil
+}
+
+// CommonCompleteCreate handles the shared logic for completing a worktree-enabled session creation.
+func CommonCompleteCreate(c *CommonState, command string, result any, err error, flags ...string) (state.CreateLaunch, error) {
+	if err != nil {
+		return state.CreateLaunch{}, err
+	}
+	r, ok := result.(WorktreeSetupResult)
+	if !ok || r.WorkingDir == "" {
+		return state.CreateLaunch{}, fmt.Errorf("worktree setup did not return a working directory")
+	}
+	c.WorkingDir = r.WorkingDir
+	if r.Name != "" {
+		c.WorktreeName = r.Name
+	}
+	_, stripped := parseWorktreeFlags(command, flags...)
+	return state.CreateLaunch{
+		Command:  stripped,
+		StartDir: r.WorkingDir,
+	}, nil
+}
+
