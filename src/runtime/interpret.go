@@ -82,6 +82,7 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 	case state.EffUnregisterPane:
 		if _, ok := r.sessionPanes[e.SessionID]; ok {
 			delete(r.sessionPanes, e.SessionID)
+			delete(r.parkedPaneSnapshot, e.SessionID)
 			r.cfg.Tmux.UnsetEnv(sessionPaneEnvKey(e.SessionID))
 		}
 

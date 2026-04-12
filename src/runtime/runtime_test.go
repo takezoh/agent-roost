@@ -457,10 +457,10 @@ func TestActivateSessionInspectsPanesAroundJoin(t *testing.T) {
 	if tmux.resizeCalls == 0 {
 		t.Fatal("expected parked window to be resized to main pane size")
 	}
-	if len(tmux.inspectCalls) != 3 {
-		t.Fatalf("inspectCalls = %d, want 3", len(tmux.inspectCalls))
+	if len(tmux.inspectCalls) != 5 {
+		t.Fatalf("inspectCalls = %d, want 5", len(tmux.inspectCalls))
 	}
-	wantTargets := []string{"roost-test:0.0", "%3", "roost-test:0.0"}
+	wantTargets := []string{"roost-test:0.0", "%3", "%1", "%1", "roost-test:0.0"}
 	for i, want := range wantTargets {
 		if tmux.inspectCalls[i] != want {
 			t.Fatalf("inspectCalls[%d] = %q, want %q", i, tmux.inspectCalls[i], want)
@@ -696,5 +696,32 @@ func TestRuntimeEnqueueDoesNotBlock(t *testing.T) {
 	// Channel buffer is 256 so 100 fits without dropping.
 	if n.Load() != 100 {
 		t.Errorf("enqueued %d, want 100", n.Load())
+	}
+}
+
+func TestMonitorParkedPanesTracksInactiveOnly(t *testing.T) {
+	tmux := newFakeTmux()
+	tmux.inspectSnapshot = PaneSnapshot{
+		Target:         "%2",
+		CurrentCommand: "node",
+		CursorX:        "0",
+		CursorY:        "35",
+		ContentTail:    "gemini",
+	}
+	r := New(Config{
+		SessionName: "roost-test",
+		Tmux:        tmux,
+	})
+	r.sessionPanes["active"] = "%1"
+	r.sessionPanes["idle"] = "%2"
+	r.activeSession = "active"
+
+	r.monitorParkedPanes()
+
+	if _, ok := r.parkedPaneSnapshot["active"]; ok {
+		t.Fatal("active session should not be tracked as parked")
+	}
+	if _, ok := r.parkedPaneSnapshot["idle"]; !ok {
+		t.Fatal("inactive session should be tracked as parked")
 	}
 }

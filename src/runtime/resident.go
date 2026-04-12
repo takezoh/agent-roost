@@ -47,6 +47,7 @@ func (r *Runtime) parkSessionFromMain(sessID state.SessionID) bool {
 	if paneID == "" {
 		return false
 	}
+	r.logPaneSnapshot("park-session", "before-break", paneID)
 	size := r.mainPaneSize()
 	target, err := r.cfg.Tmux.BreakPaneToNewWindow(paneID, windowNameForSession(r.state.Sessions, sessID))
 	if err != nil {
@@ -54,6 +55,7 @@ func (r *Runtime) parkSessionFromMain(sessID state.SessionID) bool {
 		return false
 	}
 	r.resizeWindowToMain(target, size)
+	r.logPaneSnapshot("park-session", "after-break", paneID)
 	r.activeSession = ""
 	return true
 }
@@ -63,6 +65,7 @@ func (r *Runtime) parkMainFromMain() bool {
 	if !ok {
 		return false
 	}
+	r.logPaneSnapshot("park-main", "before-break", paneID)
 	size := r.mainPaneSize()
 	target, err := r.cfg.Tmux.BreakPaneToNewWindow(paneID, "main")
 	if err != nil {
@@ -70,6 +73,7 @@ func (r *Runtime) parkMainFromMain() bool {
 		return false
 	}
 	r.resizeWindowToMain(target, size)
+	r.logPaneSnapshot("park-main", "after-break", paneID)
 	return true
 }
 

@@ -3,6 +3,8 @@ package runtime
 import (
 	"log/slog"
 	"strings"
+
+	"github.com/takezoh/agent-roost/state"
 )
 
 const paneSnapshotLines = 40
@@ -42,4 +44,55 @@ func compactPaneTail(s string) string {
 		lines[i] = strings.TrimSpace(lines[i])
 	}
 	return strings.Join(lines, " | ")
+}
+
+func (r *Runtime) monitorParkedPanes() {
+	for sessID, target := range r.sessionPanes {
+		if sessID == r.activeSession || target == "" {
+			continue
+		}
+		snap, err := r.cfg.Tmux.InspectPane(target, paneSnapshotLines)
+		if err != nil {
+			continue
+		}
+		sig := parkedPaneSignature(snap)
+		if r.parkedPaneSnapshot[sessID] == sig {
+			continue
+		}
+		r.parkedPaneSnapshot[sessID] = sig
+		logParkedPaneSnapshot(sessID, snap)
+	}
+}
+
+func parkedPaneSignature(snap PaneSnapshot) string {
+	return strings.Join([]string{
+		snap.Target,
+		boolString(snap.Dead),
+		boolString(snap.InMode),
+		snap.CurrentCommand,
+		snap.CursorX,
+		snap.CursorY,
+		compactPaneTail(snap.ContentTail),
+	}, "\x1f")
+}
+
+func boolString(v bool) string {
+	if v {
+		return "1"
+	}
+	return "0"
+}
+
+func logParkedPaneSnapshot(sessID state.SessionID, snap PaneSnapshot) {
+	slog.Debug("runtime: pane snapshot",
+		"reason", "park-watch",
+		"stage", "tick",
+		"session", sessID,
+		"target", snap.Target,
+		"dead", snap.Dead,
+		"in_mode", snap.InMode,
+		"command", snap.CurrentCommand,
+		"cursor_x", snap.CursorX,
+		"cursor_y", snap.CursorY,
+		"tail", compactPaneTail(snap.ContentTail))
 }

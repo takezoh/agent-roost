@@ -51,6 +51,8 @@ type Runtime struct {
 	activeSession state.SessionID
 	// mainPaneID is the pane id of the main TUI pane while the runtime is alive.
 	mainPaneID string
+	// parkedPaneSnapshot stores the last logged parked-pane signature per session.
+	parkedPaneSnapshot map[state.SessionID]string
 
 	eventCh    chan state.Event   // public events from any goroutine
 	internalCh chan internalEvent // runtime-internal lifecycle (conn open/close)
@@ -93,13 +95,14 @@ func New(cfg Config) *Runtime {
 		cfg.Watcher = noopWatcher{}
 	}
 	r := &Runtime{
-		cfg:          cfg,
-		state:        state.New(),
-		sessionPanes: map[state.SessionID]string{},
-		eventCh:      make(chan state.Event, 256),
-		internalCh:   make(chan internalEvent, 64),
-		conns:        map[state.ConnID]*ipcConn{},
-		done:         make(chan struct{}),
+		cfg:                cfg,
+		state:              state.New(),
+		sessionPanes:       map[state.SessionID]string{},
+		parkedPaneSnapshot: map[state.SessionID]string{},
+		eventCh:            make(chan state.Event, 256),
+		internalCh:         make(chan internalEvent, 64),
+		conns:              map[state.ConnID]*ipcConn{},
+		done:               make(chan struct{}),
 	}
 	if cfg.Pool != nil {
 		r.workers = cfg.Pool
@@ -162,6 +165,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 			r.dispatchInternal(iev)
 
 		case t := <-ticker.C:
+			r.monitorParkedPanes()
 			r.dispatch(state.EvTick{Now: t, PaneTargets: r.snapshotPaneTargets()})
 
 		case res := <-r.workers.Results():
