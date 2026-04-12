@@ -46,10 +46,6 @@ func geminiInfoExtras(gs GeminiState) []state.InfoLine {
 	}
 	add("Gemini Session", gs.GeminiSessionID)
 	add("Working Dir", gs.WorkingDir)
-	if gs.ManagedWorkingDir != "" {
-		add("Managed Worktree", gs.ManagedWorkingDir)
-		add("Worktree Name", gs.WorktreeName)
-	}
 	if gs.BranchIsWorktree {
 		add("Parent Branch", gs.BranchParentBranch)
 	}

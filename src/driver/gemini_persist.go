@@ -23,14 +23,8 @@ func (GeminiDriver) Persist(s state.DriverState) map[string]string {
 	if gs.WorkingDir != "" {
 		out[geminiKeyWorkingDir] = gs.WorkingDir
 	}
-	if gs.ManagedWorkingDir != "" {
-		out[geminiKeyManagedWorkingDir] = gs.ManagedWorkingDir
-	}
 	if gs.TranscriptPath != "" {
 		out[geminiKeyTranscriptPath] = gs.TranscriptPath
-	}
-	if gs.WorktreeName != "" {
-		out[geminiKeyWorktreeName] = gs.WorktreeName
 	}
 	if !gs.StatusChangedAt.IsZero() {
 		out[geminiKeyStatusChangedAt] = gs.StatusChangedAt.UTC().Format(time.RFC3339)
@@ -82,10 +76,9 @@ func (d GeminiDriver) Restore(bag map[string]string, now time.Time) state.Driver
 	gs.RoostSessionID = bag[geminiKeyRoostSessionID]
 	gs.GeminiSessionID = bag[geminiKeyGeminiSessionID]
 	gs.WorkingDir = bag[geminiKeyWorkingDir]
-	gs.ManagedWorkingDir = bag[geminiKeyManagedWorkingDir]
 	gs.TranscriptPath = bag[geminiKeyTranscriptPath]
-	gs.WorktreeName = bag[geminiKeyWorktreeName]
 	if v := bag[geminiKeyStatus]; v != "" {
+
 		if st, ok := state.ParseStatus(v); ok {
 			gs.Status = st
 		}

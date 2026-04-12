@@ -34,12 +34,10 @@ const (
 type GeminiState struct {
 	state.DriverStateBase
 
-	RoostSessionID    string
-	GeminiSessionID   string
-	WorkingDir        string
-	ManagedWorkingDir string
-	TranscriptPath    string
-	WorktreeName      string
+	RoostSessionID  string
+	GeminiSessionID string
+	WorkingDir      string
+	TranscriptPath  string
 
 	Status          state.Status
 	StatusChangedAt time.Time
@@ -89,22 +87,33 @@ func (d GeminiDriver) NewState(now time.Time) state.DriverState {
 
 func (d GeminiDriver) SpawnCommand(s state.DriverState, baseCommand string) string {
 	gs, ok := s.(GeminiState)
-	if !ok {
+	if !ok || gs.GeminiSessionID == "" || !isAlphanumHyphen(gs.GeminiSessionID) {
 		return baseCommand
 	}
-	req, stripped := parseGeminiWorktree(baseCommand)
-	fields := strings.Fields(stripped)
-	if len(fields) == 0 || fields[0] != GeminiDriverName {
+	if strings.Contains(baseCommand, "--resume") || strings.Contains(baseCommand, " -r") {
 		return baseCommand
 	}
-	cmd := strings.TrimSpace(baseCommand)
-	if req.Enabled || gs.ManagedWorkingDir != "" {
-		cmd = stripped
+	stripped := stripGeminiWorktreeFlag(baseCommand)
+	return strings.TrimSpace(stripped) + " --resume " + gs.GeminiSessionID
+}
+
+func stripGeminiWorktreeFlag(command string) string {
+	parts := strings.Fields(command)
+	out := make([]string, 0, len(parts))
+	for i := 0; i < len(parts); i++ {
+		p := parts[i]
+		if p == "--worktree" || p == "--workspace" {
+			if i+1 < len(parts) && !strings.HasPrefix(parts[i+1], "-") {
+				i++
+			}
+			continue
+		}
+		if strings.HasPrefix(p, "--worktree=") || strings.HasPrefix(p, "--workspace=") {
+			continue
+		}
+		out = append(out, p)
 	}
-	if gs.GeminiSessionID == "" || !isAlphanumHyphen(gs.GeminiSessionID) || strings.Contains(cmd, "--resume") || strings.Contains(cmd, " -r") {
-		return cmd
-	}
-	return cmd + " --resume " + gs.GeminiSessionID
+	return strings.Join(out, " ")
 }
 
 func (d GeminiDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {
