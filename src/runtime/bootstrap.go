@@ -120,6 +120,7 @@ func (r *Runtime) DeactivateBeforeExit() {
 // Used during cold-start (the tmux session was just created and
 // contains no roost windows yet). Populates r.sessionPanes.
 func (r *Runtime) RecreateAll() error {
+	size := r.mainPaneSize()
 	var dead []state.SessionID
 	for id, sess := range r.state.Sessions {
 		drv := state.GetDriver(sess.Command)
@@ -138,7 +139,7 @@ func (r *Runtime) RecreateAll() error {
 		if isShellCommand(sess.Command) {
 			tmuxCmd = ""
 		}
-		_, paneID, err := r.cfg.Tmux.SpawnWindow(
+		target, paneID, err := r.cfg.Tmux.SpawnWindow(
 			name, tmuxCmd, startDir,
 			map[string]string{"ROOST_SESSION_ID": string(id)},
 		)
@@ -147,6 +148,7 @@ func (r *Runtime) RecreateAll() error {
 			dead = append(dead, id)
 			continue
 		}
+		r.resizeWindowToMain(r.cfg.SessionName+":"+target, size)
 		r.sessionPanes[id] = paneID
 		envKey := sessionPaneEnvKey(id)
 		if err := r.cfg.Tmux.SetEnv(envKey, paneID); err != nil {

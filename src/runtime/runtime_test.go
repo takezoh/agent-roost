@@ -41,6 +41,10 @@ type fakeTmuxBackend struct {
 	joinCalls        int
 	joinSources      []string
 	joinTargets      []string
+	resizeCalls      int
+	resizeTargets    []string
+	resizeWidths     []int
+	resizeHeights    []int
 	respawnCmds      []string
 	statusLines      []string
 	envs             map[string]string
@@ -54,6 +58,8 @@ type fakeTmuxBackend struct {
 	breakNewWID      string
 	spawnErr         error
 	envOutput        string
+	paneWidth        int
+	paneHeight       int
 }
 
 func newFakeTmux() *fakeTmuxBackend {
@@ -63,6 +69,8 @@ func newFakeTmux() *fakeTmuxBackend {
 		spawnWID:    "1",
 		spawnPane:   "%1",
 		breakNewWID: "9",
+		paneWidth:   120,
+		paneHeight:  40,
 	}
 }
 
@@ -124,7 +132,21 @@ func (f *fakeTmuxBackend) PaneID(target string) (string, error) {
 	}
 	return "%main", nil
 }
+func (f *fakeTmuxBackend) PaneSize(string) (int, int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.paneWidth, f.paneHeight, nil
+}
 func (f *fakeTmuxBackend) SelectPane(string) error { return nil }
+func (f *fakeTmuxBackend) ResizeWindow(target string, width, height int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.resizeCalls++
+	f.resizeTargets = append(f.resizeTargets, target)
+	f.resizeWidths = append(f.resizeWidths, width)
+	f.resizeHeights = append(f.resizeHeights, height)
+	return nil
+}
 func (f *fakeTmuxBackend) SetStatusLine(line string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -338,6 +360,9 @@ func TestRuntimeCreateSessionFlow(t *testing.T) {
 	if tmux.spawnCalls != 1 {
 		t.Errorf("spawnCalls = %d, want 1", tmux.spawnCalls)
 	}
+	if tmux.resizeCalls == 0 {
+		t.Error("expected spawned window to be resized to main pane size")
+	}
 	persist.mu.Lock()
 	defer persist.mu.Unlock()
 	if persist.saves < 1 {
@@ -428,6 +453,9 @@ func TestActivateSessionInspectsPanesAroundJoin(t *testing.T) {
 	}
 	if tmux.joinCalls != 1 {
 		t.Fatalf("joinCalls = %d, want 1", tmux.joinCalls)
+	}
+	if tmux.resizeCalls == 0 {
+		t.Fatal("expected parked window to be resized to main pane size")
 	}
 	if len(tmux.inspectCalls) != 3 {
 		t.Fatalf("inspectCalls = %d, want 3", len(tmux.inspectCalls))

@@ -37,9 +37,13 @@ type TmuxBackend interface {
 
 	// PaneID returns the pane id (e.g. "%5") for the target pane.
 	PaneID(target string) (string, error)
+	// PaneSize returns the visible size of the target pane.
+	PaneSize(target string) (width, height int, err error)
 
 	// SelectPane focuses a tmux pane.
 	SelectPane(target string) error
+	// ResizeWindow resizes the tmux window containing the target.
+	ResizeWindow(target string, width, height int) error
 
 	// SetStatusLine writes the tmux status-left.
 	SetStatusLine(line string) error
@@ -148,7 +152,9 @@ func (noopTmux) BreakPaneToNewWindow(string, string) (string, error) {
 }
 func (noopTmux) JoinPane(string, string, bool, int) error { return nil }
 func (noopTmux) PaneID(string) (string, error)            { return "", nil }
+func (noopTmux) PaneSize(string) (int, int, error)        { return 0, 0, nil }
 func (noopTmux) SelectPane(string) error                  { return nil }
+func (noopTmux) ResizeWindow(string, int, int) error      { return nil }
 func (noopTmux) SetStatusLine(string) error               { return nil }
 func (noopTmux) SetEnv(string, string) error              { return nil }
 func (noopTmux) UnsetEnv(string) error                    { return nil }

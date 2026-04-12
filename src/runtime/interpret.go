@@ -175,7 +175,8 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	if isShellCommand(e.Command) {
 		spawnCmd = ""
 	}
-	_, paneID, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, e.StartDir, e.Env)
+	size := r.mainPaneSize()
+	target, paneID, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, e.StartDir, e.Env)
 	if err != nil {
 		r.Enqueue(state.EvTmuxSpawnFailed{
 			SessionID:  e.SessionID,
@@ -185,6 +186,7 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 		})
 		return
 	}
+	r.resizeWindowToMain(r.cfg.SessionName+":"+target, size)
 	r.Enqueue(state.EvTmuxPaneSpawned{
 		SessionID:  e.SessionID,
 		PaneTarget: paneID,

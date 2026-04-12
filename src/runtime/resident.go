@@ -47,10 +47,13 @@ func (r *Runtime) parkSessionFromMain(sessID state.SessionID) bool {
 	if paneID == "" {
 		return false
 	}
-	if _, err := r.cfg.Tmux.BreakPaneToNewWindow(paneID, windowNameForSession(r.state.Sessions, sessID)); err != nil {
+	size := r.mainPaneSize()
+	target, err := r.cfg.Tmux.BreakPaneToNewWindow(paneID, windowNameForSession(r.state.Sessions, sessID))
+	if err != nil {
 		slog.Warn("runtime: break-pane session failed", "session", sessID, "err", err)
 		return false
 	}
+	r.resizeWindowToMain(target, size)
 	r.activeSession = ""
 	return true
 }
@@ -60,10 +63,13 @@ func (r *Runtime) parkMainFromMain() bool {
 	if !ok {
 		return false
 	}
-	if _, err := r.cfg.Tmux.BreakPaneToNewWindow(paneID, "main"); err != nil {
+	size := r.mainPaneSize()
+	target, err := r.cfg.Tmux.BreakPaneToNewWindow(paneID, "main")
+	if err != nil {
 		slog.Warn("runtime: break-pane main failed", "err", err)
 		return false
 	}
+	r.resizeWindowToMain(target, size)
 	return true
 }
 
@@ -120,4 +126,27 @@ func windowNameForSession(sessions map[state.SessionID]state.Session, sessID sta
 
 func sessionPaneEnvKey(sessID state.SessionID) string {
 	return "ROOST_SESSION_" + string(sessID)
+}
+
+type paneSize struct {
+	width  int
+	height int
+}
+
+func (r *Runtime) mainPaneSize() paneSize {
+	width, height, err := r.cfg.Tmux.PaneSize(r.mainPaneTarget())
+	if err != nil {
+		slog.Debug("runtime: pane-size lookup failed", "target", r.mainPaneTarget(), "err", err)
+		return paneSize{}
+	}
+	return paneSize{width: width, height: height}
+}
+
+func (r *Runtime) resizeWindowToMain(target string, size paneSize) {
+	if size.width == 0 || size.height == 0 {
+		return
+	}
+	if err := r.cfg.Tmux.ResizeWindow(target, size.width, size.height); err != nil {
+		slog.Debug("runtime: resize-window failed", "target", target, "width", size.width, "height", size.height, "err", err)
+	}
 }

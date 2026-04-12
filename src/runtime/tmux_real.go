@@ -3,6 +3,7 @@ package runtime
 import (
 	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/takezoh/agent-roost/lib/tmux"
@@ -88,8 +89,40 @@ func (b *RealTmuxBackend) PaneID(target string) (string, error) {
 	return b.client.DisplayMessage(target, "#{pane_id}")
 }
 
+func (b *RealTmuxBackend) PaneSize(target string) (int, int, error) {
+	out, err := b.client.DisplayMessage(target, "#{pane_width}\t#{pane_height}")
+	if err != nil {
+		return 0, 0, err
+	}
+	parts := strings.SplitN(out, "\t", 2)
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("unexpected pane size output: %q", out)
+	}
+	width, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, err
+	}
+	height, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, err
+	}
+	return width, height, nil
+}
+
 func (b *RealTmuxBackend) SelectPane(target string) error {
 	_, err := b.client.Run("select-pane", "-t", target)
+	return err
+}
+
+func (b *RealTmuxBackend) ResizeWindow(target string, width, height int) error {
+	args := []string{"resize-window", "-t", target}
+	if width > 0 {
+		args = append(args, "-x", strconv.Itoa(width))
+	}
+	if height > 0 {
+		args = append(args, "-y", strconv.Itoa(height))
+	}
+	_, err := b.client.Run(args...)
 	return err
 }
 
