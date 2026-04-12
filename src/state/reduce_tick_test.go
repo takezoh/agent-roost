@@ -119,8 +119,8 @@ func TestTmuxWindowVanishedActiveSessionEmitsDeactivateAndRespawn(t *testing.T) 
 	if _, ok := findEff[EffDeactivateSession](effs); !ok {
 		t.Error("expected EffDeactivateSession when active session's window vanishes")
 	}
-	if _, ok := findEff[EffRespawnPane](effs); !ok {
-		t.Error("expected EffRespawnPane to restore main TUI when active session's window vanishes")
+	if _, ok := findEff[EffRespawnPane](effs); ok {
+		t.Error("should not respawn pane 0.0 directly after active session window vanishes")
 	}
 }
 

@@ -60,6 +60,22 @@ func (b *RealTmuxBackend) RunChain(ops ...[]string) error {
 	return b.client.RunChain(ops...)
 }
 
+func (b *RealTmuxBackend) BreakPane(srcPane, dstWindow string) error {
+	target := ""
+	if dstWindow != "" {
+		target = b.sessionName + ":" + dstWindow
+	}
+	return b.client.BreakPane(srcPane, target)
+}
+
+func (b *RealTmuxBackend) BreakPaneToNewWindow(srcPane, name string) (string, error) {
+	return b.client.BreakPaneToNewWindow(srcPane, name)
+}
+
+func (b *RealTmuxBackend) JoinPane(srcPane, dstPane string, before bool, sizePct int) error {
+	return b.client.JoinPane(srcPane, dstPane, before, sizePct)
+}
+
 func (b *RealTmuxBackend) SelectPane(target string) error {
 	_, err := b.client.Run("select-pane", "-t", target)
 	return err

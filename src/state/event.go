@@ -102,8 +102,8 @@ type EvJobResult struct {
 // EvPaneDied is fired when the runtime detects via tmux display-message
 // that a pane is dead. For control panes (0.1 / 0.2) the reducer
 // respawns them. For pane 0.0 (active agent), the reducer evicts the
-// owning session. OwnerSessionID is set by the runtime (currently
-// the active session) when it detects pane 0.0 is dead.
+// owning session. OwnerSessionID is set by the runtime when it detects
+// pane 0.0 is dead.
 type EvPaneDied struct {
 	Pane           string
 	OwnerSessionID SessionID // set for pane 0.0 dead detection

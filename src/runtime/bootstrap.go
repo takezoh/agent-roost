@@ -47,8 +47,9 @@ func (r *Runtime) LoadSnapshot() error {
 	return nil
 }
 
-// LoadWindowMap reads the ROOST_W_* tmux session environment variables
-// and populates r.windowMap. Called on warm start after LoadSnapshot.
+// LoadWindowMap reads the ROOST_* tmux session environment variables
+// and populates r.windowMap / r.mainWindow. Called on warm start after
+// LoadSnapshot.
 func (r *Runtime) LoadWindowMap() error {
 	type envLister interface {
 		ShowEnvironment() (string, error)
@@ -63,16 +64,26 @@ func (r *Runtime) LoadWindowMap() error {
 	}
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "ROOST_W_") {
-			continue
-		}
 		parts := strings.SplitN(line, "=", 2)
 		if len(parts) != 2 {
 			continue
 		}
-		idx := strings.TrimPrefix(parts[0], "ROOST_W_")
-		sessID := state.SessionID(parts[1])
-		r.windowMap[sessID] = idx
+		switch parts[0] {
+		case mainWindowEnvKey():
+			r.mainWindow = parts[1]
+		case activeSessionEnvKey:
+			sessID := state.SessionID(parts[1])
+			r.activeSession = sessID
+			r.state.ActiveSession = sessID
+			r.windowMap[sessID] = "0"
+		default:
+			if !strings.HasPrefix(parts[0], "ROOST_W_") {
+				continue
+			}
+			idx := strings.TrimPrefix(parts[0], "ROOST_W_")
+			sessID := state.SessionID(parts[1])
+			r.windowMap[sessID] = idx
+		}
 	}
 	return nil
 }
@@ -92,8 +103,15 @@ func (r *Runtime) ReconcileOrphans() {
 	// Find windowMap entries without a matching session (stale env).
 	for sessID, idx := range r.windowMap {
 		if _, ok := r.state.Sessions[sessID]; !ok {
-			slog.Warn("bootstrap: removing stale window env", "session", sessID, "index", idx)
 			delete(r.windowMap, sessID)
+			if idx == "0" {
+				slog.Warn("bootstrap: removing stale active session env", "session", sessID)
+				r.activeSession = ""
+				r.state.ActiveSession = ""
+				_ = r.cfg.Tmux.UnsetEnv(activeSessionEnvKey)
+				continue
+			}
+			slog.Warn("bootstrap: removing stale window env", "session", sessID, "index", idx)
 			_ = r.cfg.Tmux.UnsetEnv(windowEnvKey(idx))
 		}
 	}
@@ -105,7 +123,7 @@ func (r *Runtime) ReconcileOrphans() {
 	}
 }
 
-// DeactivateBeforeExit swaps the active session back to its own window
+// DeactivateBeforeExit moves the active session back to its own window
 // so pane 0.0 shows the main TUI when the coordinator re-attaches.
 // Called immediately before coordinator exits (before cancel()).
 func (r *Runtime) DeactivateBeforeExit() {
@@ -193,4 +211,3 @@ func decodePersistedState(s string) map[string]string {
 	}
 	return bag
 }
-

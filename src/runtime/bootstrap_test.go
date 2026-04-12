@@ -9,7 +9,7 @@ import (
 
 func TestLoadWindowMap_ParsesEnvVars(t *testing.T) {
 	ftmux := newFakeTmux()
-	ftmux.envOutput = "ROOST_W_1=session_abc\nROOST_W_2=session_def\nSOME_OTHER=value\n"
+	ftmux.envOutput = "ROOST_W_MAIN=7\nROOST_W_1=session_abc\nROOST_W_2=session_def\nROOST_ACTIVE_SESSION=session_def\nSOME_OTHER=value\n"
 	r := New(Config{
 		SessionName:  "roost-test",
 		TickInterval: 10 * time.Second,
@@ -24,11 +24,17 @@ func TestLoadWindowMap_ParsesEnvVars(t *testing.T) {
 	if r.windowMap[state.SessionID("session_abc")] != "1" {
 		t.Errorf("session_abc → %q, want 1", r.windowMap[state.SessionID("session_abc")])
 	}
-	if r.windowMap[state.SessionID("session_def")] != "2" {
-		t.Errorf("session_def → %q, want 2", r.windowMap[state.SessionID("session_def")])
+	if r.windowMap[state.SessionID("session_def")] != "0" {
+		t.Errorf("session_def → %q, want 0", r.windowMap[state.SessionID("session_def")])
 	}
 	if _, ok := r.windowMap[state.SessionID("value")]; ok {
 		t.Error("non-ROOST_W_ env should not be parsed")
+	}
+	if r.mainWindow != "7" {
+		t.Errorf("mainWindow = %q, want 7", r.mainWindow)
+	}
+	if r.activeSession != "session_def" {
+		t.Errorf("activeSession = %q, want session_def", r.activeSession)
 	}
 }
 
@@ -98,8 +104,9 @@ func TestDeactivateBeforeExit_SwapsBack(t *testing.T) {
 		Tmux:         ftmux,
 	})
 	r.state.Sessions["s1"] = state.Session{ID: "s1"}
-	r.windowMap["s1"] = "1"
+	r.windowMap["s1"] = "0"
 	r.activeSession = "s1"
+	r.mainWindow = "7"
 
 	r.DeactivateBeforeExit()
 
@@ -108,8 +115,11 @@ func TestDeactivateBeforeExit_SwapsBack(t *testing.T) {
 	}
 	ftmux.mu.Lock()
 	defer ftmux.mu.Unlock()
-	if ftmux.swapCalls != 1 {
-		t.Errorf("swapCalls = %d, want 1", ftmux.swapCalls)
+	if ftmux.breakNewCalls != 1 {
+		t.Errorf("breakNewCalls = %d, want 1", ftmux.breakNewCalls)
+	}
+	if ftmux.joinCalls != 1 {
+		t.Errorf("joinCalls = %d, want 1", ftmux.joinCalls)
 	}
 }
 
@@ -125,7 +135,8 @@ func TestDeactivateBeforeExit_NoActive(t *testing.T) {
 
 	ftmux.mu.Lock()
 	defer ftmux.mu.Unlock()
-	if ftmux.swapCalls != 0 {
-		t.Errorf("swapCalls = %d, want 0", ftmux.swapCalls)
+	if ftmux.breakCalls != 0 || ftmux.breakNewCalls != 0 || ftmux.joinCalls != 0 {
+		t.Errorf("unexpected pane move calls: break=%d breakNew=%d join=%d",
+			ftmux.breakCalls, ftmux.breakNewCalls, ftmux.joinCalls)
 	}
 }

@@ -21,6 +21,35 @@ func (c *Client) SwapPane(src, dst string) error {
 	return err
 }
 
+func (c *Client) BreakPane(src, dstWindow string) error {
+	args := []string{"break-pane", "-d", "-s", src}
+	if dstWindow != "" {
+		args = append(args, "-t", dstWindow)
+	}
+	_, err := c.Run(args...)
+	return err
+}
+
+func (c *Client) BreakPaneToNewWindow(src, name string) (string, error) {
+	args := []string{"break-pane", "-d", "-s", src, "-P", "-F", "#{window_index}"}
+	if name != "" {
+		args = append(args, "-n", name)
+	}
+	return c.Run(args...)
+}
+
+func (c *Client) JoinPane(src, dst string, before bool, sizePct int) error {
+	args := []string{"join-pane", "-d", "-s", src, "-t", dst}
+	if before {
+		args = append(args, "-b")
+	}
+	if sizePct > 0 {
+		args = append(args, "-l", fmt.Sprintf("%d%%", sizePct))
+	}
+	_, err := c.Run(args...)
+	return err
+}
+
 func (c *Client) RespawnPane(target, command string) error {
 	_, err := c.Run("respawn-pane", "-k", "-t", target, command)
 	return err

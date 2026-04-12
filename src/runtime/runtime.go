@@ -23,17 +23,18 @@ import (
 // Config carries the runtime's startup parameters. Backends are
 // injected (interfaces) so tests can swap fakes.
 type Config struct {
-	SessionName  string
-	RoostExe     string
-	DataDir      string
-	TickInterval time.Duration
-	Workers      int
+	SessionName       string
+	RoostExe          string
+	DataDir           string
+	TickInterval      time.Duration
+	Workers           int
+	MainPaneHeightPct int
 
 	Tmux     TmuxBackend
 	Persist  PersistBackend
 	EventLog EventLogBackend
 	Watcher  FSWatcher
-	Pool *worker.Pool
+	Pool     *worker.Pool
 }
 
 // Runtime owns the event loop goroutine and the side-effect backends.
@@ -45,12 +46,13 @@ type Runtime struct {
 	state state.State
 
 	// windowMap maps each SessionID to its tmux window index ("1", "2", ...).
-	// Managed by EffRegisterWindow / EffUnregisterWindow effects; lives in
-	// Runtime (not State) because it is pure tmux runtime topology.
+	// "0" means the session is currently shown in pane 0.0.
 	windowMap map[state.SessionID]string
-	// activeSession is the SessionID currently swapped into pane 0.0, or "".
-	// Kept in Runtime (not State) for the same reason: it's tmux runtime state.
+	// activeSession is the SessionID currently shown in pane 0.0, or "".
 	activeSession state.SessionID
+	// mainWindow is the window index currently holding the parked main TUI.
+	// "0" means the main TUI is visible in pane 0.0.
+	mainWindow string
 
 	eventCh    chan state.Event   // public events from any goroutine
 	internalCh chan internalEvent // runtime-internal lifecycle (conn open/close)
@@ -77,6 +79,9 @@ func New(cfg Config) *Runtime {
 	if cfg.TickInterval <= 0 {
 		cfg.TickInterval = time.Second
 	}
+	if cfg.MainPaneHeightPct <= 0 {
+		cfg.MainPaneHeightPct = 70
+	}
 	if cfg.Tmux == nil {
 		cfg.Tmux = noopTmux{}
 	}
@@ -93,6 +98,7 @@ func New(cfg Config) *Runtime {
 		cfg:        cfg,
 		state:      state.New(),
 		windowMap:  map[state.SessionID]string{},
+		mainWindow: "0",
 		eventCh:    make(chan state.Event, 256),
 		internalCh: make(chan internalEvent, 64),
 		conns:      map[state.ConnID]*ipcConn{},

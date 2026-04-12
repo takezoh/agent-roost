@@ -52,14 +52,15 @@ func runCoordinator() error {
 	pool := worker.NewPool(4)
 
 	rt := runtime.New(runtime.Config{
-		SessionName:  sessionName,
-		RoostExe:     resolveExe(),
-		DataDir:      dataDir,
-		TickInterval: pollInterval,
-		Tmux:         tmuxBackend,
-		Persist:      runtime.NewFilePersist(dataDir),
-		EventLog:     runtime.NewFileEventLog(dataDir),
-		Pool:         pool,
+		SessionName:       sessionName,
+		RoostExe:          resolveExe(),
+		DataDir:           dataDir,
+		TickInterval:      pollInterval,
+		MainPaneHeightPct: cfg.Tmux.PaneRatioVertical,
+		Tmux:              tmuxBackend,
+		Persist:           runtime.NewFilePersist(dataDir),
+		EventLog:          runtime.NewFileEventLog(dataDir),
+		Pool:              pool,
 	})
 
 	rt.SetAliases(cfg.Session.Aliases)

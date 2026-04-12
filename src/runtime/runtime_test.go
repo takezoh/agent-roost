@@ -34,8 +34,13 @@ type fakeTmuxBackend struct {
 	killCalls        int
 	sessionKillCalls int
 	killedWIDs       []string
-	swapCalls        int
-	runChainOps      [][][]string
+	breakCalls       int
+	breakTargets     []string
+	breakNewCalls    int
+	breakNewNames    []string
+	joinCalls        int
+	joinSources      []string
+	joinTargets      []string
 	respawnCmds      []string
 	statusLines      []string
 	envs             map[string]string
@@ -46,6 +51,7 @@ type fakeTmuxBackend struct {
 	inspectSnapshot  PaneSnapshot
 	spawnWID         string
 	spawnPane        string
+	breakNewWID      string
 	spawnErr         error
 	envOutput        string   // returned by ShowEnvironment
 	winIndexes       []string // returned by ListWindowIndexes
@@ -53,10 +59,11 @@ type fakeTmuxBackend struct {
 
 func newFakeTmux() *fakeTmuxBackend {
 	return &fakeTmuxBackend{
-		alive:     map[string]bool{},
-		envs:      map[string]string{},
-		spawnWID:  "1",
-		spawnPane: "%1",
+		alive:       map[string]bool{},
+		envs:        map[string]string{},
+		spawnWID:    "1",
+		spawnPane:   "%1",
+		breakNewWID: "9",
 	}
 }
 
@@ -92,10 +99,28 @@ func (f *fakeTmuxBackend) KillWindow(wid string) error {
 }
 
 func (f *fakeTmuxBackend) RunChain(ops ...[]string) error {
+	return nil
+}
+func (f *fakeTmuxBackend) BreakPane(srcPane, dstWindow string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.swapCalls++
-	f.runChainOps = append(f.runChainOps, ops)
+	f.breakCalls++
+	f.breakTargets = append(f.breakTargets, dstWindow)
+	return nil
+}
+func (f *fakeTmuxBackend) BreakPaneToNewWindow(srcPane, name string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.breakNewCalls++
+	f.breakNewNames = append(f.breakNewNames, name)
+	return f.breakNewWID, nil
+}
+func (f *fakeTmuxBackend) JoinPane(srcPane, dstPane string, before bool, sizePct int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.joinCalls++
+	f.joinSources = append(f.joinSources, srcPane)
+	f.joinTargets = append(f.joinTargets, dstPane)
 	return nil
 }
 func (f *fakeTmuxBackend) SelectPane(string) error { return nil }
@@ -381,11 +406,12 @@ func TestRuntimeRespawnsDeadPane(t *testing.T) {
 	}
 }
 
-func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
+func TestActivateSessionInspectsPanesAroundJoin(t *testing.T) {
 	tmux := newFakeTmux()
 	r := New(Config{
-		SessionName: "roost-test",
-		Tmux:        tmux,
+		SessionName:       "roost-test",
+		MainPaneHeightPct: 70,
+		Tmux:              tmux,
 	})
 	r.windowMap["sess-1"] = "3"
 
@@ -396,8 +422,11 @@ func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
 
 	tmux.mu.Lock()
 	defer tmux.mu.Unlock()
-	if tmux.swapCalls != 1 {
-		t.Fatalf("swapCalls = %d, want 1", tmux.swapCalls)
+	if tmux.breakNewCalls != 1 {
+		t.Fatalf("breakNewCalls = %d, want 1", tmux.breakNewCalls)
+	}
+	if tmux.joinCalls != 1 {
+		t.Fatalf("joinCalls = %d, want 1", tmux.joinCalls)
 	}
 	if len(tmux.inspectCalls) != 3 {
 		t.Fatalf("inspectCalls = %d, want 3", len(tmux.inspectCalls))
@@ -410,6 +439,9 @@ func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
 	}
 	if r.activeSession != "sess-1" {
 		t.Fatalf("activeSession = %q, want sess-1", r.activeSession)
+	}
+	if r.windowMap["sess-1"] != "0" {
+		t.Fatalf("windowMap[sess-1] = %q, want 0", r.windowMap["sess-1"])
 	}
 }
 

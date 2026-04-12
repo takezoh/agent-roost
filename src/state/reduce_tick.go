@@ -67,7 +67,7 @@ func stepConnectors(s State) (State, []Effect) {
 //   - Control panes (0.1 / 0.2): respawn the TUI process
 //   - Pane 0.0 with no active session: respawn the main TUI
 //   - Pane 0.0 with active session: evict the dead session, kill its
-//     window, clear ActiveSession, then respawn the main TUI
+//     parked window, clear ActiveSession, then deactivate back to main
 func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 	// Control pane respawn
 	if cmd := paneRespawnCommand(e.Pane); cmd != "" {
@@ -108,7 +108,6 @@ func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 	effs := append(deactivate, []Effect{
 		EffKillSessionWindow{SessionID: ownerID},
 		EffUnregisterWindow{SessionID: ownerID},
-		EffRespawnPane{Pane: "{sessionName}:0.0", Cmd: "{roostExe} --tui main"},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
 	}...)
@@ -127,9 +126,7 @@ func paneRespawnCommand(pane string) string {
 
 // reduceTmuxWindowVanished evicts a session whose tmux window has
 // disappeared (agent process exited) and broadcasts the new list.
-// If the vanished session was active, its agent pane (now orphaned in
-// pane 0.0 after the earlier swap-pane) is killed and the main TUI is
-// restored — mirroring what reducePaneDied does for dead panes.
+// If the vanished session was active, deactivation restores the main TUI.
 func reduceTmuxWindowVanished(s State, e EvTmuxWindowVanished) (State, []Effect) {
 	if _, ok := s.Sessions[e.SessionID]; !ok {
 		return s, nil
@@ -139,10 +136,7 @@ func reduceTmuxWindowVanished(s State, e EvTmuxWindowVanished) (State, []Effect)
 	var deactivate []Effect
 	if s.ActiveSession == e.SessionID {
 		s.ActiveSession = ""
-		deactivate = []Effect{
-			EffDeactivateSession{},
-			EffRespawnPane{Pane: "{sessionName}:0.0", Cmd: "{roostExe} --tui main"},
-		}
+		deactivate = []Effect{EffDeactivateSession{}}
 	}
 	return s, append(deactivate, []Effect{
 		EffUnregisterWindow{SessionID: e.SessionID},

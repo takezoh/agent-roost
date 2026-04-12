@@ -30,14 +30,14 @@ type EffKillSessionWindow struct {
 	SessionID SessionID
 }
 
-// EffActivateSession swaps a session's agent pane into pane 0.0.
-// The runtime resolves the window target from its windowMap.
+// EffActivateSession moves a session's agent pane into pane 0.0.
+// The runtime resolves the current window target from its windowMap.
 type EffActivateSession struct {
 	SessionID SessionID
 	Reason    string
 }
 
-// EffDeactivateSession swaps the currently active session back to its
+// EffDeactivateSession moves the currently active session back to its
 // own window, leaving pane 0.0 showing the main TUI.
 type EffDeactivateSession struct{}
 
