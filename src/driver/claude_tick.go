@@ -34,10 +34,10 @@ func (d ClaudeDriver) handleTick(cs ClaudeState, e state.DEvTick) (ClaudeState, 
 	// When active, the agent pane is swapped into 0.0 and the window's .0
 	// holds the main TUI — capturing it would be meaningless. The user
 	// can see the active session directly; hang detection adds no value.
-	if !e.Active && cs.Status == state.StatusRunning && e.WindowTarget != "" && !cs.CaptureInFlight {
+	if !e.Active && cs.Status == state.StatusRunning && e.PaneTarget != "" && !cs.CaptureInFlight {
 		cs.CaptureInFlight = true
 		effs = append(effs, state.EffStartJob{
-			Input: CapturePaneInput{WindowTarget: e.WindowTarget, NLines: 5},
+			Input: CapturePaneInput{PaneTarget: e.PaneTarget, NLines: 5},
 		})
 	}
 

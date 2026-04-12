@@ -20,7 +20,7 @@ import (
 func (r *Runtime) execute(eff state.Effect) {
 	switch e := eff.(type) {
 	case state.EffSpawnTmuxWindow, state.EffKillSessionWindow, state.EffActivateSession,
-		state.EffDeactivateSession, state.EffRegisterWindow, state.EffUnregisterWindow,
+		state.EffDeactivateSession, state.EffRegisterPane, state.EffUnregisterPane,
 		state.EffSelectPane, state.EffSyncStatusLine, state.EffSetTmuxEnv,
 		state.EffUnsetTmuxEnv, state.EffCheckPaneAlive, state.EffRespawnPane,
 		state.EffDetachClient, state.EffDisplayPopup, state.EffKillSession,
@@ -63,9 +63,8 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 		go r.spawnTmuxWindowAsync(e)
 
 	case state.EffKillSessionWindow:
-		target, ok := r.windowMap[e.SessionID]
-		if ok && target != "0" {
-			if err := r.cfg.Tmux.KillWindow(target); err != nil {
+		if target := r.sessionPanes[e.SessionID]; target != "" {
+			if err := r.cfg.Tmux.KillPaneWindow(target); err != nil {
 				slog.Error("runtime: kill window failed", "target", target, "err", err)
 			}
 		}
@@ -76,20 +75,14 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 	case state.EffDeactivateSession:
 		r.deactivateSession()
 
-	case state.EffRegisterWindow:
-		r.windowMap[e.SessionID] = e.WindowTarget
-		envKey := windowEnvKey(e.WindowTarget)
-		r.cfg.Tmux.SetEnv(envKey, string(e.SessionID))
+	case state.EffRegisterPane:
+		r.sessionPanes[e.SessionID] = e.PaneTarget
+		r.cfg.Tmux.SetEnv(sessionPaneEnvKey(e.SessionID), e.PaneTarget)
 
-	case state.EffUnregisterWindow:
-		if target, ok := r.windowMap[e.SessionID]; ok {
-			delete(r.windowMap, e.SessionID)
-			if target == "0" {
-				r.cfg.Tmux.UnsetEnv(activeSessionEnvKey)
-			} else {
-				envKey := windowEnvKey(target)
-				r.cfg.Tmux.UnsetEnv(envKey)
-			}
+	case state.EffUnregisterPane:
+		if _, ok := r.sessionPanes[e.SessionID]; ok {
+			delete(r.sessionPanes, e.SessionID)
+			r.cfg.Tmux.UnsetEnv(sessionPaneEnvKey(e.SessionID))
 		}
 
 	case state.EffSelectPane:
@@ -175,14 +168,14 @@ func (r *Runtime) executeFSEffect(eff state.Effect) {
 
 // spawnTmuxWindowAsync runs a tmux new-window in a goroutine so the
 // event loop is not blocked on subprocess wait time. Posts back via
-// EvTmuxWindowSpawned / EvTmuxSpawnFailed.
+// EvTmuxPaneSpawned / EvTmuxSpawnFailed.
 func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	name := windowName(e.Project, string(e.SessionID))
 	spawnCmd := "exec " + e.Command
 	if isShellCommand(e.Command) {
 		spawnCmd = ""
 	}
-	target, _, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, e.StartDir, e.Env)
+	_, paneID, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, e.StartDir, e.Env)
 	if err != nil {
 		r.Enqueue(state.EvTmuxSpawnFailed{
 			SessionID:  e.SessionID,
@@ -192,11 +185,11 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 		})
 		return
 	}
-	r.Enqueue(state.EvTmuxWindowSpawned{
-		SessionID:    e.SessionID,
-		WindowTarget: target,
-		ReplyConn:    e.ReplyConn,
-		ReplyReqID:   e.ReplyReqID,
+	r.Enqueue(state.EvTmuxPaneSpawned{
+		SessionID:  e.SessionID,
+		PaneTarget: paneID,
+		ReplyConn:  e.ReplyConn,
+		ReplyReqID: e.ReplyReqID,
 	})
 }
 
@@ -316,32 +309,19 @@ func (r *Runtime) activeStatusLine() string {
 	return drv.View(sess.Driver).StatusLine
 }
 
-// reconcileWindows compares the runtime windowMap with live tmux windows.
-// Sessions whose parked windows have vanished are reported via
-// EvTmuxWindowVanished. The active session is tracked at window "0".
+// reconcileWindows checks whether each tracked session pane still
+// exists. Missing panes are reported via EvTmuxWindowVanished.
 func (r *Runtime) reconcileWindows() {
-	liveIndexes, err := r.listWindowIndexes()
-	if err != nil {
-		slog.Debug("runtime: reconcile list-windows failed", "err", err)
-		return
-	}
-	live := make(map[string]struct{}, len(liveIndexes))
-	for _, idx := range liveIndexes {
-		live[idx] = struct{}{}
-	}
-
-	if r.mainWindow != "" && r.mainWindow != "0" {
-		if _, ok := live[r.mainWindow]; !ok {
-			_ = r.cfg.Tmux.UnsetEnv(mainWindowEnvKey())
-			r.mainWindow = "0"
-		}
-	}
-
-	for sessID, target := range r.windowMap {
-		if target == "0" {
+	for sessID, target := range r.sessionPanes {
+		if sessID == r.activeSession {
 			continue
 		}
-		if _, ok := live[target]; !ok {
+		alive, err := r.cfg.Tmux.PaneAlive(target)
+		if err != nil {
+			slog.Debug("runtime: reconcile pane failed", "session", sessID, "pane", target, "err", err)
+			continue
+		}
+		if !alive {
 			r.Enqueue(state.EvTmuxWindowVanished{SessionID: sessID})
 		}
 	}
@@ -350,21 +330,4 @@ func (r *Runtime) reconcileWindows() {
 // findPaneOwner returns the SessionID currently active in pane 0.0.
 func (r *Runtime) findPaneOwner(_ string) state.SessionID {
 	return r.activeSession
-}
-
-// listWindowIndexes returns the live window indexes (e.g. ["0","1","2"])
-// from the configured tmux backend.
-func (r *Runtime) listWindowIndexes() ([]string, error) {
-	type indexLister interface {
-		ListWindowIndexes() ([]string, error)
-	}
-	if l, ok := r.cfg.Tmux.(indexLister); ok {
-		return l.ListWindowIndexes()
-	}
-	return nil, nil
-}
-
-// windowEnvKey returns the tmux session-level env var name for a window index.
-func windowEnvKey(windowIndex string) string {
-	return "ROOST_W_" + windowIndex
 }

@@ -50,14 +50,14 @@ type DEvHook struct {
 func (DEvHook) isDriverEvent() {}
 
 // DEvTick is the periodic tick. Active reflects whether this session is
-// currently swapped into pane 0.0 — drivers use it to gate expensive
-// work that only matters when the user is looking. WindowTarget is the
-// tmux window index (e.g. "1", "2") for capture-pane polling.
+// currently shown in pane 0.0 — drivers use it to gate expensive work
+// that only matters when the user is looking. PaneTarget is the tmux
+// pane id (e.g. "%5") for capture-pane polling.
 type DEvTick struct {
-	Now          time.Time
-	Active       bool
-	Project      string
-	WindowTarget string
+	Now        time.Time
+	Active     bool
+	Project    string
+	PaneTarget string
 }
 
 func (DEvTick) isDriverEvent() {}
@@ -143,7 +143,6 @@ type Driver interface {
 	Persister
 	Spawnable
 }
-
 
 // CreateLaunch is the fully resolved process launch information for a
 // newly created session: command string plus tmux start directory.

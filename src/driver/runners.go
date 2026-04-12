@@ -27,7 +27,7 @@ func RegisterRunners(capturePaneFn func(string, int) (string, error), language, 
 
 func newCapturePane(captureFunc func(string, int) (string, error)) func(CapturePaneInput) (CapturePaneResult, error) {
 	return func(in CapturePaneInput) (CapturePaneResult, error) {
-		content, err := captureFunc(in.WindowTarget, in.NLines)
+		content, err := captureFunc(in.PaneTarget, in.NLines)
 		if err != nil {
 			return CapturePaneResult{}, err
 		}

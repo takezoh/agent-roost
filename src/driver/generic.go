@@ -137,15 +137,15 @@ func (d GenericDriver) Step(prev state.DriverState, ev state.DriverEvent) (state
 
 	switch e := ev.(type) {
 	case state.DEvTick:
-		// Schedule a capture-pane job for this session's window.
+		// Schedule a capture-pane job for this session's pane.
 		// Reducer assigns the JobID; we just emit the request.
-		if e.WindowTarget == "" {
+		if e.PaneTarget == "" {
 			return gs, nil, d.view(gs)
 		}
 		eff := state.EffStartJob{
 			Input: CapturePaneInput{
-				WindowTarget: e.WindowTarget,
-				NLines:       5,
+				PaneTarget: e.PaneTarget,
+				NLines:     5,
 			},
 		}
 		return gs, []state.Effect{eff}, d.view(gs)

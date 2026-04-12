@@ -76,13 +76,12 @@ type EvConnClosed struct {
 // === Timer / I/O feedback ===
 
 // EvTick is the periodic tick fired by runtime's ticker. Drivers run
-// their Step{DEvTick} on every tick. WindowTargets maps each SessionID
-// to its tmux window target (index-based, e.g. "1", "2"), pre-filled
-// by the runtime so reducers can forward it to drivers without touching
-// the windowMap directly.
+// their Step{DEvTick} on every tick. PaneTargets maps each SessionID
+// to its tmux pane id (e.g. "%5"), pre-filled by the runtime so reducers
+// can forward it to drivers without touching the runtime directly.
 type EvTick struct {
-	Now           time.Time
-	WindowTargets map[SessionID]string
+	Now         time.Time
+	PaneTargets map[SessionID]string
 }
 
 // EvFileChanged is fired by runtime's fsnotify watcher when a
@@ -115,14 +114,14 @@ type EvTmuxWindowVanished struct {
 	SessionID SessionID
 }
 
-// EvTmuxWindowSpawned is the async result of a tmux new-window call
-// initiated by EffSpawnTmuxWindow. WindowTarget is the window index
-// (e.g. "1", "2") the runtime uses to route activate/kill effects.
-type EvTmuxWindowSpawned struct {
-	SessionID    SessionID
-	WindowTarget string
-	ReplyConn    ConnID
-	ReplyReqID   string
+// EvTmuxPaneSpawned is the async result of a tmux new-window call
+// initiated by EffSpawnTmuxWindow. PaneTarget is the pane id the runtime
+// uses to route activate/capture effects.
+type EvTmuxPaneSpawned struct {
+	SessionID  SessionID
+	PaneTarget string
+	ReplyConn  ConnID
+	ReplyReqID string
 }
 
 // EvTmuxSpawnFailed is the async failure of a tmux new-window call.
@@ -148,5 +147,5 @@ func (EvFileChanged) isEvent()        {}
 func (EvJobResult) isEvent()          {}
 func (EvPaneDied) isEvent()           {}
 func (EvTmuxWindowVanished) isEvent() {}
-func (EvTmuxWindowSpawned) isEvent()  {}
+func (EvTmuxPaneSpawned) isEvent()    {}
 func (EvTmuxSpawnFailed) isEvent()    {}

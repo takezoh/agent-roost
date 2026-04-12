@@ -45,14 +45,12 @@ type Runtime struct {
 
 	state state.State
 
-	// windowMap maps each SessionID to its tmux window index ("1", "2", ...).
-	// "0" means the session is currently shown in pane 0.0.
-	windowMap map[state.SessionID]string
+	// sessionPanes maps each SessionID to its tmux pane id ("%5", "%12", ...).
+	sessionPanes map[state.SessionID]string
 	// activeSession is the SessionID currently shown in pane 0.0, or "".
 	activeSession state.SessionID
-	// mainWindow is the window index currently holding the parked main TUI.
-	// "0" means the main TUI is visible in pane 0.0.
-	mainWindow string
+	// mainPaneID is the pane id of the main TUI pane while the runtime is alive.
+	mainPaneID string
 
 	eventCh    chan state.Event   // public events from any goroutine
 	internalCh chan internalEvent // runtime-internal lifecycle (conn open/close)
@@ -95,14 +93,13 @@ func New(cfg Config) *Runtime {
 		cfg.Watcher = noopWatcher{}
 	}
 	r := &Runtime{
-		cfg:        cfg,
-		state:      state.New(),
-		windowMap:  map[state.SessionID]string{},
-		mainWindow: "0",
-		eventCh:    make(chan state.Event, 256),
-		internalCh: make(chan internalEvent, 64),
-		conns:      map[state.ConnID]*ipcConn{},
-		done:       make(chan struct{}),
+		cfg:          cfg,
+		state:        state.New(),
+		sessionPanes: map[state.SessionID]string{},
+		eventCh:      make(chan state.Event, 256),
+		internalCh:   make(chan internalEvent, 64),
+		conns:        map[state.ConnID]*ipcConn{},
+		done:         make(chan struct{}),
 	}
 	if cfg.Pool != nil {
 		r.workers = cfg.Pool
@@ -165,7 +162,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 			r.dispatchInternal(iev)
 
 		case t := <-ticker.C:
-			r.dispatch(state.EvTick{Now: t, WindowTargets: r.snapshotWindowTargets()})
+			r.dispatch(state.EvTick{Now: t, PaneTargets: r.snapshotPaneTargets()})
 
 		case res := <-r.workers.Results():
 			r.dispatch(res)
@@ -191,15 +188,15 @@ func (r *Runtime) dispatch(ev state.Event) {
 	}
 }
 
-// snapshotWindowTargets returns a copy of windowMap for inclusion in
-// EvTick so reducers can forward window targets to drivers without
+// snapshotPaneTargets returns a copy of sessionPanes for inclusion in
+// EvTick so reducers can forward pane targets to drivers without
 // accessing the runtime directly.
-func (r *Runtime) snapshotWindowTargets() map[state.SessionID]string {
-	if len(r.windowMap) == 0 {
+func (r *Runtime) snapshotPaneTargets() map[state.SessionID]string {
+	if len(r.sessionPanes) == 0 {
 		return nil
 	}
-	out := make(map[state.SessionID]string, len(r.windowMap))
-	for k, v := range r.windowMap {
+	out := make(map[state.SessionID]string, len(r.sessionPanes))
+	for k, v := range r.sessionPanes {
 		out[k] = v
 	}
 	return out

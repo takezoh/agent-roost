@@ -27,11 +27,9 @@ func NewRealTmuxBackend(client *tmux.Client) *RealTmuxBackend {
 }
 
 // SpawnWindow creates a new tmux window for a session and returns
-// the freshly assigned window index (e.g. "1", "2") and an empty pane id.
-// The window index is stable across server restarts (unlike window IDs)
-// and is used as the key in the ROOST_W_* session env vars.
+// the freshly assigned window index (e.g. "1", "2") and pane id.
 func (b *RealTmuxBackend) SpawnWindow(name, command, startDir string, env map[string]string) (string, string, error) {
-	args := []string{"new-window", "-d", "-t", b.sessionName + ":", "-n", name, "-P", "-F", "#{window_index}"}
+	args := []string{"new-window", "-d", "-t", b.sessionName + ":", "-n", name, "-P", "-F", "#{window_index}\t#{pane_id}"}
 	if startDir != "" {
 		args = append(args, "-c", startDir)
 	}
@@ -41,18 +39,28 @@ func (b *RealTmuxBackend) SpawnWindow(name, command, startDir string, env map[st
 	if command != "" {
 		args = append(args, command)
 	}
-	idx, err := b.client.Run(args...)
+	out, err := b.client.Run(args...)
 	if err != nil {
 		return "", "", err
 	}
-	if err := b.client.SetOption(b.sessionName+":"+idx, "remain-on-exit", "off"); err != nil {
-		return idx, "", err
+	parts := strings.SplitN(out, "\t", 2)
+	idx := parts[0]
+	paneID := ""
+	if len(parts) == 2 {
+		paneID = parts[1]
 	}
-	return idx, "", nil
+	if err := b.client.SetOption(b.sessionName+":"+idx, "remain-on-exit", "off"); err != nil {
+		return idx, paneID, err
+	}
+	return idx, paneID, nil
 }
 
-func (b *RealTmuxBackend) KillWindow(target string) error {
-	_, err := b.client.Run("kill-window", "-t", b.sessionName+":"+target)
+func (b *RealTmuxBackend) KillPaneWindow(target string) error {
+	windowID, err := b.client.DisplayMessage(target, "#{window_id}")
+	if err != nil {
+		return err
+	}
+	_, err = b.client.Run("kill-window", "-t", windowID)
 	return err
 }
 
@@ -74,6 +82,10 @@ func (b *RealTmuxBackend) BreakPaneToNewWindow(srcPane, name string) (string, er
 
 func (b *RealTmuxBackend) JoinPane(srcPane, dstPane string, before bool, sizePct int) error {
 	return b.client.JoinPane(srcPane, dstPane, before, sizePct)
+}
+
+func (b *RealTmuxBackend) PaneID(target string) (string, error) {
+	return b.client.DisplayMessage(target, "#{pane_id}")
 }
 
 func (b *RealTmuxBackend) SelectPane(target string) error {
@@ -111,8 +123,8 @@ func (b *RealTmuxBackend) RespawnPane(target, command string) error {
 	return err
 }
 
-func (b *RealTmuxBackend) CapturePane(windowTarget string, nLines int) (string, error) {
-	return b.client.CapturePaneLines(b.sessionName+":"+windowTarget+".0", nLines)
+func (b *RealTmuxBackend) CapturePane(paneTarget string, nLines int) (string, error) {
+	return b.client.CapturePaneLines(paneTarget, nLines)
 }
 
 func (b *RealTmuxBackend) InspectPane(target string, nLines int) (PaneSnapshot, error) {
@@ -147,13 +159,8 @@ func (b *RealTmuxBackend) InspectPane(target string, nLines int) (PaneSnapshot, 
 	return snap, nil
 }
 
-// ListWindowIndexes returns the live window indexes for reconciliation.
-func (b *RealTmuxBackend) ListWindowIndexes() ([]string, error) {
-	return b.client.ListWindowIndexes()
-}
-
 // ShowEnvironment returns the raw tmux show-environment output for the
-// session, used by LoadWindowMap to reconstruct the ROOST_W_* entries.
+// session, used by LoadSessionPanes to reconstruct the ROOST_SESSION_* entries.
 func (b *RealTmuxBackend) ShowEnvironment() (string, error) {
 	return b.client.Run("show-environment", "-t", b.sessionName)
 }

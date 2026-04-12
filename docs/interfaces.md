@@ -88,10 +88,10 @@ func (r *Runtime) Enqueue(ev state.Event)          // goroutine-safe
 // runtime/backends.go — Backend interfaces swappable for testing
 type TmuxBackend interface {
     SpawnWindow(name, cmd, startDir string, env map[string]string) (windowIndex, paneID string, err error)
-    KillWindow(windowID string) error
-    ListWindowIndexes() ([]string, error)
+    KillPaneWindow(paneTarget string) error
     ShowEnvironment() (string, error)
     RunChain(args ...string) error
+    PaneID(target string) (string, error)
     SelectPane(target string) error
     SetStatusLine(line string) error
     PaneAlive(target string) (bool, error)

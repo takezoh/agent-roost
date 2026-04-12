@@ -39,7 +39,7 @@ func TestGenericNewStateDefaults(t *testing.T) {
 
 func TestGenericTickEmitsCapturePaneJob(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
-	_, effs, _ := d.Step(s, state.DEvTick{Now: now, WindowTarget: "5"})
+	_, effs, _ := d.Step(s, state.DEvTick{Now: now, PaneTarget: "5"})
 	if len(effs) != 1 {
 		t.Fatalf("expected 1 effect, got %d", len(effs))
 	}
@@ -54,8 +54,8 @@ func TestGenericTickEmitsCapturePaneJob(t *testing.T) {
 	if !ok {
 		t.Fatalf("input type = %T, want CapturePaneInput", job.Input)
 	}
-	if in.WindowTarget != "5" {
-		t.Errorf("WindowTarget = %q, want 5", in.WindowTarget)
+	if in.PaneTarget != "5" {
+		t.Errorf("PaneTarget = %q, want 5", in.PaneTarget)
 	}
 }
 
@@ -63,7 +63,7 @@ func TestGenericTickWithoutWindowEmitsNothing(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
 	_, effs, _ := d.Step(s, state.DEvTick{Now: now})
 	if len(effs) != 0 {
-		t.Errorf("expected 0 effects when WindowTarget empty, got %d", len(effs))
+		t.Errorf("expected 0 effects when PaneTarget empty, got %d", len(effs))
 	}
 }
 

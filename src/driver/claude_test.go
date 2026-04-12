@@ -1080,7 +1080,7 @@ func TestResolveTranscriptPathPrefersExplicit(t *testing.T) {
 	cs := ClaudeState{
 		CommonState: CommonState{
 			TranscriptPath: "/explicit/path.jsonl",
-			WorkingDir:      "/w",
+			WorkingDir:     "/w",
 		},
 		ClaudeSessionID: "u",
 	}
@@ -1096,7 +1096,7 @@ func TestClaudeTickEmitsCapturePaneWhenBackgroundRunning(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.Status = state.StatusRunning
 	next, effs := d.handleTick(cs, state.DEvTick{
-		Now: now, Active: false, WindowTarget: "42",
+		Now: now, Active: false, PaneTarget: "42",
 	})
 	if !next.CaptureInFlight {
 		t.Error("CaptureInFlight should be true")
@@ -1109,8 +1109,8 @@ func TestClaudeTickEmitsCapturePaneWhenBackgroundRunning(t *testing.T) {
 	if !ok {
 		t.Fatalf("job input type = %T, want CapturePaneInput", job.Input)
 	}
-	if cp.WindowTarget != "42" {
-		t.Errorf("WindowTarget = %q, want 42", cp.WindowTarget)
+	if cp.PaneTarget != "42" {
+		t.Errorf("PaneTarget = %q, want 42", cp.PaneTarget)
 	}
 }
 
@@ -1118,7 +1118,7 @@ func TestClaudeTickSkipsCaptureWhenActive(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.Status = state.StatusRunning
 	_, effs := d.handleTick(cs, state.DEvTick{
-		Now: now, Active: true, WindowTarget: "42",
+		Now: now, Active: true, PaneTarget: "42",
 	})
 	for _, e := range effs {
 		if j, ok := e.(state.EffStartJob); ok {
@@ -1133,7 +1133,7 @@ func TestClaudeTickSkipsCaptureWhenNotRunning(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.Status = state.StatusWaiting
 	_, effs := d.handleTick(cs, state.DEvTick{
-		Now: now, Active: false, WindowTarget: "42",
+		Now: now, Active: false, PaneTarget: "42",
 	})
 	for _, e := range effs {
 		if j, ok := e.(state.EffStartJob); ok {
@@ -1149,7 +1149,7 @@ func TestClaudeTickSkipsCaptureWhenInFlight(t *testing.T) {
 	cs.Status = state.StatusRunning
 	cs.CaptureInFlight = true
 	_, effs := d.handleTick(cs, state.DEvTick{
-		Now: now, Active: false, WindowTarget: "42",
+		Now: now, Active: false, PaneTarget: "42",
 	})
 	for _, e := range effs {
 		if j, ok := e.(state.EffStartJob); ok {
@@ -1226,7 +1226,7 @@ func TestClaudeHangDetectionTriggersIdle(t *testing.T) {
 	// Tick at threshold+1s
 	now := cs.StatusChangedAt.Add(claudeHangThreshold + time.Second)
 	next, effs := d.handleTick(cs, state.DEvTick{
-		Now: now, Active: false, WindowTarget: "42",
+		Now: now, Active: false, PaneTarget: "42",
 	})
 	if next.Status != state.StatusIdle {
 		t.Errorf("Status = %v, want Idle", next.Status)
@@ -1252,7 +1252,7 @@ func TestClaudeHangDetectionSuppressedBySubagents(t *testing.T) {
 
 	now := cs.StatusChangedAt.Add(claudeHangThreshold + time.Minute)
 	next, _ := d.handleTick(cs, state.DEvTick{
-		Now: now, Active: false, WindowTarget: "42",
+		Now: now, Active: false, PaneTarget: "42",
 	})
 	if next.Status != state.StatusRunning {
 		t.Errorf("Status = %v, want Running (subagents active)", next.Status)

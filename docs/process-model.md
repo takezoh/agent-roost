@@ -112,14 +112,14 @@ runDaemon()
 │   ├── Exists (Warm start)
 │   │   ├── restoreSession (rebuild tmux pane layout)
 │   │   ├── rt.LoadSnapshot() — restore State.Sessions from sessions.json
-│   │   ├── rt.LoadWindowMap() — read ROOST_W_* env vars from show-environment, rebuild windowMap
-│   │   └── rt.ReconcileOrphans() — evict sessions whose windows have disappeared
+│   │   ├── rt.LoadSessionPanes() — read ROOST_SESSION_* env vars from show-environment, rebuild sessionPanes
+│   │   └── rt.ReconcileOrphans() — evict sessions whose parked panes have disappeared
 │   └── Does not exist (Cold start)
 │       ├── setupNewSession (create new tmux session)
 │       ├── rt.LoadSnapshot() — restore State.Sessions from sessions.json
 │       └── rt.RecreateAll() — for each session:
 │           ├── Driver.SpawnCommand(driverState, command) to build resume command
-│           └── tmux new-window to spawn → populate windowMap + ROOST_W_* env vars
+│           └── tmux new-window to spawn → populate sessionPanes + ROOST_SESSION_* env vars
 ├── rt.Run(ctx) — start event loop goroutine (select: eventCh / ticker / workers / fsnotify)
 ├── rt.StartIPC() — start Unix socket server
 ├── FileRelay startup — push monitoring for log/transcript files
@@ -134,7 +134,7 @@ runDaemon()
 
 ### Main TUI
 
-A resident Bubbletea TUI process running in Pane 0.0. It always displays keybinding help, and shows session information for the corresponding project when a project header is selected in the session list. When the daemon is not running, it operates in static mode showing only keybinding help. On session switch, it retreats to a background window via `swap-pane`, and returns when a project header is selected.
+A resident Bubbletea TUI process running in Pane 0.0. It always displays keybinding help, and shows session information for the corresponding project when a project header is selected in the session list. When the daemon is not running, it operates in static mode showing only keybinding help. On session switch, it retreats to a background window via `break-pane`, and returns via `join-pane` when a project header is selected.
 
 ```
 runTUI("main")
@@ -191,10 +191,10 @@ runTUI("palette")
 ### Failure Behavior
 
 - **TUI socket disconnection**: The TUI process exits. The daemon detects this and recovers via `respawn-pane`
-- **External kill of session window / agent process exit**: Session windows have `remain-on-exit off`, so tmux automatically destroys the pane; windows with only 1 pane also auto-disappear. `reduceTick` emits `EffReconcileWindows`, and runtime reconciles the tmux window list with `state.State`, removes disappeared windows from State, updates the snapshot, and broadcasts `sessions-changed`
-- **Active session agent process exit (e.g., C-c)**: The active session's agent pane is brought into `roost:0.0` via swap-pane. Window 0 has `remain-on-exit on`, so when the agent exits, the pane remains as `[exited]`; the session window side has the main TUI pane swapped in and alive, so normal reconcile does not clean it up. `reduceTick` emits `EffCheckPaneAlive{0.0}` every tick, and runtime executes `display-message -t roost:0.0 -p '#{pane_dead}'`. If dead, the owner session is identified by `runtime.activeSession` (the SessionID of the currently active session). Once identified, the dead pane is swapped back to the owner window via swap-pane, and the window is destroyed. The subsequent `runtime.reconcileWindows` pass finally cleans up State. PaneID is no longer persisted
+- **External kill of parked session pane / agent process exit**: Parked session panes live in background windows with `remain-on-exit off`, so tmux automatically destroys the pane; windows with only 1 pane also auto-disappear. `reduceTick` emits `EffReconcileWindows`, and runtime reconciles tracked pane ids with `PaneAlive`, removes disappeared sessions from State, updates the snapshot, and broadcasts `sessions-changed`
+- **Active session agent process exit (e.g., C-c)**: The active session's agent pane is joined into `roost:0.0`. Window 0 has `remain-on-exit on`, so when the agent exits, the pane remains as `[exited]`. `reduceTick` emits `EffCheckPaneAlive{0.0}` every tick, and runtime executes `display-message -t roost:0.0 -p '#{pane_dead}'`. If dead, the owner session is identified by `runtime.activeSession`. The reducer evicts that session and the next reconcile pass removes its parked pane env entry
 - **Consecutive `respawn-pane` failures**: respawn-pane normally does not fail since tmux recreates the pane (however, startup may fail in cases of environmental anomalies such as binary deletion or permission changes). When the tmux session is destroyed, the daemon's attach also exits, so everything shuts down
-- **Startup consistency**: `sessions.json` and tmux session-level `ROOST_W_*` env vars are the two sources of truth. `reconcileWindows` uses `ListWindowIndexes` + `windowMap` to match windows to sessions and evict orphans
+- **Startup consistency**: `sessions.json` and tmux session-level `ROOST_SESSION_*` env vars are the two sources of truth. `reconcileWindows` uses `sessionPanes` + `PaneAlive` to match panes to sessions and evict orphans
 - **IPC errors**: When an IPC command returns an error on the TUI side, it logs to slog and does not change UI state. No timeout is configured (local communication over Unix socket). If the server deadlocks, the client risks blocking indefinitely. Recovery means externally running `tmux kill-session -t roost` or killing the daemon process
 
 ## tmux Layout
@@ -210,11 +210,11 @@ runTUI("palette")
 └─────────────────────┴────────────────┘
 
 Window 0: Control screen (3 fixed panes)
-Window 1+: Sessions (background, displayed in Pane 0.0 via swap-pane)
+Window 1+: Sessions/Main TUI parking windows (background, displayed in Pane 0.0 via join-pane)
 ```
 
 - Window 0 only has `remain-on-exit on`: to maintain layout even when log / sessions panes crash, allowing daemon to revive them via `respawn-pane`
-- Session windows (Window 1+) have `remain-on-exit off`: agent process exit causes automatic pane destruction, and `reduceTick` → `EffReconcileWindows` cleans up State
+- Session parking windows (Window 1+) have `remain-on-exit off`: agent process exit causes automatic pane destruction, and `reduceTick` → `EffReconcileWindows` cleans up State
 - `mouse on` enables mouse wheel scrolling and pane border detection. Explicitly set by roost, not dependent on the user's tmux.conf
 - Terminal size is obtained via `term.GetSize()` and passed to `new-session -x -y`
 - All default keys in the prefix table are disabled; only Space/d/q/p are registered
@@ -234,13 +234,13 @@ With tmux `mouse on`, mouse operations are mediated by tmux. Text selection goes
 
 ### Session Switching
 
-Runtime executes individual `swap-pane -d` operations sequentially (no rollback on mid-sequence failure).
-`Pane 0.0` does not receive a copied render buffer here; the live session pane itself is swapped into the main pane. The lower Log TUI remains a separate file-backed renderer.
+Runtime executes resident moves with `break-pane` / `join-pane`.
+`Pane 0.0` does not receive a copied render buffer here; the live session pane itself is moved into the main pane. The lower Log TUI remains a separate file-backed renderer.
 
 ```
 Preview(sess):
-  1. swap-pane -d  main pane ↔ old session (return old, if activeSession exists)
-  2. swap-pane -d  main pane ↔ new session (display new)
+  1. break-pane current resident out of 0.0 (park old main/session)
+  2. join-pane  target session pane into 0.0
   → Focus is not changed
 
 Switch(sess):

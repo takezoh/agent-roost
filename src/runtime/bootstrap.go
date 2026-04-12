@@ -10,7 +10,7 @@ import (
 )
 
 // Bootstrap helpers used at startup before the event loop starts.
-// These mutate r.state and r.windowMap directly — safe because no
+// These mutate r.state and r.sessionPanes directly — safe because no
 // goroutine is reading state yet.
 
 // LoadSnapshot reads sessions.json and registers each session in
@@ -47,10 +47,10 @@ func (r *Runtime) LoadSnapshot() error {
 	return nil
 }
 
-// LoadWindowMap reads the ROOST_* tmux session environment variables
-// and populates r.windowMap / r.mainWindow. Called on warm start after
+// LoadSessionPanes reads the ROOST_SESSION_* tmux session environment
+// variables and populates r.sessionPanes. Called on warm start after
 // LoadSnapshot.
-func (r *Runtime) LoadWindowMap() error {
+func (r *Runtime) LoadSessionPanes() error {
 	type envLister interface {
 		ShowEnvironment() (string, error)
 	}
@@ -68,51 +68,33 @@ func (r *Runtime) LoadWindowMap() error {
 		if len(parts) != 2 {
 			continue
 		}
-		switch parts[0] {
-		case mainWindowEnvKey():
-			r.mainWindow = parts[1]
-		case activeSessionEnvKey:
-			sessID := state.SessionID(parts[1])
-			r.activeSession = sessID
-			r.state.ActiveSession = sessID
-			r.windowMap[sessID] = "0"
-		default:
-			if !strings.HasPrefix(parts[0], "ROOST_W_") {
-				continue
-			}
-			idx := strings.TrimPrefix(parts[0], "ROOST_W_")
-			sessID := state.SessionID(parts[1])
-			r.windowMap[sessID] = idx
+		if !strings.HasPrefix(parts[0], "ROOST_SESSION_") {
+			continue
 		}
+		sessID := state.SessionID(strings.TrimPrefix(parts[0], "ROOST_SESSION_"))
+		r.sessionPanes[sessID] = parts[1]
 	}
 	return nil
 }
 
-// ReconcileOrphans compares the loaded windowMap against the snapshot
-// sessions, drops orphan sessions (in JSON but not in windowMap) and
+// ReconcileOrphans compares the loaded sessionPanes against the snapshot
+// sessions, drops orphan sessions (in JSON but not in sessionPanes) and
 // cleans up stale env entries (in windowMap but not in JSON).
 func (r *Runtime) ReconcileOrphans() {
-	// Find sessions without a window entry (window died during downtime).
+	// Find sessions without a pane entry (pane died during downtime).
 	for id := range r.state.Sessions {
-		if _, ok := r.windowMap[id]; !ok {
-			slog.Warn("bootstrap: dropping orphan session (no window)", "id", id)
+		if _, ok := r.sessionPanes[id]; !ok {
+			slog.Warn("bootstrap: dropping orphan session (no pane)", "id", id)
 			delete(r.state.Sessions, id)
 		}
 	}
 
-	// Find windowMap entries without a matching session (stale env).
-	for sessID, idx := range r.windowMap {
+	// Find sessionPanes entries without a matching session (stale env).
+	for sessID := range r.sessionPanes {
 		if _, ok := r.state.Sessions[sessID]; !ok {
-			delete(r.windowMap, sessID)
-			if idx == "0" {
-				slog.Warn("bootstrap: removing stale active session env", "session", sessID)
-				r.activeSession = ""
-				r.state.ActiveSession = ""
-				_ = r.cfg.Tmux.UnsetEnv(activeSessionEnvKey)
-				continue
-			}
-			slog.Warn("bootstrap: removing stale window env", "session", sessID, "index", idx)
-			_ = r.cfg.Tmux.UnsetEnv(windowEnvKey(idx))
+			delete(r.sessionPanes, sessID)
+			slog.Warn("bootstrap: removing stale pane env", "session", sessID)
+			_ = r.cfg.Tmux.UnsetEnv(sessionPaneEnvKey(sessID))
 		}
 	}
 
@@ -136,7 +118,7 @@ func (r *Runtime) DeactivateBeforeExit() {
 
 // RecreateAll spawns fresh tmux windows for every session in r.state.
 // Used during cold-start (the tmux session was just created and
-// contains no roost windows yet). Populates r.windowMap.
+// contains no roost windows yet). Populates r.sessionPanes.
 func (r *Runtime) RecreateAll() error {
 	var dead []state.SessionID
 	for id, sess := range r.state.Sessions {
@@ -156,7 +138,7 @@ func (r *Runtime) RecreateAll() error {
 		if isShellCommand(sess.Command) {
 			tmuxCmd = ""
 		}
-		target, _, err := r.cfg.Tmux.SpawnWindow(
+		_, paneID, err := r.cfg.Tmux.SpawnWindow(
 			name, tmuxCmd, startDir,
 			map[string]string{"ROOST_SESSION_ID": string(id)},
 		)
@@ -165,10 +147,10 @@ func (r *Runtime) RecreateAll() error {
 			dead = append(dead, id)
 			continue
 		}
-		r.windowMap[id] = target
-		envKey := windowEnvKey(target)
-		if err := r.cfg.Tmux.SetEnv(envKey, string(id)); err != nil {
-			slog.Warn("bootstrap: set window env failed", "key", envKey, "err", err)
+		r.sessionPanes[id] = paneID
+		envKey := sessionPaneEnvKey(id)
+		if err := r.cfg.Tmux.SetEnv(envKey, paneID); err != nil {
+			slog.Warn("bootstrap: set pane env failed", "key", envKey, "err", err)
 		}
 	}
 	for _, id := range dead {

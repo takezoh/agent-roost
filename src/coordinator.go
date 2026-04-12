@@ -73,7 +73,7 @@ func runCoordinator() error {
 		if err := rt.LoadSnapshot(); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
-		if err := rt.LoadWindowMap(); err != nil {
+		if err := rt.LoadSessionPanes(); err != nil {
 			slog.Warn("window map load failed", "err", err)
 		}
 		rt.ReconcileOrphans()

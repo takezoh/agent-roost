@@ -12,7 +12,7 @@ type Effect interface {
 
 // EffSpawnTmuxWindow asks the runtime to create a new tmux window for
 // the given session. The runtime executes this and feeds back
-// EvTmuxWindowSpawned / EvTmuxSpawnFailed, forwarding the Reply*
+// EvTmuxPaneSpawned / EvTmuxSpawnFailed, forwarding the Reply*
 // fields so the reducer can complete the create-session round trip.
 type EffSpawnTmuxWindow struct {
 	SessionID  SessionID
@@ -24,14 +24,14 @@ type EffSpawnTmuxWindow struct {
 	ReplyReqID string
 }
 
-// EffKillSessionWindow destroys the tmux window owned by the given session.
-// The runtime looks up the window target from its windowMap.
+// EffKillSessionWindow destroys the tmux window containing the given session pane.
+// The runtime looks up the pane target from its sessionPanes map.
 type EffKillSessionWindow struct {
 	SessionID SessionID
 }
 
 // EffActivateSession moves a session's agent pane into pane 0.0.
-// The runtime resolves the current window target from its windowMap.
+// The runtime resolves the current pane target from its sessionPanes map.
 type EffActivateSession struct {
 	SessionID SessionID
 	Reason    string
@@ -41,16 +41,16 @@ type EffActivateSession struct {
 // own window, leaving pane 0.0 showing the main TUI.
 type EffDeactivateSession struct{}
 
-// EffRegisterWindow records the window target for a session in the
-// runtime's windowMap and saves it as a tmux session-level env var.
-type EffRegisterWindow struct {
-	SessionID    SessionID
-	WindowTarget string
+// EffRegisterPane records the pane target for a session in the runtime
+// and saves it as a tmux session-level env var.
+type EffRegisterPane struct {
+	SessionID  SessionID
+	PaneTarget string
 }
 
-// EffUnregisterWindow removes a session from the runtime's windowMap
-// and deletes the corresponding tmux session-level env var.
-type EffUnregisterWindow struct {
+// EffUnregisterPane removes a session from the runtime's pane map and
+// deletes the corresponding tmux session-level env var.
+type EffUnregisterPane struct {
 	SessionID SessionID
 }
 
@@ -213,8 +213,8 @@ func (EffSpawnTmuxWindow) isEffect()          {}
 func (EffKillSessionWindow) isEffect()        {}
 func (EffActivateSession) isEffect()          {}
 func (EffDeactivateSession) isEffect()        {}
-func (EffRegisterWindow) isEffect()           {}
-func (EffUnregisterWindow) isEffect()         {}
+func (EffRegisterPane) isEffect()             {}
+func (EffUnregisterPane) isEffect()           {}
 func (EffSelectPane) isEffect()               {}
 func (EffSyncStatusLine) isEffect()           {}
 func (EffSetTmuxEnv) isEffect()               {}

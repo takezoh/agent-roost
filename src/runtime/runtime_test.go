@@ -33,7 +33,7 @@ type fakeTmuxBackend struct {
 	spawnCmds        []string
 	killCalls        int
 	sessionKillCalls int
-	killedWIDs       []string
+	killedPanes      []string
 	breakCalls       int
 	breakTargets     []string
 	breakNewCalls    int
@@ -53,8 +53,7 @@ type fakeTmuxBackend struct {
 	spawnPane        string
 	breakNewWID      string
 	spawnErr         error
-	envOutput        string   // returned by ShowEnvironment
-	winIndexes       []string // returned by ListWindowIndexes
+	envOutput        string
 }
 
 func newFakeTmux() *fakeTmuxBackend {
@@ -78,23 +77,17 @@ func (f *fakeTmuxBackend) SpawnWindow(name, command, startDir string, env map[st
 	return f.spawnWID, f.spawnPane, nil
 }
 
-func (f *fakeTmuxBackend) ListWindowIndexes() ([]string, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.winIndexes, nil
-}
-
 func (f *fakeTmuxBackend) ShowEnvironment() (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.envOutput, nil
 }
 
-func (f *fakeTmuxBackend) KillWindow(wid string) error {
+func (f *fakeTmuxBackend) KillPaneWindow(paneID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.killCalls++
-	f.killedWIDs = append(f.killedWIDs, wid)
+	f.killedPanes = append(f.killedPanes, paneID)
 	return nil
 }
 
@@ -122,6 +115,14 @@ func (f *fakeTmuxBackend) JoinPane(srcPane, dstPane string, before bool, sizePct
 	f.joinSources = append(f.joinSources, srcPane)
 	f.joinTargets = append(f.joinTargets, dstPane)
 	return nil
+}
+func (f *fakeTmuxBackend) PaneID(target string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if target == "roost-test:0.0" && f.spawnPane != "" {
+		return f.spawnPane, nil
+	}
+	return "%main", nil
 }
 func (f *fakeTmuxBackend) SelectPane(string) error { return nil }
 func (f *fakeTmuxBackend) SetStatusLine(line string) error {
@@ -413,7 +414,7 @@ func TestActivateSessionInspectsPanesAroundJoin(t *testing.T) {
 		MainPaneHeightPct: 70,
 		Tmux:              tmux,
 	})
-	r.windowMap["sess-1"] = "3"
+	r.sessionPanes["sess-1"] = "%3"
 
 	r.execute(state.EffActivateSession{
 		SessionID: "sess-1",
@@ -431,7 +432,7 @@ func TestActivateSessionInspectsPanesAroundJoin(t *testing.T) {
 	if len(tmux.inspectCalls) != 3 {
 		t.Fatalf("inspectCalls = %d, want 3", len(tmux.inspectCalls))
 	}
-	wantTargets := []string{"roost-test:0.0", "roost-test:3.0", "roost-test:0.0"}
+	wantTargets := []string{"roost-test:0.0", "%3", "roost-test:0.0"}
 	for i, want := range wantTargets {
 		if tmux.inspectCalls[i] != want {
 			t.Fatalf("inspectCalls[%d] = %q, want %q", i, tmux.inspectCalls[i], want)
@@ -440,8 +441,8 @@ func TestActivateSessionInspectsPanesAroundJoin(t *testing.T) {
 	if r.activeSession != "sess-1" {
 		t.Fatalf("activeSession = %q, want sess-1", r.activeSession)
 	}
-	if r.windowMap["sess-1"] != "0" {
-		t.Fatalf("windowMap[sess-1] = %q, want 0", r.windowMap["sess-1"])
+	if r.sessionPanes["sess-1"] != "%3" {
+		t.Fatalf("sessionPanes[sess-1] = %q, want %%3", r.sessionPanes["sess-1"])
 	}
 }
 
@@ -510,7 +511,7 @@ func TestRuntimeStopSession(t *testing.T) {
 	r.state.Sessions["abc"] = state.Session{
 		ID: "abc", Command: "stub-x",
 	}
-	r.windowMap["abc"] = "5"
+	r.sessionPanes["abc"] = "%5"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = r.Run(ctx) }()
@@ -588,12 +589,10 @@ func TestRuntimeShellSessionSpawnsWithoutCommand(t *testing.T) {
 	}
 }
 
-func TestReconcileDetectsVanishedWindow(t *testing.T) {
+func TestReconcileDetectsVanishedPane(t *testing.T) {
 	ftmux := newFakeTmux()
-	// Window index "3" is in windowMap for "tracked1", but not in live indexes.
-	// reconcileWindows should emit EvTmuxWindowVanished → EffUnregisterWindow.
-	ftmux.winIndexes = []string{"2", "4"} // window "3" is missing
-	ftmux.envs["ROOST_W_3"] = "tracked1"
+	ftmux.alive["%3"] = false
+	ftmux.envs["ROOST_SESSION_tracked1"] = "%3"
 	r := New(Config{
 		SessionName:  "roost-test",
 		TickInterval: 20 * time.Millisecond,
@@ -605,7 +604,7 @@ func TestReconcileDetectsVanishedWindow(t *testing.T) {
 		Command: "shell",
 		Driver:  drv.NewState(time.Now()),
 	}
-	r.windowMap[state.SessionID("tracked1")] = "3"
+	r.sessionPanes[state.SessionID("tracked1")] = "%3"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = r.Run(ctx) }()
@@ -613,7 +612,7 @@ func TestReconcileDetectsVanishedWindow(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		ftmux.mu.Lock()
-		_, stillSet := ftmux.envs["ROOST_W_3"]
+		_, stillSet := ftmux.envs["ROOST_SESSION_tracked1"]
 		ftmux.mu.Unlock()
 		if !stillSet {
 			break
@@ -625,14 +624,13 @@ func TestReconcileDetectsVanishedWindow(t *testing.T) {
 
 	ftmux.mu.Lock()
 	defer ftmux.mu.Unlock()
-	if _, ok := ftmux.envs["ROOST_W_3"]; ok {
-		t.Error("ROOST_W_3 should be unset after window vanished")
+	if _, ok := ftmux.envs["ROOST_SESSION_tracked1"]; ok {
+		t.Error("ROOST_SESSION_tracked1 should be unset after pane vanished")
 	}
 }
 
-func TestReconcileSkipsNonRoostWindows(t *testing.T) {
+func TestReconcileSkipsWithoutTrackedPanes(t *testing.T) {
 	ftmux := newFakeTmux()
-	// No sessions in windowMap — nothing should be killed or unset.
 	r := New(Config{
 		SessionName:  "roost-test",
 		TickInterval: 20 * time.Millisecond,

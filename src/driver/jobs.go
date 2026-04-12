@@ -10,12 +10,12 @@ import "github.com/takezoh/agent-roost/state"
 // *Result is what the worker hands back via EvJobResult.
 
 // CapturePaneInput asks the worker pool to run `tmux capture-pane`
-// against a specific window's primary pane and return the trailing
+// against a specific pane and return the trailing
 // NLines lines. Used by polling drivers (e.g. genericDriver) to
 // detect activity.
 type CapturePaneInput struct {
-	WindowTarget string
-	NLines       int
+	PaneTarget string
+	NLines     int
 }
 
 // CapturePaneResult carries the captured content. Hash is the SHA256

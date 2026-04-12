@@ -17,8 +17,8 @@ type TmuxBackend interface {
 	// window index (e.g. "1") and the pane id (e.g. "%5").
 	SpawnWindow(name, command, startDir string, env map[string]string) (windowIndex, paneID string, err error)
 
-	// KillWindow destroys a tmux window.
-	KillWindow(windowID string) error
+	// KillPaneWindow destroys the tmux window containing the named pane.
+	KillPaneWindow(paneTarget string) error
 
 	// RunChain executes a sequence of swap-pane (or other) commands as
 	// a single tmux invocation. Used for the swap-pane preview chain.
@@ -34,6 +34,9 @@ type TmuxBackend interface {
 	// JoinPane moves a pane into another pane slot. sizePct controls
 	// the new pane size; before inserts before the target pane.
 	JoinPane(srcPane, dstPane string, before bool, sizePct int) error
+
+	// PaneID returns the pane id (e.g. "%5") for the target pane.
+	PaneID(target string) (string, error)
 
 	// SelectPane focuses a tmux pane.
 	SelectPane(target string) error
@@ -53,16 +56,12 @@ type TmuxBackend interface {
 	// RespawnPane runs respawn-pane against a dead pane.
 	RespawnPane(target, command string) error
 
-	// CapturePane returns the trailing nLines of a window's primary
-	// pane content. Used by polling drivers via the worker pool.
-	CapturePane(windowID string, nLines int) (string, error)
+	// CapturePane returns the trailing nLines of a pane's content.
+	// Used by polling drivers via the worker pool.
+	CapturePane(paneTarget string, nLines int) (string, error)
 
 	// InspectPane snapshots a pane's visible state for diagnostics.
 	InspectPane(target string, nLines int) (PaneSnapshot, error)
-
-	// ListWindowIndexes returns the window indexes of the roost tmux
-	// session (e.g. ["1", "2", "3"]).
-	ListWindowIndexes() ([]string, error)
 
 	// ShowEnvironment returns the tmux session environment as a
 	// newline-delimited KEY=VALUE string (output of show-environment).
@@ -87,8 +86,8 @@ type PersistBackend interface {
 
 // SessionSnapshot is the on-disk format for one session in
 // sessions.json. Includes the static metadata + the driver's persisted
-// bag (opaque map of strings). Window/pane IDs are not persisted; the
-// window map is stored in tmux session env vars (ROOST_W_*).
+// bag (opaque map of strings). Pane ids are tracked in tmux session env
+// vars (ROOST_SESSION_<sid>); sessions.json stays pane-id free.
 type SessionSnapshot struct {
 	ID          string            `json:"id"`
 	Project     string            `json:"project"`
@@ -141,13 +140,14 @@ type PaneSnapshot struct {
 func (noopTmux) SpawnWindow(name, command, startDir string, env map[string]string) (string, string, error) {
 	return "", "", nil
 }
-func (noopTmux) KillWindow(string) error        { return nil }
+func (noopTmux) KillPaneWindow(string) error    { return nil }
 func (noopTmux) RunChain(...[]string) error     { return nil }
 func (noopTmux) BreakPane(string, string) error { return nil }
 func (noopTmux) BreakPaneToNewWindow(string, string) (string, error) {
 	return "", nil
 }
 func (noopTmux) JoinPane(string, string, bool, int) error { return nil }
+func (noopTmux) PaneID(string) (string, error)            { return "", nil }
 func (noopTmux) SelectPane(string) error                  { return nil }
 func (noopTmux) SetStatusLine(string) error               { return nil }
 func (noopTmux) SetEnv(string, string) error              { return nil }
@@ -158,7 +158,6 @@ func (noopTmux) CapturePane(string, int) (string, error)  { return "", nil }
 func (noopTmux) InspectPane(string, int) (PaneSnapshot, error) {
 	return PaneSnapshot{}, nil
 }
-func (noopTmux) ListWindowIndexes() ([]string, error)      { return nil, nil }
 func (noopTmux) ShowEnvironment() (string, error)          { return "", nil }
 func (noopTmux) DetachClient() error                       { return nil }
 func (noopTmux) KillSession() error                        { return nil }
@@ -199,8 +198,8 @@ func eventTypeName(ev state.Event) string {
 		return "EvEvent"
 	case state.EvJobResult:
 		return "EvJobResult"
-	case state.EvTmuxWindowSpawned:
-		return "EvTmuxWindowSpawned"
+	case state.EvTmuxPaneSpawned:
+		return "EvTmuxPaneSpawned"
 	case state.EvTmuxSpawnFailed:
 		return "EvTmuxSpawnFailed"
 	case state.EvFileChanged:

@@ -132,15 +132,14 @@ func prepareSessionDriver(s State, drv Driver, sessID SessionID, project, comman
 	return driverState, launch, setupJob, nil
 }
 
-
-func reduceTmuxWindowSpawned(s State, e EvTmuxWindowSpawned) (State, []Effect) {
+func reduceTmuxPaneSpawned(s State, e EvTmuxPaneSpawned) (State, []Effect) {
 	if _, ok := s.Sessions[e.SessionID]; !ok {
 		return s, nil
 	}
 	s.ActiveSession = e.SessionID
 
 	effs := []Effect{
-		EffRegisterWindow{SessionID: e.SessionID, WindowTarget: e.WindowTarget},
+		EffRegisterPane{SessionID: e.SessionID, PaneTarget: e.PaneTarget},
 		EffActivateSession{SessionID: e.SessionID, Reason: EventCreateSession},
 		EffSelectPane{Target: "{sessionName}:0.0"},
 		EffSyncStatusLine{Line: ""},
@@ -196,7 +195,7 @@ func reduceStopSession(s State, connID ConnID, reqID string, p StopSessionParams
 	}
 	return s, append(deactivate, []Effect{
 		EffKillSessionWindow{SessionID: sid},
-		EffUnregisterWindow{SessionID: sid},
+		EffUnregisterPane{SessionID: sid},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
 		okResp(connID, reqID, nil),

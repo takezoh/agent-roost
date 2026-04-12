@@ -144,14 +144,14 @@ flowchart LR
     Reduce -->|"[]Effect"| Interp
 
     Interp -->|EffSpawnTmuxWindow| Tmux["tmux backend<br/>(go async spawn)"]:::async
-    Interp -->|EffKillSessionWindow<br/>EffActivateSession<br/>EffDeactivateSession<br/>EffSelectPane<br/>EffSyncStatusLine<br/>EffRegisterWindow<br/>EffUnregisterWindow| TmuxSync["tmux backend<br/>(inline sync)"]:::sync
+    Interp -->|EffKillSessionWindow<br/>EffActivateSession<br/>EffDeactivateSession<br/>EffSelectPane<br/>EffSyncStatusLine<br/>EffRegisterPane<br/>EffUnregisterPane| TmuxSync["tmux backend<br/>(inline sync)"]:::sync
     Interp -->|EffSendResponse<br/>EffBroadcastSessionsChanged| IPC["IPC conn writer"]:::sync
     Interp -->|EffPersistSnapshot| Persist["sessions.json writer"]:::sync
     Interp -->|EffStartJob| Pool["Worker pool<br/>(4 goroutine)"]:::async
     Interp -->|EffWatchFile| Watcher["fsnotify watcher"]:::sync
     Interp -->|EffEventLogAppend| EventLog["event log writer"]:::sync
 
-    Tmux -->|EvTmuxWindowSpawned| EL["event loop (eventCh)"]
+    Tmux -->|EvTmuxPaneSpawned| EL["event loop (eventCh)"]
     Pool -->|EvJobResult| EL
     Watcher -->|EvFileChanged| EL
 ```

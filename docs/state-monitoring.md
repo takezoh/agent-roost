@@ -4,7 +4,7 @@ For the interactive operation processing flow (TUI → IPC → Reduce → Effect
 
 ## Background pipeline
 
-Every tick (1s), `reduceTick` calls `Driver.Step(driverState, DEvTick{...})` for all sessions and aggregates the returned Effects (EffStartJob, etc.). Window reconciliation (`runtime.reconcileWindows()` using `ListWindowIndexes` + `windowMap`) and pane health check (runtime checks pane 0.0 alive; owner is `runtime.activeSession`) are also performed on the same tick. For the detailed tick processing sequence, see [ipc.md](ipc.md#tick-processing-sequence).
+Every tick (1s), `reduceTick` calls `Driver.Step(driverState, DEvTick{...})` for all sessions and aggregates the returned Effects (EffStartJob, etc.). Pane reconciliation (`runtime.reconcileWindows()` using `sessionPanes` + `PaneAlive`) and pane health check (runtime checks pane 0.0 alive; owner is `runtime.activeSession`) are also performed on the same tick. For the detailed tick processing sequence, see [ipc.md](ipc.md#tick-processing-sequence).
 
 Driver.Step returns `EffStartJob`, which is submitted to the worker pool. The result is fed back to the event loop via `EvJobResult` → `Driver.Step(DEvJobResult)` reflects it in DriverState.
 
@@ -28,7 +28,7 @@ The Driver plugin's `Step` method is responsible for status updates. For the Dri
 
 ### Active/Inactive and DEvTick.Active (push model)
 
-"Session is active" means the tmux window is swap-paned to pane 0.0 (main). The single source of truth is `state.State.ActiveSession` (SessionID), and `reduceTick` evaluates `sessID == state.ActiveSession` when constructing `DEvTick` to set the `DEvTick.Active` flag. Step is called for all sessions on every tick, passing `DEvTick{Active: false}` to inactive Drivers. Activation is detected on the next tick (within 1 second).
+"Session is active" means the session pane is joined into pane 0.0 (main). The single source of truth is `state.State.ActiveSession` (SessionID), and `reduceTick` evaluates `sessID == state.ActiveSession` when constructing `DEvTick` to set the `DEvTick.Active` flag. Step is called for all sessions on every tick, passing `DEvTick{Active: false}` to inactive Drivers. Activation is detected on the next tick (within 1 second).
 
 ### Claude driver (event-driven + active-gated transcript sync)
 
@@ -90,7 +90,7 @@ The idle threshold can be changed via `IdleThresholdSec` in `settings.toml` (def
 
 ### State persistence and restoration
 
-`Driver.Persist(driverState)` returns an opaque `map[string]string` interpreted by the driver, and `EffPersistSnapshot` writes it to `sessions.json`. Window-to-session mapping is stored in `ROOST_W_*` session-level env vars (not in sessions.json).
+`Driver.Persist(driverState)` returns an opaque `map[string]string` interpreted by the driver, and `EffPersistSnapshot` writes it to `sessions.json`. Session-to-pane mapping is stored in `ROOST_SESSION_*` session-level env vars (not in sessions.json).
 
 #### Writing (runtime)
 
@@ -110,12 +110,12 @@ sequenceDiagram
     Red-->>Interp: [EffPersistSnapshot, ...]
     Interp->>Interp: snapshotSessions():<br/>Obtains opaque map via<br/>Driver.Persist(driverState)
     Interp->>JSON: Write to sessions.json
-    Note over JSON: sessions.json is the sole persistence target<br/>Window map stored in ROOST_W_* env vars
+    Note over JSON: sessions.json is the sole persistence target<br/>Session pane map stored in ROOST_SESSION_* env vars
 ```
 
 #### Restoration (warm restart / cold boot)
 
-There are two restoration paths. **Warm restart** (tmux server alive) rebuilds the window map from `ROOST_W_*` session-level env vars via `LoadWindowMap`, then reconciles orphans with `ReconcileOrphans`, and restores DriverState from the `driver_state` bag in `sessions.json` using `Driver.Restore`. **Cold boot** (tmux server also dead) recreates sessions + tmux windows from sessions.json via `RecreateAll`, which populates `windowMap` + `ROOST_W_*` env vars:
+There are two restoration paths. **Warm restart** (tmux server alive) rebuilds the parked session pane map from `ROOST_SESSION_*` session-level env vars via `LoadSessionPanes`, then reconciles orphans with `ReconcileOrphans`, and restores DriverState from the `driver_state` bag in `sessions.json` using `Driver.Restore`. Active session is not restored; startup always returns pane `0.0` to the main TUI. **Cold boot** (tmux server also dead) recreates sessions from sessions.json via `RecreateAll`, which populates `sessionPanes` + `ROOST_SESSION_*` env vars:
 
 ```mermaid
 sequenceDiagram
@@ -126,14 +126,14 @@ sequenceDiagram
     participant Drv as Driver
 
     alt warm restart (tmux server alive)
-        Boot->>Tmux: LoadWindowMap()
-        Tmux-->>Boot: windowMap from ROOST_W_* env vars
+        Boot->>Tmux: LoadSessionPanes()
+        Tmux-->>Boot: sessionPanes from ROOST_SESSION_* env vars
         Boot->>Tmux: ReconcileOrphans()
         Boot->>JSON: Load()
         JSON-->>Boot: SessionSnapshot list<br/>(including driver_state bag)
         Boot->>Drv: Driver.Restore(bag, now)
         Drv-->>Boot: DriverState (restored)
-        Boot->>Red: Add Session to initial State<br/>(re-binding to existing tmux window)
+        Boot->>Red: Add Session to initial State<br/>(re-binding to existing parked tmux pane)
     else cold boot (tmux server also dead)
         Boot->>JSON: Load()
         JSON-->>Boot: SessionSnapshot list
@@ -141,7 +141,7 @@ sequenceDiagram
         Drv-->>Boot: DriverState
         Boot->>Drv: Driver.SpawnCommand(driverState, baseCommand)
         Drv-->>Boot: e.g., "claude --resume <id>"
-        Note over Boot: RecreateAll populates windowMap + ROOST_W_*<br/>Add Session to initial State<br/>→ First Reduce emits EffSpawnTmuxWindow
+        Note over Boot: RecreateAll populates sessionPanes + ROOST_SESSION_*<br/>Add Session to initial State<br/>→ First Reduce emits EffSpawnTmuxWindow
     end
 ```
 
@@ -181,11 +181,11 @@ SpawnCommand is called only on cold boot (on warm restart, the existing agent pr
 
 | Scenario | Behavior |
 |---------|------|
-| **New session creation** | `EvCmdCreateSession` → `reduceCreateSession` adds Session to State (generates initial DriverState via Driver.NewState) + emits `EffSpawnTmuxWindow` → runtime spawns tmux window → `EvTmuxWindowSpawned` reflects WindowTarget |
-| **Warm restart (daemon only restarts)** | `runtime.Bootstrap` reconstructs Sessions from `LoadWindowMap` (ROOST_W_* env vars) + sessions.json. Restores DriverState via `Driver.Restore(bag, now)` → sets in initial State |
-| **Cold boot (tmux server also dead)** | `runtime.Bootstrap` reads SessionSnapshots from sessions.json → `Driver.Restore(bag, now)` + `Driver.SpawnCommand(driverState, baseCommand)` assembles resume command → `RecreateAll` populates windowMap + ROOST_W_* → adds Session to initial State → first Reduce emits EffSpawnTmuxWindow |
+| **New session creation** | `EvCmdCreateSession` → `reduceCreateSession` adds Session to State (generates initial DriverState via Driver.NewState) + emits `EffSpawnTmuxWindow` → runtime spawns tmux pane → `EvTmuxPaneSpawned` reflects `PaneTarget` |
+| **Warm restart (daemon only restarts)** | `runtime.Bootstrap` reconstructs parked Sessions from `LoadSessionPanes` (`ROOST_SESSION_*`) + sessions.json. Restores DriverState via `Driver.Restore(bag, now)` → sets in initial State. `0.0` is always main TUI |
+| **Cold boot (tmux server also dead)** | `runtime.Bootstrap` reads SessionSnapshots from sessions.json → `Driver.Restore(bag, now)` + `Driver.SpawnCommand(driverState, baseCommand)` assembles resume command → `RecreateAll` populates `sessionPanes` + `ROOST_SESSION_*` → adds Session to initial State → first Reduce emits `EffSpawnTmuxWindow` |
 | **Session stop** | `EvCmdStopSession` → `reduceStopSession` removes Session from State + emits `EffKillSessionWindow` (SessionID-based) + `EffPersistSnapshot` |
-| **Dead pane reap** | `EvTick` → `reduceTick` → runtime's `reconcileWindows()` (ListWindowIndexes + windowMap) + pane 0.0 health check → `EvTmuxWindowVanished` / `EvPaneDied` removes Session from State |
+| **Dead pane reap** | `EvTick` → `reduceTick` → runtime's `reconcileWindows()` (`PaneAlive` + `sessionPanes`) + pane 0.0 health check → `EvTmuxWindowVanished` / `EvPaneDied` removes Session from State |
 
 ### Cost extraction
 

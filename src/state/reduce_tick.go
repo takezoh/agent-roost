@@ -8,10 +8,10 @@ func reduceTick(s State, e EvTick) (State, []Effect) {
 
 	s, effs, changed := stepActiveSessions(s, func(sessID SessionID, sess Session, active bool) DriverEvent {
 		return DEvTick{
-			Now:          e.Now,
-			Active:       active,
-			Project:      sess.Project,
-			WindowTarget: e.WindowTargets[sessID],
+			Now:        e.Now,
+			Active:     active,
+			Project:    sess.Project,
+			PaneTarget: e.PaneTargets[sessID],
 		}
 	})
 
@@ -107,7 +107,7 @@ func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 
 	effs := append(deactivate, []Effect{
 		EffKillSessionWindow{SessionID: ownerID},
-		EffUnregisterWindow{SessionID: ownerID},
+		EffUnregisterPane{SessionID: ownerID},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
 	}...)
@@ -139,7 +139,7 @@ func reduceTmuxWindowVanished(s State, e EvTmuxWindowVanished) (State, []Effect)
 		deactivate = []Effect{EffDeactivateSession{}}
 	}
 	return s, append(deactivate, []Effect{
-		EffUnregisterWindow{SessionID: e.SessionID},
+		EffUnregisterPane{SessionID: e.SessionID},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
 	}...)

@@ -21,8 +21,8 @@ func Reduce(s State, ev Event) (State, []Effect) {
 		return reduceDriverHook(s, e)
 
 	// tmux feedback
-	case EvTmuxWindowSpawned:
-		return reduceTmuxWindowSpawned(s, e)
+	case EvTmuxPaneSpawned:
+		return reduceTmuxPaneSpawned(s, e)
 	case EvTmuxSpawnFailed:
 		return reduceTmuxSpawnFailed(s, e)
 	case EvTmuxWindowVanished:

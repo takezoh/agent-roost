@@ -229,7 +229,7 @@ func TestCreateSessionPlannerFailureRepliesError(t *testing.T) {
 	}
 }
 
-// === reduceTmuxWindowSpawned ===
+// === reduceTmuxPaneSpawned ===
 
 func TestTmuxSpawnedRegistersWindowAndActivates(t *testing.T) {
 	s := New()
@@ -237,17 +237,17 @@ func TestTmuxSpawnedRegistersWindowAndActivates(t *testing.T) {
 	id := SessionID("abc")
 	s.Sessions[id] = Session{ID: id, Project: "/foo", Command: "stub", Driver: stubDriverState{}}
 
-	next, effs := Reduce(s, EvTmuxWindowSpawned{
-		SessionID:    id,
-		WindowTarget: "1",
-		ReplyConn:    1,
-		ReplyReqID:   "r",
+	next, effs := Reduce(s, EvTmuxPaneSpawned{
+		SessionID:  id,
+		PaneTarget: "%1",
+		ReplyConn:  1,
+		ReplyReqID: "r",
 	})
 	if next.ActiveSession != id {
 		t.Errorf("ActiveSession = %q, want %q", next.ActiveSession, id)
 	}
-	if _, ok := findEff[EffRegisterWindow](effs); !ok {
-		t.Error("expected EffRegisterWindow")
+	if _, ok := findEff[EffRegisterPane](effs); !ok {
+		t.Error("expected EffRegisterPane")
 	}
 	if _, ok := findEff[EffActivateSession](effs); !ok {
 		t.Error("expected EffActivateSession")
@@ -265,8 +265,8 @@ func TestTmuxSpawnedRegistersWindowAndActivates(t *testing.T) {
 
 func TestTmuxSpawnedUnknownSessionDropsSilently(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvTmuxWindowSpawned{
-		SessionID: "ghost", WindowTarget: "1", ReplyConn: 1, ReplyReqID: "r",
+	_, effs := Reduce(s, EvTmuxPaneSpawned{
+		SessionID: "ghost", PaneTarget: "%1", ReplyConn: 1, ReplyReqID: "r",
 	})
 	if len(effs) != 0 {
 		t.Errorf("expected no effects, got %d", len(effs))
@@ -332,8 +332,8 @@ func TestStopSessionRemovesAndKills(t *testing.T) {
 	if _, ok := findEff[EffKillSessionWindow](effs); !ok {
 		t.Error("expected EffKillSessionWindow")
 	}
-	if _, ok := findEff[EffUnregisterWindow](effs); !ok {
-		t.Error("expected EffUnregisterWindow")
+	if _, ok := findEff[EffUnregisterPane](effs); !ok {
+		t.Error("expected EffUnregisterPane")
 	}
 	mustOK(t, effs)
 }
@@ -559,8 +559,8 @@ func TestTmuxWindowVanishedEvicts(t *testing.T) {
 	if _, ok := findEff[EffBroadcastSessionsChanged](effs); !ok {
 		t.Error("expected broadcast")
 	}
-	if _, ok := findEff[EffUnregisterWindow](effs); !ok {
-		t.Error("expected EffUnregisterWindow")
+	if _, ok := findEff[EffUnregisterPane](effs); !ok {
+		t.Error("expected EffUnregisterPane")
 	}
 }
 

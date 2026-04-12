@@ -6,34 +6,30 @@ import (
 	"github.com/takezoh/agent-roost/state"
 )
 
-const activeSessionEnvKey = "ROOST_ACTIVE_SESSION"
-
 func (r *Runtime) activateSession(sessID state.SessionID, reason string) {
-	target, ok := r.windowMap[sessID]
-	if !ok {
-		slog.Warn("runtime: activate session — no window target", "session", sessID)
+	paneID := r.sessionPanes[sessID]
+	if paneID == "" {
+		slog.Warn("runtime: activate session — no pane target", "session", sessID)
 		return
 	}
-	if r.activeSession == sessID && target == "0" {
+	if r.activeSession == sessID {
 		return
 	}
 
-	pane0 := r.cfg.SessionName + ":0.0"
-	r.logPaneSnapshot(reason, "before-main", pane0)
-	if target != "0" {
-		r.logPaneSnapshot(reason, "before-target", r.cfg.SessionName+":"+target+".0")
-	}
+	main := r.mainPaneTarget()
+	r.logPaneSnapshot(reason, "before-main", main)
+	r.logPaneSnapshot(reason, "before-target", paneID)
 
-	if r.activeSession != "" && r.activeSession != sessID {
-		r.parkSessionFromMain(r.activeSession)
+	if r.activeSession != "" && r.activeSession != sessID && !r.parkSessionFromMain(r.activeSession) {
+		return
 	}
-	if r.activeSession == "" {
-		r.parkMainFromMain()
+	if r.activeSession == "" && !r.parkMainFromMain() {
+		return
 	}
 	if !r.joinSessionIntoMain(sessID) {
 		return
 	}
-	r.logPaneSnapshot(reason, "after-main", pane0)
+	r.logPaneSnapshot(reason, "after-main", main)
 }
 
 func (r *Runtime) deactivateSession() {
@@ -47,79 +43,71 @@ func (r *Runtime) deactivateSession() {
 }
 
 func (r *Runtime) parkSessionFromMain(sessID state.SessionID) bool {
-	target := r.windowMap[sessID]
-	newTarget, ok := r.breakMainPaneToWindow(target, windowNameForSession(r.state.Sessions, sessID))
-	if !ok {
+	paneID := r.sessionPanes[sessID]
+	if paneID == "" {
 		return false
 	}
-	r.windowMap[sessID] = newTarget
+	if _, err := r.cfg.Tmux.BreakPaneToNewWindow(paneID, windowNameForSession(r.state.Sessions, sessID)); err != nil {
+		slog.Warn("runtime: break-pane session failed", "session", sessID, "err", err)
+		return false
+	}
 	r.activeSession = ""
-	_ = r.cfg.Tmux.SetEnv(windowEnvKey(newTarget), string(sessID))
-	_ = r.cfg.Tmux.UnsetEnv(activeSessionEnvKey)
 	return true
 }
 
 func (r *Runtime) parkMainFromMain() bool {
-	target, ok := r.breakMainPaneToWindow(r.mainWindow, "main")
+	paneID, ok := r.ensureMainPaneID()
 	if !ok {
 		return false
 	}
-	r.mainWindow = target
-	_ = r.cfg.Tmux.SetEnv(mainWindowEnvKey(), target)
+	if _, err := r.cfg.Tmux.BreakPaneToNewWindow(paneID, "main"); err != nil {
+		slog.Warn("runtime: break-pane main failed", "err", err)
+		return false
+	}
 	return true
 }
 
-func (r *Runtime) breakMainPaneToWindow(currentTarget, name string) (string, bool) {
-	pane0 := r.cfg.SessionName + ":0.0"
-	if currentTarget != "" && currentTarget != "0" {
-		if err := r.cfg.Tmux.BreakPane(pane0, currentTarget); err != nil {
-			slog.Warn("runtime: break-pane failed", "target", currentTarget, "err", err)
-			return "", false
-		}
-		return currentTarget, true
-	}
-	target, err := r.cfg.Tmux.BreakPaneToNewWindow(pane0, name)
-	if err != nil {
-		slog.Warn("runtime: break-pane new-window failed", "name", name, "err", err)
-		return "", false
-	}
-	return target, true
-}
-
 func (r *Runtime) joinSessionIntoMain(sessID state.SessionID) bool {
-	target := r.windowMap[sessID]
-	if target == "" || target == "0" {
-		slog.Warn("runtime: join session — invalid source window", "session", sessID, "target", target)
+	paneID := r.sessionPanes[sessID]
+	if paneID == "" {
 		return false
 	}
-	src := r.cfg.SessionName + ":" + target + ".0"
-	dst := r.cfg.SessionName + ":0.0"
-	if err := r.cfg.Tmux.JoinPane(src, dst, true, r.cfg.MainPaneHeightPct); err != nil {
-		slog.Warn("runtime: join-pane session failed", "session", sessID, "target", target, "err", err)
+	if err := r.cfg.Tmux.JoinPane(paneID, r.mainPaneTarget(), true, r.cfg.MainPaneHeightPct); err != nil {
+		slog.Warn("runtime: join-pane session failed", "session", sessID, "pane", paneID, "err", err)
 		return false
 	}
-	_ = r.cfg.Tmux.UnsetEnv(windowEnvKey(target))
-	_ = r.cfg.Tmux.SetEnv(activeSessionEnvKey, string(sessID))
-	r.windowMap[sessID] = "0"
 	r.activeSession = sessID
 	return true
 }
 
 func (r *Runtime) joinMainIntoMain() bool {
-	if r.mainWindow == "" || r.mainWindow == "0" {
-		slog.Warn("runtime: join main — no parked main window")
+	paneID, ok := r.ensureMainPaneID()
+	if !ok {
 		return false
 	}
-	src := r.cfg.SessionName + ":" + r.mainWindow + ".0"
-	dst := r.cfg.SessionName + ":0.0"
-	if err := r.cfg.Tmux.JoinPane(src, dst, true, r.cfg.MainPaneHeightPct); err != nil {
-		slog.Warn("runtime: join-pane main failed", "target", r.mainWindow, "err", err)
+	if err := r.cfg.Tmux.JoinPane(paneID, r.mainPaneTarget(), true, r.cfg.MainPaneHeightPct); err != nil {
+		slog.Warn("runtime: join-pane main failed", "pane", paneID, "err", err)
 		return false
 	}
-	_ = r.cfg.Tmux.UnsetEnv(mainWindowEnvKey())
-	r.mainWindow = "0"
 	r.activeSession = ""
 	return true
+}
+
+func (r *Runtime) ensureMainPaneID() (string, bool) {
+	if r.mainPaneID != "" {
+		return r.mainPaneID, true
+	}
+	paneID, err := r.cfg.Tmux.PaneID(r.mainPaneTarget())
+	if err != nil || paneID == "" {
+		slog.Warn("runtime: pane-id lookup failed", "target", r.mainPaneTarget(), "err", err)
+		return "", false
+	}
+	r.mainPaneID = paneID
+	return paneID, true
+}
+
+func (r *Runtime) mainPaneTarget() string {
+	return r.cfg.SessionName + ":0.0"
 }
 
 func windowNameForSession(sessions map[state.SessionID]state.Session, sessID state.SessionID) string {
@@ -130,6 +118,6 @@ func windowNameForSession(sessions map[state.SessionID]state.Session, sessID sta
 	return windowName(sess.Project, string(sessID))
 }
 
-func mainWindowEnvKey() string {
-	return "ROOST_W_MAIN"
+func sessionPaneEnvKey(sessID state.SessionID) string {
+	return "ROOST_SESSION_" + string(sessID)
 }
