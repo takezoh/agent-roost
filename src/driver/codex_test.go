@@ -204,19 +204,19 @@ func TestParseCodexWorktree(t *testing.T) {
 	tests := []struct {
 		name    string
 		command string
-		wantReq codexWorktreeRequest
+		wantReq worktreeRequest
 		wantCmd string
 	}{
-		{"none", "codex --model gpt-5", codexWorktreeRequest{}, "codex --model gpt-5"},
-		{"bare", "codex --worktree", codexWorktreeRequest{Enabled: true}, "codex"},
-		{"spaced", "codex --worktree feature --model gpt-5", codexWorktreeRequest{Enabled: true, Name: "feature"}, "codex --model gpt-5"},
-		{"equals", "codex --model gpt-5 --worktree=feature", codexWorktreeRequest{Enabled: true, Name: "feature"}, "codex --model gpt-5"},
+		{"none", "codex --model gpt-5", worktreeRequest{}, "codex --model gpt-5"},
+		{"bare", "codex --worktree", worktreeRequest{Enabled: true}, "codex"},
+		{"spaced", "codex --worktree feature --model gpt-5", worktreeRequest{Enabled: true, Name: "feature"}, "codex --model gpt-5"},
+		{"equals", "codex --model gpt-5 --worktree=feature", worktreeRequest{Enabled: true, Name: "feature"}, "codex --model gpt-5"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotReq, gotCmd := parseCodexWorktree(tt.command)
+			gotReq, gotCmd := parseWorktreeFlags(tt.command, "--worktree")
 			if gotReq != tt.wantReq || gotCmd != tt.wantCmd {
-				t.Fatalf("parseCodexWorktree(%q) = (%+v, %q), want (%+v, %q)", tt.command, gotReq, gotCmd, tt.wantReq, tt.wantCmd)
+				t.Fatalf("parseWorktreeFlags(%q) = (%+v, %q), want (%+v, %q)", tt.command, gotReq, gotCmd, tt.wantReq, tt.wantCmd)
 			}
 		})
 	}
@@ -268,7 +268,7 @@ func TestCodexPrepareCreateWithWorktree(t *testing.T) {
 	if !ok {
 		t.Fatalf("SetupJob = %T, want WorktreeSetupInput", plan.SetupJob)
 	}
-	if in.RepoDir != "/repo" || in.Name != "feature" {
+	if in.RepoDir != "/repo" || len(in.CandidateNames) != 1 || in.CandidateNames[0] != "feature" {
 		t.Fatalf("setup input = %+v", in)
 	}
 }

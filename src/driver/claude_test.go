@@ -835,6 +835,22 @@ func TestClaudeSpawnCommandAlreadyHasResume(t *testing.T) {
 	}
 }
 
+func TestClaudePrepareCreateWithWorktree(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	next, plan, err := d.PrepareCreate(cs, "sess-1", "/repo", "claude --worktree")
+	if err != nil {
+		t.Fatalf("PrepareCreate error: %v", err)
+	}
+	_ = next.(ClaudeState)
+	in, ok := plan.SetupJob.(WorktreeSetupInput)
+	if !ok {
+		t.Fatalf("SetupJob = %T", plan.SetupJob)
+	}
+	if len(in.CandidateNames) != worktreeNameAttempts {
+		t.Fatalf("candidate names = %d, want %d", len(in.CandidateNames), worktreeNameAttempts)
+	}
+}
+
 // === View ===
 
 func TestClaudeViewNoCommandTag(t *testing.T) {

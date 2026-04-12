@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"time"
@@ -25,6 +26,8 @@ const (
 	genericKeyStatus          = "status"
 	genericKeyStatusChangedAt = "status_changed_at"
 	genericKeySummary         = "summary"
+	genericKeyWorkingDir      = "working_dir"
+	genericKeyWorktreeName    = "worktree_name"
 )
 
 // genericPromptRegexp is compiled once per process.
@@ -47,6 +50,8 @@ type GenericState struct {
 	// Summary cache for the session card subtitle.
 	Summary         string
 	SummaryInFlight bool
+	WorkingDir      string
+	WorktreeName    string
 
 	// Polling state
 	IdleThreshold time.Duration // 0 = idle threshold disabled
@@ -126,6 +131,12 @@ func (d GenericDriver) Persist(s state.DriverState) map[string]string {
 	if gs.Summary != "" {
 		out[genericKeySummary] = gs.Summary
 	}
+	if gs.WorkingDir != "" {
+		out[genericKeyWorkingDir] = gs.WorkingDir
+	}
+	if gs.WorktreeName != "" {
+		out[genericKeyWorktreeName] = gs.WorktreeName
+	}
 	return out
 }
 
@@ -152,6 +163,8 @@ func (d GenericDriver) Restore(bag map[string]string, now time.Time) state.Drive
 		}
 	}
 	gs.Summary = bag[genericKeySummary]
+	gs.WorkingDir = bag[genericKeyWorkingDir]
+	gs.WorktreeName = bag[genericKeyWorktreeName]
 	return gs
 }
 
@@ -202,6 +215,49 @@ func (d GenericDriver) Step(prev state.DriverState, ev state.DriverEvent) (state
 	}
 
 	return gs, nil, d.view(gs)
+}
+
+func (d GenericDriver) PrepareCreate(s state.DriverState, _ state.SessionID, project, command string) (state.DriverState, state.CreatePlan, error) {
+	gs, ok := s.(GenericState)
+	if !ok {
+		gs = GenericState{}
+	}
+	plan, name, err := managedWorktreePlan(project, command, "--worktree")
+	if err != nil {
+		return gs, state.CreatePlan{}, err
+	}
+	if name != "" {
+		gs.WorktreeName = name
+	}
+	return gs, plan, nil
+}
+
+func (d GenericDriver) CompleteCreate(s state.DriverState, command string, result any, err error) (state.DriverState, state.CreateLaunch, error) {
+	gs, ok := s.(GenericState)
+	if !ok {
+		gs = GenericState{}
+	}
+	if err != nil {
+		return gs, state.CreateLaunch{}, err
+	}
+	r, ok := result.(WorktreeSetupResult)
+	if !ok || r.WorkingDir == "" {
+		return gs, state.CreateLaunch{}, errors.New("worktree setup did not return a working directory")
+	}
+	gs.WorkingDir = r.WorkingDir
+	if r.Name != "" {
+		gs.WorktreeName = r.Name
+	}
+	_, stripped := parseWorktreeFlags(command, "--worktree")
+	return gs, state.CreateLaunch{Command: stripped, StartDir: r.WorkingDir}, nil
+}
+
+func (d GenericDriver) ManagedWorktreePath(s state.DriverState) string {
+	gs, ok := s.(GenericState)
+	if !ok {
+		return ""
+	}
+	return managedWorktreePath(gs.WorkingDir)
 }
 
 // applyCapture is the pure status transition logic. Extracted from

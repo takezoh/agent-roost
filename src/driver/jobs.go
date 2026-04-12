@@ -86,8 +86,8 @@ type BranchDetectResult struct {
 // WorktreeSetupInput asks the worker to create a managed git worktree
 // for a codex session before tmux spawn.
 type WorktreeSetupInput struct {
-	RepoDir string
-	Name    string
+	RepoDir        string
+	CandidateNames []string
 }
 
 // WorktreeSetupResult carries the created worktree path and chosen

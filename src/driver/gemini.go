@@ -98,22 +98,8 @@ func (d GeminiDriver) SpawnCommand(s state.DriverState, baseCommand string) stri
 }
 
 func stripGeminiWorktreeFlag(command string) string {
-	parts := strings.Fields(command)
-	out := make([]string, 0, len(parts))
-	for i := 0; i < len(parts); i++ {
-		p := parts[i]
-		if p == "--worktree" || p == "--workspace" {
-			if i+1 < len(parts) && !strings.HasPrefix(parts[i+1], "-") {
-				i++
-			}
-			continue
-		}
-		if strings.HasPrefix(p, "--worktree=") || strings.HasPrefix(p, "--workspace=") {
-			continue
-		}
-		out = append(out, p)
-	}
-	return strings.Join(out, " ")
+	_, stripped := parseWorktreeFlags(command, "--worktree", "--workspace")
+	return stripped
 }
 
 func (d GeminiDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {

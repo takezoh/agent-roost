@@ -3,6 +3,9 @@ package driver
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
+	"os"
+	"path/filepath"
 
 	roostgit "github.com/takezoh/agent-roost/lib/git"
 	"github.com/takezoh/agent-roost/lib/vcs"
@@ -48,10 +51,23 @@ func newBranchDetect() func(BranchDetectInput) (BranchDetectResult, error) {
 
 func newWorktreeSetup() func(WorktreeSetupInput) (WorktreeSetupResult, error) {
 	return func(in WorktreeSetupInput) (WorktreeSetupResult, error) {
-		dir, err := roostgit.CreateWorktree(in.RepoDir, in.Name)
+		root, err := roostgit.RepoRoot(in.RepoDir)
 		if err != nil {
 			return WorktreeSetupResult{}, err
 		}
-		return WorktreeSetupResult{WorkingDir: dir, Name: in.Name}, nil
+		for _, name := range in.CandidateNames {
+			if name == "" {
+				continue
+			}
+			path := filepath.Join(root, ".roost", "worktrees", name)
+			if _, err := os.Stat(path); err == nil {
+				continue
+			}
+			dir, err := roostgit.CreateWorktree(in.RepoDir, name)
+			if err == nil {
+				return WorktreeSetupResult{WorkingDir: dir, Name: name}, nil
+			}
+		}
+		return WorktreeSetupResult{}, errors.New("failed to create managed worktree")
 	}
 }

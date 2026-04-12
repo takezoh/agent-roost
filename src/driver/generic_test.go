@@ -149,6 +149,8 @@ func TestGenericPersistRoundTrip(t *testing.T) {
 	s.Status = state.StatusWaiting
 	s.StatusChangedAt = now
 	s.Summary = "summary text"
+	s.WorkingDir = "/repo/.roost/worktrees/alpha-beta"
+	s.WorktreeName = "alpha-beta"
 	bag := d.Persist(s)
 	if bag[genericKeyStatus] != "waiting" {
 		t.Errorf("persisted status = %q, want waiting", bag[genericKeyStatus])
@@ -159,6 +161,9 @@ func TestGenericPersistRoundTrip(t *testing.T) {
 	if bag[genericKeySummary] != "summary text" {
 		t.Errorf("persisted summary = %q, want summary text", bag[genericKeySummary])
 	}
+	if bag[genericKeyWorkingDir] != "/repo/.roost/worktrees/alpha-beta" {
+		t.Errorf("persisted working dir = %q", bag[genericKeyWorkingDir])
+	}
 	restored := d.Restore(bag, time.Now()).(GenericState)
 	if restored.Status != state.StatusWaiting {
 		t.Errorf("restored status = %v, want waiting", restored.Status)
@@ -168,6 +173,36 @@ func TestGenericPersistRoundTrip(t *testing.T) {
 	}
 	if restored.Summary != "summary text" {
 		t.Errorf("restored summary = %q, want summary text", restored.Summary)
+	}
+	if restored.WorkingDir != "/repo/.roost/worktrees/alpha-beta" || restored.WorktreeName != "alpha-beta" {
+		t.Errorf("restored worktree fields = %+v", restored)
+	}
+}
+
+func TestGenericPrepareCreateWithWorktree(t *testing.T) {
+	d, s, _ := newGenericState(t, 0)
+	next, plan, err := d.PrepareCreate(s, "sess-1", "/repo", "bash --worktree")
+	if err != nil {
+		t.Fatalf("PrepareCreate error: %v", err)
+	}
+	gs := next.(GenericState)
+	if gs.WorktreeName == "" {
+		t.Fatal("expected generated worktree name")
+	}
+	in, ok := plan.SetupJob.(WorktreeSetupInput)
+	if !ok {
+		t.Fatalf("SetupJob = %T", plan.SetupJob)
+	}
+	if len(in.CandidateNames) != worktreeNameAttempts {
+		t.Fatalf("candidate names = %d, want %d", len(in.CandidateNames), worktreeNameAttempts)
+	}
+}
+
+func TestGenericManagedWorktreePath(t *testing.T) {
+	d, s, _ := newGenericState(t, 0)
+	s.WorkingDir = "/repo/.roost/worktrees/alpha-beta"
+	if got := d.ManagedWorktreePath(s); got == "" {
+		t.Fatal("expected managed worktree path")
 	}
 }
 

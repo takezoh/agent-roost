@@ -105,7 +105,7 @@ func (d CodexDriver) SpawnCommand(s state.DriverState, baseCommand string) strin
 	if !ok {
 		return baseCommand
 	}
-	req, stripped := parseCodexWorktree(baseCommand)
+	req, stripped := parseWorktreeFlags(baseCommand, "--worktree")
 	fields := strings.Fields(stripped)
 	if len(fields) == 0 || fields[0] != CodexDriverName {
 		return baseCommand

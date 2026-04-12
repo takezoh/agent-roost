@@ -172,22 +172,8 @@ func (d ClaudeDriver) SpawnCommand(s state.DriverState, baseCommand string) stri
 // lib/claude/cli.StripWorktreeFlag but duplicated here so
 // state/driver stays a leaf package.
 func stripWorktreeFlag(command string) string {
-	parts := strings.Fields(command)
-	out := make([]string, 0, len(parts))
-	for i := 0; i < len(parts); i++ {
-		p := parts[i]
-		if p == "--worktree" {
-			if i+1 < len(parts) && !strings.HasPrefix(parts[i+1], "-") {
-				i++ // drop the worktree name
-			}
-			continue
-		}
-		if strings.HasPrefix(p, "--worktree=") {
-			continue
-		}
-		out = append(out, p)
-	}
-	return strings.Join(out, " ")
+	_, stripped := parseWorktreeFlags(command, "--worktree")
+	return stripped
 }
 
 func isAlphanumHyphen(s string) bool {
