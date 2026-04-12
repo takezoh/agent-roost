@@ -2,8 +2,10 @@ package driver
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 
+	"github.com/dustinkirkland/golang-petname"
 	"github.com/takezoh/agent-roost/state"
 )
 
@@ -40,15 +42,17 @@ func parseCodexWorktree(command string) (codexWorktreeRequest, string) {
 	return req, strings.Join(out, " ")
 }
 
-func generatedWorktreeName(sessionID state.SessionID) string {
-	id := string(sessionID)
-	if len(id) > 8 {
-		id = id[:8]
+const worktreeNameAttempts = 5
+
+func generatedWorktreeNames() []string {
+	out := make([]string, 0, worktreeNameAttempts)
+	for range worktreeNameAttempts {
+		out = append(out, petname.Generate(4, "-"))
 	}
-	return "codex-" + id
+	return out
 }
 
-func (d CodexDriver) PrepareCreate(s state.DriverState, sessionID state.SessionID, project, command string) (state.DriverState, state.CreatePlan, error) {
+func (d CodexDriver) PrepareCreate(s state.DriverState, _ state.SessionID, project, command string) (state.DriverState, state.CreatePlan, error) {
 	cs, ok := s.(CodexState)
 	if !ok {
 		cs = CodexState{}
@@ -61,7 +65,11 @@ func (d CodexDriver) PrepareCreate(s state.DriverState, sessionID state.SessionI
 	}
 	name := req.Name
 	if name == "" {
-		name = generatedWorktreeName(sessionID)
+		names := generatedWorktreeNames()
+		if len(names) == 0 {
+			return cs, state.CreatePlan{}, fmt.Errorf("failed to generate worktree name")
+		}
+		name = names[0]
 	}
 	cs.WorktreeName = name
 	return cs, state.CreatePlan{
@@ -92,4 +100,22 @@ func (d CodexDriver) CompleteCreate(s state.DriverState, command string, result 
 		Command:  stripped,
 		StartDir: r.WorkingDir,
 	}, nil
+}
+
+func (d CodexDriver) ManagedWorktreePath(s state.DriverState) string {
+	cs, ok := s.(CodexState)
+	if !ok || cs.ManagedWorkingDir == "" {
+		return ""
+	}
+	if !isManagedWorktreePath(cs.ManagedWorkingDir) {
+		return ""
+	}
+	return cs.ManagedWorkingDir
+}
+
+func isManagedWorktreePath(path string) bool {
+	clean := filepath.Clean(path)
+	parent := filepath.Base(filepath.Dir(clean))
+	grand := filepath.Base(filepath.Dir(filepath.Dir(clean)))
+	return parent == "worktrees" && grand == ".roost"
 }

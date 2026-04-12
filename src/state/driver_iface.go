@@ -150,6 +150,13 @@ type CreateSessionPlanner interface {
 	CompleteCreate(s DriverState, command string, result any, err error) (DriverState, CreateLaunch, error)
 }
 
+// ManagedWorktreeProvider is an optional driver extension for exposing
+// a roost-managed worktree path that should be cleaned up on launch
+// failure.
+type ManagedWorktreeProvider interface {
+	ManagedWorktreePath(s DriverState) string
+}
+
 // driver registry. set once at init time by each driver impl package.
 var registry = map[string]Driver{}
 

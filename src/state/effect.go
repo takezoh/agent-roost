@@ -178,6 +178,11 @@ type EffEventLogAppend struct {
 	Line      string
 }
 
+// EffRemoveManagedWorktree removes a roost-managed git worktree path.
+type EffRemoveManagedWorktree struct {
+	Path string
+}
+
 // === Reconciliation ===
 
 // EffReconcileWindows asks the runtime to compare the live tmux
@@ -228,5 +233,6 @@ func (EffPersistSnapshot) isEffect()          {}
 func (EffWatchFile) isEffect()                {}
 func (EffUnwatchFile) isEffect()              {}
 func (EffEventLogAppend) isEffect()           {}
+func (EffRemoveManagedWorktree) isEffect()    {}
 func (EffReconcileWindows) isEffect()         {}
 func (EffStartJob) isEffect()                 {}

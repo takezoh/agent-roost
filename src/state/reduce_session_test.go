@@ -53,6 +53,9 @@ func (plannerDriver) CompleteCreate(s DriverState, command string, result any, e
 	}
 	return s, CreateLaunch{Command: "planner --prepared", StartDir: "/prepared"}, nil
 }
+func (plannerDriver) ManagedWorktreePath(s DriverState) string {
+	return "/repo/.roost/worktrees/planner"
+}
 
 type fallbackDriver struct{ stubDriver }
 
@@ -282,6 +285,30 @@ func TestTmuxSpawnFailedEvictsAndReplies(t *testing.T) {
 	}
 	if _, ok := findEff[EffSendError](effs); !ok {
 		t.Error("expected EffSendError")
+	}
+}
+
+func TestTmuxSpawnFailedRemovesManagedWorktree(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	s.Sessions[id] = Session{ID: id, Command: "planner", Driver: stubDriverState{}}
+	_, effs := Reduce(s, EvTmuxSpawnFailed{
+		SessionID: id, Err: "boom", ReplyConn: 1, ReplyReqID: "r",
+	})
+	if _, ok := findEff[EffRemoveManagedWorktree](effs); !ok {
+		t.Fatal("expected EffRemoveManagedWorktree")
+	}
+}
+
+func TestTmuxSpawnFailedNoManagedWorktreeForStub(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	_, effs := Reduce(s, EvTmuxSpawnFailed{
+		SessionID: id, Err: "boom", ReplyConn: 1, ReplyReqID: "r",
+	})
+	if _, ok := findEff[EffRemoveManagedWorktree](effs); ok {
+		t.Fatal("did not expect EffRemoveManagedWorktree")
 	}
 }
 

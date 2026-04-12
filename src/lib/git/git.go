@@ -128,6 +128,18 @@ func RepoRoot(dir string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
+func commonGitRoot(dir string) (string, error) {
+	cmdOnce.Do(func() { _, err := exec.LookPath("git"); cmdFound = err == nil })
+	if !cmdFound || !hasGitDir(dir) {
+		return "", fmt.Errorf("%s is not a git repository", dir)
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	if err != nil {
+		return "", fmt.Errorf("resolve git common dir: %w", err)
+	}
+	return filepath.Dir(strings.TrimSpace(string(out))), nil
+}
+
 // CreateWorktree creates a new linked git worktree under
 // <repo>/.roost/worktrees/<name> and returns that path.
 func CreateWorktree(dir, name string) (string, error) {
@@ -150,4 +162,22 @@ func CreateWorktree(dir, name string) (string, error) {
 		return "", fmt.Errorf("git worktree add failed: %s", strings.TrimSpace(string(out)))
 	}
 	return worktreeDir, nil
+}
+
+// RemoveWorktree removes a roost-managed git worktree created under
+// <repo>/.roost/worktrees/<name>.
+func RemoveWorktree(path string) error {
+	clean := filepath.Clean(path)
+	root, err := commonGitRoot(clean)
+	if err != nil {
+		return err
+	}
+	if filepath.Dir(clean) != filepath.Join(root, ".roost", "worktrees") {
+		return fmt.Errorf("not a managed worktree path: %s", clean)
+	}
+	out, err := exec.Command("git", "-C", root, "worktree", "remove", "--force", clean).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("git worktree remove failed: %s", strings.TrimSpace(string(out)))
+	}
+	return nil
 }

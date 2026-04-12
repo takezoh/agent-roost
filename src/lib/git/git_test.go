@@ -191,3 +191,24 @@ func TestCreateWorktreeRejectsNonGitDir(t *testing.T) {
 		t.Fatal("expected error for non-git directory")
 	}
 }
+
+func TestRemoveWorktree(t *testing.T) {
+	dir := initRepo(t)
+	wtDir, err := CreateWorktree(dir, "feature-test")
+	if err != nil {
+		t.Fatalf("CreateWorktree error: %v", err)
+	}
+	if err := RemoveWorktree(wtDir); err != nil {
+		t.Fatalf("RemoveWorktree error: %v", err)
+	}
+	if _, err := os.Stat(wtDir); !os.IsNotExist(err) {
+		t.Fatalf("worktree still exists after remove: %v", err)
+	}
+}
+
+func TestRemoveWorktreeRejectsUnmanagedPath(t *testing.T) {
+	dir := initRepo(t)
+	if err := RemoveWorktree(dir); err == nil {
+		t.Fatal("expected error for unmanaged path")
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	roostgit "github.com/takezoh/agent-roost/lib/git"
 	"github.com/takezoh/agent-roost/runtime/worker"
 	"github.com/takezoh/agent-roost/state"
 )
@@ -180,6 +181,11 @@ func (r *Runtime) execute(eff state.Effect) {
 	case state.EffEventLogAppend:
 		if err := r.cfg.EventLog.Append(e.SessionID, e.Line); err != nil {
 			slog.Debug("runtime: event log append failed", "session", e.SessionID, "err", err)
+		}
+
+	case state.EffRemoveManagedWorktree:
+		if err := roostgit.RemoveWorktree(e.Path); err != nil {
+			slog.Warn("runtime: remove managed worktree failed", "path", e.Path, "err", err)
 		}
 
 	// === Async work ===

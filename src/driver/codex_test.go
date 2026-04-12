@@ -2,6 +2,7 @@ package driver
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -221,6 +222,18 @@ func TestParseCodexWorktree(t *testing.T) {
 	}
 }
 
+func TestGeneratedWorktreeNamesLookLikePetnames(t *testing.T) {
+	names := generatedWorktreeNames()
+	if len(names) != worktreeNameAttempts {
+		t.Fatalf("len(names) = %d, want %d", len(names), worktreeNameAttempts)
+	}
+	for _, name := range names {
+		if parts := strings.Split(name, "-"); len(parts) != 4 {
+			t.Fatalf("name = %q, want 4 hyphen-separated words", name)
+		}
+	}
+}
+
 func TestCodexPrepareCreateWithoutWorktree(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	next, plan, err := d.PrepareCreate(cs, "sess-1", "/repo", "codex --model gpt-5")
@@ -276,6 +289,18 @@ func TestCodexCompleteCreateWithWorktree(t *testing.T) {
 	}
 	if launch.Command != "codex --model gpt-5" || launch.StartDir != "/repo/.roost/worktrees/feature" {
 		t.Fatalf("launch = %+v", launch)
+	}
+}
+
+func TestCodexManagedWorktreePath(t *testing.T) {
+	d, cs, _ := newCodex(t)
+	cs.ManagedWorkingDir = "/repo/.roost/worktrees/feature"
+	if got := d.ManagedWorktreePath(cs); got != "/repo/.roost/worktrees/feature" {
+		t.Fatalf("ManagedWorktreePath = %q", got)
+	}
+	cs.ManagedWorkingDir = "/repo/feature"
+	if got := d.ManagedWorktreePath(cs); got != "" {
+		t.Fatalf("ManagedWorktreePath = %q, want empty", got)
 	}
 }
 

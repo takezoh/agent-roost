@@ -148,17 +148,26 @@ type CreateSessionReply struct {
 }
 
 func reduceTmuxSpawnFailed(s State, e EvTmuxSpawnFailed) (State, []Effect) {
+	var effs []Effect
+	if sess, ok := s.Sessions[e.SessionID]; ok {
+		drv := GetDriver(sess.Command)
+		if provider, ok := drv.(ManagedWorktreeProvider); ok {
+			if path := provider.ManagedWorktreePath(sess.Driver); path != "" {
+				effs = append(effs, EffRemoveManagedWorktree{Path: path})
+			}
+		}
+	}
 	if _, ok := s.Sessions[e.SessionID]; ok {
 		s.Sessions = cloneSessions(s.Sessions)
 		delete(s.Sessions, e.SessionID)
 	}
 	if e.ReplyConn == 0 {
-		return s, nil
+		return s, effs
 	}
-	return s, []Effect{
+	return s, append(effs,
 		errResp(e.ReplyConn, e.ReplyReqID, ErrCodeInternal,
 			fmt.Sprintf("tmux spawn failed: %s", e.Err)),
-	}
+	)
 }
 
 func reduceStopSession(s State, connID ConnID, reqID string, p StopSessionParams) (State, []Effect) {
