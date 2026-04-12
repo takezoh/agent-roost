@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/cli"
+	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/proto"
 	"golang.org/x/term"
 )
@@ -48,17 +48,18 @@ func Run(args []string) {
 
 	cfg, err := config.Load()
 	if err != nil {
+		slog.Warn("event: config load failed", "err", err)
 		return
 	}
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	client, err := proto.Dial(sockPath)
 	if err != nil {
-		slog.Debug("event: dial failed", "sock", sockPath, "err", err)
+		slog.Warn("event: dial failed", "sock", sockPath, "err", err)
 		return
 	}
 	defer client.Close()
 
 	if err := client.SendEvent(eventType, ts, senderID, json.RawMessage(input)); err != nil {
-		slog.Debug("event: send failed", "err", err)
+		slog.Warn("event: send failed", "type", eventType, "sender", senderID, "err", err)
 	}
 }
