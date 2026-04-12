@@ -224,57 +224,12 @@ func (c *Client) dispatchResponse(env Envelope) {
 		return
 	}
 
-	body, err := decodeResponseByCommand(env)
+	body, err := DecodeResponseByCommand(env)
 	if err != nil {
 		ch <- inFlight{Err: &ErrorBody{Code: ErrInternal, Message: err.Error()}}
 		return
 	}
 	ch <- inFlight{Body: body}
-}
-
-// decodeResponseByCommand picks the right Response variant for the
-// envelope's data. Without the original command name in the response
-// envelope, we use a heuristic: try the richest variants first
-// (RespCreateSession / RespSessions / RespActiveSession), fall back
-// to RespOK on empty data.
-func decodeResponseByCommand(env Envelope) (Response, error) {
-	if len(env.Data) == 0 {
-		return RespOK{}, nil
-	}
-	// Try each typed variant in turn. The variants have disjoint
-	// JSON shapes (different field names) so the wrong type leaves
-	// fields zero-valued — but we want a strict match. Use a peek-
-	// based dispatch instead.
-	var probe map[string]json.RawMessage
-	if err := json.Unmarshal(env.Data, &probe); err != nil {
-		return RespOK{}, nil
-	}
-	switch {
-	case has(probe, "session_id"):
-		var r RespCreateSession
-		if err := json.Unmarshal(env.Data, &r); err != nil {
-			return nil, err
-		}
-		return r, nil
-	case has(probe, "sessions"):
-		var r RespSessions
-		if err := json.Unmarshal(env.Data, &r); err != nil {
-			return nil, err
-		}
-		return r, nil
-	case has(probe, "active_session_id"):
-		var r RespActiveSession
-		if err := json.Unmarshal(env.Data, &r); err != nil {
-			return nil, err
-		}
-		return r, nil
-	}
-	return RespOK{}, nil
-}
-
-func has(m map[string]json.RawMessage, key string) bool {
-	_, ok := m[key]
-	return ok
 }
 
 // Error returns the error string for ErrorBody so it satisfies the

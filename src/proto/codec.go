@@ -117,6 +117,49 @@ func DecodeResponse(env Envelope, target Response) error {
 	return nil
 }
 
+// DecodeResponseByCommand picks the right Response variant for the
+// envelope's data. Without the original command name in the response
+// envelope, we use a heuristic: try the richest variants first
+// (RespCreateSession / RespSessions / RespActiveSession), fall back
+// to RespOK on empty data.
+func DecodeResponseByCommand(env Envelope) (Response, error) {
+	if len(env.Data) == 0 {
+		return RespOK{}, nil
+	}
+	// Try each typed variant in turn. The variants have disjoint
+	// JSON shapes (different field names) so the wrong type leaves
+	// fields zero-valued — but we want a strict match. Use a peek-
+	// based dispatch instead.
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(env.Data, &probe); err != nil {
+		return RespOK{}, nil
+	}
+	switch {
+	case has(probe, "session_id"):
+		var r RespCreateSession
+		return decodeResponse(env.Data, &r)
+	case has(probe, "sessions"):
+		var r RespSessions
+		return decodeResponse(env.Data, &r)
+	case has(probe, "active_session_id"):
+		var r RespActiveSession
+		return decodeResponse(env.Data, &r)
+	}
+	return RespOK{}, nil
+}
+
+func has(m map[string]json.RawMessage, key string) bool {
+	_, ok := m[key]
+	return ok
+}
+
+func decodeResponse[T Response](data []byte, into *T) (Response, error) {
+	if err := json.Unmarshal(data, into); err != nil {
+		return nil, err
+	}
+	return *into, nil
+}
+
 // DecodeEvent asserts an envelope is an Event and returns the typed
 // value. Returns an error for envelopes of the wrong type or unknown
 // event names.
@@ -127,34 +170,19 @@ func DecodeEvent(env Envelope) (ServerEvent, error) {
 	switch env.Name {
 	case EvtNameSessionsChanged:
 		var e EvtSessionsChanged
-		if err := json.Unmarshal(env.Data, &e); err != nil {
-			return nil, err
-		}
-		return e, nil
+		return decodeIntoEvent(env.Data, &e)
 	case EvtNameProjectSelected:
 		var e EvtProjectSelected
-		if err := json.Unmarshal(env.Data, &e); err != nil {
-			return nil, err
-		}
-		return e, nil
+		return decodeIntoEvent(env.Data, &e)
 	case EvtNamePaneFocused:
 		var e EvtPaneFocused
-		if err := json.Unmarshal(env.Data, &e); err != nil {
-			return nil, err
-		}
-		return e, nil
+		return decodeIntoEvent(env.Data, &e)
 	case EvtNameLogLine:
 		var e EvtLogLine
-		if err := json.Unmarshal(env.Data, &e); err != nil {
-			return nil, err
-		}
-		return e, nil
+		return decodeIntoEvent(env.Data, &e)
 	case EvtNameSessionFileLine:
 		var e EvtSessionFileLine
-		if err := json.Unmarshal(env.Data, &e); err != nil {
-			return nil, err
-		}
-		return e, nil
+		return decodeIntoEvent(env.Data, &e)
 	}
 	return nil, fmt.Errorf("proto: unknown event: %q", env.Name)
 }
@@ -168,6 +196,16 @@ func decodeInto[T Command](data []byte, into *T) (Command, error) {
 	}
 	if err := json.Unmarshal(data, into); err != nil {
 		return nil, fmt.Errorf("proto: unmarshal command data: %w", err)
+	}
+	return *into, nil
+}
+
+func decodeIntoEvent[T ServerEvent](data []byte, into *T) (ServerEvent, error) {
+	if len(data) == 0 {
+		return *into, nil
+	}
+	if err := json.Unmarshal(data, into); err != nil {
+		return nil, fmt.Errorf("proto: unmarshal event data: %w", err)
 	}
 	return *into, nil
 }

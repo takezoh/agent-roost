@@ -209,7 +209,7 @@ func TestDecodeResponseByCommandHeuristics(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			env := Envelope{Type: TypeResponse, Status: StatusOK, Data: tc.data}
-			r, err := decodeResponseByCommand(env)
+			r, err := DecodeResponseByCommand(env)
 			if err != nil {
 				t.Fatalf("decode: %v", err)
 			}
