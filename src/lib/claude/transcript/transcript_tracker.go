@@ -202,14 +202,8 @@ func (st *trackerState) scanNewLines(path string) error {
 	}
 	defer f.Close()
 
-	// File-truncation detection: if the file is now smaller than our
-	// cached read offset, the underlying transcript was rewound (e.g. via
-	// `claude --resume` rolling back to a prior turn). Reset all cached
-	// state and re-parse from byte 0.
-	if info, statErr := f.Stat(); statErr == nil {
-		if info.Size() < st.offset {
-			st.resetForRescan()
-		}
+	if info, statErr := f.Stat(); statErr == nil && info.Size() < st.offset {
+		st.resetForRescan()
 	}
 
 	if st.offset > 0 {
@@ -217,6 +211,16 @@ func (st *trackerState) scanNewLines(path string) error {
 			return err
 		}
 	}
+
+	st.runScanner(f)
+
+	if pos, err := f.Seek(0, 1); err == nil {
+		st.offset = pos
+	}
+	return nil
+}
+
+func (st *trackerState) runScanner(f *os.File) {
 	scanner := bufio.NewScanner(f)
 	scanner.Buffer(make([]byte, 256*1024), 1024*1024)
 	first := true
@@ -229,11 +233,8 @@ func (st *trackerState) scanNewLines(path string) error {
 		first = false
 		st.applyLine(line)
 	}
-	if pos, err := f.Seek(0, 1); err == nil {
-		st.offset = pos
-	}
-	return nil
 }
+
 
 // resetForRescan clears all derived state but keeps the parser instance
 // (its tool_use_id index will be repopulated as we re-scan).

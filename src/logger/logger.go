@@ -44,18 +44,21 @@ func InitWithDataDir(level, dir string) error {
 		home, _ := os.UserHomeDir()
 		dir = filepath.Join(home, ".roost")
 	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
 	logPath = filepath.Join(dir, "roost.log")
-	os.MkdirAll(dir, 0o755)
 
-	var err error
-	logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
+	logFile = f
 	opts := &slog.HandlerOptions{Level: parseLevel(level)}
 	slog.SetDefault(slog.New(slog.NewTextHandler(logFile, opts)))
 	return nil
 }
+
 
 func parseLevel(level string) slog.Level {
 	switch strings.ToLower(strings.TrimSpace(level)) {
