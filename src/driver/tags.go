@@ -11,6 +11,8 @@ const (
 	commandTagFg = "#FFFFFF" // white text
 	codexTagBg   = "#10A37F"
 	codexTagFg   = "#FFFFFF"
+	geminiTagBg  = "#1A73E8"
+	geminiTagFg  = "#FFFFFF"
 )
 
 // CommandTag returns the canonical command tag for a driver name, used
@@ -28,6 +30,14 @@ func CodexCommandTag() state.Tag {
 		Text:       CodexDriverName,
 		Background: codexTagBg,
 		Foreground: codexTagFg,
+	}
+}
+
+func GeminiCommandTag() state.Tag {
+	return state.Tag{
+		Text:       GeminiDriverName,
+		Background: geminiTagBg,
+		Foreground: geminiTagFg,
 	}
 }
 

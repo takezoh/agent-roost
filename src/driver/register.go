@@ -30,7 +30,7 @@ func RegisterDefaults(opts RegisterOptions) {
 		state.Register(NewClaudeDriver(opts.Home, opts.EventLogDir, claudeOpts))
 		state.Register(NewGenericDriver("bash", opts.IdleThreshold))
 		state.Register(NewCodexDriver(opts.EventLogDir))
-		state.Register(NewGenericDriver("gemini", opts.IdleThreshold))
+		state.Register(NewGeminiDriver(opts.EventLogDir))
 		shellDisplay := filepath.Base(os.Getenv("SHELL"))
 		if shellDisplay == "" || shellDisplay == "." {
 			shellDisplay = "shell"

@@ -23,8 +23,14 @@ func (CodexDriver) Persist(s state.DriverState) map[string]string {
 	if cs.WorkingDir != "" {
 		out[codexKeyWorkingDir] = cs.WorkingDir
 	}
+	if cs.ManagedWorkingDir != "" {
+		out[codexKeyManagedWorkingDir] = cs.ManagedWorkingDir
+	}
 	if cs.TranscriptPath != "" {
 		out[codexKeyTranscriptPath] = cs.TranscriptPath
+	}
+	if cs.WorktreeName != "" {
+		out[codexKeyWorktreeName] = cs.WorktreeName
 	}
 	if !cs.StatusChangedAt.IsZero() {
 		out[codexKeyStatusChangedAt] = cs.StatusChangedAt.UTC().Format(time.RFC3339)
@@ -76,7 +82,9 @@ func (d CodexDriver) Restore(bag map[string]string, now time.Time) state.DriverS
 	cs.RoostSessionID = bag[codexKeyRoostSessionID]
 	cs.CodexSessionID = bag[codexKeyCodexSessionID]
 	cs.WorkingDir = bag[codexKeyWorkingDir]
+	cs.ManagedWorkingDir = bag[codexKeyManagedWorkingDir]
 	cs.TranscriptPath = bag[codexKeyTranscriptPath]
+	cs.WorktreeName = bag[codexKeyWorktreeName]
 	if v := bag[codexKeyStatus]; v != "" {
 		if st, ok := state.ParseStatus(v); ok {
 			cs.Status = st

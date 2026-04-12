@@ -62,21 +62,58 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 		return s, []Effect{errResp(connID, reqID, ErrCodeUnsupported, "no driver registered for command "+command)}
 	}
 
-	s.Sessions = cloneSessions(s.Sessions)
-	s.Sessions[sessID] = Session{
+	driverState := drv.NewState(s.Now)
+	launch := CreateLaunch{Command: command, StartDir: p.Project}
+	var setupJob JobInput
+	if planner, ok := drv.(CreateSessionPlanner); ok {
+		var plan CreatePlan
+		var err error
+		driverState, plan, err = planner.PrepareCreate(driverState, sessID, p.Project, command)
+		if err != nil {
+			return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, err.Error())}
+		}
+		if plan.Launch.Command != "" {
+			launch.Command = plan.Launch.Command
+		}
+		if plan.Launch.StartDir != "" {
+			launch.StartDir = plan.Launch.StartDir
+		}
+		setupJob = plan.SetupJob
+	}
+
+	session := Session{
 		ID:        sessID,
 		Project:   p.Project,
 		Command:   command,
 		CreatedAt: s.Now,
-		Driver:    drv.NewState(s.Now),
+		Driver:    driverState,
 	}
+
+	if setupJob != nil {
+		s.NextJobID++
+		jobID := s.NextJobID
+		s.Jobs = cloneJobs(s.Jobs)
+		s.Jobs[jobID] = JobMeta{StartedAt: s.Now}
+		s.PendingCreates = clonePendingCreates(s.PendingCreates)
+		s.PendingCreates[jobID] = PendingCreate{
+			Session:    session,
+			ReplyConn:  connID,
+			ReplyReqID: reqID,
+		}
+		return s, []Effect{
+			EffStartJob{JobID: jobID, Input: setupJob},
+		}
+	}
+
+	s.Sessions = cloneSessions(s.Sessions)
+	s.Sessions[sessID] = session
 
 	return s, []Effect{
 		EffSpawnTmuxWindow{
 			SessionID:  sessID,
 			Project:    p.Project,
-			Command:    command,
-			StartDir:   p.Project,
+			Command:    launch.Command,
+			StartDir:   launch.StartDir,
 			Env:        map[string]string{"ROOST_SESSION_ID": string(sessID)},
 			ReplyConn:  connID,
 			ReplyReqID: reqID,

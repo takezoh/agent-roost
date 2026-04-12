@@ -1,6 +1,7 @@
 package git
 
 import (
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -112,4 +113,41 @@ func parseMainBranch(output string) string {
 func hasGitDir(dir string) bool {
 	_, err := os.Lstat(filepath.Join(dir, ".git"))
 	return err == nil
+}
+
+// RepoRoot returns the canonical git top-level directory for dir.
+func RepoRoot(dir string) (string, error) {
+	cmdOnce.Do(func() { _, err := exec.LookPath("git"); cmdFound = err == nil })
+	if !cmdFound || !hasGitDir(dir) {
+		return "", fmt.Errorf("%s is not a git repository", dir)
+	}
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", fmt.Errorf("resolve git root: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// CreateWorktree creates a new linked git worktree under
+// <repo>/.roost/worktrees/<name> and returns that path.
+func CreateWorktree(dir, name string) (string, error) {
+	root, err := RepoRoot(dir)
+	if err != nil {
+		return "", err
+	}
+	if name == "" {
+		return "", fmt.Errorf("worktree name required")
+	}
+	worktreeDir := filepath.Join(root, ".roost", "worktrees", name)
+	if _, err := os.Stat(worktreeDir); err == nil {
+		return "", fmt.Errorf("worktree already exists: %s", worktreeDir)
+	}
+	if err := os.MkdirAll(filepath.Dir(worktreeDir), 0o755); err != nil {
+		return "", err
+	}
+	out, err := exec.Command("git", "-C", root, "worktree", "add", "-b", name, worktreeDir).CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git worktree add failed: %s", strings.TrimSpace(string(out)))
+	}
+	return worktreeDir, nil
 }

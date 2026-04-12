@@ -128,6 +128,28 @@ type Driver interface {
 	Restore(bag map[string]string, now time.Time) DriverState
 }
 
+// CreateLaunch is the fully resolved process launch information for a
+// newly created session: command string plus tmux start directory.
+type CreateLaunch struct {
+	Command  string
+	StartDir string
+}
+
+// CreatePlan is the driver-owned create-session plan. Drivers that do
+// not need any setup simply return Launch with SetupJob nil.
+type CreatePlan struct {
+	Launch   CreateLaunch
+	SetupJob JobInput
+}
+
+// CreateSessionPlanner is an optional driver extension for commands
+// that need to transform or prepare their start environment during
+// create-session before tmux spawn happens.
+type CreateSessionPlanner interface {
+	PrepareCreate(s DriverState, sessionID SessionID, project, command string) (DriverState, CreatePlan, error)
+	CompleteCreate(s DriverState, command string, result any, err error) (DriverState, CreateLaunch, error)
+}
+
 // driver registry. set once at init time by each driver impl package.
 var registry = map[string]Driver{}
 

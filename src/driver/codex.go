@@ -34,10 +34,12 @@ const (
 type CodexState struct {
 	state.DriverStateBase
 
-	RoostSessionID string
-	CodexSessionID string
-	WorkingDir     string
-	TranscriptPath string
+	RoostSessionID    string
+	CodexSessionID    string
+	WorkingDir        string
+	ManagedWorkingDir string
+	TranscriptPath    string
+	WorktreeName      string
 
 	Status          state.Status
 	StatusChangedAt time.Time
@@ -100,17 +102,22 @@ func (d CodexDriver) NewState(now time.Time) state.DriverState {
 
 func (d CodexDriver) SpawnCommand(s state.DriverState, baseCommand string) string {
 	cs, ok := s.(CodexState)
-	if !ok || cs.CodexSessionID == "" {
+	if !ok {
 		return baseCommand
 	}
-	if !isAlphanumHyphen(cs.CodexSessionID) || hasResumeToken(baseCommand) {
-		return baseCommand
-	}
-	fields := strings.Fields(baseCommand)
+	req, stripped := parseCodexWorktree(baseCommand)
+	fields := strings.Fields(stripped)
 	if len(fields) == 0 || fields[0] != CodexDriverName {
 		return baseCommand
 	}
-	return strings.TrimSpace(baseCommand) + " resume " + cs.CodexSessionID
+	base := strings.TrimSpace(baseCommand)
+	if req.Enabled || cs.ManagedWorkingDir != "" {
+		base = stripped
+	}
+	if cs.CodexSessionID == "" || !isAlphanumHyphen(cs.CodexSessionID) || hasResumeToken(base) {
+		return base
+	}
+	return strings.TrimSpace(base) + " resume " + cs.CodexSessionID
 }
 
 func hasResumeToken(command string) bool {

@@ -15,6 +15,14 @@ func cloneSessions(in map[SessionID]Session) map[SessionID]Session {
 	return out
 }
 
+func clonePendingCreates(in map[JobID]PendingCreate) map[JobID]PendingCreate {
+	out := make(map[JobID]PendingCreate, len(in)+1)
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
 func cloneSubscribers(in map[ConnID]Subscriber) map[ConnID]Subscriber {
 	out := make(map[ConnID]Subscriber, len(in)+1)
 	for k, v := range in {

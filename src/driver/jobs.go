@@ -83,7 +83,22 @@ type BranchDetectResult struct {
 	ParentBranch string // branch of the main working tree
 }
 
+// WorktreeSetupInput asks the worker to create a managed git worktree
+// for a codex session before tmux spawn.
+type WorktreeSetupInput struct {
+	RepoDir string
+	Name    string
+}
+
+// WorktreeSetupResult carries the created worktree path and chosen
+// worktree name.
+type WorktreeSetupResult struct {
+	WorkingDir string
+	Name       string
+}
+
 func (CapturePaneInput) JobKind() string     { return "capture_pane" }
 func (TranscriptParseInput) JobKind() string { return "transcript_parse" }
 func (SummaryCommandInput) JobKind() string  { return "summary_command" }
 func (BranchDetectInput) JobKind() string    { return "branch_detect" }
+func (WorktreeSetupInput) JobKind() string   { return "worktree_setup" }

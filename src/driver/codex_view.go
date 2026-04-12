@@ -46,6 +46,8 @@ func codexInfoExtras(cs CodexState) []state.InfoLine {
 	}
 	add("Codex Session", cs.CodexSessionID)
 	add("Working Dir", cs.WorkingDir)
+	add("Managed Worktree", cs.ManagedWorkingDir)
+	add("Worktree Name", cs.WorktreeName)
 	if cs.BranchIsWorktree {
 		add("Parent Branch", cs.BranchParentBranch)
 	}

@@ -5,6 +5,41 @@ package state
 // driver, and clears the job from the in-flight map.
 
 func reduceJobResult(s State, e EvJobResult) (State, []Effect) {
+	if pending, ok := s.PendingCreates[e.JobID]; ok {
+		s.PendingCreates = clonePendingCreates(s.PendingCreates)
+		delete(s.PendingCreates, e.JobID)
+		s.Jobs = cloneJobs(s.Jobs)
+		delete(s.Jobs, e.JobID)
+
+		drv := GetDriver(pending.Session.Command)
+		if drv == nil {
+			return s, []Effect{errResp(pending.ReplyConn, pending.ReplyReqID, ErrCodeUnsupported, "no driver registered for command "+pending.Session.Command)}
+		}
+		planner, ok := drv.(CreateSessionPlanner)
+		if !ok {
+			return s, []Effect{errResp(pending.ReplyConn, pending.ReplyReqID, ErrCodeInternal, "driver missing create-session planner")}
+		}
+
+		nextDS, launch, err := planner.CompleteCreate(pending.Session.Driver, pending.Session.Command, e.Result, e.Err)
+		if err != nil {
+			return s, []Effect{errResp(pending.ReplyConn, pending.ReplyReqID, ErrCodeInvalidArgument, err.Error())}
+		}
+		pending.Session.Driver = nextDS
+		s.Sessions = cloneSessions(s.Sessions)
+		s.Sessions[pending.Session.ID] = pending.Session
+		return s, []Effect{
+			EffSpawnTmuxWindow{
+				SessionID:  pending.Session.ID,
+				Project:    pending.Session.Project,
+				Command:    launch.Command,
+				StartDir:   launch.StartDir,
+				Env:        map[string]string{"ROOST_SESSION_ID": string(pending.Session.ID)},
+				ReplyConn:  pending.ReplyConn,
+				ReplyReqID: pending.ReplyReqID,
+			},
+		}
+	}
+
 	meta, ok := s.Jobs[e.JobID]
 	if !ok {
 		// Stale result (session was stopped before the job finished).

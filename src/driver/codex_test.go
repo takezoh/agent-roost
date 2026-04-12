@@ -128,6 +128,27 @@ func TestCodexSpawnCommandNoDoubleResume(t *testing.T) {
 	}
 }
 
+func TestCodexSpawnCommandStripsWorktreeOnResume(t *testing.T) {
+	d, cs, _ := newCodex(t)
+	cs.CodexSessionID = "abc-123"
+	cs.ManagedWorkingDir = "/repo/.roost/worktrees/codex-1234"
+	got := d.SpawnCommand(cs, "codex --worktree feature --model gpt-5-codex")
+	want := "codex --model gpt-5-codex resume abc-123"
+	if got != want {
+		t.Fatalf("SpawnCommand = %q, want %q", got, want)
+	}
+}
+
+func TestCodexSpawnCommandStripsWorktreeWithoutResume(t *testing.T) {
+	d, cs, _ := newCodex(t)
+	cs.ManagedWorkingDir = "/repo/.roost/worktrees/codex-1234"
+	got := d.SpawnCommand(cs, "codex --worktree feature --model gpt-5-codex")
+	want := "codex --model gpt-5-codex"
+	if got != want {
+		t.Fatalf("SpawnCommand = %q, want %q", got, want)
+	}
+}
+
 func TestCodexSpawnCommandSkipsNonCodexBaseCommand(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.CodexSessionID = "abc-123"
@@ -142,7 +163,9 @@ func TestCodexPersistRestoreRoundTrip(t *testing.T) {
 	cs.RoostSessionID = "r1"
 	cs.CodexSessionID = "c1"
 	cs.WorkingDir = "/repo"
+	cs.ManagedWorkingDir = "/repo/.roost/worktrees/codex-abcd"
 	cs.TranscriptPath = "/repo/t.jsonl"
+	cs.WorktreeName = "codex-abcd"
 	cs.Status = state.StatusRunning
 	cs.StatusChangedAt = now
 	cs.BranchTag = "main"
@@ -162,6 +185,9 @@ func TestCodexPersistRestoreRoundTrip(t *testing.T) {
 	if got.CodexSessionID != "c1" || got.WorkingDir != "/repo" {
 		t.Fatalf("restore mismatch: %+v", got)
 	}
+	if got.ManagedWorkingDir != "/repo/.roost/worktrees/codex-abcd" || got.WorktreeName != "codex-abcd" {
+		t.Fatalf("worktree fields mismatch: %+v", got)
+	}
 	if got.Status != state.StatusRunning {
 		t.Fatalf("Status = %v", got.Status)
 	}
@@ -170,6 +196,86 @@ func TestCodexPersistRestoreRoundTrip(t *testing.T) {
 	}
 	if got.LastPrompt != "p" || got.LastAssistantMessage != "a" {
 		t.Fatalf("message fields mismatch: %+v", got)
+	}
+}
+
+func TestParseCodexWorktree(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+		wantReq codexWorktreeRequest
+		wantCmd string
+	}{
+		{"none", "codex --model gpt-5", codexWorktreeRequest{}, "codex --model gpt-5"},
+		{"bare", "codex --worktree", codexWorktreeRequest{Enabled: true}, "codex"},
+		{"spaced", "codex --worktree feature --model gpt-5", codexWorktreeRequest{Enabled: true, Name: "feature"}, "codex --model gpt-5"},
+		{"equals", "codex --model gpt-5 --worktree=feature", codexWorktreeRequest{Enabled: true, Name: "feature"}, "codex --model gpt-5"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotReq, gotCmd := parseCodexWorktree(tt.command)
+			if gotReq != tt.wantReq || gotCmd != tt.wantCmd {
+				t.Fatalf("parseCodexWorktree(%q) = (%+v, %q), want (%+v, %q)", tt.command, gotReq, gotCmd, tt.wantReq, tt.wantCmd)
+			}
+		})
+	}
+}
+
+func TestCodexPrepareCreateWithoutWorktree(t *testing.T) {
+	d, cs, _ := newCodex(t)
+	next, plan, err := d.PrepareCreate(cs, "sess-1", "/repo", "codex --model gpt-5")
+	if err != nil {
+		t.Fatalf("PrepareCreate error: %v", err)
+	}
+	if next.(CodexState).WorktreeName != "" {
+		t.Fatalf("unexpected worktree state: %+v", next)
+	}
+	if plan.SetupJob != nil {
+		t.Fatal("expected no setup job")
+	}
+	if plan.Launch.Command != "codex --model gpt-5" || plan.Launch.StartDir != "/repo" {
+		t.Fatalf("launch = %+v", plan.Launch)
+	}
+}
+
+func TestCodexPrepareCreateWithWorktree(t *testing.T) {
+	d, cs, _ := newCodex(t)
+	next, plan, err := d.PrepareCreate(cs, "sess-1", "/repo", "codex --worktree feature --model gpt-5")
+	if err != nil {
+		t.Fatalf("PrepareCreate error: %v", err)
+	}
+	got := next.(CodexState)
+	if got.WorktreeName != "feature" {
+		t.Fatalf("WorktreeName = %q", got.WorktreeName)
+	}
+	if plan.Launch.Command != "codex --model gpt-5" {
+		t.Fatalf("launch command = %q", plan.Launch.Command)
+	}
+	in, ok := plan.SetupJob.(WorktreeSetupInput)
+	if !ok {
+		t.Fatalf("SetupJob = %T, want WorktreeSetupInput", plan.SetupJob)
+	}
+	if in.RepoDir != "/repo" || in.Name != "feature" {
+		t.Fatalf("setup input = %+v", in)
+	}
+}
+
+func TestCodexCompleteCreateWithWorktree(t *testing.T) {
+	d, cs, _ := newCodex(t)
+	cs.WorktreeName = "feature"
+	next, launch, err := d.CompleteCreate(cs, "codex --worktree feature --model gpt-5", WorktreeSetupResult{
+		WorkingDir: "/repo/.roost/worktrees/feature",
+		Name:       "feature",
+	}, nil)
+	if err != nil {
+		t.Fatalf("CompleteCreate error: %v", err)
+	}
+	got := next.(CodexState)
+	if got.ManagedWorkingDir != "/repo/.roost/worktrees/feature" || got.WorkingDir != "/repo/.roost/worktrees/feature" {
+		t.Fatalf("working dir fields = %+v", got)
+	}
+	if launch.Command != "codex --model gpt-5" || launch.StartDir != "/repo/.roost/worktrees/feature" {
+		t.Fatalf("launch = %+v", launch)
 	}
 }
 

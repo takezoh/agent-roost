@@ -3,6 +3,7 @@ package git
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 )
 
@@ -153,5 +154,40 @@ func TestParseHost(t *testing.T) {
 		if got := parseHost(tt.raw); got != tt.want {
 			t.Errorf("parseHost(%q) = %q, want %q", tt.raw, got, tt.want)
 		}
+	}
+}
+
+func TestRepoRoot(t *testing.T) {
+	dir := initRepo(t)
+	root, err := RepoRoot(dir)
+	if err != nil {
+		t.Fatalf("RepoRoot error: %v", err)
+	}
+	if root != dir {
+		t.Fatalf("RepoRoot = %q, want %q", root, dir)
+	}
+}
+
+func TestCreateWorktree(t *testing.T) {
+	dir := initRepo(t)
+	wtDir, err := CreateWorktree(dir, "feature-test")
+	if err != nil {
+		t.Fatalf("CreateWorktree error: %v", err)
+	}
+	want := filepath.Join(dir, ".roost", "worktrees", "feature-test")
+	if wtDir != want {
+		t.Fatalf("CreateWorktree path = %q, want %q", wtDir, want)
+	}
+	if !IsWorktree(wtDir) {
+		t.Fatal("created path is not a linked worktree")
+	}
+	if got := DetectBranch(wtDir); got != "feature-test" {
+		t.Fatalf("branch = %q, want %q", got, "feature-test")
+	}
+}
+
+func TestCreateWorktreeRejectsNonGitDir(t *testing.T) {
+	if _, err := CreateWorktree(t.TempDir(), "feature-test"); err == nil {
+		t.Fatal("expected error for non-git directory")
 	}
 }

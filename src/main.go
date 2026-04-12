@@ -10,6 +10,7 @@ import (
 	_ "github.com/takezoh/agent-roost/event"
 	_ "github.com/takezoh/agent-roost/lib/claude"
 	_ "github.com/takezoh/agent-roost/lib/codex"
+	_ "github.com/takezoh/agent-roost/lib/gemini"
 	"github.com/takezoh/agent-roost/logger"
 )
 

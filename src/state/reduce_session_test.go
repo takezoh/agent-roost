@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 )
@@ -37,6 +38,22 @@ func (stubDriver) Step(prev DriverState, ev DriverEvent) (DriverState, []Effect,
 	return prev, nil, View{}
 }
 
+type plannerDriver struct{ stubDriver }
+
+func (plannerDriver) Name() string { return "planner" }
+func (plannerDriver) PrepareCreate(s DriverState, sessionID SessionID, project, command string) (DriverState, CreatePlan, error) {
+	return s, CreatePlan{
+		Launch:   CreateLaunch{Command: "planner --prepared", StartDir: project},
+		SetupJob: stubJobInput{},
+	}, nil
+}
+func (plannerDriver) CompleteCreate(s DriverState, command string, result any, err error) (DriverState, CreateLaunch, error) {
+	if err != nil {
+		return s, CreateLaunch{}, err
+	}
+	return s, CreateLaunch{Command: "planner --prepared", StartDir: "/prepared"}, nil
+}
+
 type fallbackDriver struct{ stubDriver }
 
 func (fallbackDriver) Name() string { return "" }
@@ -47,6 +64,9 @@ func init() {
 	}
 	if _, exists := registry["stub"]; !exists {
 		Register(stubDriver{})
+	}
+	if _, exists := registry["planner"]; !exists {
+		Register(plannerDriver{})
 	}
 }
 
@@ -147,6 +167,62 @@ func TestCreateSessionUnknownCommandFallsBackToFallback(t *testing.T) {
 	})
 	if _, ok := findEff[EffSpawnTmuxWindow](effs); !ok {
 		t.Error("expected fallback driver to allow spawn")
+	}
+}
+
+func TestCreateSessionPlannerDefersSpawnUntilJobResult(t *testing.T) {
+	s := New()
+	s.Now = time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
+	next, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "create-session",
+		Payload: mustPayload(map[string]string{"project": "/foo", "command": "planner"}),
+	})
+	if len(next.Sessions) != 0 {
+		t.Fatalf("session count = %d, want 0 before setup result", len(next.Sessions))
+	}
+	if len(next.PendingCreates) != 1 {
+		t.Fatalf("pending creates = %d, want 1", len(next.PendingCreates))
+	}
+	job, ok := findEff[EffStartJob](effs)
+	if !ok {
+		t.Fatal("expected EffStartJob")
+	}
+	if _, ok := job.Input.(stubJobInput); !ok {
+		t.Fatalf("job input = %T, want stubJobInput", job.Input)
+	}
+
+	after, effs := Reduce(next, EvJobResult{JobID: job.JobID, Result: "ok"})
+	if len(after.PendingCreates) != 0 {
+		t.Fatalf("pending creates = %d, want 0 after completion", len(after.PendingCreates))
+	}
+	if len(after.Sessions) != 1 {
+		t.Fatalf("session count = %d, want 1 after completion", len(after.Sessions))
+	}
+	spawn, ok := findEff[EffSpawnTmuxWindow](effs)
+	if !ok {
+		t.Fatal("expected EffSpawnTmuxWindow after setup completion")
+	}
+	if spawn.Command != "planner --prepared" || spawn.StartDir != "/prepared" {
+		t.Fatalf("spawn = %+v", spawn)
+	}
+}
+
+func TestCreateSessionPlannerFailureRepliesError(t *testing.T) {
+	s := New()
+	next, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "create-session",
+		Payload: mustPayload(map[string]string{"project": "/foo", "command": "planner"}),
+	})
+	job, ok := findEff[EffStartJob](effs)
+	if !ok {
+		t.Fatal("expected EffStartJob")
+	}
+	after, effs := Reduce(next, EvJobResult{JobID: job.JobID, Err: errors.New("boom")})
+	if len(after.Sessions) != 0 {
+		t.Fatalf("session count = %d, want 0", len(after.Sessions))
+	}
+	if _, ok := findEff[EffSendError](effs); !ok {
+		t.Fatal("expected EffSendError")
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 
+	roostgit "github.com/takezoh/agent-roost/lib/git"
 	"github.com/takezoh/agent-roost/lib/vcs"
 	"github.com/takezoh/agent-roost/runtime/worker"
 	"github.com/takezoh/agent-roost/state"
@@ -18,6 +19,7 @@ func RegisterRunners(capturePaneFn func(string, int) (string, error), language, 
 	worker.RegisterRunner("transcript_parse", tp)
 	worker.RegisterRunner("summary_command", hs)
 	worker.RegisterRunner("branch_detect", newBranchDetect())
+	worker.RegisterRunner("worktree_setup", newWorktreeSetup())
 }
 
 func newCapturePane(captureFunc func(string, int) (string, error)) func(CapturePaneInput) (CapturePaneResult, error) {
@@ -41,5 +43,15 @@ func newBranchDetect() func(BranchDetectInput) (BranchDetectResult, error) {
 			Branch: r.Branch, Background: r.Background, Foreground: r.Foreground,
 			IsWorktree: r.IsWorktree, ParentBranch: r.ParentBranch,
 		}, nil
+	}
+}
+
+func newWorktreeSetup() func(WorktreeSetupInput) (WorktreeSetupResult, error) {
+	return func(in WorktreeSetupInput) (WorktreeSetupResult, error) {
+		dir, err := roostgit.CreateWorktree(in.RepoDir, in.Name)
+		if err != nil {
+			return WorktreeSetupResult{}, err
+		}
+		return WorktreeSetupResult{WorkingDir: dir, Name: in.Name}, nil
 	}
 }

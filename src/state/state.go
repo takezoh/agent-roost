@@ -24,13 +24,14 @@ type (
 // Maps are owned by the state and updated copy-on-write inside Reduce —
 // callers must not mutate a State they did not produce.
 type State struct {
-	Sessions      map[SessionID]Session
-	ActiveSession SessionID
-	Subscribers   map[ConnID]Subscriber
-	Jobs        map[JobID]JobMeta
-	NextJobID   JobID
-	NextConnID  ConnID
-	Now         time.Time // last tick timestamp; deterministic in tests
+	Sessions       map[SessionID]Session
+	PendingCreates map[JobID]PendingCreate
+	ActiveSession  SessionID
+	Subscribers    map[ConnID]Subscriber
+	Jobs           map[JobID]JobMeta
+	NextJobID      JobID
+	NextConnID     ConnID
+	Now            time.Time         // last tick timestamp; deterministic in tests
 	Aliases        map[string]string // command alias expansion (e.g. "cw" → "codex --workspace")
 	DefaultCommand string            // fallback when session command is empty
 
@@ -47,6 +48,14 @@ type Session struct {
 	Command   string
 	CreatedAt time.Time
 	Driver    DriverState // sum type implemented by driver impls
+}
+
+// PendingCreate tracks a session creation that is blocked on an async
+// setup job such as creating a managed worktree.
+type PendingCreate struct {
+	Session    Session
+	ReplyConn  ConnID
+	ReplyReqID string
 }
 
 // Subscriber tracks a connected IPC client that has opted into broadcasts.
@@ -70,9 +79,10 @@ type JobMeta struct {
 // are initialised so callers can write into them without nil checks.
 func New() State {
 	return State{
-		Sessions:    map[SessionID]Session{},
-		Subscribers: map[ConnID]Subscriber{},
-		Jobs:        map[JobID]JobMeta{},
-		Connectors:  map[string]ConnectorState{},
+		Sessions:       map[SessionID]Session{},
+		PendingCreates: map[JobID]PendingCreate{},
+		Subscribers:    map[ConnID]Subscriber{},
+		Jobs:           map[JobID]JobMeta{},
+		Connectors:     map[string]ConnectorState{},
 	}
 }
