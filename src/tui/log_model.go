@@ -261,7 +261,7 @@ func (m *LogModel) rebuildTabs(current *proto.SessionInfo) bool {
 	if int(m.activeTab) >= len(m.tabs) {
 		m.activeTab = 0
 	}
-	if sessionChanged && renderedPath != "" {
+	if sessionChanged {
 		m.activeTab = 0
 		m.viewport.SetContent("")
 		m.following = true
@@ -379,29 +379,32 @@ func (m *LogModel) activeTabState() *tabState {
 // switchToTabCmd switches to a new tab and returns a backfill command.
 // Use this from Update handlers that need to return a tea.Cmd.
 func (m *LogModel) switchToTabCmd(tab logTab) tea.Cmd {
-	m.switchToTab(tab)
+	if !m.switchToTab(tab) {
+		return nil
+	}
 	return m.backfillActiveTab()
 }
 
-func (m *LogModel) switchToTab(tab logTab) {
+func (m *LogModel) switchToTab(tab logTab) bool {
 	if tab == m.activeTab {
-		return
+		return false
 	}
 	m.activeTab = tab
 
 	t := m.activeTabState()
 	if t == nil {
-		return
+		return false
 	}
 	if t.kind == tabKindInfo {
 		m.renderInfoTab()
 		m.following = true
-		return
+		return true
 	}
 
 	m.viewport.SetContent("")
 	m.following = true
 	m.rebuildRenderer(t)
+	return true
 }
 
 func (m *LogModel) tabIndexAtX(x int) logTab {
