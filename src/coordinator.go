@@ -117,10 +117,9 @@ func runCoordinator() {
 	cancel()
 	<-rt.Done()
 
-	if rt.ShutdownRequested() {
-		slog.Info("shutdown requested, killing tmux session")
-		client.KillSession()
-	} else {
+	if client.SessionExists() {
 		slog.Info("detached, session kept alive")
+	} else {
+		slog.Info("tmux server exited")
 	}
 }

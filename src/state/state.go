@@ -31,7 +31,6 @@ type State struct {
 	NextJobID   JobID
 	NextConnID  ConnID
 	Now         time.Time // last tick timestamp; deterministic in tests
-	ShutdownReq bool
 	Aliases        map[string]string // command alias expansion (e.g. "cw" → "codex --workspace")
 	DefaultCommand string            // fallback when session command is empty
 

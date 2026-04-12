@@ -106,13 +106,6 @@ func New(cfg Config) *Runtime {
 	return r
 }
 
-// ShutdownRequested reports whether a shutdown command was processed
-// by the event loop. Safe to call after Run has exited (no concurrent
-// writer once the loop is stopped).
-func (r *Runtime) ShutdownRequested() bool {
-	return r.state.ShutdownReq
-}
-
 // Done signals when Run has fully exited.
 func (r *Runtime) Done() <-chan struct{} { return r.done }
 
