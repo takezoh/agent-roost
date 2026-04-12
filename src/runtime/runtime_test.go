@@ -1,17 +1,19 @@
 package runtime
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/takezoh/agent-roost/driver"
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/state"
-	"github.com/takezoh/agent-roost/driver"
 )
 
 func TestMain(m *testing.M) {
@@ -26,23 +28,24 @@ func TestMain(m *testing.M) {
 // === Fake backends for runtime tests ===
 
 type fakeTmuxBackend struct {
-	mu          sync.Mutex
-	spawnCalls  int
-	spawnCmds   []string
-	killCalls   int
-	killedWIDs  []string
-	swapCalls   int
-	respawnCmds []string
-	statusLines []string
-	envs        map[string]string
-	popups      []string
-	alive       map[string]bool
-	captured    string
-	spawnWID    string
-	spawnPane   string
-	spawnErr    error
-	envOutput   string   // returned by ShowEnvironment
-	winIndexes  []string // returned by ListWindowIndexes
+	mu               sync.Mutex
+	spawnCalls       int
+	spawnCmds        []string
+	killCalls        int
+	sessionKillCalls int
+	killedWIDs       []string
+	swapCalls        int
+	respawnCmds      []string
+	statusLines      []string
+	envs             map[string]string
+	popups           []string
+	alive            map[string]bool
+	captured         string
+	spawnWID         string
+	spawnPane        string
+	spawnErr         error
+	envOutput        string   // returned by ShowEnvironment
+	winIndexes       []string // returned by ListWindowIndexes
 }
 
 func newFakeTmux() *fakeTmuxBackend {
@@ -91,7 +94,7 @@ func (f *fakeTmuxBackend) RunChain(ops ...[]string) error {
 	f.swapCalls++
 	return nil
 }
-func (f *fakeTmuxBackend) SelectPane(string) error    { return nil }
+func (f *fakeTmuxBackend) SelectPane(string) error { return nil }
 func (f *fakeTmuxBackend) SetStatusLine(line string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -129,7 +132,12 @@ func (f *fakeTmuxBackend) CapturePane(string, int) (string, error) {
 	return f.captured, nil
 }
 func (f *fakeTmuxBackend) DetachClient() error { return nil }
-func (f *fakeTmuxBackend) KillSession() error  { return nil }
+func (f *fakeTmuxBackend) KillSession() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.sessionKillCalls++
+	return nil
+}
 func (f *fakeTmuxBackend) DisplayPopup(w, h, cmd string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -138,9 +146,9 @@ func (f *fakeTmuxBackend) DisplayPopup(w, h, cmd string) error {
 }
 
 type recordingPersist struct {
-	mu     sync.Mutex
-	saves  int
-	last   []SessionSnapshot
+	mu    sync.Mutex
+	saves int
+	last  []SessionSnapshot
 }
 
 func (r *recordingPersist) Save(s []SessionSnapshot) error {
@@ -187,6 +195,68 @@ func TestRuntimeStartsAndShutsDown(t *testing.T) {
 	case <-r.Done():
 	case <-time.After(time.Second):
 		t.Fatal("Run did not exit")
+	}
+}
+
+func TestExecuteKillSession(t *testing.T) {
+	tmux := newFakeTmux()
+	r := New(Config{
+		SessionName: "roost-test",
+		RoostExe:    "/usr/local/bin/roost",
+		Tmux:        tmux,
+	})
+
+	r.execute(state.EffKillSession{})
+
+	tmux.mu.Lock()
+	defer tmux.mu.Unlock()
+	if tmux.sessionKillCalls != 1 {
+		t.Fatalf("sessionKillCalls = %d, want 1", tmux.sessionKillCalls)
+	}
+}
+
+func TestSendResponseSyncFlushesImmediately(t *testing.T) {
+	server, client := net.Pipe()
+	defer server.Close()
+	defer client.Close()
+
+	r := New(Config{
+		SessionName: "roost-test",
+		RoostExe:    "/usr/local/bin/roost",
+	})
+	cc := newIPCConn(1, server)
+	r.conns[1] = cc
+
+	done := make(chan []byte, 1)
+	go func() {
+		reader := bufio.NewReader(client)
+		line, _ := reader.ReadBytes('\n')
+		done <- line
+	}()
+
+	r.execute(state.EffSendResponseSync{
+		ConnID: 1,
+		ReqID:  "req-1",
+		Body:   nil,
+	})
+
+	select {
+	case line := <-done:
+		env, err := proto.DecodeEnvelope(line)
+		if err != nil {
+			t.Fatalf("DecodeEnvelope: %v", err)
+		}
+		if env.Type != proto.TypeResponse {
+			t.Fatalf("type = %q, want %q", env.Type, proto.TypeResponse)
+		}
+		if env.ReqID != "req-1" {
+			t.Fatalf("req_id = %q, want req-1", env.ReqID)
+		}
+		if env.Status != proto.StatusOK {
+			t.Fatalf("status = %q, want %q", env.Status, proto.StatusOK)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for sync response")
 	}
 }
 

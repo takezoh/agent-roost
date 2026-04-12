@@ -25,14 +25,14 @@ type stubDriverState struct {
 
 type stubDriver struct{}
 
-func (stubDriver) Name() string                                                  { return "stub" }
-func (stubDriver) DisplayName() string                                           { return "stub" }
-func (stubDriver) Status(s DriverState) Status                                   { return s.(stubDriverState).status }
-func (stubDriver) NewState(now time.Time) DriverState                            { return stubDriverState{} }
-func (stubDriver) SpawnCommand(s DriverState, baseCommand string) string         { return baseCommand }
-func (stubDriver) Persist(s DriverState) map[string]string                       { return nil }
-func (stubDriver) Restore(bag map[string]string, now time.Time) DriverState      { return stubDriverState{} }
-func (stubDriver) View(s DriverState) View                                       { return View{} }
+func (stubDriver) Name() string                                             { return "stub" }
+func (stubDriver) DisplayName() string                                      { return "stub" }
+func (stubDriver) Status(s DriverState) Status                              { return s.(stubDriverState).status }
+func (stubDriver) NewState(now time.Time) DriverState                       { return stubDriverState{} }
+func (stubDriver) SpawnCommand(s DriverState, baseCommand string) string    { return baseCommand }
+func (stubDriver) Persist(s DriverState) map[string]string                  { return nil }
+func (stubDriver) Restore(bag map[string]string, now time.Time) DriverState { return stubDriverState{} }
+func (stubDriver) View(s DriverState) View                                  { return View{} }
 func (stubDriver) Step(prev DriverState, ev DriverEvent) (DriverState, []Effect, View) {
 	return prev, nil, View{}
 }
@@ -407,14 +407,20 @@ func TestLaunchToolEmptyErrors(t *testing.T) {
 
 // === reduceShutdown / reduceDetach ===
 
-func TestShutdownSetsFlag(t *testing.T) {
+func TestShutdownKillsSession(t *testing.T) {
 	s := New()
-	next, effs := Reduce(s, EvEvent{ConnID: 1, ReqID: "r", Event: "shutdown"})
-	if !next.ShutdownReq {
-		t.Error("ShutdownReq should be true")
+	_, effs := Reduce(s, EvEvent{ConnID: 1, ReqID: "r", Event: "shutdown"})
+	if _, ok := findEff[EffKillSession](effs); !ok {
+		t.Error("expected EffKillSession")
 	}
-	if _, ok := findEff[EffDetachClient](effs); !ok {
-		t.Error("expected EffDetachClient")
+	if _, ok := findEff[EffSendResponseSync](effs); !ok {
+		t.Error("expected EffSendResponseSync")
+	}
+	if _, ok := findEff[EffSendResponse](effs); ok {
+		t.Error("did not expect EffSendResponse")
+	}
+	if _, ok := findEff[EffDetachClient](effs); ok {
+		t.Error("did not expect EffDetachClient")
 	}
 }
 
@@ -742,9 +748,9 @@ func TestReduceCreateSession_DefaultCommand(t *testing.T) {
 	s := New()
 	s.DefaultCommand = "gemini"
 	s, _ = Reduce(s, EvEvent{
-		Event: "create-session",
+		Event:   "create-session",
 		Payload: mustPayload(map[string]string{"project": "test"}),
-		ConnID: 1, ReqID: "r1",
+		ConnID:  1, ReqID: "r1",
 	})
 	for _, sess := range s.Sessions {
 		if sess.Command != "gemini" {
@@ -758,9 +764,9 @@ func TestReduceCreateSession_DefaultCommand(t *testing.T) {
 func TestReduceCreateSession_FallbackToShell(t *testing.T) {
 	s := New()
 	s, _ = Reduce(s, EvEvent{
-		Event: "create-session",
+		Event:   "create-session",
 		Payload: mustPayload(map[string]string{"project": "test"}),
-		ConnID: 1, ReqID: "r1",
+		ConnID:  1, ReqID: "r1",
 	})
 	for _, sess := range s.Sessions {
 		if sess.Command != "shell" {

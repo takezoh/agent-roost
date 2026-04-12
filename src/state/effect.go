@@ -100,7 +100,7 @@ type EffDisplayPopup struct {
 	Args   map[string]string
 }
 
-// EffKillSession destroys the entire roost tmux session (shutdown).
+// EffKillSession destroys the roost tmux session.
 type EffKillSession struct{}
 
 // === IPC operations ===
@@ -108,6 +108,14 @@ type EffKillSession struct{}
 // EffSendResponse sends a typed response to a specific connection.
 // The Body is encoded by the runtime as a proto.Response value.
 type EffSendResponse struct {
+	ConnID ConnID
+	ReqID  string
+	Body   any // proto.Response (kept any here so state pkg doesn't import proto)
+}
+
+// EffSendResponseSync writes and flushes a typed response to a specific
+// connection before the runtime proceeds to later effects.
+type EffSendResponseSync struct {
 	ConnID ConnID
 	ReqID  string
 	Body   any // proto.Response (kept any here so state pkg doesn't import proto)
@@ -211,6 +219,7 @@ func (EffDetachClient) isEffect()             {}
 func (EffDisplayPopup) isEffect()             {}
 func (EffKillSession) isEffect()              {}
 func (EffSendResponse) isEffect()             {}
+func (EffSendResponseSync) isEffect()         {}
 func (EffSendError) isEffect()                {}
 func (EffBroadcastSessionsChanged) isEffect() {}
 func (EffBroadcastEvent) isEffect()           {}

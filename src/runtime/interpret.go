@@ -134,6 +134,8 @@ func (r *Runtime) execute(eff state.Effect) {
 
 	case state.EffSendResponse:
 		r.sendResponse(e)
+	case state.EffSendResponseSync:
+		r.sendResponseSync(e)
 	case state.EffSendError:
 		r.sendError(e)
 	case state.EffBroadcastSessionsChanged:
@@ -276,9 +278,8 @@ func isShellCommand(command string) bool {
 	return command == "shell"
 }
 
-// shellQuote wraps s in single quotes with internal single quotes
-// escaped as '\''. This is the POSIX-portable way to prevent shell
-// interpretation of any character in s.
+// shellQuote wraps s in single quotes and escapes inner single quotes
+// with the standard POSIX '\” sequence.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
@@ -421,4 +422,3 @@ func (r *Runtime) listWindowIndexes() ([]string, error) {
 func windowEnvKey(windowIndex string) string {
 	return "ROOST_W_" + windowIndex
 }
-

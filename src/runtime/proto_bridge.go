@@ -25,13 +25,32 @@ func (r *Runtime) sendResponse(e state.EffSendResponse) {
 	if !ok {
 		return
 	}
-	resp := r.translateResponseBody(e.Body)
-	wire, err := proto.EncodeResponse(e.ReqID, resp)
+	wire, err := r.encodeResponse(e.ReqID, e.Body)
 	if err != nil {
 		slog.Error("runtime: encode response failed", "err", err)
 		return
 	}
 	r.queueWire(cc, wire)
+}
+
+func (r *Runtime) sendResponseSync(e state.EffSendResponseSync) {
+	cc, ok := r.conns[e.ConnID]
+	if !ok {
+		return
+	}
+	wire, err := r.encodeResponse(e.ReqID, e.Body)
+	if err != nil {
+		slog.Error("runtime: encode sync response failed", "err", err)
+		return
+	}
+	if err := r.writeWire(cc, wire); err != nil {
+		slog.Debug("runtime: sync response write failed", "conn", e.ConnID, "err", err)
+	}
+}
+
+func (r *Runtime) encodeResponse(reqID string, body any) ([]byte, error) {
+	resp := r.translateResponseBody(body)
+	return proto.EncodeResponse(reqID, resp)
 }
 
 // translateResponseBody maps a state-package body to its proto

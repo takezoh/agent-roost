@@ -20,11 +20,12 @@ import (
 // the runtime as state.Event values; the writer goroutine drains
 // outbox and writes wire bytes to the socket.
 type ipcConn struct {
-	id     state.ConnID
-	conn   net.Conn
-	outbox chan []byte
-	done   chan struct{}
-	once   sync.Once
+	id      state.ConnID
+	conn    net.Conn
+	outbox  chan []byte
+	done    chan struct{}
+	once    sync.Once
+	writeMu sync.Mutex
 }
 
 const ipcOutboxSize = 64
@@ -204,19 +205,12 @@ func (r *Runtime) connReader(cc *ipcConn) {
 
 // connWriter drains the outbox and writes wire bytes to the socket.
 func (r *Runtime) connWriter(cc *ipcConn) {
-	w := bufio.NewWriter(cc.conn)
 	for {
 		select {
 		case <-cc.done:
 			return
 		case payload := <-cc.outbox:
-			if _, err := w.Write(payload); err != nil {
-				return
-			}
-			if err := w.WriteByte('\n'); err != nil {
-				return
-			}
-			if err := w.Flush(); err != nil {
+			if err := r.writeWire(cc, payload); err != nil {
 				return
 			}
 		}
@@ -253,6 +247,26 @@ func (r *Runtime) queueWire(cc *ipcConn, wire []byte) {
 	}
 }
 
+func (r *Runtime) writeWire(cc *ipcConn, wire []byte) error {
+	cc.writeMu.Lock()
+	defer cc.writeMu.Unlock()
+
+	select {
+	case <-cc.done:
+		return net.ErrClosed
+	default:
+	}
+
+	w := bufio.NewWriter(cc.conn)
+	if _, err := w.Write(wire); err != nil {
+		return err
+	}
+	if err := w.WriteByte('\n'); err != nil {
+		return err
+	}
+	return w.Flush()
+}
+
 // shutdownIPC closes the listener and every active connection. Called
 // from Run on shutdown.
 func (r *Runtime) shutdownIPC() {
@@ -266,4 +280,3 @@ func (r *Runtime) shutdownIPC() {
 }
 
 // === Loop integration ===
-

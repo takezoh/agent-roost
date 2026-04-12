@@ -72,7 +72,7 @@ Displayed as a popup with `prefix p`. Filter tools by typing, press Enter to exe
 | `create-project` | Create a project directory and start a session |
 | `stop-session` | Stop a session |
 | `detach` | Detach (session stays alive) |
-| `shutdown` | Quit all (sessions are destroyed) |
+| `shutdown` | Quit all (tmux session is destroyed) |
 
 ### TUI Key Bindings (when TUI is focused)
 

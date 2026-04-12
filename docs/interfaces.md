@@ -14,7 +14,6 @@ type State struct {
     NextJobID   JobID
     NextConnID  ConnID
     Now         time.Time
-    ShutdownReq bool
     Aliases     map[string]string
 }
 

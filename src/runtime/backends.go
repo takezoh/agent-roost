@@ -54,11 +54,10 @@ type TmuxBackend interface {
 	// newline-delimited KEY=VALUE string (output of show-environment).
 	ShowEnvironment() (string, error)
 
-	// DetachClient detaches the current tmux client (used by Detach /
-	// Shutdown commands).
+	// DetachClient detaches the current tmux client.
 	DetachClient() error
 
-	// KillSession destroys the entire roost tmux session.
+	// KillSession destroys the roost tmux session.
 	KillSession() error
 
 	// DisplayPopup runs `tmux display-popup`.
@@ -118,15 +117,15 @@ type noopTmux struct{}
 func (noopTmux) SpawnWindow(name, command, startDir string, env map[string]string) (string, string, error) {
 	return "", "", nil
 }
-func (noopTmux) KillWindow(string) error                  { return nil }
-func (noopTmux) RunChain(...[]string) error               { return nil }
-func (noopTmux) SelectPane(string) error                  { return nil }
-func (noopTmux) SetStatusLine(string) error               { return nil }
-func (noopTmux) SetEnv(string, string) error              { return nil }
-func (noopTmux) UnsetEnv(string) error                    { return nil }
-func (noopTmux) PaneAlive(string) (bool, error)           { return true, nil }
-func (noopTmux) RespawnPane(string, string) error         { return nil }
-func (noopTmux) CapturePane(string, int) (string, error)  { return "", nil }
+func (noopTmux) KillWindow(string) error                   { return nil }
+func (noopTmux) RunChain(...[]string) error                { return nil }
+func (noopTmux) SelectPane(string) error                   { return nil }
+func (noopTmux) SetStatusLine(string) error                { return nil }
+func (noopTmux) SetEnv(string, string) error               { return nil }
+func (noopTmux) UnsetEnv(string) error                     { return nil }
+func (noopTmux) PaneAlive(string) (bool, error)            { return true, nil }
+func (noopTmux) RespawnPane(string, string) error          { return nil }
+func (noopTmux) CapturePane(string, int) (string, error)   { return "", nil }
 func (noopTmux) ListWindowIndexes() ([]string, error)      { return nil, nil }
 func (noopTmux) ShowEnvironment() (string, error)          { return "", nil }
 func (noopTmux) DetachClient() error                       { return nil }
@@ -135,8 +134,8 @@ func (noopTmux) DisplayPopup(string, string, string) error { return nil }
 
 type noopPersist struct{}
 
-func (noopPersist) Save([]SessionSnapshot) error          { return nil }
-func (noopPersist) Load() ([]SessionSnapshot, error)      { return nil, nil }
+func (noopPersist) Save([]SessionSnapshot) error     { return nil }
+func (noopPersist) Load() ([]SessionSnapshot, error) { return nil, nil }
 
 type noopEventLog struct{}
 
@@ -148,8 +147,8 @@ type noopWatcher struct {
 	ch chan FSEvent
 }
 
-func (n noopWatcher) Watch(state.SessionID, string) error   { return nil }
-func (n noopWatcher) Unwatch(state.SessionID) error          { return nil }
+func (n noopWatcher) Watch(state.SessionID, string) error { return nil }
+func (n noopWatcher) Unwatch(state.SessionID) error       { return nil }
 func (n noopWatcher) Events() <-chan FSEvent {
 	if n.ch == nil {
 		return nil

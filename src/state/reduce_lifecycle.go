@@ -6,11 +6,10 @@ func init() {
 }
 
 func reduceShutdown(s State, connID ConnID, reqID string, _ struct{}) (State, []Effect) {
-	s.ShutdownReq = true
 	return s, []Effect{
 		EffPersistSnapshot{},
-		okResp(connID, reqID, nil),
-		EffDetachClient{},
+		EffSendResponseSync{ConnID: connID, ReqID: reqID, Body: nil},
+		EffKillSession{},
 	}
 }
 
