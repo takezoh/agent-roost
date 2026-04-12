@@ -35,12 +35,15 @@ type fakeTmuxBackend struct {
 	sessionKillCalls int
 	killedWIDs       []string
 	swapCalls        int
+	runChainOps      [][][]string
 	respawnCmds      []string
 	statusLines      []string
 	envs             map[string]string
 	popups           []string
 	alive            map[string]bool
 	captured         string
+	inspectCalls     []string
+	inspectSnapshot  PaneSnapshot
 	spawnWID         string
 	spawnPane        string
 	spawnErr         error
@@ -92,6 +95,7 @@ func (f *fakeTmuxBackend) RunChain(ops ...[]string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.swapCalls++
+	f.runChainOps = append(f.runChainOps, ops)
 	return nil
 }
 func (f *fakeTmuxBackend) SelectPane(string) error { return nil }
@@ -130,6 +134,14 @@ func (f *fakeTmuxBackend) RespawnPane(target, cmd string) error {
 }
 func (f *fakeTmuxBackend) CapturePane(string, int) (string, error) {
 	return f.captured, nil
+}
+func (f *fakeTmuxBackend) InspectPane(target string, _ int) (PaneSnapshot, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.inspectCalls = append(f.inspectCalls, target)
+	snap := f.inspectSnapshot
+	snap.Target = target
+	return snap, nil
 }
 func (f *fakeTmuxBackend) DetachClient() error { return nil }
 func (f *fakeTmuxBackend) KillSession() error {
@@ -366,6 +378,38 @@ func TestRuntimeRespawnsDeadPane(t *testing.T) {
 	}
 	if tmux.respawnCmds[0] != "/usr/bin/roost --tui log" {
 		t.Errorf("respawn cmd = %q", tmux.respawnCmds[0])
+	}
+}
+
+func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
+	tmux := newFakeTmux()
+	r := New(Config{
+		SessionName: "roost-test",
+		Tmux:        tmux,
+	})
+	r.windowMap["sess-1"] = "3"
+
+	r.execute(state.EffActivateSession{
+		SessionID: "sess-1",
+		Reason:    state.EventPreviewSession,
+	})
+
+	tmux.mu.Lock()
+	defer tmux.mu.Unlock()
+	if tmux.swapCalls != 1 {
+		t.Fatalf("swapCalls = %d, want 1", tmux.swapCalls)
+	}
+	if len(tmux.inspectCalls) != 3 {
+		t.Fatalf("inspectCalls = %d, want 3", len(tmux.inspectCalls))
+	}
+	wantTargets := []string{"roost-test:0.0", "roost-test:3.0", "roost-test:0.0"}
+	for i, want := range wantTargets {
+		if tmux.inspectCalls[i] != want {
+			t.Fatalf("inspectCalls[%d] = %q, want %q", i, tmux.inspectCalls[i], want)
+		}
+	}
+	if r.activeSession != "sess-1" {
+		t.Fatalf("activeSession = %q, want sess-1", r.activeSession)
 	}
 }
 

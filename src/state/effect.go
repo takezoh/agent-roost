@@ -34,6 +34,7 @@ type EffKillSessionWindow struct {
 // The runtime resolves the window target from its windowMap.
 type EffActivateSession struct {
 	SessionID SessionID
+	Reason    string
 }
 
 // EffDeactivateSession swaps the currently active session back to its

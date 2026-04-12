@@ -3,6 +3,7 @@ package runtime
 import (
 	"fmt"
 	"os/exec"
+	"strings"
 
 	"github.com/takezoh/agent-roost/lib/tmux"
 )
@@ -96,6 +97,38 @@ func (b *RealTmuxBackend) RespawnPane(target, command string) error {
 
 func (b *RealTmuxBackend) CapturePane(windowTarget string, nLines int) (string, error) {
 	return b.client.CapturePaneLines(b.sessionName+":"+windowTarget+".0", nLines)
+}
+
+func (b *RealTmuxBackend) InspectPane(target string, nLines int) (PaneSnapshot, error) {
+	meta, err := b.client.DisplayMessage(target, "#{pane_dead}\t#{pane_in_mode}\t#{pane_current_command}\t#{cursor_x}\t#{cursor_y}")
+	if err != nil {
+		return PaneSnapshot{}, err
+	}
+	content, err := b.client.CapturePaneLines(target, nLines)
+	if err != nil {
+		return PaneSnapshot{}, err
+	}
+	parts := strings.SplitN(meta, "\t", 5)
+	snap := PaneSnapshot{
+		Target:      target,
+		ContentTail: content,
+	}
+	if len(parts) > 0 {
+		snap.Dead = parts[0] == "1"
+	}
+	if len(parts) > 1 {
+		snap.InMode = parts[1] == "1"
+	}
+	if len(parts) > 2 {
+		snap.CurrentCommand = parts[2]
+	}
+	if len(parts) > 3 {
+		snap.CursorX = parts[3]
+	}
+	if len(parts) > 4 {
+		snap.CursorY = parts[4]
+	}
+	return snap, nil
 }
 
 // ListWindowIndexes returns the live window indexes for reconciliation.

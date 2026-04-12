@@ -46,6 +46,9 @@ type TmuxBackend interface {
 	// pane content. Used by polling drivers via the worker pool.
 	CapturePane(windowID string, nLines int) (string, error)
 
+	// InspectPane snapshots a pane's visible state for diagnostics.
+	InspectPane(target string, nLines int) (PaneSnapshot, error)
+
 	// ListWindowIndexes returns the window indexes of the roost tmux
 	// session (e.g. ["1", "2", "3"]).
 	ListWindowIndexes() ([]string, error)
@@ -114,18 +117,31 @@ type FSEvent struct {
 
 type noopTmux struct{}
 
+type PaneSnapshot struct {
+	Target         string
+	Dead           bool
+	InMode         bool
+	CurrentCommand string
+	CursorX        string
+	CursorY        string
+	ContentTail    string
+}
+
 func (noopTmux) SpawnWindow(name, command, startDir string, env map[string]string) (string, string, error) {
 	return "", "", nil
 }
-func (noopTmux) KillWindow(string) error                   { return nil }
-func (noopTmux) RunChain(...[]string) error                { return nil }
-func (noopTmux) SelectPane(string) error                   { return nil }
-func (noopTmux) SetStatusLine(string) error                { return nil }
-func (noopTmux) SetEnv(string, string) error               { return nil }
-func (noopTmux) UnsetEnv(string) error                     { return nil }
-func (noopTmux) PaneAlive(string) (bool, error)            { return true, nil }
-func (noopTmux) RespawnPane(string, string) error          { return nil }
-func (noopTmux) CapturePane(string, int) (string, error)   { return "", nil }
+func (noopTmux) KillWindow(string) error                 { return nil }
+func (noopTmux) RunChain(...[]string) error              { return nil }
+func (noopTmux) SelectPane(string) error                 { return nil }
+func (noopTmux) SetStatusLine(string) error              { return nil }
+func (noopTmux) SetEnv(string, string) error             { return nil }
+func (noopTmux) UnsetEnv(string) error                   { return nil }
+func (noopTmux) PaneAlive(string) (bool, error)          { return true, nil }
+func (noopTmux) RespawnPane(string, string) error        { return nil }
+func (noopTmux) CapturePane(string, int) (string, error) { return "", nil }
+func (noopTmux) InspectPane(string, int) (PaneSnapshot, error) {
+	return PaneSnapshot{}, nil
+}
 func (noopTmux) ListWindowIndexes() ([]string, error)      { return nil, nil }
 func (noopTmux) ShowEnvironment() (string, error)          { return "", nil }
 func (noopTmux) DetachClient() error                       { return nil }

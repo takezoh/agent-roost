@@ -235,6 +235,7 @@ With tmux `mouse on`, mouse operations are mediated by tmux. Text selection goes
 ### Session Switching
 
 Runtime executes individual `swap-pane -d` operations sequentially (no rollback on mid-sequence failure).
+`Pane 0.0` does not receive a copied render buffer here; the live session pane itself is swapped into the main pane. The lower Log TUI remains a separate file-backed renderer.
 
 ```
 Preview(sess):

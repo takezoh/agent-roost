@@ -391,8 +391,10 @@ func TestPreviewSessionActivatesAndBroadcasts(t *testing.T) {
 	if next.ActiveSession != id {
 		t.Errorf("ActiveSession = %q, want %q", next.ActiveSession, id)
 	}
-	if _, ok := findEff[EffActivateSession](effs); !ok {
+	if eff, ok := findEff[EffActivateSession](effs); !ok {
 		t.Error("expected EffActivateSession")
+	} else if eff.Reason != EventPreviewSession {
+		t.Errorf("EffActivateSession.Reason = %q, want %q", eff.Reason, EventPreviewSession)
 	}
 	mustOK(t, effs)
 }
@@ -416,6 +418,11 @@ func TestSwitchSessionAlsoSelectsPane(t *testing.T) {
 		ConnID: 1, ReqID: "r", Event: "switch-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
 	})
+	if eff, ok := findEff[EffActivateSession](effs); !ok {
+		t.Error("expected EffActivateSession")
+	} else if eff.Reason != EventSwitchSession {
+		t.Errorf("EffActivateSession.Reason = %q, want %q", eff.Reason, EventSwitchSession)
+	}
 	if _, ok := findEff[EffSelectPane](effs); !ok {
 		t.Error("expected EffSelectPane")
 	}

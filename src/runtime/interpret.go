@@ -36,7 +36,7 @@ func (r *Runtime) execute(eff state.Effect) {
 		}
 
 	case state.EffActivateSession:
-		r.activateSession(e.SessionID)
+		r.activateSession(e.SessionID, e.Reason)
 
 	case state.EffDeactivateSession:
 		r.deactivateSession()
@@ -370,13 +370,15 @@ func (r *Runtime) findPaneOwner(_ string) state.SessionID {
 
 // activateSession swaps a session's agent pane into pane 0.0. If another
 // session is currently active it is swapped back to its own window first.
-func (r *Runtime) activateSession(sessID state.SessionID) {
+func (r *Runtime) activateSession(sessID state.SessionID, reason string) {
 	target, ok := r.windowMap[sessID]
 	if !ok {
 		slog.Warn("runtime: activate session — no window target", "session", sessID)
 		return
 	}
 	pane0 := r.cfg.SessionName + ":0.0"
+	r.logPaneSnapshot(reason, "before-main", pane0)
+	r.logPaneSnapshot(reason, "before-target", r.cfg.SessionName+":"+target+".0")
 	// Swap previous active back first (may fail if window is dead; that's ok).
 	if r.activeSession != "" && r.activeSession != sessID {
 		prev, hasPrev := r.windowMap[r.activeSession]
@@ -393,6 +395,7 @@ func (r *Runtime) activateSession(sessID state.SessionID) {
 	if err := r.cfg.Tmux.RunChain(op); err != nil {
 		slog.Warn("runtime: swap-pane in failed", "target", target, "err", err)
 	}
+	r.logPaneSnapshot(reason, "after-main", pane0)
 }
 
 // deactivateSession swaps the current active session back to its window,

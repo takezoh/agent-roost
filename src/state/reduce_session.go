@@ -129,7 +129,7 @@ func reduceTmuxWindowSpawned(s State, e EvTmuxWindowSpawned) (State, []Effect) {
 
 	effs := []Effect{
 		EffRegisterWindow{SessionID: e.SessionID, WindowTarget: e.WindowTarget},
-		EffActivateSession{SessionID: e.SessionID},
+		EffActivateSession{SessionID: e.SessionID, Reason: EventCreateSession},
 		EffSelectPane{Target: "{sessionName}:0.0"},
 		EffSyncStatusLine{Line: ""},
 		EffPersistSnapshot{},
@@ -199,7 +199,7 @@ func reducePreviewSession(s State, connID ConnID, reqID string, p PreviewSession
 	s.ActiveSession = sid
 
 	return s, []Effect{
-		EffActivateSession{SessionID: sid},
+		EffActivateSession{SessionID: sid, Reason: EventPreviewSession},
 		EffSyncStatusLine{Line: ""},
 		EffBroadcastSessionsChanged{IsPreview: true},
 		okResp(connID, reqID, ActiveSessionReply{ActiveSessionID: string(sid)}),
@@ -214,7 +214,7 @@ func reduceSwitchSession(s State, connID ConnID, reqID string, p SwitchSessionPa
 	s.ActiveSession = sid
 
 	return s, []Effect{
-		EffActivateSession{SessionID: sid},
+		EffActivateSession{SessionID: sid, Reason: EventSwitchSession},
 		EffSelectPane{Target: "{sessionName}:0.0"},
 		EffSyncStatusLine{Line: ""},
 		EffBroadcastSessionsChanged{},
