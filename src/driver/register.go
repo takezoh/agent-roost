@@ -29,7 +29,7 @@ func RegisterDefaults(opts RegisterOptions) {
 		claudeOpts := decodeConfig[ClaudeOptions](opts.DriverConfigs[ClaudeDriverName])
 		state.Register(NewClaudeDriver(opts.Home, opts.EventLogDir, claudeOpts))
 		state.Register(NewGenericDriver("bash", opts.IdleThreshold))
-		state.Register(NewGenericDriver("codex", opts.IdleThreshold))
+		state.Register(NewCodexDriver(opts.EventLogDir))
 		state.Register(NewGenericDriver("gemini", opts.IdleThreshold))
 		shellDisplay := filepath.Base(os.Getenv("SHELL"))
 		if shellDisplay == "" || shellDisplay == "." {

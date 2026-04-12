@@ -9,6 +9,7 @@ import (
 	"github.com/takezoh/agent-roost/config"
 	_ "github.com/takezoh/agent-roost/event"
 	_ "github.com/takezoh/agent-roost/lib/claude"
+	_ "github.com/takezoh/agent-roost/lib/codex"
 	"github.com/takezoh/agent-roost/logger"
 )
 

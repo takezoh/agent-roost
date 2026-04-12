@@ -9,6 +9,8 @@ import "github.com/takezoh/agent-roost/state"
 const (
 	commandTagBg = "#D97757" // default command tag background
 	commandTagFg = "#FFFFFF" // white text
+	codexTagBg   = "#10A37F"
+	codexTagFg   = "#FFFFFF"
 )
 
 // CommandTag returns the canonical command tag for a driver name, used
@@ -18,6 +20,14 @@ func CommandTag(name string) state.Tag {
 		Text:       name,
 		Background: commandTagBg,
 		Foreground: commandTagFg,
+	}
+}
+
+func CodexCommandTag() state.Tag {
+	return state.Tag{
+		Text:       CodexDriverName,
+		Background: codexTagBg,
+		Foreground: codexTagFg,
 	}
 }
 
