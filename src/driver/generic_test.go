@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -146,6 +147,7 @@ func TestGenericPersistRoundTrip(t *testing.T) {
 	d, s, now := newGenericState(t, 5*time.Second)
 	s.Status = state.StatusWaiting
 	s.StatusChangedAt = now
+	s.Summary = "summary text"
 	bag := d.Persist(s)
 	if bag[genericKeyStatus] != "waiting" {
 		t.Errorf("persisted status = %q, want waiting", bag[genericKeyStatus])
@@ -153,12 +155,18 @@ func TestGenericPersistRoundTrip(t *testing.T) {
 	if bag[genericKeyStatusChangedAt] == "" {
 		t.Error("persisted changed_at should not be empty")
 	}
+	if bag[genericKeySummary] != "summary text" {
+		t.Errorf("persisted summary = %q, want summary text", bag[genericKeySummary])
+	}
 	restored := d.Restore(bag, time.Now()).(GenericState)
 	if restored.Status != state.StatusWaiting {
 		t.Errorf("restored status = %v, want waiting", restored.Status)
 	}
 	if !restored.StatusChangedAt.Equal(now) {
 		t.Errorf("restored changed_at = %v, want %v", restored.StatusChangedAt, now)
+	}
+	if restored.Summary != "summary text" {
+		t.Errorf("restored summary = %q, want summary text", restored.Summary)
 	}
 }
 
@@ -207,6 +215,105 @@ func TestGenericViewBorderTitle(t *testing.T) {
 	v := d.view(s)
 	if v.Card.BorderTitle.Text != "bash" {
 		t.Errorf("BorderTitle.Text = %q, want bash", v.Card.BorderTitle.Text)
+	}
+}
+
+func TestGenericWaitingTransitionStartsSummaryJob(t *testing.T) {
+	d, s, now := newGenericState(t, 0)
+	primed := d.applyCapture(s, now, CapturePaneResult{Content: "old", Hash: "h0"})
+	next, effs, _ := d.Step(primed, state.DEvJobResult{
+		Now: now.Add(time.Second),
+		Result: CapturePaneResult{
+			Content: "user@host:~$ ",
+			Hash:    "h1",
+		},
+	})
+	gs := next.(GenericState)
+	if !gs.SummaryInFlight {
+		t.Fatal("SummaryInFlight should be true")
+	}
+	if len(effs) != 1 {
+		t.Fatalf("effects = %d, want 1", len(effs))
+	}
+	job, ok := effs[0].(state.EffStartJob)
+	if !ok {
+		t.Fatalf("effect type = %T, want EffStartJob", effs[0])
+	}
+	in, ok := job.Input.(HaikuSummaryInput)
+	if !ok {
+		t.Fatalf("job input type = %T, want HaikuSummaryInput", job.Input)
+	}
+	if in.CurrentPrompt != "user@host:~$" {
+		t.Errorf("CurrentPrompt = %q, want trimmed prompt", in.CurrentPrompt)
+	}
+	if in.PrevSummary != "" {
+		t.Errorf("PrevSummary = %q, want empty", in.PrevSummary)
+	}
+}
+
+func TestGenericWaitingTransitionSkipsSummaryWhileInFlight(t *testing.T) {
+	d, s, now := newGenericState(t, 0)
+	s.SummaryInFlight = true
+	primed := d.applyCapture(s, now, CapturePaneResult{Content: "old", Hash: "h0"})
+	next, effs, _ := d.Step(primed, state.DEvJobResult{
+		Now: now.Add(time.Second),
+		Result: CapturePaneResult{
+			Content: "user@host:~$ ",
+			Hash:    "h1",
+		},
+	})
+	gs := next.(GenericState)
+	if !gs.SummaryInFlight {
+		t.Fatal("SummaryInFlight should stay true")
+	}
+	if len(effs) != 0 {
+		t.Fatalf("effects = %d, want 0", len(effs))
+	}
+}
+
+func TestGenericApplySummaryResult(t *testing.T) {
+	d, s, now := newGenericState(t, 0)
+	s.SummaryInFlight = true
+	next, effs, _ := d.Step(s, state.DEvJobResult{
+		Now:    now,
+		Result: HaikuSummaryResult{Summary: "new summary"},
+	})
+	if len(effs) != 0 {
+		t.Fatalf("effects = %d, want 0", len(effs))
+	}
+	gs := next.(GenericState)
+	if gs.SummaryInFlight {
+		t.Fatal("SummaryInFlight should be false")
+	}
+	if gs.Summary != "new summary" {
+		t.Errorf("Summary = %q, want new summary", gs.Summary)
+	}
+}
+
+func TestGenericApplySummaryResultErrorKeepsPrevious(t *testing.T) {
+	d, s, now := newGenericState(t, 0)
+	s.SummaryInFlight = true
+	s.Summary = "old summary"
+	next, _, _ := d.Step(s, state.DEvJobResult{
+		Now:    now,
+		Result: HaikuSummaryResult{Summary: "new summary"},
+		Err:    errors.New("failed"),
+	})
+	gs := next.(GenericState)
+	if gs.SummaryInFlight {
+		t.Fatal("SummaryInFlight should be false after error")
+	}
+	if gs.Summary != "old summary" {
+		t.Errorf("Summary = %q, want old summary", gs.Summary)
+	}
+}
+
+func TestGenericViewUsesSummarySubtitle(t *testing.T) {
+	d, s, _ := newGenericState(t, 0)
+	s.Summary = "running tests"
+	v := d.view(s)
+	if v.Card.Subtitle != "running tests" {
+		t.Errorf("Subtitle = %q, want running tests", v.Card.Subtitle)
 	}
 }
 

@@ -272,16 +272,7 @@ func (d ClaudeDriver) handleUserPromptSubmit(cs ClaudeState, hp hookPayload, now
 	var effs []state.Effect
 	effs = append(effs, state.EffEventLogAppend{Line: "UserPromptSubmit"})
 
-	if !cs.SummaryInFlight && hp.Prompt != "" {
-		cs.SummaryInFlight = true
-		effs = append(effs, state.EffStartJob{
-			Input: HaikuSummaryInput{
-				ClaudeUUID:    cs.ClaudeSessionID,
-				PrevSummary:   cs.Summary,
-				CurrentPrompt: hp.Prompt,
-			},
-		})
-	}
+	effs, cs.SummaryInFlight = enqueueSummaryJob(effs, cs.SummaryInFlight, cs.ClaudeSessionID, cs.Summary, hp.Prompt)
 
 	if !cs.TranscriptInFlight {
 		if path := d.resolveTranscriptPath(cs); path != "" {
@@ -307,4 +298,3 @@ func absorbIdentityFromHP(cs ClaudeState, hp hookPayload) ClaudeState {
 	}
 	return cs
 }
-

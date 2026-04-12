@@ -2,6 +2,7 @@ package driver
 
 import (
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/takezoh/agent-roost/state"
@@ -23,6 +24,7 @@ const (
 	// state bag keys for sessions.json round-trip.
 	genericKeyStatus          = "status"
 	genericKeyStatusChangedAt = "status_changed_at"
+	genericKeySummary         = "summary"
 )
 
 // genericPromptRegexp is compiled once per process.
@@ -41,6 +43,10 @@ type GenericState struct {
 	// Status bookkeeping
 	Status          state.Status
 	StatusChangedAt time.Time
+
+	// Summary cache for the session card subtitle.
+	Summary         string
+	SummaryInFlight bool
 
 	// Polling state
 	IdleThreshold time.Duration // 0 = idle threshold disabled
@@ -75,8 +81,8 @@ func (d GenericDriver) WithDisplayName(name string) GenericDriver {
 	return d
 }
 
-func (d GenericDriver) Name() string        { return d.name }
-func (d GenericDriver) DisplayName() string { return d.displayName }
+func (d GenericDriver) Name() string                          { return d.name }
+func (d GenericDriver) DisplayName() string                   { return d.displayName }
 func (GenericDriver) Status(s state.DriverState) state.Status { return s.(GenericState).Status }
 
 // View returns the cached View for the given GenericState. Pure
@@ -117,6 +123,9 @@ func (d GenericDriver) Persist(s state.DriverState) map[string]string {
 	if !gs.StatusChangedAt.IsZero() {
 		out[genericKeyStatusChangedAt] = gs.StatusChangedAt.UTC().Format(time.RFC3339)
 	}
+	if gs.Summary != "" {
+		out[genericKeySummary] = gs.Summary
+	}
 	return out
 }
 
@@ -142,6 +151,7 @@ func (d GenericDriver) Restore(bag map[string]string, now time.Time) state.Drive
 			gs.LastActivity = changedAt
 		}
 	}
+	gs.Summary = bag[genericKeySummary]
 	return gs
 }
 
@@ -168,14 +178,23 @@ func (d GenericDriver) Step(prev state.DriverState, ev state.DriverEvent) (state
 		return gs, []state.Effect{eff}, d.view(gs)
 
 	case state.DEvJobResult:
-		if e.Err != nil {
+		if summary, inFlight, ok := applySummaryJobResult(gs.Summary, gs.SummaryInFlight, e); ok {
+			gs.Summary = summary
+			gs.SummaryInFlight = inFlight
 			return gs, nil, d.view(gs)
 		}
+
 		result, ok := e.Result.(CapturePaneResult)
 		if !ok {
 			return gs, nil, d.view(gs)
 		}
-		return d.applyCapture(gs, e.Now, result), nil, d.view(gs)
+		if e.Err != nil {
+			return gs, nil, d.view(gs)
+		}
+		next := d.applyCapture(gs, e.Now, result)
+		effs, inFlight := d.summaryEffects(gs, next, result)
+		next.SummaryInFlight = inFlight
+		return next, effs, d.view(next)
 
 	case state.DEvHook:
 		// generic drivers don't consume hooks
@@ -217,4 +236,11 @@ func (d GenericDriver) applyCapture(gs GenericState, now time.Time, result Captu
 		}
 	}
 	return gs
+}
+
+func (d GenericDriver) summaryEffects(prev, next GenericState, result CapturePaneResult) ([]state.Effect, bool) {
+	if next.Status != state.StatusWaiting || prev.Status == state.StatusWaiting {
+		return nil, next.SummaryInFlight
+	}
+	return enqueueSummaryJob(nil, next.SummaryInFlight, next.Name, next.Summary, strings.TrimSpace(result.Content))
 }

@@ -99,6 +99,12 @@ func (d ClaudeDriver) handleTranscriptChanged(cs ClaudeState, e state.DEvFileCha
 // handleJobResult routes a finished worker pool result back to the
 // matching field on ClaudeState.
 func (d ClaudeDriver) handleJobResult(cs ClaudeState, e state.DEvJobResult) (ClaudeState, []state.Effect) {
+	if summary, inFlight, ok := applySummaryJobResult(cs.Summary, cs.SummaryInFlight, e); ok {
+		cs.Summary = summary
+		cs.SummaryInFlight = inFlight
+		return cs, nil
+	}
+
 	switch r := e.Result.(type) {
 	case TranscriptParseResult:
 		cs.TranscriptInFlight = false
@@ -114,16 +120,6 @@ func (d ClaudeDriver) handleJobResult(cs ClaudeState, e state.DEvJobResult) (Cla
 		cs.StatusLine = r.StatusLine
 		cs.CurrentTool = r.CurrentTool
 		cs.SubagentCounts = r.Subagents
-		return cs, nil
-
-	case HaikuSummaryResult:
-		cs.SummaryInFlight = false
-		if e.Err != nil {
-			return cs, nil
-		}
-		if r.Summary != "" {
-			cs.Summary = r.Summary
-		}
 		return cs, nil
 
 	case BranchDetectResult:
