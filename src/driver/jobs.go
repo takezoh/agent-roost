@@ -67,6 +67,18 @@ type TranscriptParseResult struct {
 	RecentTurns []SummaryTurn
 }
 
+type CodexTranscriptParseInput struct {
+	SessionID state.SessionID
+	Path      string
+}
+
+type CodexTranscriptParseResult struct {
+	Title                string
+	LastPrompt           string
+	LastAssistantMessage string
+	StatusLine           string
+}
+
 // BranchDetectInput asks the worker to detect the current VCS branch
 // for the given working directory.
 type BranchDetectInput struct {
@@ -99,6 +111,9 @@ type WorktreeSetupResult struct {
 
 func (CapturePaneInput) JobKind() string     { return "capture_pane" }
 func (TranscriptParseInput) JobKind() string { return "transcript_parse" }
-func (SummaryCommandInput) JobKind() string  { return "summary_command" }
-func (BranchDetectInput) JobKind() string    { return "branch_detect" }
-func (WorktreeSetupInput) JobKind() string   { return "worktree_setup" }
+func (CodexTranscriptParseInput) JobKind() string {
+	return "codex_transcript_parse"
+}
+func (SummaryCommandInput) JobKind() string { return "summary_command" }
+func (BranchDetectInput) JobKind() string   { return "branch_detect" }
+func (WorktreeSetupInput) JobKind() string  { return "worktree_setup" }

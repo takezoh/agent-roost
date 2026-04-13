@@ -19,8 +19,11 @@ const (
 type CodexState struct {
 	CommonState
 
-	CodexSessionID    string
-	ManagedWorkingDir string
+	CodexSessionID     string
+	ManagedWorkingDir  string
+	TranscriptInFlight bool
+	WatchedFile        string
+	StatusLine         string
 }
 
 type CodexDriver struct {
@@ -112,6 +115,9 @@ func (d CodexDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.D
 	switch e := ev.(type) {
 	case state.DEvHook:
 		next, effs := d.handleHook(cs, e)
+		return next, effs, d.view(next)
+	case state.DEvFileChanged:
+		next, effs := d.handleTranscriptChanged(cs, e)
 		return next, effs, d.view(next)
 	case state.DEvJobResult:
 		next, effs := d.handleJobResult(cs, e)

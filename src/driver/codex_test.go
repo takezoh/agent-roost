@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	codextranscript "github.com/takezoh/agent-roost/lib/codex/transcript"
 	"github.com/takezoh/agent-roost/state"
 )
 
@@ -46,11 +47,16 @@ func TestCodexSessionStartSetsIdle(t *testing.T) {
 	if next.WorkingDir != "/repo" || next.TranscriptPath != "/tmp/t.jsonl" {
 		t.Fatalf("working data not absorbed: %+v", next)
 	}
-	if len(effs) != 2 {
-		t.Fatalf("effects = %d, want 2", len(effs))
+	if len(effs) != 4 {
+		t.Fatalf("effects = %d, want 4", len(effs))
 	}
 	foundBranch := false
+	foundWatch := false
+	foundTranscriptParse := false
 	for _, eff := range effs {
+		if watch, ok := eff.(state.EffWatchFile); ok {
+			foundWatch = watch.Path == "/tmp/t.jsonl"
+		}
 		job, ok := eff.(state.EffStartJob)
 		if !ok {
 			continue
@@ -58,9 +64,18 @@ func TestCodexSessionStartSetsIdle(t *testing.T) {
 		if _, ok := job.Input.(BranchDetectInput); ok {
 			foundBranch = true
 		}
+		if _, ok := job.Input.(CodexTranscriptParseInput); ok {
+			foundTranscriptParse = true
+		}
 	}
 	if !foundBranch {
 		t.Fatal("expected BranchDetectInput job")
+	}
+	if !foundWatch {
+		t.Fatal("expected EffWatchFile")
+	}
+	if !foundTranscriptParse {
+		t.Fatal("expected CodexTranscriptParseInput job")
 	}
 }
 
@@ -162,23 +177,23 @@ func TestCodexSpawnCommandSkipsNonCodexBaseCommand(t *testing.T) {
 func TestCodexPersistRestoreRoundTrip(t *testing.T) {
 	d, cs, now := newCodex(t)
 	cs.CommonState = CommonState{
-		RoostSessionID:     "r1",
-		WorkingDir:         "/repo",
-		TranscriptPath:     "/repo/t.jsonl",
-		WorktreeName:       "codex-abcd",
-		Status:             state.StatusRunning,
-		StatusChangedAt:    now,
-		BranchTag:          "main",
-		BranchBG:           "#111111",
-		BranchFG:           "#ffffff",
-		BranchTarget:       "/repo",
-		BranchAt:           now,
-		BranchIsWorktree:   true,
-		BranchParentBranch: "origin/main",
-		LastPrompt:         "p",
+		RoostSessionID:       "r1",
+		WorkingDir:           "/repo",
+		TranscriptPath:       "/repo/t.jsonl",
+		WorktreeName:         "codex-abcd",
+		Status:               state.StatusRunning,
+		StatusChangedAt:      now,
+		BranchTag:            "main",
+		BranchBG:             "#111111",
+		BranchFG:             "#ffffff",
+		BranchTarget:         "/repo",
+		BranchAt:             now,
+		BranchIsWorktree:     true,
+		BranchParentBranch:   "origin/main",
+		LastPrompt:           "p",
 		LastAssistantMessage: "a",
-		LastHookEvent:      "Stop",
-		LastHookAt:         now,
+		LastHookEvent:        "Stop",
+		LastHookAt:           now,
 	}
 	cs.CodexSessionID = "c1"
 	cs.ManagedWorkingDir = "/repo/.roost/worktrees/codex-abcd"
@@ -199,6 +214,67 @@ func TestCodexPersistRestoreRoundTrip(t *testing.T) {
 	}
 	if got.LastPrompt != "p" || got.LastAssistantMessage != "a" {
 		t.Fatalf("message fields mismatch: %+v", got)
+	}
+}
+
+func TestCodexTranscriptChangedStartsParse(t *testing.T) {
+	d, cs, _ := newCodex(t)
+	cs.TranscriptPath = "/tmp/t.jsonl"
+	next, effs := d.handleTranscriptChanged(cs, state.DEvFileChanged{Path: "/tmp/t.jsonl"})
+	if !next.TranscriptInFlight {
+		t.Fatal("expected TranscriptInFlight")
+	}
+	if len(effs) != 1 {
+		t.Fatalf("effects = %d, want 1", len(effs))
+	}
+	job, ok := effs[0].(state.EffStartJob)
+	if !ok {
+		t.Fatalf("effect = %T, want EffStartJob", effs[0])
+	}
+	if _, ok := job.Input.(CodexTranscriptParseInput); !ok {
+		t.Fatalf("job input = %T, want CodexTranscriptParseInput", job.Input)
+	}
+}
+
+func TestCodexTranscriptParseResultMergesFields(t *testing.T) {
+	d, cs, now := newCodex(t)
+	cs.TranscriptInFlight = true
+	next, _ := d.handleJobResult(cs, state.DEvJobResult{
+		Now: now,
+		Result: CodexTranscriptParseResult{
+			Title:                "saved-session",
+			LastPrompt:           "Run tests",
+			LastAssistantMessage: "done",
+			StatusLine:           "gpt-5-codex | 7,205 tok",
+		},
+	})
+	if next.TranscriptInFlight {
+		t.Fatal("TranscriptInFlight should clear")
+	}
+	if next.Title != "saved-session" || next.LastPrompt != "Run tests" {
+		t.Fatalf("unexpected transcript fields: %+v", next)
+	}
+	if next.LastAssistantMessage != "done" || next.StatusLine != "gpt-5-codex | 7,205 tok" {
+		t.Fatalf("unexpected transcript fields: %+v", next)
+	}
+}
+
+func TestCodexViewAddsTranscriptTab(t *testing.T) {
+	d, cs, _ := newCodex(t)
+	cs.TranscriptPath = "/tmp/t.jsonl"
+	cs.Title = "saved-session"
+	v := d.view(cs)
+	if len(v.LogTabs) == 0 {
+		t.Fatal("expected tabs")
+	}
+	if v.LogTabs[0].Label != "TRANSCRIPT" {
+		t.Fatalf("first tab = %q", v.LogTabs[0].Label)
+	}
+	if v.LogTabs[0].Kind != codextranscript.KindTranscript {
+		t.Fatalf("tab kind = %q", v.LogTabs[0].Kind)
+	}
+	if v.Card.Title != "saved-session" {
+		t.Fatalf("title = %q", v.Card.Title)
 	}
 }
 

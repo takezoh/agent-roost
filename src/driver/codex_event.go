@@ -86,10 +86,12 @@ func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []s
 	}
 
 	var effs []state.Effect
+	effs = append(effs, watchCodexTranscript(&cs)...)
 
 	switch hp.HookEventName {
 	case "SessionStart":
 		cs = applyHookStatus(cs, state.StatusIdle, e.Timestamp)
+		effs = append(effs, d.startCodexTranscriptParse(&cs)...)
 		target := cs.WorkingDir
 		if target != "" && !cs.BranchInFlight {
 			cs.BranchInFlight = true
@@ -101,6 +103,7 @@ func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []s
 	case "UserPromptSubmit":
 		cs.LastPrompt = strings.TrimSpace(hp.Prompt)
 		cs = applyHookStatus(cs, state.StatusRunning, e.Timestamp)
+		effs = append(effs, d.startCodexTranscriptParse(&cs)...)
 	case "PreToolUse", "PostToolUse":
 		cs = applyHookStatus(cs, state.StatusRunning, e.Timestamp)
 	case "Stop":
@@ -108,6 +111,7 @@ func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []s
 			cs.LastAssistantMessage = msg
 		}
 		cs = applyHookStatus(cs, state.StatusWaiting, e.Timestamp)
+		effs = append(effs, d.startCodexTranscriptParse(&cs)...)
 	}
 
 	line := strings.TrimSpace(hp.formatLog())
@@ -119,6 +123,22 @@ func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []s
 
 func (d CodexDriver) handleJobResult(cs CodexState, e state.DEvJobResult) (CodexState, []state.Effect) {
 	switch r := e.Result.(type) {
+	case CodexTranscriptParseResult:
+		cs.TranscriptInFlight = false
+		if e.Err != nil {
+			return cs, nil
+		}
+		if r.Title != "" {
+			cs.Title = r.Title
+		}
+		if r.LastPrompt != "" {
+			cs.LastPrompt = r.LastPrompt
+		}
+		if r.LastAssistantMessage != "" {
+			cs.LastAssistantMessage = r.LastAssistantMessage
+		}
+		cs.StatusLine = r.StatusLine
+		return cs, nil
 	case BranchDetectResult:
 		cs.BranchInFlight = false
 		if e.Err != nil || r.Branch == "" {
@@ -132,4 +152,33 @@ func (d CodexDriver) handleJobResult(cs CodexState, e state.DEvJobResult) (Codex
 		cs.BranchParentBranch = r.ParentBranch
 	}
 	return cs, nil
+}
+
+func (d CodexDriver) handleTranscriptChanged(cs CodexState, e state.DEvFileChanged) (CodexState, []state.Effect) {
+	if cs.TranscriptPath != "" && e.Path != "" && cs.TranscriptPath != e.Path {
+		return cs, nil
+	}
+	return cs, d.startCodexTranscriptParse(&cs)
+}
+
+func (d CodexDriver) startCodexTranscriptParse(cs *CodexState) []state.Effect {
+	if cs.TranscriptInFlight || cs.TranscriptPath == "" {
+		return nil
+	}
+	cs.TranscriptInFlight = true
+	return []state.Effect{
+		state.EffStartJob{
+			Input: CodexTranscriptParseInput{
+				Path: cs.TranscriptPath,
+			},
+		},
+	}
+}
+
+func watchCodexTranscript(cs *CodexState) []state.Effect {
+	if cs.TranscriptPath == "" || cs.WatchedFile == cs.TranscriptPath {
+		return nil
+	}
+	cs.WatchedFile = cs.TranscriptPath
+	return []state.Effect{state.EffWatchFile{Path: cs.TranscriptPath, Kind: "transcript"}}
 }

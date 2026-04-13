@@ -20,6 +20,7 @@ func RegisterRunners(capturePaneFn func(string, int) (string, error), language, 
 	worker.RegisterRunner("capture_pane", newCapturePane(capturePaneFn))
 	tp, hs := newTranscriptSummaryRunners(summarizeCmd)
 	worker.RegisterRunner("transcript_parse", tp)
+	worker.RegisterRunner("codex_transcript_parse", newCodexTranscriptParse())
 	worker.RegisterRunner("summary_command", hs)
 	worker.RegisterRunner("branch_detect", newBranchDetect())
 	worker.RegisterRunner("worktree_setup", newWorktreeSetup())
