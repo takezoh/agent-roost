@@ -28,6 +28,26 @@ func appendHookPromptTurn(turns []SummaryTurn, hookPrompt string) []SummaryTurn 
 	return append(turns, SummaryTurn{Role: "user", Text: hookPrompt})
 }
 
+func recentUserTurns(turns []SummaryTurn, userTurns int) []SummaryTurn {
+	if userTurns <= 0 || len(turns) == 0 {
+		return nil
+	}
+	start := 0
+	seen := 0
+	for i := len(turns) - 1; i >= 0; i-- {
+		if turns[i].Role == "user" {
+			seen++
+			if seen >= userTurns {
+				start = i
+				break
+			}
+		}
+	}
+	out := make([]SummaryTurn, len(turns)-start)
+	copy(out, turns[start:])
+	return out
+}
+
 func formatSummaryPrompt(language string, prev string, turns []SummaryTurn) string {
 	var b strings.Builder
 	b.WriteString("You are a session summarizer. From the conversation history and previous summary below, ")

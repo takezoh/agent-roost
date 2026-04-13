@@ -24,6 +24,7 @@ type CodexState struct {
 	TranscriptInFlight bool
 	WatchedFile        string
 	StatusLine         string
+	RecentTurns        []SummaryTurn
 }
 
 type CodexDriver struct {

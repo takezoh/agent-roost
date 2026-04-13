@@ -81,7 +81,13 @@ func TestCodexSessionStartSetsIdle(t *testing.T) {
 
 func TestCodexUserPromptTransitionsRunning(t *testing.T) {
 	d, cs, now := newCodex(t)
-	next, _ := d.handleHook(cs, codexHook(map[string]string{
+	cs.RecentTurns = []SummaryTurn{
+		{Role: "user", Text: "inspect repo"},
+		{Role: "assistant", Text: "checking files"},
+		{Role: "user", Text: "find failing tests"},
+		{Role: "assistant", Text: "found driver failures"},
+	}
+	next, effs := d.handleHook(cs, codexHook(map[string]string{
 		"session_id":      "sess-1",
 		"hook_event_name": "UserPromptSubmit",
 		"prompt":          "implement this",
@@ -91,6 +97,31 @@ func TestCodexUserPromptTransitionsRunning(t *testing.T) {
 	}
 	if next.LastPrompt != "implement this" {
 		t.Fatalf("LastPrompt = %q", next.LastPrompt)
+	}
+	if !next.SummaryInFlight {
+		t.Fatal("SummaryInFlight should be true")
+	}
+	var summaryJob SummaryCommandInput
+	foundSummary := false
+	for _, eff := range effs {
+		job, ok := eff.(state.EffStartJob)
+		if !ok {
+			continue
+		}
+		in, ok := job.Input.(SummaryCommandInput)
+		if ok {
+			summaryJob = in
+			foundSummary = true
+		}
+	}
+	if !foundSummary {
+		t.Fatal("expected SummaryCommandInput job")
+	}
+	if strings.Contains(summaryJob.Prompt, "inspect repo") {
+		t.Fatalf("prompt should keep only last 2 user turns: %q", summaryJob.Prompt)
+	}
+	if !strings.Contains(summaryJob.Prompt, "find failing tests") || !strings.Contains(summaryJob.Prompt, "implement this") {
+		t.Fatalf("summary prompt missing recent user turns: %q", summaryJob.Prompt)
 	}
 }
 
@@ -299,13 +330,17 @@ func TestCodexTranscriptChangedStartsParse(t *testing.T) {
 func TestCodexTranscriptParseResultMergesFields(t *testing.T) {
 	d, cs, now := newCodex(t)
 	cs.TranscriptInFlight = true
-	next, _ := d.handleJobResult(cs, state.DEvJobResult{
+	next, effs := d.handleJobResult(cs, state.DEvJobResult{
 		Now: now,
 		Result: CodexTranscriptParseResult{
 			Title:                "saved-session",
 			LastPrompt:           "Run tests",
 			LastAssistantMessage: "done",
 			StatusLine:           "gpt-5-codex | 7,205 tok",
+			RecentTurns: []SummaryTurn{
+				{Role: "user", Text: "Run tests"},
+				{Role: "assistant", Text: "done"},
+			},
 		},
 	})
 	if next.TranscriptInFlight {
@@ -317,12 +352,34 @@ func TestCodexTranscriptParseResultMergesFields(t *testing.T) {
 	if next.LastAssistantMessage != "done" || next.StatusLine != "gpt-5-codex | 7,205 tok" {
 		t.Fatalf("unexpected transcript fields: %+v", next)
 	}
+	if len(next.RecentTurns) != 2 {
+		t.Fatalf("RecentTurns len = %d, want 2", len(next.RecentTurns))
+	}
+	if len(effs) != 0 {
+		t.Fatalf("effects = %d, want 0", len(effs))
+	}
+}
+
+func TestCodexSummaryResultMergesFields(t *testing.T) {
+	d, cs, now := newCodex(t)
+	cs.SummaryInFlight = true
+	next, _ := d.handleJobResult(cs, state.DEvJobResult{
+		Now:    now,
+		Result: SummaryCommandResult{Summary: "test failures investigation"},
+	})
+	if next.SummaryInFlight {
+		t.Fatal("SummaryInFlight should clear")
+	}
+	if next.Summary != "test failures investigation" {
+		t.Fatalf("Summary = %q", next.Summary)
+	}
 }
 
 func TestCodexViewAddsTranscriptTab(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.TranscriptPath = "/tmp/t.jsonl"
 	cs.Title = "saved-session"
+	cs.Summary = "session summary"
 	v := d.view(cs)
 	if len(v.LogTabs) == 0 {
 		t.Fatal("expected tabs")
@@ -335,6 +392,9 @@ func TestCodexViewAddsTranscriptTab(t *testing.T) {
 	}
 	if v.Card.Title != "saved-session" {
 		t.Fatalf("title = %q", v.Card.Title)
+	}
+	if v.Card.Subtitle != "session summary" {
+		t.Fatalf("subtitle = %q", v.Card.Subtitle)
 	}
 }
 

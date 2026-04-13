@@ -20,6 +20,18 @@ func newCodexTranscriptParse() func(CodexTranscriptParseInput) (CodexTranscriptP
 			LastPrompt:           snap.LastPrompt,
 			LastAssistantMessage: snap.LastAssistantMessage,
 			StatusLine:           snap.StatusLine,
+			RecentTurns:          normalizeCodexTurns(snap.RecentTurns),
 		}, nil
 	}
+}
+
+func normalizeCodexTurns(turns []codextranscript.TurnText) []SummaryTurn {
+	if len(turns) == 0 {
+		return nil
+	}
+	out := make([]SummaryTurn, len(turns))
+	for i, t := range turns {
+		out[i] = SummaryTurn{Role: t.Role, Text: t.Text}
+	}
+	return out
 }

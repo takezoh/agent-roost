@@ -78,3 +78,25 @@ func TestParserThreadNameUpdatedAndStatusLine(t *testing.T) {
 		t.Fatalf("StatusLine = %q", snap.StatusLine)
 	}
 }
+
+func TestParserRecentTurns(t *testing.T) {
+	p := NewParser()
+	_ = p.ParseLines([]byte(strings.Join([]string{
+		`{"timestamp":"x","type":"event_msg","payload":{"type":"user_message","message":"Run tests","kind":"plain"}}`,
+		`{"timestamp":"x","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Running them now."}]}}`,
+		`{"timestamp":"x","type":"event_msg","payload":{"type":"user_message","message":"Fix failures","kind":"plain"}}`,
+	}, "\n")))
+	snap := p.Snapshot()
+	if len(snap.RecentTurns) != 3 {
+		t.Fatalf("RecentTurns len = %d, want 3", len(snap.RecentTurns))
+	}
+	if snap.RecentTurns[0] != (TurnText{Role: "user", Text: "Run tests"}) {
+		t.Fatalf("turn[0] = %+v", snap.RecentTurns[0])
+	}
+	if snap.RecentTurns[1] != (TurnText{Role: "assistant", Text: "Running them now."}) {
+		t.Fatalf("turn[1] = %+v", snap.RecentTurns[1])
+	}
+	if snap.RecentTurns[2] != (TurnText{Role: "user", Text: "Fix failures"}) {
+		t.Fatalf("turn[2] = %+v", snap.RecentTurns[2])
+	}
+}

@@ -77,6 +77,7 @@ type CodexTranscriptParseResult struct {
 	LastPrompt           string
 	LastAssistantMessage string
 	StatusLine           string
+	RecentTurns          []SummaryTurn
 }
 
 // BranchDetectInput asks the worker to detect the current VCS branch

@@ -107,6 +107,9 @@ func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []s
 	case "UserPromptSubmit":
 		cs.LastPrompt = strings.TrimSpace(hp.Prompt)
 		cs = applyHookStatus(cs, state.StatusRunning, e.Timestamp)
+		turns := recentUserTurns(appendHookPromptTurn(cs.RecentTurns, hp.Prompt), 2)
+		prompt := formatSummaryPrompt(summaryPromptLanguage, cs.Summary, turns)
+		effs, cs.SummaryInFlight = enqueueSummaryJob(effs, cs.SummaryInFlight, prompt)
 		effs = append(effs, d.startCodexTranscriptParse(&cs)...)
 	case "PreToolUse", "PostToolUse":
 		cs = applyHookStatus(cs, state.StatusRunning, e.Timestamp)
@@ -133,6 +136,12 @@ func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []s
 }
 
 func (d CodexDriver) handleJobResult(cs CodexState, e state.DEvJobResult) (CodexState, []state.Effect) {
+	if summary, inFlight, ok := applySummaryJobResult(cs.Summary, cs.SummaryInFlight, e); ok {
+		cs.Summary = summary
+		cs.SummaryInFlight = inFlight
+		return cs, nil
+	}
+
 	switch r := e.Result.(type) {
 	case CodexTranscriptParseResult:
 		cs.TranscriptInFlight = false
@@ -149,6 +158,7 @@ func (d CodexDriver) handleJobResult(cs CodexState, e state.DEvJobResult) (Codex
 			cs.LastAssistantMessage = r.LastAssistantMessage
 		}
 		cs.StatusLine = r.StatusLine
+		cs.RecentTurns = r.RecentTurns
 		return cs, nil
 	case BranchDetectResult:
 		cs.BranchInFlight = false

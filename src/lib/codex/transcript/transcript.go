@@ -17,6 +17,7 @@ type Snapshot struct {
 	LastPrompt           string
 	LastAssistantMessage string
 	StatusLine           string
+	RecentTurns          []TurnText
 }
 
 type Parser struct {
@@ -27,6 +28,7 @@ type Parser struct {
 	totalTokens          int
 	contextWindow        int
 	currentTurnID        string
+	recentTurns          []TurnText
 }
 
 func NewParser() *Parser {
@@ -38,11 +40,14 @@ func (p *Parser) Reset() {
 }
 
 func (p *Parser) Snapshot() Snapshot {
+	turns := make([]TurnText, len(p.recentTurns))
+	copy(turns, p.recentTurns)
 	return Snapshot{
 		Title:                p.title,
 		LastPrompt:           p.lastPrompt,
 		LastAssistantMessage: p.lastAssistantMessage,
 		StatusLine:           p.statusLine(),
+		RecentTurns:          turns,
 	}
 }
 
@@ -175,6 +180,7 @@ func (p *Parser) parseUserMessage(payload json.RawMessage) (Entry, bool) {
 		p.title = text
 	}
 	p.lastPrompt = text
+	p.recentTurns = appendRecentTurn(p.recentTurns, "user", text)
 	return Entry{Text: "[context] " + text}, true
 }
 
@@ -350,6 +356,7 @@ func (p *Parser) parseMessageItem(payload json.RawMessage, role string) (Entry, 
 	switch role {
 	case "assistant":
 		p.lastAssistantMessage = text
+		p.recentTurns = appendRecentTurn(p.recentTurns, "assistant", text)
 		return Entry{}, false
 	case "user":
 		return Entry{}, false

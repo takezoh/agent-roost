@@ -28,7 +28,7 @@ func (d CodexDriver) view(cs CodexState) state.View {
 	return state.View{
 		Card: state.Card{
 			Title:       cs.Title,
-			Subtitle:    firstNonEmpty(cs.LastPrompt, cs.LastAssistantMessage),
+			Subtitle:    firstNonEmpty(cs.Summary, cs.LastPrompt, cs.LastAssistantMessage),
 			Tags:        tags,
 			BorderTitle: CodexCommandTag(),
 			BorderBadge: fishpath.Shorten(cs.WorkingDir, ""),
@@ -58,6 +58,7 @@ func codexInfoExtras(cs CodexState) []state.InfoLine {
 		add("Parent Branch", cs.BranchParentBranch)
 	}
 	add("Transcript", cs.TranscriptPath)
+	add("Summary", cs.Summary)
 	add("Status Line", cs.StatusLine)
 	add("Last Prompt", cs.LastPrompt)
 	add("Last Assistant", cs.LastAssistantMessage)
