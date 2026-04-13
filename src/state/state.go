@@ -13,6 +13,7 @@ import "time"
 // type level instead of at runtime.
 type (
 	SessionID string
+	FrameID   string
 	ConnID    uint64
 	JobID     uint64
 )
@@ -45,16 +46,27 @@ type State struct {
 type Session struct {
 	ID            SessionID
 	Project       string
+	CreatedAt     time.Time
+	Frames        []SessionFrame
+	Command       string
+	LaunchOptions LaunchOptions
+	Driver        DriverState
+}
+
+type SessionFrame struct {
+	ID            FrameID
+	Project       string
 	Command       string
 	LaunchOptions LaunchOptions
 	CreatedAt     time.Time
-	Driver        DriverState // sum type implemented by driver impls
+	Driver        DriverState
 }
 
 // PendingCreate tracks a session creation that is blocked on an async
 // setup job such as creating a managed worktree.
 type PendingCreate struct {
 	Session    Session
+	FrameID    FrameID
 	ReplyConn  ConnID
 	ReplyReqID string
 }
@@ -72,6 +84,7 @@ type Subscriber struct {
 // looks up here to find which session or connector the result belongs to.
 type JobMeta struct {
 	SessionID SessionID
+	FrameID   FrameID
 	Connector string // non-empty → route result to this connector
 	StartedAt time.Time
 }

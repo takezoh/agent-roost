@@ -45,12 +45,13 @@ type Runtime struct {
 
 	state state.State
 
-	// sessionPanes maps each SessionID to its tmux pane id ("%5", "%12", ...).
-	sessionPanes map[state.SessionID]string
+	// sessionPanes maps each FrameID to its tmux pane id ("%5", "%12", ...).
+	sessionPanes map[state.FrameID]string
 	// activeSession is the SessionID currently shown in pane 0.0, or "".
 	activeSession state.SessionID
+	activeFrameID state.FrameID
 	// parkedPaneSnapshot stores the last logged parked-pane signature per session.
-	parkedPaneSnapshot map[state.SessionID]string
+	parkedPaneSnapshot map[state.FrameID]string
 
 	eventCh    chan state.Event   // public events from any goroutine
 	internalCh chan internalEvent // runtime-internal lifecycle (conn open/close)
@@ -95,8 +96,8 @@ func New(cfg Config) *Runtime {
 	r := &Runtime{
 		cfg:                cfg,
 		state:              state.New(),
-		sessionPanes:       map[state.SessionID]string{},
-		parkedPaneSnapshot: map[state.SessionID]string{},
+		sessionPanes:       map[state.FrameID]string{},
+		parkedPaneSnapshot: map[state.FrameID]string{},
 		eventCh:            make(chan state.Event, 256),
 		internalCh:         make(chan internalEvent, 64),
 		conns:              map[state.ConnID]*ipcConn{},
@@ -171,8 +172,8 @@ func (r *Runtime) Run(ctx context.Context) error {
 
 		case fsev := <-r.cfg.Watcher.Events():
 			r.dispatch(state.EvFileChanged{
-				SessionID: state.SessionID(fsev.SessionID),
-				Path:      fsev.Path,
+				FrameID: fsev.FrameID,
+				Path:    fsev.Path,
 			})
 		}
 	}
@@ -199,7 +200,7 @@ func (r *Runtime) snapshotPaneTargets() map[state.SessionID]string {
 	}
 	out := make(map[state.SessionID]string, len(r.sessionPanes))
 	for k, v := range r.sessionPanes {
-		out[k] = v
+		out[state.SessionID(k)] = v
 	}
 	return out
 }

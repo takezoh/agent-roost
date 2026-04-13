@@ -111,15 +111,15 @@ runDaemon()
 ├── Check tmux session existence
 │   ├── Exists (Warm start)
 │   │   ├── restoreSession (rebuild tmux pane layout)
-│   │   ├── rt.LoadSnapshot() — restore State.Sessions from sessions.json
-│   │   ├── rt.LoadSessionPanes() — read ROOST_SESSION_* env vars from show-environment, rebuild sessionPanes
-│   │   └── rt.ReconcileOrphans() — evict sessions whose parked panes have disappeared
+│   │   ├── LoadSnapshot — restore each session's frame stack from sessions.json
+│   │   ├── rebind each frame to its live parked pane via frame-scoped tmux env vars
+│   │   └── ReconcileOrphans — truncate any session at the first frame whose pane has vanished
+│   │                          (root-frame truncation drops the whole session)
 │   └── Does not exist (Cold start)
 │       ├── setupNewSession (create new tmux session)
-│       ├── rt.LoadSnapshot() — restore State.Sessions from sessions.json
-│       └── rt.RecreateAll() — for each session:
-│           ├── Driver.SpawnCommand(driverState, command) to build resume command
-│           └── tmux new-window to spawn → populate sessionPanes + ROOST_SESSION_* env vars
+│       ├── LoadSnapshot — restore each session's frame stack from sessions.json
+│       └── RecreateAll — for each session, walk frames root-to-tail and spawn a window per frame
+│                        via Driver.PrepareLaunch(LaunchModeColdStart, …) using the persisted LaunchOptions
 ├── rt.Run(ctx) — start event loop goroutine (select: eventCh / ticker / workers / fsnotify)
 ├── rt.StartIPC() — start Unix socket server
 ├── FileRelay startup — push monitoring for log/transcript files
@@ -130,7 +130,7 @@ runDaemon()
     └── Normal detach → exit (tmux session survives)
 ```
 
-**The difference between warm start and cold start is only the bootstrap path**. Both use sessions.json as the source of truth. The driver's PersistedState (status / title / summary / branch, etc.) is included in sessions.json, so previous values are restored in both paths.
+**The difference between warm start and cold start is only the bootstrap path**. Both use sessions.json as the source of truth, and both restore the same frame stack per session. The driver's PersistedState (status / title / summary / branch, etc.) is included in each frame's `driver_state` bag, and each frame's normalized `LaunchOptions` is persisted alongside it so cold start can respawn with the same launch flavor.
 
 ### Main TUI
 
@@ -191,10 +191,10 @@ runTUI("palette")
 ### Failure Behavior
 
 - **TUI socket disconnection**: The TUI process exits. The daemon detects this and recovers via `respawn-pane`
-- **External kill of parked session pane / agent process exit**: Parked session panes live in background windows with `remain-on-exit off`, so tmux automatically destroys the pane; windows with only 1 pane also auto-disappear. `reduceTick` emits `EffReconcileWindows`, and runtime reconciles tracked pane ids with `PaneAlive`, removes disappeared sessions from State, updates the snapshot, and broadcasts `sessions-changed`
-- **Active session agent process exit (e.g., C-c)**: The active session's agent pane is swapped into `roost:0.0`. Window 0 has `remain-on-exit on`, so when the agent exits, the pane remains as `[exited]`. `reduceTick` emits `EffCheckPaneAlive{0.0}` every tick, and runtime executes `display-message -t roost:0.0 -p '#{pane_dead}'`. If dead, the owner session is identified by `runtime.activeSession`. The reducer evicts that session and the next reconcile pass removes its parked pane env entry
+- **External kill of parked session pane / agent process exit**: Parked frame panes live in background windows with `remain-on-exit off`, so tmux automatically destroys the pane. `reduceTick` emits `EffReconcileWindows`, and runtime reconciles tracked frame pane ids. The reducer truncates the owning session at the dead frame's index — if it was the root frame, the whole session is deleted; otherwise the remaining lower frames stay and the new tail becomes the active frame. State is updated, the snapshot is rewritten, and `sessions-changed` is broadcast
+- **Active session agent process exit (e.g., C-c)**: The active frame's agent pane is swapped into `roost:0.0`. Window 0 has `remain-on-exit on`, so when the agent exits, the pane remains as `[exited]`. `reduceTick` emits `EffCheckPaneAlive{0.0}` every tick, and runtime executes `display-message -t roost:0.0 -p '#{pane_dead}'`. If dead, the runtime identifies the owning frame and feeds that frame id into `EvPaneDied`. The reducer then truncates the session from that frame onward, applying the same root-vs-non-root rule above
 - **Consecutive `respawn-pane` failures**: respawn-pane normally does not fail since tmux recreates the pane (however, startup may fail in cases of environmental anomalies such as binary deletion or permission changes). When the tmux session is destroyed, the daemon's attach also exits, so everything shuts down
-- **Startup consistency**: `sessions.json` and tmux session-level `ROOST_SESSION_*` env vars are the two sources of truth. `reconcileWindows` uses `sessionPanes` + `PaneAlive` to match panes to sessions and evict orphans
+- **Startup consistency**: `sessions.json` and tmux session-level frame-scoped env vars are the two sources of truth. On warm start the bootstrap cross-checks the frame stack against the live pane map and truncates any session at the first missing frame
 - **IPC errors**: When an IPC command returns an error on the TUI side, it logs to slog and does not change UI state. No timeout is configured (local communication over Unix socket). If the server deadlocks, the client risks blocking indefinitely. Recovery means externally running `tmux kill-session -t roost` or killing the daemon process
 
 ## tmux Layout

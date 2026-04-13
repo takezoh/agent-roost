@@ -257,31 +257,31 @@ type recordingEventLog struct {
 	lines []string
 }
 
-func (r *recordingEventLog) Append(_ state.SessionID, line string) error {
+func (r *recordingEventLog) Append(_ state.FrameID, line string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.lines = append(r.lines, line)
 	return nil
 }
-func (r *recordingEventLog) Close(state.SessionID) {}
-func (r *recordingEventLog) CloseAll()             {}
+func (r *recordingEventLog) Close(state.FrameID) {}
+func (r *recordingEventLog) CloseAll()           {}
 
 type recordingWatcher struct {
 	mu      sync.Mutex
-	watches map[state.SessionID]string
+	watches map[state.FrameID]string
 }
 
-func (r *recordingWatcher) Watch(sessionID state.SessionID, path string) error {
+func (r *recordingWatcher) Watch(sessionID state.FrameID, path string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.watches == nil {
-		r.watches = map[state.SessionID]string{}
+		r.watches = map[state.FrameID]string{}
 	}
 	r.watches[sessionID] = path
 	return nil
 }
 
-func (r *recordingWatcher) Unwatch(sessionID state.SessionID) error {
+func (r *recordingWatcher) Unwatch(sessionID state.FrameID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.watches, sessionID)
@@ -497,7 +497,13 @@ func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
 		Tmux:              tmux,
 	})
 	r.sessionPanes["_main"] = "%main"
-	r.sessionPanes["sess-1"] = "%3"
+	r.state.Sessions["sess-1"] = state.Session{
+		ID:      "sess-1",
+		Command: "shell",
+		Driver:  state.GetDriver("shell").NewState(time.Now()),
+		Frames:  []state.SessionFrame{{ID: "frame-1", Command: "shell", Driver: state.GetDriver("shell").NewState(time.Now())}},
+	}
+	r.sessionPanes["frame-1"] = "%3"
 
 	r.execute(state.EffActivateSession{
 		SessionID: "sess-1",
@@ -512,8 +518,8 @@ func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
 	if tmux.swapSources[0] != "%3" || tmux.swapTargets[0] != "roost-test:0.0" {
 		t.Fatalf("swap = %q -> %q, want %%3 -> roost-test:0.0", tmux.swapSources[0], tmux.swapTargets[0])
 	}
-	if r.sessionPanes["sess-1"] != "%3" {
-		t.Errorf("sessionPanes[sess-1] = %q, want %%3", r.sessionPanes["sess-1"])
+	if r.sessionPanes["frame-1"] != "%3" {
+		t.Errorf("sessionPanes[frame-1] = %q, want %%3", r.sessionPanes["frame-1"])
 	}
 	if r.sessionPanes["_main"] != "%main" {
 		t.Errorf("sessionPanes[_main] = %q, want %%main", r.sessionPanes["_main"])
@@ -540,7 +546,13 @@ func TestActivateSessionInitializesMainPaneIDOnDemand(t *testing.T) {
 		MainPaneHeightPct: 70,
 		Tmux:              tmux,
 	})
-	r.sessionPanes["sess-1"] = "%3"
+	r.state.Sessions["sess-1"] = state.Session{
+		ID:      "sess-1",
+		Command: "shell",
+		Driver:  state.GetDriver("shell").NewState(time.Now()),
+		Frames:  []state.SessionFrame{{ID: "frame-1", Command: "shell", Driver: state.GetDriver("shell").NewState(time.Now())}},
+	}
+	r.sessionPanes["frame-1"] = "%3"
 
 	r.execute(state.EffActivateSession{
 		SessionID: "sess-1",
@@ -552,8 +564,8 @@ func TestActivateSessionInitializesMainPaneIDOnDemand(t *testing.T) {
 	}
 	tmux.mu.Lock()
 	defer tmux.mu.Unlock()
-	if tmux.envs["ROOST_SESSION__main"] != "%1" {
-		t.Fatalf("ROOST_SESSION__main = %q, want %%1", tmux.envs["ROOST_SESSION__main"])
+	if tmux.envs["ROOST_FRAME__main"] != "%1" {
+		t.Fatalf("ROOST_FRAME__main = %q, want %%1", tmux.envs["ROOST_FRAME__main"])
 	}
 	if tmux.swapCalls != 1 {
 		t.Fatalf("swapCalls = %d, want 1", tmux.swapCalls)
@@ -567,9 +579,9 @@ func TestTerminateSessionSendsTerminateKey(t *testing.T) {
 		MainPaneHeightPct: 70,
 		Tmux:              tmux,
 	})
-	r.sessionPanes["sess-1"] = "%3"
+	r.sessionPanes["frame-1"] = "%3"
 
-	r.execute(state.EffTerminateSession{SessionID: "sess-1"})
+	r.execute(state.EffTerminateSession{FrameID: "frame-1"})
 
 	tmux.mu.Lock()
 	defer tmux.mu.Unlock()
@@ -587,7 +599,13 @@ func TestActivateSessionMissingPaneEnqueuesWindowVanished(t *testing.T) {
 		Tmux:              tmux,
 	})
 	r.sessionPanes["_main"] = "%main"
-	r.sessionPanes["sess-1"] = "%3"
+	r.state.Sessions["sess-1"] = state.Session{
+		ID:      "sess-1",
+		Frames:  []state.SessionFrame{{ID: "frame-1", Command: "shell", Driver: state.GetDriver("shell").NewState(time.Now())}},
+		Command: "shell",
+		Driver:  state.GetDriver("shell").NewState(time.Now()),
+	}
+	r.sessionPanes["frame-1"] = "%3"
 
 	r.execute(state.EffActivateSession{
 		SessionID: "sess-1",
@@ -600,8 +618,8 @@ func TestActivateSessionMissingPaneEnqueuesWindowVanished(t *testing.T) {
 		if !ok {
 			t.Fatalf("event type = %T, want EvTmuxWindowVanished", ev)
 		}
-		if v.SessionID != "sess-1" {
-			t.Fatalf("SessionID = %q, want sess-1", v.SessionID)
+		if v.FrameID != "frame-1" {
+			t.Fatalf("FrameID = %q, want frame-1", v.FrameID)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("expected EvTmuxWindowVanished")
@@ -671,9 +689,12 @@ func TestRuntimeStopSession(t *testing.T) {
 	})
 	// Inject a session manually.
 	r.state.Sessions["abc"] = state.Session{
-		ID: "abc", Command: "stub-x",
+		ID:      "abc",
+		Command: "stub-x",
+		Driver:  state.GetDriver("").NewState(time.Now()),
+		Frames:  []state.SessionFrame{{ID: "abc-frame", Command: "stub-x", Driver: state.GetDriver("").NewState(time.Now())}},
 	}
-	r.sessionPanes["abc"] = "%5"
+	r.sessionPanes["abc-frame"] = "%5"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = r.Run(ctx) }()
@@ -769,6 +790,7 @@ func TestRecreateAllUsesPrepareLaunch(t *testing.T) {
 		Project: "/repo",
 		Command: "codex --worktree example --model gpt-5-codex",
 		Driver:  ds,
+		Frames:  []state.SessionFrame{{ID: "f1", Project: "/repo", Command: "codex --worktree example --model gpt-5-codex", Driver: ds}},
 	}
 
 	if err := r.RecreateAll(); err != nil {
@@ -802,6 +824,7 @@ func TestSpawnTmuxWindowAsyncUsesPrepareLaunch(t *testing.T) {
 		Project: "/repo",
 		Command: "codex --worktree example --model gpt-5-codex",
 		Driver:  ds,
+		Frames:  []state.SessionFrame{{ID: "f1", Project: "/repo", Command: "codex --worktree example --model gpt-5-codex", Driver: ds}},
 	}
 
 	r.spawnTmuxWindowAsync(state.EffSpawnTmuxWindow{
@@ -827,7 +850,7 @@ func TestSpawnTmuxWindowAsyncUsesPrepareLaunch(t *testing.T) {
 func TestReconcileDetectsVanishedPane(t *testing.T) {
 	ftmux := newFakeTmux()
 	ftmux.alive["%3"] = false
-	ftmux.envs["ROOST_SESSION_tracked1"] = "%3"
+	ftmux.envs["ROOST_FRAME_tracked1"] = "%3"
 	r := New(Config{
 		SessionName:  "roost-test",
 		TickInterval: 20 * time.Millisecond,
@@ -838,8 +861,9 @@ func TestReconcileDetectsVanishedPane(t *testing.T) {
 		ID:      state.SessionID("tracked1"),
 		Command: "shell",
 		Driver:  drv.NewState(time.Now()),
+		Frames:  []state.SessionFrame{{ID: "tracked1", Command: "shell", Driver: drv.NewState(time.Now())}},
 	}
-	r.sessionPanes[state.SessionID("tracked1")] = "%3"
+	r.sessionPanes[state.FrameID("tracked1")] = "%3"
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _ = r.Run(ctx) }()
@@ -847,7 +871,7 @@ func TestReconcileDetectsVanishedPane(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		ftmux.mu.Lock()
-		_, stillSet := ftmux.envs["ROOST_SESSION_tracked1"]
+		_, stillSet := ftmux.envs["ROOST_FRAME_tracked1"]
 		ftmux.mu.Unlock()
 		if !stillSet {
 			break
@@ -921,7 +945,7 @@ func TestMonitorParkedPanesTracksInactiveOnly(t *testing.T) {
 	})
 	r.sessionPanes["active"] = "%1"
 	r.sessionPanes["idle"] = "%2"
-	r.activeSession = "active"
+	r.activeFrameID = "active"
 
 	r.monitorParkedPanes()
 

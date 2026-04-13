@@ -16,6 +16,7 @@ type Effect interface {
 // fields so the reducer can complete the create-session round trip.
 type EffSpawnTmuxWindow struct {
 	SessionID  SessionID
+	FrameID    FrameID
 	Mode       LaunchMode
 	Project    string
 	Command    string
@@ -29,13 +30,13 @@ type EffSpawnTmuxWindow struct {
 // EffKillSessionWindow destroys the tmux window containing the given session pane.
 // The runtime looks up the pane target from its sessionPanes map.
 type EffKillSessionWindow struct {
-	SessionID SessionID
+	FrameID FrameID
 }
 
 // EffTerminateSession asks the runtime to send a normal termination
 // signal to the session's pane.
 type EffTerminateSession struct {
-	SessionID SessionID
+	FrameID FrameID
 }
 
 // EffActivateSession moves a session's agent pane into pane 0.0.
@@ -52,14 +53,14 @@ type EffDeactivateSession struct{}
 // EffRegisterPane records the pane target for a session in the runtime
 // and saves it as a tmux session-level env var.
 type EffRegisterPane struct {
-	SessionID  SessionID
+	FrameID    FrameID
 	PaneTarget string
 }
 
 // EffUnregisterPane removes a session from the runtime's pane map and
 // deletes the corresponding tmux session-level env var.
 type EffUnregisterPane struct {
-	SessionID SessionID
+	FrameID FrameID
 }
 
 // EffSelectPane focuses a tmux pane.
@@ -169,22 +170,22 @@ type EffPersistSnapshot struct{}
 
 // EffWatchFile registers a file with the fsnotify watcher.
 type EffWatchFile struct {
-	SessionID SessionID
-	Path      string
-	Kind      string
+	FrameID FrameID
+	Path    string
+	Kind    string
 }
 
 // EffUnwatchFile removes a file from the watcher.
 type EffUnwatchFile struct {
-	SessionID SessionID
+	FrameID FrameID
 }
 
 // EffEventLogAppend appends a single line to a session's event log
 // file. The runtime owns the file handles (lazy-opened, kept open
 // across appends, closed on session destroy).
 type EffEventLogAppend struct {
-	SessionID SessionID
-	Line      string
+	FrameID FrameID
+	Line    string
 }
 
 // EffRemoveManagedWorktree removes a roost-managed git worktree path.

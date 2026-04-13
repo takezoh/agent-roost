@@ -59,7 +59,7 @@ type EvDriverEvent struct {
 	ReqID     string
 	Event     string
 	Timestamp time.Time
-	SenderID  SessionID
+	SenderID  FrameID
 	Payload   json.RawMessage
 }
 
@@ -87,8 +87,8 @@ type EvTick struct {
 // EvFileChanged is fired by runtime's fsnotify watcher when a
 // session's watched file changes on disk.
 type EvFileChanged struct {
-	SessionID SessionID
-	Path      string
+	FrameID FrameID
+	Path    string
 }
 
 // EvJobResult delivers a worker pool job's result back to the reducer.
@@ -104,14 +104,14 @@ type EvJobResult struct {
 // owning session. OwnerSessionID is set by the runtime when it detects
 // pane 0.0 is dead.
 type EvPaneDied struct {
-	Pane           string
-	OwnerSessionID SessionID // set for pane 0.0 dead detection
+	Pane         string
+	OwnerFrameID FrameID // set for pane 0.0 dead detection
 }
 
 // EvTmuxWindowVanished is fired by ReconcileWindows when a session
 // window has disappeared (agent process exited).
 type EvTmuxWindowVanished struct {
-	SessionID SessionID
+	FrameID FrameID
 }
 
 // EvTmuxPaneSpawned is the async result of a tmux new-window call
@@ -119,6 +119,7 @@ type EvTmuxWindowVanished struct {
 // uses to route activate/capture effects.
 type EvTmuxPaneSpawned struct {
 	SessionID  SessionID
+	FrameID    FrameID
 	PaneTarget string
 	ReplyConn  ConnID
 	ReplyReqID string
@@ -129,6 +130,7 @@ type EvTmuxPaneSpawned struct {
 // original caller with an error.
 type EvTmuxSpawnFailed struct {
 	SessionID  SessionID
+	FrameID    FrameID
 	Err        string
 	ReplyConn  ConnID
 	ReplyReqID string

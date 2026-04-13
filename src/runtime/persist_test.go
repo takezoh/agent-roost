@@ -14,12 +14,17 @@ func TestFilePersistRoundTrip(t *testing.T) {
 		{
 			ID:        "abc",
 			Project:   "/foo",
-			Command:   "claude",
 			CreatedAt: "2026-04-10T12:00:00Z",
-			Driver:    "claude",
-			DriverState: map[string]string{
-				"session_id": "uuid",
-			},
+			Frames: []SessionFrameSnapshot{{
+				ID:        "f1",
+				Project:   "/foo",
+				Command:   "claude",
+				CreatedAt: "2026-04-10T12:00:00Z",
+				Driver:    "claude",
+				DriverState: map[string]string{
+					"session_id": "uuid",
+				},
+			}},
 		},
 	}
 	if err := p.Save(want); err != nil {
@@ -42,11 +47,11 @@ func TestFilePersistRoundTrip(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("len = %d, want 1", len(got))
 	}
-	if got[0].ID != "abc" || got[0].Driver != "claude" {
+	if got[0].ID != "abc" || got[0].Frames[0].Driver != "claude" {
 		t.Errorf("got = %+v", got[0])
 	}
-	if got[0].DriverState["session_id"] != "uuid" {
-		t.Errorf("DriverState[session_id] = %q", got[0].DriverState["session_id"])
+	if got[0].Frames[0].DriverState["session_id"] != "uuid" {
+		t.Errorf("DriverState[session_id] = %q", got[0].Frames[0].DriverState["session_id"])
 	}
 }
 
@@ -83,15 +88,15 @@ func TestFilePersistDeletesOrphanFiles(t *testing.T) {
 
 	// Save two sessions
 	if err := p.Save([]SessionSnapshot{
-		{ID: "s1", Project: "/a", Command: "claude"},
-		{ID: "s2", Project: "/b", Command: "claude"},
+		{ID: "s1", Project: "/a", Frames: []SessionFrameSnapshot{{ID: "f1", Project: "/a", Command: "claude"}}},
+		{ID: "s2", Project: "/b", Frames: []SessionFrameSnapshot{{ID: "f2", Project: "/b", Command: "claude"}}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
 
 	// Remove s2
 	if err := p.Save([]SessionSnapshot{
-		{ID: "s1", Project: "/a", Command: "claude"},
+		{ID: "s1", Project: "/a", Frames: []SessionFrameSnapshot{{ID: "f1", Project: "/a", Command: "claude"}}},
 	}); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -112,9 +117,9 @@ func TestFilePersistMultipleSessions(t *testing.T) {
 	p := NewFilePersist(dir)
 
 	sessions := []SessionSnapshot{
-		{ID: "aaa", Project: "/p1", Command: "claude"},
-		{ID: "bbb", Project: "/p2", Command: "gemini"},
-		{ID: "ccc", Project: "/p3", Command: "codex"},
+		{ID: "aaa", Project: "/p1", Frames: []SessionFrameSnapshot{{ID: "fa", Project: "/p1", Command: "claude"}}},
+		{ID: "bbb", Project: "/p2", Frames: []SessionFrameSnapshot{{ID: "fb", Project: "/p2", Command: "gemini"}}},
+		{ID: "ccc", Project: "/p3", Frames: []SessionFrameSnapshot{{ID: "fc", Project: "/p3", Command: "codex"}}},
 	}
 	if err := p.Save(sessions); err != nil {
 		t.Fatalf("Save: %v", err)

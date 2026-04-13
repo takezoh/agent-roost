@@ -11,6 +11,13 @@ type CreateSessionParams struct {
 	Options LaunchOptions `json:"options,omitempty"`
 }
 
+type PushDriverParams struct {
+	SessionID string        `json:"session_id"`
+	Project   string        `json:"project"`
+	Command   string        `json:"command"`
+	Options   LaunchOptions `json:"options,omitempty"`
+}
+
 type StopSessionParams struct {
 	SessionID string `json:"session_id"`
 }
@@ -33,6 +40,7 @@ type FocusPaneParams struct {
 
 func init() {
 	RegisterEvent[CreateSessionParams](EventCreateSession, reduceCreateSession)
+	RegisterEvent[PushDriverParams]("push-driver", reducePushDriver)
 	RegisterEvent[StopSessionParams](EventStopSession, reduceStopSession)
 	RegisterEvent[struct{}](EventListSessions, reduceListSessions)
 	RegisterEvent[PreviewSessionParams](EventPreviewSession, reducePreviewSession)
@@ -61,20 +69,30 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 	session := Session{
 		ID:            sessID,
 		Project:       p.Project,
+		CreatedAt:     s.Now,
 		Command:       command,
 		LaunchOptions: p.Options,
-		CreatedAt:     s.Now,
 		Driver:        driverState,
+		Frames: []SessionFrame{{
+			ID:            allocFrameID(),
+			Project:       p.Project,
+			Command:       command,
+			LaunchOptions: p.Options,
+			CreatedAt:     s.Now,
+			Driver:        driverState,
+		}},
 	}
+	frame := session.Frames[0]
 
 	if setupJob != nil {
 		s.NextJobID++
 		jobID := s.NextJobID
 		s.Jobs = cloneJobs(s.Jobs)
-		s.Jobs[jobID] = JobMeta{StartedAt: s.Now}
+		s.Jobs[jobID] = JobMeta{SessionID: sessID, FrameID: frame.ID, StartedAt: s.Now}
 		s.PendingCreates = clonePendingCreates(s.PendingCreates)
 		s.PendingCreates[jobID] = PendingCreate{
 			Session:    session,
+			FrameID:    frame.ID,
 			ReplyConn:  connID,
 			ReplyReqID: reqID,
 		}
@@ -87,20 +105,24 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 	if err != nil {
 		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, err.Error())}
 	}
-	session.LaunchOptions = launch.Options
+	session.Frames[0].LaunchOptions = launch.Options
 
 	s.Sessions = cloneSessions(s.Sessions)
 	s.Sessions[sessID] = session
 
 	return s, []Effect{
 		EffSpawnTmuxWindow{
-			SessionID:  sessID,
-			Mode:       LaunchModeCreate,
-			Project:    p.Project,
-			Command:    launch.Command,
-			StartDir:   launch.StartDir,
-			Options:    launch.Options,
-			Env:        map[string]string{"ROOST_SESSION_ID": string(sessID)},
+			SessionID: sessID,
+			FrameID:   frame.ID,
+			Mode:      LaunchModeCreate,
+			Project:   p.Project,
+			Command:   launch.Command,
+			StartDir:  launch.StartDir,
+			Options:   launch.Options,
+			Env: map[string]string{
+				"ROOST_SESSION_ID": string(sessID),
+				"ROOST_FRAME_ID":   string(frame.ID),
+			},
 			ReplyConn:  connID,
 			ReplyReqID: reqID,
 		},
@@ -135,14 +157,79 @@ func prepareSessionDriver(s State, drv Driver, sessID SessionID, project, comman
 	return driverState, setupJob, nil
 }
 
+func reducePushDriver(s State, connID ConnID, reqID string, p PushDriverParams) (State, []Effect) {
+	sid := SessionID(p.SessionID)
+	sess, ok := s.Sessions[sid]
+	if !ok {
+		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
+	}
+	if p.Project == "" {
+		p.Project = sess.Project
+	}
+	command := resolveCreateCommand(s, p.Command)
+	drv := GetDriver(command)
+	if drv == nil {
+		return s, []Effect{errResp(connID, reqID, ErrCodeUnsupported, "no driver registered for command "+command)}
+	}
+	driverState, setupJob, err := prepareSessionDriver(s, drv, sid, p.Project, command, p.Options)
+	if err != nil {
+		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, err.Error())}
+	}
+	frame := SessionFrame{
+		ID:            allocFrameID(),
+		Project:       p.Project,
+		Command:       command,
+		LaunchOptions: p.Options,
+		CreatedAt:     s.Now,
+		Driver:        driverState,
+	}
+	sess.Frames = append(append([]SessionFrame(nil), sess.Frames...), frame)
+	s.Sessions = cloneSessions(s.Sessions)
+	s.Sessions[sid] = sess
+	if setupJob != nil {
+		s.NextJobID++
+		jobID := s.NextJobID
+		s.Jobs = cloneJobs(s.Jobs)
+		s.Jobs[jobID] = JobMeta{SessionID: sid, FrameID: frame.ID, StartedAt: s.Now}
+		s.PendingCreates = clonePendingCreates(s.PendingCreates)
+		s.PendingCreates[jobID] = PendingCreate{Session: sess, FrameID: frame.ID, ReplyConn: connID, ReplyReqID: reqID}
+		return s, []Effect{EffStartJob{JobID: jobID, Input: setupJob}}
+	}
+	launch, err := drv.PrepareLaunch(driverState, LaunchModeCreate, p.Project, command, p.Options)
+	if err != nil {
+		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, err.Error())}
+	}
+	sess.Frames[len(sess.Frames)-1].LaunchOptions = launch.Options
+	s.Sessions[sid] = sess
+	return s, []Effect{EffSpawnTmuxWindow{
+		SessionID: sid,
+		FrameID:   frame.ID,
+		Mode:      LaunchModeCreate,
+		Project:   p.Project,
+		Command:   launch.Command,
+		StartDir:  launch.StartDir,
+		Options:   launch.Options,
+		Env: map[string]string{
+			"ROOST_SESSION_ID": string(sid),
+			"ROOST_FRAME_ID":   string(frame.ID),
+		},
+		ReplyConn:  connID,
+		ReplyReqID: reqID,
+	}}
+}
+
 func reduceTmuxPaneSpawned(s State, e EvTmuxPaneSpawned) (State, []Effect) {
-	if _, ok := s.Sessions[e.SessionID]; !ok {
+	sess, ok := s.Sessions[e.SessionID]
+	if !ok {
+		return s, nil
+	}
+	if findFrameIndex(sess, e.FrameID) < 0 {
 		return s, nil
 	}
 	s.ActiveSession = e.SessionID
 
 	effs := []Effect{
-		EffRegisterPane{SessionID: e.SessionID, PaneTarget: e.PaneTarget},
+		EffRegisterPane{FrameID: e.FrameID, PaneTarget: e.PaneTarget},
 		EffActivateSession{SessionID: e.SessionID, Reason: EventCreateSession},
 		EffSelectPane{Target: "{sessionName}:0.0"},
 		EffSyncStatusLine{Line: ""},
@@ -164,16 +251,22 @@ type CreateSessionReply struct {
 func reduceTmuxSpawnFailed(s State, e EvTmuxSpawnFailed) (State, []Effect) {
 	var effs []Effect
 	if sess, ok := s.Sessions[e.SessionID]; ok {
-		drv := GetDriver(sess.Command)
-		if provider, ok := drv.(ManagedWorktreeProvider); ok {
-			if path := provider.ManagedWorktreePath(sess.Driver); path != "" {
-				effs = append(effs, EffRemoveManagedWorktree{Path: path})
+		if idx := findFrameIndex(sess, e.FrameID); idx >= 0 {
+			frame := sess.Frames[idx]
+			drv := GetDriver(frame.Command)
+			if provider, ok := drv.(ManagedWorktreeProvider); ok {
+				if path := provider.ManagedWorktreePath(frame.Driver); path != "" {
+					effs = append(effs, EffRemoveManagedWorktree{Path: path})
+				}
+			}
+			sess, _ = truncateFrames(sess, idx)
+			s.Sessions = cloneSessions(s.Sessions)
+			if len(sess.Frames) == 0 {
+				delete(s.Sessions, e.SessionID)
+			} else {
+				s.Sessions[e.SessionID] = sess
 			}
 		}
-	}
-	if _, ok := s.Sessions[e.SessionID]; ok {
-		s.Sessions = cloneSessions(s.Sessions)
-		delete(s.Sessions, e.SessionID)
 	}
 	if e.ReplyConn == 0 {
 		return s, effs
@@ -186,13 +279,20 @@ func reduceTmuxSpawnFailed(s State, e EvTmuxSpawnFailed) (State, []Effect) {
 
 func reduceStopSession(s State, connID ConnID, reqID string, p StopSessionParams) (State, []Effect) {
 	sid := SessionID(p.SessionID)
-	if _, ok := s.Sessions[sid]; !ok {
+	sess, ok := s.Sessions[sid]
+	if !ok {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
-	return s, []Effect{
-		EffTerminateSession{SessionID: sid},
-		okResp(connID, reqID, nil),
+	var effs []Effect
+	for _, frame := range sess.Frames {
+		effs = append(effs,
+			EffTerminateSession{FrameID: frame.ID},
+			EffUnwatchFile{FrameID: frame.ID},
+			EffUnregisterPane{FrameID: frame.ID},
+		)
 	}
+	effs = append(effs, okResp(connID, reqID, nil))
+	return s, effs
 }
 
 func reducePreviewSession(s State, connID ConnID, reqID string, p PreviewSessionParams) (State, []Effect) {

@@ -20,7 +20,7 @@ func init() {
 }
 
 // RunEvent implements `roost event <eventType>`.
-// Reads stdin (if piped), captures ROOST_SESSION_ID and a timestamp,
+// Reads stdin (if piped), captures ROOST_FRAME_ID and a timestamp,
 // then sends a CmdEvent to the daemon.
 func RunEvent(args []string) error {
 	if len(args) == 0 {
@@ -29,7 +29,7 @@ func RunEvent(args []string) error {
 	}
 	eventType := args[0]
 
-	senderID := os.Getenv("ROOST_SESSION_ID")
+	senderID := os.Getenv("ROOST_FRAME_ID")
 	if senderID == "" {
 		return nil
 	}

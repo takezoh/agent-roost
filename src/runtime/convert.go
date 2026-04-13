@@ -25,7 +25,7 @@ func commandToStateEvent(connID state.ConnID, reqID string, cmd proto.Command) s
 			ReqID:     reqID,
 			Event:     c.Event,
 			Timestamp: c.Timestamp,
-			SenderID:  state.SessionID(c.SenderID),
+			SenderID:  state.FrameID(c.SenderID),
 			Payload:   c.Payload,
 		}
 	}

@@ -29,16 +29,16 @@ type FileRelay struct {
 	files   map[string]*relayFile
 	rt      *Runtime
 
-	stop    chan struct{}
-	wg      sync.WaitGroup
+	stop chan struct{}
+	wg   sync.WaitGroup
 }
 
 type relayFile struct {
-	path      string
-	sessionID state.SessionID // empty for app log
-	kind      string          // "log" or "transcript"
-	offset    int64
-	dirty     bool
+	path    string
+	frameID state.FrameID // empty for app log
+	kind    string        // "log" or "transcript"
+	offset  int64
+	dirty   bool
 }
 
 const relaySweepInterval = 100 * time.Millisecond
@@ -67,16 +67,16 @@ func (fr *FileRelay) WatchLog(path string) {
 }
 
 // WatchFile registers a session file (transcript, event-log, etc.) for push relay.
-func (fr *FileRelay) WatchFile(sessionID state.SessionID, path string, kind string) {
-	fr.add(path, sessionID, kind)
+func (fr *FileRelay) WatchFile(frameID state.FrameID, path string, kind string) {
+	fr.add(path, frameID, kind)
 }
 
-// UnwatchFile removes all files associated with a session from the relay.
-func (fr *FileRelay) UnwatchFile(sessionID state.SessionID) {
+// UnwatchFile removes all files associated with a frame from the relay.
+func (fr *FileRelay) UnwatchFile(frameID state.FrameID) {
 	fr.mu.Lock()
 	defer fr.mu.Unlock()
 	for path, f := range fr.files {
-		if f.sessionID == sessionID {
+		if f.frameID == frameID {
 			fr.watcher.Remove(path)
 			delete(fr.files, path)
 		}
@@ -100,7 +100,7 @@ func (fr *FileRelay) Close() {
 	fr.watcher.Close()
 }
 
-func (fr *FileRelay) add(path string, sessionID state.SessionID, kind string) {
+func (fr *FileRelay) add(path string, frameID state.FrameID, kind string) {
 	if path == "" {
 		return
 	}
@@ -116,10 +116,10 @@ func (fr *FileRelay) add(path string, sessionID state.SessionID, kind string) {
 		offset = info.Size()
 	}
 	fr.files[path] = &relayFile{
-		path:      path,
-		sessionID: sessionID,
-		kind:      kind,
-		offset:    offset,
+		path:    path,
+		frameID: frameID,
+		kind:    kind,
+		offset:  offset,
 	}
 	if err := fr.watcher.Add(path); err != nil {
 		slog.Debug("filerelay: watch failed", "path", path, "err", err)
@@ -223,11 +223,11 @@ func readFrom(path string, offset int64) (string, int64) {
 
 func (fr *FileRelay) broadcast(f *relayFile, content string) {
 	var event proto.ServerEvent
-	if f.sessionID == "" {
+	if f.frameID == "" {
 		event = proto.EvtLogLine{Path: f.path, Line: content}
 	} else {
 		event = proto.EvtSessionFileLine{
-			SessionID: string(f.sessionID),
+			SessionID: string(f.frameID),
 			Kind:      f.kind,
 			Line:      content,
 		}
