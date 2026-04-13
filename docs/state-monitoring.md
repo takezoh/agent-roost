@@ -4,7 +4,7 @@ For the interactive operation processing flow (TUI → IPC → Reduce → Effect
 
 ## Background pipeline
 
-Every tick (1s), `reduceTick` calls `Driver.Step(driverState, DEvTick{...})` for all sessions and aggregates the returned Effects (EffStartJob, etc.). Pane reconciliation (`runtime.reconcileWindows()` using `sessionPanes` + `PaneAlive`) and pane health check (runtime checks pane 0.0 alive; owner is `runtime.activeSession`) are also performed on the same tick. For the detailed tick processing sequence, see [ipc.md](ipc.md#tick-processing-sequence).
+Every tick (1s), `reduceTick` steps the active frame of each running session by calling `Driver.Step(frame.Driver, DEvTick{...})` and aggregates the returned Effects (EffStartJob, etc.). Pane reconciliation and pane 0.0 health check are performed on the same tick. For the detailed tick processing sequence, see [ipc.md](ipc.md#tick-processing-sequence).
 
 Driver.Step returns `EffStartJob`, which is submitted to the worker pool. The result is fed back to the event loop via `EvJobResult` → `Driver.Step(DEvJobResult)` reflects it in DriverState.
 
@@ -16,19 +16,21 @@ The Driver plugin's `Step` method is responsible for status updates. For the Dri
 
 | Method | Caller | Purpose |
 |---------|-----------|------|
-| `NewState(now)` | `reduceCreateSession` | Generates a new DriverState value. Initial values are Idle / now |
-| `Restore(bag, now)` | `runtime.Bootstrap` | Reconstructs DriverState from the previously saved opaque map on warm/cold restart |
-| `Step(prev, DEvTick)` | `reduceTick` → `stepAllSessions` | Periodic polling. Claude gates on `DEvTick.Active`, emitting transcript parse jobs only when active. Generic emits capture-pane jobs |
-| `Step(prev, DEvHook)` | `reduceDriverHook` | Receives hook events and updates DriverState. Claude performs status transitions + event log append effects |
-| `Step(prev, DEvJobResult)` | `reduceJobResult` | Reflects results from the worker pool into DriverState. Transcript parse results such as title / lastPrompt |
+| `NewState(now)` | `reduceCreateSession`, `reducePushDriver` | Generates a fresh DriverState value for a new frame. Initial values are Idle / now |
+| `Restore(bag, now)` | `runtime.Bootstrap` | Reconstructs each frame's DriverState from the previously saved opaque map on warm/cold restart |
+| `PrepareLaunch(s, mode, project, cmd, options)` | `reduceCreateSession`, `reducePushDriver`, cold-start bootstrap | Pure function that resolves the frame's launch plan (command / start_dir / normalized `LaunchOptions`). Called synchronously inside `state.Reduce` and on cold-start restoration; the resolved plan is baked into `EffSpawnTmuxWindow` so the runtime never calls drivers |
+| `PrepareCreate(s, sessID, project, cmd, options)` | `reduceCreateSession` (planner-gated drivers only) | Optional extension returning a `CreatePlan` with a `SetupJob` for async pre-launch work (e.g., creating a managed worktree) |
+| `CompleteCreate(s, cmd, options, result, err)` | `handlePendingCreate` (planner-gated drivers only) | Runs after the SetupJob completes; returns the final `CreateLaunch` and the normalized `LaunchOptions` to persist on the frame |
+| `Step(prev, DEvTick)` | `reduceTick` | Periodic polling on the active frame of each running session. Claude gates on `DEvTick.Active`, emitting transcript parse jobs only when active. Generic emits capture-pane jobs |
+| `Step(prev, DEvHook)` | `reduceDriverHook` | Receives hook events targeted at a specific frame and updates that frame's DriverState. Claude performs status transitions + event log append effects |
+| `Step(prev, DEvJobResult)` | `reduceJobResult` | Reflects results from the worker pool into the owning frame's DriverState. Transcript parse results such as title / lastPrompt |
 | `Step(prev, DEvFileChanged)` | `reduceFileChanged` | File change notification from fsnotify. Emits transcript parse job |
 | `View(driverState)` | runtime's `broadcastSessionsChanged` / `activeStatusLine` | Pure getter that returns display payloads for the TUI (Card / LogTabs / InfoExtras / StatusLine) |
-| `Persist(driverState)` | runtime's `snapshotSessions` | Serializes DriverState to an opaque map. Written to sessions.json |
-| `SpawnCommand(driverState, base)` | `runtime.Bootstrap` (cold boot only) | Assembles a resume command (e.g., `claude --resume <id>`) |
+| `Persist(driverState)` | runtime's `snapshotSessions` | Serializes DriverState to an opaque map. Written to sessions.json alongside the frame's command and normalized `LaunchOptions` |
 
 ### Active/Inactive and DEvTick.Active (push model)
 
-"Session is active" means the session pane is swapped into pane 0.0 (main). The single source of truth is `state.State.ActiveSession` (SessionID), and `reduceTick` evaluates `sessID == state.ActiveSession` when constructing `DEvTick` to set the `DEvTick.Active` flag. Step is called for all sessions on every tick, passing `DEvTick{Active: false}` to inactive Drivers. Activation is detected on the next tick (within 1 second).
+"Session is active" means the session's active frame pane is swapped into pane 0.0 (main). The single source of truth is `state.State.ActiveSession` (SessionID), and `reduceTick` evaluates `sessID == state.ActiveSession` when constructing `DEvTick` to set the `DEvTick.Active` flag. Step is called on the active frame of every running session on every tick, passing `DEvTick{Active: false}` to inactive sessions. Activation is detected on the next tick (within 1 second).
 
 ### Claude driver (event-driven + active-gated transcript sync)
 
@@ -53,15 +55,15 @@ Hook event → driver.Status mapping:
 | SessionStart | Idle |
 | SessionEnd | Stopped |
 
-The `roost event <eventType>` subcommand repackages the Claude hook payload into `proto.CmdEvent` and sends it via IPC. The runtime's IPC reader converts it into an `EvDriverEvent` and feeds it into the event loop. `reduceDriverHook` performs a single-level lookup with `Sessions[ev.SenderID]` and calls `Driver.Step(driverState, DEvHook{...})`. Neither the state layer nor the runtime layer holds any Claude-specific state logic.
+The `roost event <eventType>` subcommand repackages the Claude hook payload into `proto.CmdEvent` and sends it via IPC. The runtime's IPC reader converts it into an `EvDriverEvent` and feeds it into the event loop. `reduceDriverHook` locates the owning frame across all sessions using the frame id it received as `SenderID`, and calls `Driver.Step(frame.Driver, DEvHook{...})`. Neither the state layer nor the runtime layer holds any Claude-specific state logic.
 
 ### Hook event routing and race-free identification
 
-A mechanism for the hook subprocess to identify its owning roost session in a race-free manner.
+A mechanism for the hook subprocess to identify its owning roost frame in a race-free manner.
 
-**Problem**: There is a 20-50ms window after `tmux new-window` before `SetWindowUserOptions` sets `@roost_id`. If a hook fires during this window, `@roost_id` is unset and the event is discarded.
+**Problem**: There is a window after `tmux new-window` where any pane-scoped tmux option written by the daemon is not yet visible to processes inside the pane. If a hook fires during this window, the option-based owner marker is unset and the event is discarded.
 
-**Solution**: Inject the env var via `tmux new-window -e ROOST_SESSION_ID=<sess.ID>`. The env var is set at the kernel exec level simultaneously with `new-window`, so no race occurs. The hook bridge (`lib/claude/command.go`) simply reads `os.Getenv("ROOST_SESSION_ID")`, requiring no round-trip to tmux. The reducer identifies the session with a single-level lookup via `Sessions[ev.SessionID]`.
+**Solution**: Inject a frame-scoped env var into the pane environment at `tmux new-window -e` time. The env var is set at the kernel exec level simultaneously with the window creation, so no race occurs. The hook bridge reads the frame id directly from its own process environment, requiring no round-trip to tmux. The reducer then scans the frame stacks to locate the owning frame and routes the hook to that frame's driver. Hooks whose target frame has already been truncated off the stack are silently dropped — this is the intended behavior when a frame's pane has just died and the reducer is still processing the eviction.
 
 ### Generic driver (polling-driven)
 
@@ -90,11 +92,13 @@ The idle threshold can be changed via `IdleThresholdSec` in `settings.toml` (def
 
 ### State persistence and restoration
 
-`Driver.Persist(driverState)` returns an opaque `map[string]string` interpreted by the driver, and `EffPersistSnapshot` writes it to `sessions.json`. Session-to-pane mapping is stored in `ROOST_SESSION_*` session-level env vars (not in sessions.json).
+`Driver.Persist(driverState)` returns an opaque `map[string]string` interpreted by the driver, and `EffPersistSnapshot` writes it to `sessions.json`. Frame-to-pane mapping is stored in tmux session-level env vars (not in sessions.json), so pane ids do not leak into the snapshot file.
+
+`sessions.json` is organized as a list of sessions, where each session contains a **frame stack** `frames[]`. Each frame in the stack carries its own `command`, normalized `launch_options`, and the driver-interpreted `driver_state` bag. The active frame is not persisted — it is always the tail of the stack at load time. `LaunchOptions` is stored in its canonical (normalized) form that drivers returned from `PrepareLaunch`; on cold start the bootstrap re-feeds those persisted options back into `PrepareLaunch` so each frame respawns with the same launch flavor (worktree vs in-place, etc.).
 
 #### Writing (runtime)
 
-When Driver.Step updates DriverState on each tick / hook event, the reducer emits `EffPersistSnapshot`, and the runtime's Effect interpreter writes it to `sessions.json`:
+When a driver's Step updates its frame's DriverState on each tick / hook event, the reducer emits `EffPersistSnapshot`, and the runtime's Effect interpreter writes it to `sessions.json`:
 
 ```mermaid
 sequenceDiagram
@@ -104,48 +108,45 @@ sequenceDiagram
     participant JSON as sessions.json<br/>(single SoT)
 
     Note over Red: EvTick or EvDriverEvent
-    Red->>Drv: Driver.Step(driverState, driverEvent)
+    Red->>Drv: Driver.Step(frame.Driver, driverEvent)
     Drv-->>Red: (driverState', effects, view)
-    Note over Red: state.Session.Driver = driverState'
+    Note over Red: frame.Driver = driverState'
     Red-->>Interp: [EffPersistSnapshot, ...]
-    Interp->>Interp: snapshotSessions():<br/>Obtains opaque map via<br/>Driver.Persist(driverState)
+    Interp->>Interp: snapshotSessions():<br/>for each session, serialize frames[] with<br/>command / launch_options / driver_state
     Interp->>JSON: Write to sessions.json
-    Note over JSON: sessions.json is the sole persistence target<br/>Session pane map stored in ROOST_SESSION_* env vars
+    Note over JSON: sessions.json is the sole persistence target<br/>Pane ids are kept in tmux session-level env vars
 ```
 
 #### Restoration (warm restart / cold boot)
 
-There are two restoration paths. **Warm restart** (tmux server alive) rebuilds the parked session pane map from `ROOST_SESSION_*` session-level env vars via `LoadSessionPanes`, then reconciles orphans with `ReconcileOrphans`, and restores DriverState from the `driver_state` bag in `sessions.json` using `Driver.Restore`. Active session is not restored; startup always returns pane `0.0` to the main TUI. **Cold boot** (tmux server also dead) recreates sessions from sessions.json via `RecreateAll`, which populates `sessionPanes` + `ROOST_SESSION_*` env vars:
+There are two restoration paths. **Warm restart** (tmux server alive) rebuilds the frame-to-pane map from tmux session-level env vars, restores each frame's DriverState via `Driver.Restore`, and truncates any session at the first frame whose pane has gone missing (dropping the whole session if its root frame is missing). Active session is not restored; startup always returns pane `0.0` to the main TUI. **Cold boot** (tmux server also dead) walks each restored session's frame stack in root-to-tail order and respawns a window per frame via `Driver.PrepareLaunch(LaunchModeColdStart, …)`, re-feeding the persisted `LaunchOptions` so the launch flavor is preserved across restarts:
 
 ```mermaid
 sequenceDiagram
     participant Boot as runtime.Bootstrap
     participant Tmux as tmux backend
     participant JSON as sessions.json
-    participant Red as state.Reduce
     participant Drv as Driver
 
     alt warm restart (tmux server alive)
-        Boot->>Tmux: LoadSessionPanes()
-        Tmux-->>Boot: sessionPanes from ROOST_SESSION_* env vars
-        Boot->>Tmux: ReconcileOrphans()
         Boot->>JSON: Load()
-        JSON-->>Boot: SessionSnapshot list<br/>(including driver_state bag)
-        Boot->>Drv: Driver.Restore(bag, now)
+        JSON-->>Boot: sessions with frame stacks<br/>(each frame: command, launch_options, driver_state)
+        Boot->>Drv: Driver.Restore(bag, now) (per frame)
         Drv-->>Boot: DriverState (restored)
-        Boot->>Red: Add Session to initial State<br/>(re-binding to existing parked tmux pane)
+        Boot->>Tmux: read frame-to-pane env vars
+        Boot->>Boot: truncate each session at first<br/>frame whose pane has vanished
     else cold boot (tmux server also dead)
         Boot->>JSON: Load()
-        JSON-->>Boot: SessionSnapshot list
-        Boot->>Drv: Driver.Restore(bag, now)
+        JSON-->>Boot: sessions with frame stacks
+        Boot->>Drv: Driver.Restore(bag, now) (per frame)
         Drv-->>Boot: DriverState
-        Boot->>Drv: Driver.SpawnCommand(driverState, baseCommand)
-        Drv-->>Boot: e.g., "claude --resume <id>"
-        Note over Boot: RecreateAll populates sessionPanes + ROOST_SESSION_*<br/>Add Session to initial State<br/>→ First Reduce emits EffSpawnTmuxWindow
+        loop each frame, root-to-tail
+            Boot->>Drv: Driver.PrepareLaunch(driverState, ColdStart,<br/>project, command, launch_options)
+            Drv-->>Boot: LaunchPlan (command, start_dir, normalized options)
+            Boot->>Tmux: new-window spawning the frame
+        end
     end
 ```
-
-SpawnCommand is called only on cold boot (on warm restart, the existing agent process is still alive).
 
 #### PersistedState schema per Driver
 
@@ -181,11 +182,12 @@ SpawnCommand is called only on cold boot (on warm restart, the existing agent pr
 
 | Scenario | Behavior |
 |---------|------|
-| **New session creation** | `EvCmdCreateSession` → `reduceCreateSession` adds Session to State (generates initial DriverState via Driver.NewState) + emits `EffSpawnTmuxWindow` → runtime spawns tmux pane → `EvTmuxPaneSpawned` reflects `PaneTarget` |
-| **Warm restart (daemon only restarts)** | `runtime.Bootstrap` reconstructs parked Sessions from `LoadSessionPanes` (`ROOST_SESSION_*`) + sessions.json. Restores DriverState via `Driver.Restore(bag, now)` → sets in initial State. `0.0` is always main TUI |
-| **Cold boot (tmux server also dead)** | `runtime.Bootstrap` reads SessionSnapshots from sessions.json → `Driver.Restore(bag, now)` + `Driver.SpawnCommand(driverState, baseCommand)` assembles resume command → `RecreateAll` populates `sessionPanes` + `ROOST_SESSION_*` → adds Session to initial State → first Reduce emits `EffSpawnTmuxWindow` |
-| **Session stop** | `EvCmdStopSession` → `reduceStopSession` removes Session from State + emits `EffKillSessionWindow` (SessionID-based) + `EffPersistSnapshot` |
-| **Dead pane reap** | `EvTick` → `reduceTick` → runtime's `reconcileWindows()` (`PaneAlive` + `sessionPanes`) + pane 0.0 health check → `EvTmuxWindowVanished` / `EvPaneDied` removes Session from State |
+| **New session creation** | `reduceCreateSession` generates the initial DriverState via `Driver.NewState`, calls `Driver.PrepareLaunch` synchronously to resolve the frame's command / start_dir / normalized `LaunchOptions`, stores a root frame carrying the normalized options on the session, and emits `EffSpawnTmuxWindow` pre-baked with the resolved plan. The runtime spawns the tmux pane and reports back via `EvTmuxPaneSpawned` |
+| **Push driver on top of a session** | `reducePushDriver` appends a new frame on top of the active frame, running the same `PrepareLaunch` / spawn pipeline as new session creation. The appended frame becomes the new active frame |
+| **Warm restart (daemon only restarts)** | `runtime.Bootstrap` loads the frame stacks from sessions.json, restores each frame's DriverState via `Driver.Restore`, rebinds frames to their live tmux panes via frame-scoped env vars, and truncates any session at the first frame whose pane is missing (root-frame truncation drops the whole session). Pane `0.0` is always main TUI at startup |
+| **Cold boot (tmux server also dead)** | `runtime.Bootstrap` loads the frame stacks, restores each frame's DriverState, then walks each session's frames in root-to-tail order and calls `Driver.PrepareLaunch(LaunchModeColdStart, …)` with the persisted `LaunchOptions` to reconstruct the launch plan. A tmux window is spawned per frame directly from the resolved plan |
+| **Session stop** | `reduceStopSession` emits terminate / unwatch / unregister effects for every frame in the session. The session is removed from State only once the pane/window actually exits and a `EvTmuxWindowVanished` arrives |
+| **Dead pane reap** | Pane reconciliation and `EvPaneDied` / `EvTmuxWindowVanished` locate the owning frame and truncate the session from that frame onward. If the root frame is the one that died, the entire session is deleted; otherwise the remaining lower frames stay and the new tail becomes the active frame |
 
 ### Cost extraction
 

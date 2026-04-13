@@ -25,6 +25,61 @@ func allocSessionID() SessionID {
 	return SessionID(hex.EncodeToString(b[:]))
 }
 
+func allocFrameID() FrameID {
+	return FrameID(allocSessionID())
+}
+
+func rootFrame(sess Session) (SessionFrame, bool) {
+	if len(sess.Frames) == 0 {
+		if sess.Command == "" || sess.Driver == nil {
+			return SessionFrame{}, false
+		}
+		return SessionFrame{
+			ID:            FrameID(sess.ID),
+			Project:       sess.Project,
+			Command:       sess.Command,
+			LaunchOptions: sess.LaunchOptions,
+			CreatedAt:     sess.CreatedAt,
+			Driver:        sess.Driver,
+		}, true
+	}
+	return sess.Frames[0], true
+}
+
+func activeFrame(sess Session) (SessionFrame, bool) {
+	if len(sess.Frames) == 0 {
+		return rootFrame(sess)
+	}
+	return sess.Frames[len(sess.Frames)-1], true
+}
+
+func findFrameIndex(sess Session, frameID FrameID) int {
+	for i, frame := range sess.Frames {
+		if frame.ID == frameID {
+			return i
+		}
+	}
+	return -1
+}
+
+func findFrame(s State, frameID FrameID) (SessionID, Session, int, bool) {
+	for sessID, sess := range s.Sessions {
+		if idx := findFrameIndex(sess, frameID); idx >= 0 {
+			return sessID, sess, idx, true
+		}
+	}
+	return "", Session{}, -1, false
+}
+
+func truncateFrames(sess Session, from int) (Session, []SessionFrame) {
+	if from < 0 || from >= len(sess.Frames) {
+		return sess, nil
+	}
+	removed := append([]SessionFrame(nil), sess.Frames[from:]...)
+	sess.Frames = append([]SessionFrame(nil), sess.Frames[:from]...)
+	return sess, removed
+}
+
 // stepDriver runs the per-session driver Step inside the reducer and
 // post-processes the returned effects so callers don't have to clone
 // the State map themselves. Returns the new State (with the updated
@@ -37,19 +92,22 @@ func allocSessionID() SessionID {
 //     the new id.
 //   - EffEventLogAppend / EffWatchFile / EffUnwatchFile:
 //     fills in the SessionID field if the driver left it blank.
-func stepDriver(s State, sessID SessionID, ev DriverEvent) (State, []Effect, View, bool) {
-	sess, ok := s.Sessions[sessID]
+func stepDriver(s State, frameID FrameID, ev DriverEvent) (State, []Effect, View, bool) {
+	sessID, sess, frameIdx, ok := findFrame(s, frameID)
 	if !ok {
 		return s, nil, View{}, false
 	}
-	drv := GetDriver(sess.Command)
+	frame := sess.Frames[frameIdx]
+	drv := GetDriver(frame.Command)
 	if drv == nil {
 		return s, nil, View{}, false
 	}
-	nextDS, rawEffs, view := drv.Step(sess.Driver, ev)
+	nextDS, rawEffs, view := drv.Step(frame.Driver, ev)
 
 	s.Sessions = cloneSessions(s.Sessions)
-	sess.Driver = nextDS
+	sess.Frames = append([]SessionFrame(nil), sess.Frames...)
+	frame.Driver = nextDS
+	sess.Frames[frameIdx] = frame
 	s.Sessions[sessID] = sess
 
 	if len(rawEffs) == 0 {
@@ -58,7 +116,7 @@ func stepDriver(s State, sessID SessionID, ev DriverEvent) (State, []Effect, Vie
 
 	out := make([]Effect, 0, len(rawEffs))
 	for _, eff := range rawEffs {
-		patched, newState := postProcessEffect(s, sessID, eff)
+		patched, newState := postProcessEffect(s, sessID, frameID, eff)
 		s = newState
 		out = append(out, patched)
 	}
@@ -68,7 +126,7 @@ func stepDriver(s State, sessID SessionID, ev DriverEvent) (State, []Effect, Vie
 // postProcessEffect fills in session-context fields the driver Step
 // left blank and (for EffStartJob) registers JobMeta + assigns a fresh
 // JobID. Returns the patched effect and the (possibly mutated) State.
-func postProcessEffect(s State, sessID SessionID, eff Effect) (Effect, State) {
+func postProcessEffect(s State, sessID SessionID, frameID FrameID, eff Effect) (Effect, State) {
 	switch e := eff.(type) {
 	case EffStartJob:
 		s.NextJobID++
@@ -76,23 +134,24 @@ func postProcessEffect(s State, sessID SessionID, eff Effect) (Effect, State) {
 		s.Jobs = cloneJobs(s.Jobs)
 		s.Jobs[jobID] = JobMeta{
 			SessionID: sessID,
+			FrameID:   frameID,
 			StartedAt: s.Now,
 		}
 		e.JobID = jobID
 		return e, s
 	case EffEventLogAppend:
-		if e.SessionID == "" {
-			e.SessionID = sessID
+		if e.FrameID == "" {
+			e.FrameID = frameID
 		}
 		return e, s
 	case EffWatchFile:
-		if e.SessionID == "" {
-			e.SessionID = sessID
+		if e.FrameID == "" {
+			e.FrameID = frameID
 		}
 		return e, s
 	case EffUnwatchFile:
-		if e.SessionID == "" {
-			e.SessionID = sessID
+		if e.FrameID == "" {
+			e.FrameID = frameID
 		}
 		return e, s
 	default:
@@ -118,17 +177,21 @@ func stepActiveSessions(s State, makeEv func(sessID SessionID, sess Session, act
 	changed := false
 	for _, sessID := range ids {
 		sess := s.Sessions[sessID]
-		drv := GetDriver(sess.Command)
+		frame, ok := activeFrame(sess)
+		if !ok {
+			continue
+		}
+		drv := GetDriver(frame.Command)
 		if drv == nil {
 			continue
 		}
-		status := drv.Status(sess.Driver)
+		status := drv.Status(frame.Driver)
 		if status == StatusIdle || status == StatusStopped {
 			continue
 		}
 		active := sessID == s.ActiveSession
 		ev := makeEv(sessID, sess, active)
-		next, sessEffs, _, ok := stepDriver(s, sessID, ev)
+		next, sessEffs, _, ok := stepDriver(s, frame.ID, ev)
 		if !ok {
 			continue
 		}

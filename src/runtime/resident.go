@@ -8,7 +8,15 @@ import (
 )
 
 func (r *Runtime) activateSession(sessID state.SessionID, reason string) {
-	paneID := r.sessionPanes[sessID]
+	sess, ok := r.state.Sessions[sessID]
+	if !ok {
+		return
+	}
+	frame, ok := sessionActiveFrame(sess)
+	if !ok {
+		return
+	}
+	paneID := r.sessionPanes[frame.ID]
 	if paneID == "" {
 		slog.Warn("runtime: activate session — no pane target", "session", sessID)
 		return
@@ -35,7 +43,15 @@ func (r *Runtime) deactivateSession() {
 }
 
 func (r *Runtime) swapSessionIntoMain(sessID state.SessionID) bool {
-	paneID := r.sessionPanes[sessID]
+	sess, ok := r.state.Sessions[sessID]
+	if !ok {
+		return false
+	}
+	frame, ok := sessionActiveFrame(sess)
+	if !ok {
+		return false
+	}
+	paneID := r.sessionPanes[frame.ID]
 	if paneID == "" {
 		slog.Warn("runtime: swap-pane session skipped; pane missing", "session", sessID)
 		return false
@@ -46,12 +62,13 @@ func (r *Runtime) swapSessionIntoMain(sessID state.SessionID) bool {
 	}
 	if err := r.cfg.Tmux.SwapPane(paneID, r.mainPaneTarget()); err != nil {
 		if isMissingPaneErr(err) {
-			r.Enqueue(state.EvTmuxWindowVanished{SessionID: sessID})
+			r.Enqueue(state.EvTmuxWindowVanished{FrameID: frame.ID})
 		}
 		slog.Warn("runtime: swap-pane session failed", "session", sessID, "pane", paneID, "err", err)
 		return false
 	}
 	r.activeSession = sessID
+	r.activeFrameID = frame.ID
 	return true
 }
 
@@ -69,6 +86,7 @@ func (r *Runtime) swapMainIntoMain() bool {
 		return false
 	}
 	r.activeSession = ""
+	r.activeFrameID = ""
 	return true
 }
 
@@ -82,7 +100,7 @@ func (r *Runtime) ensureMainPaneID() (string, bool) {
 		return "", false
 	}
 	r.sessionPanes["_main"] = paneID
-	_ = r.cfg.Tmux.SetEnv("ROOST_SESSION__main", paneID)
+	_ = r.cfg.Tmux.SetEnv("ROOST_FRAME__main", paneID)
 	return paneID, true
 }
 
@@ -106,8 +124,8 @@ func windowNameForSession(sessions map[state.SessionID]state.Session, sessID sta
 	return windowName(sess.Project, string(sessID))
 }
 
-func sessionPaneEnvKey(sessID state.SessionID) string {
-	return "ROOST_SESSION_" + string(sessID)
+func sessionPaneEnvKey(frameID state.FrameID) string {
+	return "ROOST_FRAME_" + string(frameID)
 }
 
 type paneSize struct {
@@ -131,4 +149,28 @@ func (r *Runtime) resizeWindowToMain(target string, size paneSize) {
 	if err := r.cfg.Tmux.ResizeWindow(target, size.width, size.height); err != nil {
 		slog.Debug("runtime: resize-window failed", "target", target, "width", size.width, "height", size.height, "err", err)
 	}
+}
+
+func sessionActiveFrame(sess state.Session) (state.SessionFrame, bool) {
+	if len(sess.Frames) == 0 {
+		if sess.Command == "" || sess.Driver == nil {
+			return state.SessionFrame{}, false
+		}
+		return state.SessionFrame{
+			ID:            state.FrameID(sess.ID),
+			Project:       sess.Project,
+			Command:       sess.Command,
+			LaunchOptions: sess.LaunchOptions,
+			CreatedAt:     sess.CreatedAt,
+			Driver:        sess.Driver,
+		}, true
+	}
+	return sess.Frames[len(sess.Frames)-1], true
+}
+
+func sessionRootFrame(sess state.Session) (state.SessionFrame, bool) {
+	if len(sess.Frames) == 0 {
+		return sessionActiveFrame(sess)
+	}
+	return sess.Frames[0], true
 }

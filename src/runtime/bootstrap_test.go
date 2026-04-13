@@ -10,26 +10,26 @@ import (
 
 func TestLoadSessionPanes_ParsesEnvVars(t *testing.T) {
 	ftmux := newFakeTmux()
-	ftmux.envOutput = "ROOST_SESSION_session_abc=%11\nROOST_SESSION_session_def=%12\nSOME_OTHER=value\n"
+	ftmux.envOutput = "ROOST_FRAME_frame_abc=%11\nROOST_FRAME_frame_def=%12\nSOME_OTHER=value\n"
 	r := New(Config{
 		SessionName:  "roost-test",
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions[state.SessionID("session_abc")] = state.Session{ID: "session_abc"}
-	r.state.Sessions[state.SessionID("session_def")] = state.Session{ID: "session_def"}
+	r.state.Sessions[state.SessionID("session_abc")] = state.Session{ID: "session_abc", Frames: []state.SessionFrame{{ID: "frame_abc", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.state.Sessions[state.SessionID("session_def")] = state.Session{ID: "session_def", Frames: []state.SessionFrame{{ID: "frame_def", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
 
 	if err := r.LoadSessionPanes(); err != nil {
 		t.Fatalf("LoadSessionPanes: %v", err)
 	}
-	if r.sessionPanes[state.SessionID("session_abc")] != "%11" {
-		t.Errorf("session_abc → %q, want %%11", r.sessionPanes[state.SessionID("session_abc")])
+	if r.sessionPanes[state.FrameID("frame_abc")] != "%11" {
+		t.Errorf("frame_abc → %q, want %%11", r.sessionPanes[state.FrameID("frame_abc")])
 	}
-	if r.sessionPanes[state.SessionID("session_def")] != "%12" {
-		t.Errorf("session_def → %q, want %%12", r.sessionPanes[state.SessionID("session_def")])
+	if r.sessionPanes[state.FrameID("frame_def")] != "%12" {
+		t.Errorf("frame_def → %q, want %%12", r.sessionPanes[state.FrameID("frame_def")])
 	}
-	if _, ok := r.sessionPanes[state.SessionID("value")]; ok {
-		t.Error("non-ROOST_SESSION_ env should not be parsed")
+	if _, ok := r.sessionPanes[state.FrameID("value")]; ok {
+		t.Error("non-ROOST_FRAME_ env should not be parsed")
 	}
 }
 
@@ -53,9 +53,9 @@ func TestReconcileOrphans_DropsSessionWithoutPane(t *testing.T) {
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1"}
-	r.state.Sessions["s2"] = state.Session{ID: "s2"}
-	r.sessionPanes["s1"] = "%1"
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.state.Sessions["s2"] = state.Session{ID: "s2", Frames: []state.SessionFrame{{ID: "f2", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.sessionPanes["f1"] = "%1"
 
 	r.ReconcileOrphans()
 
@@ -74,8 +74,8 @@ func TestReconcileOrphans_RemovesStalePaneEntry(t *testing.T) {
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1"}
-	r.sessionPanes["s1"] = "%1"
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.sessionPanes["f1"] = "%1"
 	r.sessionPanes["ghost"] = "%2"
 
 	r.ReconcileOrphans()
@@ -85,8 +85,8 @@ func TestReconcileOrphans_RemovesStalePaneEntry(t *testing.T) {
 	}
 	ftmux.mu.Lock()
 	defer ftmux.mu.Unlock()
-	if _, ok := ftmux.envs["ROOST_SESSION_ghost"]; ok {
-		t.Error("stale ROOST_SESSION_ghost env should be unset")
+	if _, ok := ftmux.envs["ROOST_FRAME_ghost"]; ok {
+		t.Error("stale ROOST_FRAME_ghost env should be unset")
 	}
 }
 
@@ -97,9 +97,10 @@ func TestDeactivateBeforeExit_SwapsBack(t *testing.T) {
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1"}
-	r.sessionPanes["s1"] = "%1"
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.sessionPanes["f1"] = "%1"
 	r.activeSession = "s1"
+	r.activeFrameID = "f1"
 	r.sessionPanes["_main"] = "%main"
 
 	r.DeactivateBeforeExit()
@@ -147,18 +148,23 @@ func TestRecoverWarmStartSessions_ReinstallsTranscriptWatch(t *testing.T) {
 	r.state.Sessions["s1"] = state.Session{
 		ID:        "s1",
 		Project:   "/repo",
-		Command:   "codex",
 		CreatedAt: now,
-		Driver: d.Restore(map[string]string{
-			"transcript_path":  "/tmp/t.jsonl",
-			"codex_session_id": "sess-1",
-		}, now),
+		Frames: []state.SessionFrame{{
+			ID:        "f1",
+			Project:   "/repo",
+			Command:   "codex",
+			CreatedAt: now,
+			Driver: d.Restore(map[string]string{
+				"transcript_path":  "/tmp/t.jsonl",
+				"codex_session_id": "sess-1",
+			}, now),
+		}},
 	}
 
 	r.RecoverWarmStartSessions()
 
 	watcher.mu.Lock()
-	gotPath := watcher.watches["s1"]
+	gotPath := watcher.watches["f1"]
 	watcher.mu.Unlock()
 	if gotPath != "/tmp/t.jsonl" {
 		t.Fatalf("watch path = %q, want /tmp/t.jsonl", gotPath)
@@ -166,7 +172,7 @@ func TestRecoverWarmStartSessions_ReinstallsTranscriptWatch(t *testing.T) {
 	if len(r.state.Jobs) != 1 {
 		t.Fatalf("jobs = %d, want 1", len(r.state.Jobs))
 	}
-	got := r.state.Sessions["s1"].Driver.(driver.CodexState)
+	got := r.state.Sessions["s1"].Frames[0].Driver.(driver.CodexState)
 	if !got.TranscriptInFlight {
 		t.Fatal("TranscriptInFlight should be true")
 	}
@@ -186,8 +192,8 @@ func TestRecoverActivePaneAtMain_RestoresMainTUIWhenSessionActive(t *testing.T) 
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1", Project: "/repo/project"}
-	r.sessionPanes["s1"] = "%2"
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Project: "/repo/project", Frames: []state.SessionFrame{{ID: "f1", Project: "/repo/project", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.sessionPanes["f1"] = "%2"
 	r.sessionPanes["_main"] = "%1"
 
 	r.RecoverActivePaneAtMain()
@@ -219,8 +225,8 @@ func TestRecoverActivePaneAtMain_IdentifiesMainTUIActive(t *testing.T) {
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1"}
-	r.sessionPanes["s1"] = "%2"
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.sessionPanes["f1"] = "%2"
 	r.sessionPanes["_main"] = "%1"
 
 	r.RecoverActivePaneAtMain()
@@ -240,8 +246,8 @@ func TestRecoverActivePaneAtMain_LeavesSessionActiveWhenMainPaneUnknown(t *testi
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1"}
-	r.sessionPanes["s1"] = "%2"
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.sessionPanes["f1"] = "%2"
 
 	r.RecoverActivePaneAtMain()
 

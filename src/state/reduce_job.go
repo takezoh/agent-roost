@@ -36,7 +36,7 @@ func reduceJobResult(s State, e EvJobResult) (State, []Effect) {
 	}
 
 	// Driver job — route to the session's driver Step.
-	next, effs, _, ok := stepDriver(s, meta.SessionID, DEvJobResult{
+	next, effs, _, ok := stepDriver(s, meta.FrameID, DEvJobResult{
 		Result: e.Result,
 		Err:    e.Err,
 		Now:    s.Now,
@@ -56,9 +56,18 @@ func handlePendingCreate(s State, pending PendingCreate, e EvJobResult) (State, 
 	s.Jobs = cloneJobs(s.Jobs)
 	delete(s.Jobs, e.JobID)
 
-	drv := GetDriver(pending.Session.Command)
+	var frameIdx int
+	var frame SessionFrame
+	for i, f := range pending.Session.Frames {
+		if f.ID == pending.FrameID {
+			frameIdx = i
+			frame = f
+			break
+		}
+	}
+	drv := GetDriver(frame.Command)
 	if drv == nil {
-		return s, []Effect{errResp(pending.ReplyConn, pending.ReplyReqID, ErrCodeUnsupported, "no driver registered for command "+pending.Session.Command)}
+		return s, []Effect{errResp(pending.ReplyConn, pending.ReplyReqID, ErrCodeUnsupported, "no driver registered for command "+frame.Command)}
 	}
 	planner, ok := drv.(CreateSessionPlanner)
 	if !ok {
@@ -66,28 +75,33 @@ func handlePendingCreate(s State, pending PendingCreate, e EvJobResult) (State, 
 	}
 
 	nextDS, launch, err := planner.CompleteCreate(
-		pending.Session.Driver,
-		pending.Session.Command,
-		pending.Session.LaunchOptions,
+		frame.Driver,
+		frame.Command,
+		frame.LaunchOptions,
 		e.Result,
 		e.Err,
 	)
 	if err != nil {
 		return s, []Effect{errResp(pending.ReplyConn, pending.ReplyReqID, ErrCodeInvalidArgument, err.Error())}
 	}
-	pending.Session.Driver = nextDS
-	pending.Session.LaunchOptions = launch.Options
+	pending.Session.Frames = append([]SessionFrame(nil), pending.Session.Frames...)
+	pending.Session.Frames[frameIdx].Driver = nextDS
+	pending.Session.Frames[frameIdx].LaunchOptions = launch.Options
 	s.Sessions = cloneSessions(s.Sessions)
 	s.Sessions[pending.Session.ID] = pending.Session
 	return s, []Effect{
 		EffSpawnTmuxWindow{
-			SessionID:  pending.Session.ID,
-			Mode:       LaunchModeCreate,
-			Project:    pending.Session.Project,
-			Command:    launch.Command,
-			StartDir:   launch.StartDir,
-			Options:    launch.Options,
-			Env:        map[string]string{"ROOST_SESSION_ID": string(pending.Session.ID)},
+			SessionID: pending.Session.ID,
+			FrameID:   pending.FrameID,
+			Mode:      LaunchModeCreate,
+			Project:   frame.Project,
+			Command:   launch.Command,
+			StartDir:  launch.StartDir,
+			Options:   launch.Options,
+			Env: map[string]string{
+				"ROOST_SESSION_ID": string(pending.Session.ID),
+				"ROOST_FRAME_ID":   string(pending.FrameID),
+			},
 			ReplyConn:  pending.ReplyConn,
 			ReplyReqID: pending.ReplyReqID,
 		},
@@ -97,10 +111,10 @@ func handlePendingCreate(s State, pending PendingCreate, e EvJobResult) (State, 
 // reduceFileChanged routes a fsnotify event to the matching
 // session's driver as DEvFileChanged.
 func reduceFileChanged(s State, e EvFileChanged) (State, []Effect) {
-	if _, ok := s.Sessions[e.SessionID]; !ok {
+	if _, _, _, ok := findFrame(s, e.FrameID); !ok {
 		return s, nil
 	}
-	next, effs, _, ok := stepDriver(s, e.SessionID, DEvFileChanged{Path: e.Path})
+	next, effs, _, ok := stepDriver(s, e.FrameID, DEvFileChanged{Path: e.Path})
 	if !ok {
 		return s, nil
 	}

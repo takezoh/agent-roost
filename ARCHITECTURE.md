@@ -9,7 +9,7 @@ roost is a session lifecycle manager — not an agent orchestrator. It does not 
 ## Design Principles
 
 - **Functional Core / Imperative Shell**: All state transitions are expressed as a pure function `state.Reduce(state, event) → (state', effects)`. I/O is emitted as `Effect` values and interpreted by a single event loop (runtime). No goroutines, mutexes, or actors exist in the state layer
-- **Driver as Value Type**: Drivers are stateless plugins. Per-session state is embedded as a `DriverState` value in `state.Session.Driver` and round-trips through `Driver.Step`. No goroutines, no I/O — side effects are returned as `[]Effect`
+- **Driver as Value Type**: Drivers are stateless plugins. Per-frame state is embedded as a `DriverState` value on each `SessionFrame` and round-trips through `Driver.Step`. No goroutines, no I/O — side effects are returned as `[]Effect`
 - **Single event loop**: All daemon state is exclusively owned by one goroutine. No mutexes needed (except inside the worker pool). Slow I/O (transcript parse, capture-pane, etc.) runs in a fixed-size worker pool and feeds results back as events
 - **Driver/Connector isolation**: Concepts specific to `driver/` and `connector/` must not leak into `state/`, `runtime/`, `tui/`, or `proto/`. TUI never branches on driver or connector name. Only `main.go` imports driver/connector packages as wiring
 - **No fallbacks**: Do not synthesize "if source A is unavailable, use B". Until `Driver.Step` updates the state, the status does not change
@@ -25,12 +25,13 @@ roost is a session lifecycle manager — not an agent orchestrator. It does not 
 
 | Term | Meaning | tmux Entity |
 |------|---------|-------------|
-| **Session** | A unit of work for an AI agent. Managed by sessionID as `state.Session` (static metadata + DriverState) | tmux **pane** (parked in a background window, swapped into `0.0` when active) |
+| **Session** | A unit of work for an AI agent. `state.Session` owns a stack of execution **frames** (`[]SessionFrame`). The active frame is always the stack tail; the root frame is the stack base and defines the session's existence — if the root frame dies, the session is deleted | None directly (frames hold the tmux panes) |
+| **Frame** | One execution context within a session. Each frame carries its own `Command`, `LaunchOptions`, and `DriverState`, and owns exactly one tmux pane. Frame death truncates the stack from that frame onward; push-driver appends a new frame on top of the active frame | tmux **pane** (parked in a background window, swapped into `0.0` when the owning session is active) |
 | **Control Session** | The tmux session that houses all of roost | tmux **session** (`roost`) |
 | **Pane** | Control panes within Window 0 | tmux **pane** (`0.0`, `0.1`, `0.2`) |
-| **Connector** | A per-daemon external service integration plugin. Fetches data from external services like GitHub/Linear/Jira and displays it in the TUI. While Drivers are per-session, Connectors have one instance per daemon | None (holds no tmux resources) |
-| **Warm start** | Runtime startup while a tmux session is alive. `LoadSnapshot()` → `LoadSessionPanes()` (reads `ROOST_SESSION_*` env vars via `tmux show-environment`) → `ReconcileOrphans()` (drops sessions without panes, cleans stale env vars) | Reuses existing tmux session/pane |
-| **Cold start** | Runtime startup when the tmux session is gone (PC reboot / tmux server death). `LoadSnapshot()` → `RecreateAll()` (spawns panes, populates `sessionPanes` + `ROOST_SESSION_*` env vars) | Creates new tmux session/window |
+| **Connector** | A per-daemon external service integration plugin. Fetches data from external services like GitHub/Linear/Jira and displays it in the TUI. While Drivers are per-frame, Connectors have one instance per daemon | None (holds no tmux resources) |
+| **Warm start** | Runtime startup while a tmux session is alive. Restores the frame stack from `sessions.json`, rebinds each frame to its live tmux pane via tmux session-level env vars, and truncates any session at the first frame whose pane has vanished (dropping the whole session if the root frame is missing) | Reuses existing tmux session/pane |
+| **Cold start** | Runtime startup when the tmux session is gone (PC reboot / tmux server death). Restores the frame stack from `sessions.json` and respawns each frame's pane in root-to-tail order via `Driver.PrepareLaunch(LaunchModeColdStart, …)`, using the persisted `LaunchOptions` | Creates new tmux session/window |
 
 Hereafter, "session" refers to a roost session. tmux sessions are explicitly noted as "tmux session."
 
@@ -40,7 +41,7 @@ Runtime startup is always either a Warm start or a Cold start; there is no separ
 
 ```
 state/         Pure domain layer — State, Event, Effect, Reduce (no I/O, no goroutine)
-driver/        Driver implementations — value-type Driver plugins + per-session DriverState. No I/O
+driver/        Driver implementations — value-type Driver plugins + per-frame DriverState. No I/O
 connector/     Connector implementations — value-type Connector plugins + per-daemon ConnectorState. No I/O
 runtime/       Imperative shell — single event loop, Effect interpreter, backend abstraction
 runtime/worker/ Worker pool — slow I/O job execution (haiku, transcript parse, git, capture-pane, github fetch)
@@ -69,7 +70,7 @@ Code dependency direction:
 - `lib/claude/transcript` → `state` (registers TabRenderer factory via RegisterTabRenderer)
 - `cli/subcommand.go` provides a subcommand registry. Each lib package registers in `init()`, and `main` dispatches via `cli.Dispatch`
 - `event/send.go` (event subcommand) → `proto` (sends CmdEvent), `cli` (registers "event" subcommand)
-- `state.Session` holds static metadata and DriverState (dynamic state) in a single struct. Reduce routes by sessionID and passes to Driver.Step
+- `state.Session` owns a stack of `SessionFrame` values, each carrying its own DriverState. Reduce routes session-level events by sessionID and frame-level events (driver hooks, frame lifecycle) by frameID, and passes them to the owning frame's `Driver.Step`
 - `state.State.Connectors` holds per-daemon ConnectorState. Reduce routes by connector name and passes to Connector.Step
 
 ## Design Decisions
@@ -80,13 +81,14 @@ Code dependency direction:
 | Ctrl+C disabling | Consume KeyPressMsg | Prevents accidental termination of the resident process. Pane becomes inoperable until respawn |
 | No optimistic updates | Do not modify UI state on IPC error | Auto-recovers on next poll. Avoids risk of state inconsistency |
 | shutdown (`C-b q`) behavior | Only `EffKillSession`; sessions.json is preserved | To restore from sessions.json on next startup |
-| Claude startup on Cold start | Assemble `claude --resume <id>` via `Driver.SpawnCommand` | Claude-specific `--resume` knowledge is confined to `lib/claude/cli` |
-| Resident tracking | `SessionID -> PaneID` | Pane identity survives `swap-pane`; no parked window index tracking is needed |
+| Claude startup on Cold start | Assemble `claude --resume <id>` inside `Driver.PrepareLaunch(LaunchModeColdStart, …)` using the persisted `LaunchOptions` | Claude-specific `--resume` knowledge is confined to the driver. The resolved launch plan is baked into `EffSpawnTmuxWindow` so the runtime never calls drivers |
+| Launch plan resolution layer | Reducer (pure) | `Driver.PrepareLaunch` runs synchronously inside `state.Reduce`, and the resolved command / start_dir / normalized options are written to `EffSpawnTmuxWindow`. The runtime interprets the effect verbatim without touching drivers, keeping driver-specific logic entirely in the pure functional core |
+| Resident tracking | `FrameID -> PaneID` | Frame identity survives `swap-pane`; each frame maps to exactly one parked pane, and `swap-pane` between pane 0.0 and the frame's parked pane preserves pane ids |
 | IPC timeout | Not set | When the event loop deadlocks, external restart is the only recovery method |
-| Session and Driver responsibility separation | `state.Session` holds static metadata + `DriverState` in a single struct | Since they are updated simultaneously within Reduce, state inconsistency is structurally impossible |
-| Identifying sessionID for hook events | Inject env var via `tmux new-window -e ROOST_SESSION_ID=<id>` | Env var is set at kernel exec level and is race-free. Details in [state-monitoring.md](docs/state-monitoring.md#hook-event-routing-and-race-free-identification) |
+| Frame ownership of DriverState | Each `SessionFrame` holds its own `DriverState` value, updated in-place by `Driver.Step` within Reduce | Session lifetime outlives any single frame; letting frames own their DriverState lets `push-driver` layer a fresh driver context on top and lets frame death truncate only that slice of the stack. Updates happen inside Reduce so inconsistency between frame metadata and DriverState is structurally impossible |
+| Identifying the target of hook events | Inject a frame-scoped env var into the pane environment at `tmux new-window -e` time | Env vars are set at kernel exec level and are race-free, so hook bridge processes spawned inside a frame's pane can identify their owning frame without racing against tmux option writes. Details in [state-monitoring.md](docs/state-monitoring.md#hook-event-routing-and-race-free-identification) |
 | Hook payload abstraction | Carry `CmdEvent.Payload` as an opaque `json.RawMessage` | Adding driver-specific fields requires no changes to state / runtime / proto |
-| Agent event integration | `roost event <eventType>` → `proto.CmdEvent` → `EvEvent` → `reduceEvent` → `Driver.Step(DEvHook)` | Hook bridge identifies sessionID race-free via `$ROOST_SESSION_ID` env var. Reducer performs a single lookup via `Sessions[ev.SessionID]`. Details in [state-monitoring.md](docs/state-monitoring.md#hook-event-routing-and-race-free-identification) |
+| Agent event integration | `roost event <eventType>` → `proto.CmdEvent` → `EvDriverEvent` → `reduceDriverHook` → `Driver.Step(DEvHook)` | Hook bridge reads the frame id from its pane environment and sends it as `CmdEvent.SenderID`. The reducer locates the owning frame directly and routes the hook to that frame's driver. Hooks for frames that have already been truncated off the stack are silently dropped. Details in [state-monitoring.md](docs/state-monitoring.md#hook-event-routing-and-race-free-identification) |
 | Connector scope | Per-daemon (one instance each), no state persistence (TTL-based), initialization on first EvTick | External service information is tied to the entire user account. Embedding in Driver would cause duplicate fetching. Initializing within the reducer enables pure function test coverage |
 
 ## Side-Effect Naming Convention

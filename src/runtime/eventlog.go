@@ -26,7 +26,7 @@ type FileEventLog struct {
 	dir string
 
 	mu    sync.Mutex
-	files map[state.SessionID]*os.File
+	files map[state.FrameID]*os.File
 }
 
 // NewFileEventLog returns a FileEventLog rooted at <dataDir>/events.
@@ -35,32 +35,32 @@ type FileEventLog struct {
 func NewFileEventLog(dataDir string) *FileEventLog {
 	return &FileEventLog{
 		dir:   filepath.Join(dataDir, "events"),
-		files: map[state.SessionID]*os.File{},
+		files: map[state.FrameID]*os.File{},
 	}
 }
 
 // Append writes a single line to the session's event log file,
 // prefixed with an RFC3339 timestamp. Lazy-opens the file on first
 // call.
-func (f *FileEventLog) Append(sessionID state.SessionID, line string) error {
-	if strings.ContainsAny(string(sessionID), `/\.`) {
-		return fmt.Errorf("eventlog: invalid session id: %q", sessionID)
+func (f *FileEventLog) Append(frameID state.FrameID, line string) error {
+	if strings.ContainsAny(string(frameID), `/\.`) {
+		return fmt.Errorf("eventlog: invalid frame id: %q", frameID)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	fh, ok := f.files[sessionID]
+	fh, ok := f.files[frameID]
 	if !ok {
 		if err := os.MkdirAll(f.dir, 0o755); err != nil {
 			return fmt.Errorf("eventlog: mkdir: %w", err)
 		}
-		path := filepath.Join(f.dir, string(sessionID)+".log")
+		path := filepath.Join(f.dir, string(frameID)+".log")
 		var err error
 		fh, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 		if err != nil {
 			return fmt.Errorf("eventlog: open: %w", err)
 		}
-		f.files[sessionID] = fh
+		f.files[frameID] = fh
 	}
 
 	stamp := time.Now().UTC().Format(time.RFC3339)
@@ -72,12 +72,12 @@ func (f *FileEventLog) Append(sessionID state.SessionID, line string) error {
 
 // Close closes the file for one session and removes it from the map.
 // Subsequent Append calls reopen the file.
-func (f *FileEventLog) Close(sessionID state.SessionID) {
+func (f *FileEventLog) Close(frameID state.FrameID) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if fh, ok := f.files[sessionID]; ok {
+	if fh, ok := f.files[frameID]; ok {
 		fh.Close()
-		delete(f.files, sessionID)
+		delete(f.files, frameID)
 	}
 }
 
@@ -93,6 +93,6 @@ func (f *FileEventLog) CloseAll() {
 }
 
 // Path returns the on-disk path of a session's log file.
-func (f *FileEventLog) Path(sessionID state.SessionID) string {
-	return filepath.Join(f.dir, string(sessionID)+".log")
+func (f *FileEventLog) Path(frameID state.FrameID) string {
+	return filepath.Join(f.dir, string(frameID)+".log")
 }

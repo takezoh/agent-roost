@@ -7,22 +7,52 @@ All state, runtime, and driver layers are defined as interfaces for testability.
 ```go
 // state/state.go — All domain state (plain data, no methods)
 type State struct {
-    Sessions    map[SessionID]Session
-    ActiveSession SessionID
-    Subscribers map[ConnID]Subscriber
-    Jobs        map[JobID]JobMeta
-    NextJobID   JobID
-    NextConnID  ConnID
-    Now         time.Time
-    Aliases     map[string]string
+    Sessions       map[SessionID]Session
+    PendingCreates map[JobID]PendingCreate
+    ActiveSession  SessionID
+    Subscribers    map[ConnID]Subscriber
+    Jobs           map[JobID]JobMeta
+    NextJobID      JobID
+    NextConnID     ConnID
+    Now            time.Time
+    Aliases        map[string]string
+    DefaultCommand string
+    Connectors     map[string]ConnectorState
 }
 
+// Session owns a stack of SessionFrames. The active frame is always
+// Frames[len-1]; the root frame is Frames[0]. Frame death truncates
+// the stack from that index onward.
 type Session struct {
     ID        SessionID
     Project   string
-    Command   string
     CreatedAt time.Time
-    Driver    DriverState   // sum type: concrete state per driver impl
+    Frames    []SessionFrame
+}
+
+// SessionFrame is one execution context within a session. Each frame
+// owns one tmux pane and carries its own DriverState, so push-driver
+// can layer a fresh driver context on top and frame death can truncate
+// just that slice of the stack.
+type SessionFrame struct {
+    ID            FrameID
+    Project       string
+    Command       string
+    LaunchOptions LaunchOptions
+    CreatedAt     time.Time
+    Driver        DriverState   // sum type: concrete state per driver impl
+}
+
+// LaunchOptions is the driver-agnostic, normalized set of options that
+// shape a frame's launch. Drivers receive the user's request via
+// PrepareLaunch, normalize it, and return the canonical form, which
+// round-trips through sessions.json and is re-applied on cold start.
+type LaunchOptions struct {
+    Worktree WorktreeOption
+}
+
+type WorktreeOption struct {
+    Enabled bool
 }
 ```
 
@@ -33,13 +63,32 @@ type Driver interface {
     DisplayName() string
     NewState(now time.Time) DriverState
     Step(prev DriverState, ev DriverEvent) (DriverState, []Effect, View)
+    Status(s DriverState) Status
     View(s DriverState) View
-    SpawnCommand(s DriverState, baseCommand string) string
     Persist(s DriverState) map[string]string
     Restore(bag map[string]string, now time.Time) DriverState
+
+    // PrepareLaunch resolves the launch plan (command, start dir,
+    // normalized options) for one frame. Invoked synchronously inside
+    // state.Reduce for new frames and during cold-start restoration
+    // for existing frames. Must be a pure function.
+    PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string,
+                  options LaunchOptions) (LaunchPlan, error)
 }
 
-// DriverState — closed sum type marker for per-session state
+// CreateSessionPlanner is an optional extension for drivers that need
+// async setup work (e.g. creating a managed worktree) between the
+// create-session request and the tmux spawn. PrepareCreate returns a
+// CreatePlan with an optional SetupJob; once the job completes the
+// reducer calls CompleteCreate to get the final CreateLaunch.
+type CreateSessionPlanner interface {
+    PrepareCreate(s DriverState, sessionID SessionID, project, command string,
+                  options LaunchOptions) (DriverState, CreatePlan, error)
+    CompleteCreate(s DriverState, command string, options LaunchOptions,
+                   result any, err error) (DriverState, CreateLaunch, error)
+}
+
+// DriverState — closed sum type marker for per-frame state
 type DriverState interface {
     driverStateMarker()
 }
@@ -48,7 +97,9 @@ type DriverState interface {
 // DEvTick, DEvHook, DEvJobResult, DEvFileChanged
 ```
 
-Driver is a **value-type plugin**: no goroutines, no I/O, no mutexes. Per-session state is embedded in `state.Session.Driver` as a `DriverState` value, and round-trips as arguments and return values of `Driver.Step`. Side effects are returned as `[]Effect` and executed by the runtime's Effect interpreter.
+Driver is a **value-type plugin**: no goroutines, no I/O, no mutexes. Per-frame state is embedded on each `SessionFrame.Driver` as a `DriverState` value, and round-trips as arguments and return values of `Driver.Step`. Side effects are returned as `[]Effect` and executed by the runtime's Effect interpreter.
+
+**Launch plan is resolved in the reducer, not the runtime.** `reduceCreateSession` (or `handlePendingCreate` for planner-gated flows) calls `Driver.PrepareLaunch` synchronously, writes the normalized `LaunchOptions` onto the frame, and bakes `launch.Command` / `launch.StartDir` / `launch.Options` into `EffSpawnTmuxWindow`. The runtime interprets the effect verbatim and never calls driver methods, keeping driver-specific logic entirely inside the pure functional core.
 
 ```go
 // state/status.go — Status enum
@@ -146,17 +197,17 @@ type CmdEvent struct {
 }
 ```
 
-Driver-specific hook payloads are passed through typed IPC as `proto.CmdEvent{Event, Timestamp, SenderID, Payload}`. Each driver subcommand (e.g., `roost event <eventType>`) packs its own hook payload into `CmdEvent` and sends it. The runtime's IPC reader converts it into an `EvDriverEvent` Event and feeds it into the event loop. `reduceDriverHook` performs a single lookup via `Sessions[ev.SenderID]` and calls `Driver.Step(driverState, DEvHook{...})`. Neither the state layer nor the runtime layer hardcodes any driver-specific key names.
+Driver-specific hook payloads are passed through typed IPC as `proto.CmdEvent{Event, Timestamp, SenderID, Payload}`. Each driver subcommand (e.g., `roost event <eventType>`) reads the frame id from its pane environment, packs its own hook payload into `CmdEvent` with `SenderID = frameID`, and sends it. The runtime's IPC reader converts it into an `EvDriverEvent` and feeds it into the event loop. `reduceDriverHook` locates the owning frame across all sessions and calls `Driver.Step(frame.Driver, DEvHook{...})`. Hooks whose target frame has already been truncated off the stack are silently dropped. Neither the state layer nor the runtime layer hardcodes any driver-specific key names.
 
-`Driver.SpawnCommand` is called from `runtime.Bootstrap` during cold start restoration, assembling the command string using driver-specific resume methods. The Claude driver holds the `session_id` received via `Restore` in DriverState and delegates to `lib/claude/cli.ResumeCommand` to return `claude --resume <id>`. The Generic driver returns the base command as-is.
+On cold start, the bootstrap walks each session's frames in root-to-tail order and calls `Driver.PrepareLaunch(frame.Driver, LaunchModeColdStart, project, command, frame.LaunchOptions)` to reconstruct the launch plan, including any driver-specific resume logic (e.g. the Claude driver assembles `claude --resume <id>` here using the session id it persisted in `DriverState`). The generic driver returns the base command as-is. The resolved launch plan drives `tmux new-window` directly — no separate driver method is involved.
 
 ## Data Files
 
 | Path | Format | Contents | Lifecycle |
 |------|--------|----------|-----------|
 | `~/.roost/config.toml` | TOML | User settings (see below) | Created by user. Falls back to default values if absent |
-| `~/.roost/sessions.json` | JSON | Session static metadata and Driver's `driver_state` (opaque map including status) — the single persistence store | Written on `EffPersistSnapshot` (on Tick / Hook event / session lifecycle changes). Read only at daemon startup via `runtime.Bootstrap`. Contents of `driver_state` are opaque key/value pairs interpreted by the driver; runtime knows none of the key names |
-| `~/.roost/events/{sessionID}.log` | Text | Agent hook event log | Appended via `EffEventLogAppend`. The runtime's EventLogBackend manages file handles with lazy-open |
+| `~/.roost/sessions.json` | JSON | Session metadata and the frame stack. Each session holds a list of frames; each frame carries its own command, normalized `launch_options`, and driver-interpreted `driver_state` bag. Active frame is not persisted — it is always the tail of the frame list | Written on `EffPersistSnapshot` (on Tick / Hook event / session lifecycle changes). Read only at daemon startup via `runtime.Bootstrap`. `driver_state` entries are opaque key/value pairs interpreted by the driver; runtime knows none of the key names |
+| `~/.roost/events/{frameID}.log` | Text | Per-frame agent hook event log | Appended via `EffEventLogAppend`. The runtime's EventLogBackend manages file handles with lazy-open |
 | `~/.roost/roost.log` | slog | Application log | Created/appended at daemon startup |
 | `~/.roost/roost.sock` | Unix socket | Inter-process communication | Created at daemon startup. Deleted on exit |
 
@@ -180,20 +231,21 @@ src/
 ├── event/
 │   └── send.go          Event sender (registers "event" subcommand in init)
 ├── state/               Pure domain layer (no I/O, no goroutine)
-│   ├── state.go         State, Session, Subscriber, JobMeta — plain value types
-│   ├── event.go         Event closed sum type (EvEvent, EvDriverEvent, EvTick, EvJobResult, ...)
+│   ├── state.go         State, Session, SessionFrame, Subscriber, JobMeta, LaunchOptions — plain value types
+│   ├── event.go         Event closed sum type (EvEvent, EvDriverEvent, EvTick, EvJobResult, EvPaneDied, EvTmuxWindowVanished, ...)
 │   ├── event_dispatch.go  RegisterEvent[T] registry + dispatch lookup
-│   ├── effect.go        Effect closed sum type (EffSpawnTmuxWindow, EffKillSessionWindow, EffRegisterWindow, EffUnregisterWindow, EffActivateSession, EffDeactivateSession, EffStartJob, EffBroadcast, ...)
+│   ├── effect.go        Effect closed sum type (EffSpawnTmuxWindow, EffKillSessionWindow, EffRegisterPane, EffUnregisterPane, EffActivateSession, EffDeactivateSession, EffStartJob, ...)
 │   ├── reduce.go        Reduce(State, Event) → (State, []Effect) — pure state transition function
 │   ├── reduce_event.go  EvEvent → registered handler dispatch, EvDriverEvent → Driver.Step routing
-│   ├── reduce_session.go  session lifecycle reducers (registered via RegisterEvent)
-│   ├── reduce_tick.go   EvTick → stepAllSessions → Driver.Step(DEvTick)
+│   ├── reduce_session.go  session / frame lifecycle reducers (create-session, push-driver, stop-session, …)
+│   ├── reduce_tick.go   EvTick → step active frame of each session → Driver.Step(DEvTick)
 │   ├── reduce_job.go    EvJobResult → Driver.Step(DEvJobResult)
 │   ├── reduce_conn.go   IPC connection lifecycle
 │   ├── reduce_lifecycle.go  shutdown / detach
-│   ├── reduce_helpers.go  shared reducer helpers
-│   ├── driver_iface.go  Driver interface (Step, View, Persist, Restore, SpawnCommand)
+│   ├── reduce_helpers.go  shared reducer helpers including frame-stack helpers (activeFrame, rootFrame, findFrame, truncateFrames)
+│   ├── driver_iface.go  Driver interface (Step, Status, View, Persist, Restore, PrepareLaunch)
 │   │                    DriverState / DriverEvent / DriverStateBase marker
+│   │                    LaunchMode / LaunchOptions / LaunchPlan / CreateLaunch / CreatePlan
 │   ├── status.go        Status enum (Running/Waiting/Idle/Stopped/Pending)
 │   ├── view.go          View / Card / Tag — display value types for TUI
 │   └── clone.go         Copy-on-write helpers for State

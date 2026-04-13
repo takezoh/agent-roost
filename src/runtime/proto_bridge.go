@@ -197,15 +197,19 @@ func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
 	})
 	infos := make([]proto.SessionInfo, 0, len(sorted))
 	for _, sess := range sorted {
-		drv := state.GetDriver(sess.Command)
+		frame, ok := sessionRootFrame(sess)
+		if !ok {
+			continue
+		}
+		drv := state.GetDriver(frame.Command)
 		var view state.View
 		if drv != nil {
-			view = drv.View(sess.Driver)
+			view = drv.View(frame.Driver)
 		}
 		info := proto.SessionInfo{
 			ID:        string(sess.ID),
 			Project:   sess.Project,
-			Command:   sess.Command,
+			Command:   frame.Command,
 			CreatedAt: sess.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			State:     view.Status,
 			View:      view,

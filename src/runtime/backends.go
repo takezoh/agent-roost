@@ -99,6 +99,13 @@ type PersistBackend interface {
 // bag (opaque map of strings). Pane ids are tracked in tmux session env
 // vars (ROOST_SESSION_<sid>); sessions.json stays pane-id free.
 type SessionSnapshot struct {
+	ID        string                 `json:"id"`
+	Project   string                 `json:"project"`
+	CreatedAt string                 `json:"created_at"`
+	Frames    []SessionFrameSnapshot `json:"frames"`
+}
+
+type SessionFrameSnapshot struct {
 	ID            string              `json:"id"`
 	Project       string              `json:"project"`
 	Command       string              `json:"command"`
@@ -112,16 +119,16 @@ type SessionSnapshot struct {
 // implementation lazily opens the file on first append and keeps it
 // open until Close(sessionID) is called.
 type EventLogBackend interface {
-	Append(sessionID state.SessionID, line string) error
-	Close(sessionID state.SessionID)
+	Append(frameID state.FrameID, line string) error
+	Close(frameID state.FrameID)
 	CloseAll()
 }
 
 // FSWatcher is the fsnotify wrapper. It watches per-session
 // files and emits FSEvent values on Events() when they change.
 type FSWatcher interface {
-	Watch(sessionID state.SessionID, path string) error
-	Unwatch(sessionID state.SessionID) error
+	Watch(frameID state.FrameID, path string) error
+	Unwatch(frameID state.FrameID) error
 	Events() <-chan FSEvent
 	Close() error
 }
@@ -130,8 +137,8 @@ type FSWatcher interface {
 // SessionID is set by the watcher (which knows the path → session
 // mapping it was given via Watch).
 type FSEvent struct {
-	SessionID state.SessionID
-	Path      string
+	FrameID state.FrameID
+	Path    string
 }
 
 // === noop backends (used until production wiring lands) ===
@@ -185,16 +192,16 @@ func (noopPersist) Load() ([]SessionSnapshot, error) { return nil, nil }
 
 type noopEventLog struct{}
 
-func (noopEventLog) Append(state.SessionID, string) error { return nil }
-func (noopEventLog) Close(state.SessionID)                {}
-func (noopEventLog) CloseAll()                            {}
+func (noopEventLog) Append(state.FrameID, string) error { return nil }
+func (noopEventLog) Close(state.FrameID)                {}
+func (noopEventLog) CloseAll()                          {}
 
 type noopWatcher struct {
 	ch chan FSEvent
 }
 
-func (n noopWatcher) Watch(state.SessionID, string) error { return nil }
-func (n noopWatcher) Unwatch(state.SessionID) error       { return nil }
+func (n noopWatcher) Watch(state.FrameID, string) error { return nil }
+func (n noopWatcher) Unwatch(state.FrameID) error       { return nil }
 func (n noopWatcher) Events() <-chan FSEvent {
 	if n.ch == nil {
 		return nil

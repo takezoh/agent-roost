@@ -80,12 +80,13 @@ Only 3 wire command types exist. All domain operations are multiplexed through `
 
 #### Event Types (via `CmdEvent.Event`)
 
-Domain operations and driver hooks are dispatched via `CmdEvent`. TUI/tool operations are registered via `RegisterEvent[T]` and dispatched to typed handlers. Driver hook events (those with `SenderID` set) are routed as `EvDriverEvent` to the session's driver.
+Domain operations and driver hooks are dispatched via `CmdEvent`. TUI/tool operations are registered via `RegisterEvent[T]` and dispatched to typed handlers. Driver hook events (those with `SenderID` set) are routed as `EvDriverEvent` to the owning frame's driver — `SenderID` is the frame id read from the hook bridge's own pane environment.
 
 | Event Type | Payload | Function |
 |------------|---------|----------|
-| `create-session` | project, command | Create a session |
-| `stop-session` | session_id | Stop a session |
+| `create-session` | project, command, options | Create a new session (root frame). `options` normalizes driver-agnostic launch flags such as `worktree.enabled` |
+| `push-driver` | session_id, project, command, options | Append a new driver frame on top of an existing session's active frame |
+| `stop-session` | session_id | Stop a session (terminates every frame in its stack) |
 | `list-sessions` | - | Retrieve session list |
 | `preview-session` | session_id | Preview in Pane 0.0 |
 | `preview-project` | project | Stash the active session and broadcast `project-selected` event |
@@ -94,7 +95,7 @@ Domain operations and driver hooks are dispatched via `CmdEvent`. TUI/tool opera
 | `launch-tool` | tool | Launch palette popup |
 | `shutdown` | - | Shutdown all |
 | `detach` | - | Detach |
-| *(driver hooks)* | driver-specific | Hook events from agent (e.g., `state-change`, `session-start`). Routed via `SenderID` |
+| *(driver hooks)* | driver-specific | Hook events from agent (e.g., `state-change`, `session-start`). `SenderID` is the frame id; the reducer locates the owning frame across all sessions and routes the hook to that frame's driver |
 
 ### Client Message Routing
 
@@ -242,10 +243,11 @@ sequenceDiagram
     participant Red as state.Reduce
     participant Drv as Driver.Step<br/>(claudeDriver)
 
+    Note over Bridge: SenderID is read from<br/>the pane environment (frame id)
     Bridge->>Reader: proto.CmdEvent{Event, Timestamp, SenderID, Payload}
     Reader->>EL: EvDriverEvent (eventCh)
     EL->>Red: Reduce(state, EvDriverEvent)
-    Note over Red: reduceDriverHook: session lookup →<br/>Driver.Step(driverState, DEvHook{...})
+    Note over Red: reduceDriverHook: locate the owning frame<br/>→ Driver.Step(frame.Driver, DEvHook{...})
     Red->>Drv: Step(prev, DEvHook{Event, Payload})
     Drv-->>Red: (next, [EffEventLogAppend, EffStartJob{Haiku}], view)
     Red-->>EL: (state', effects + EffSendResponse + EffBroadcastSessionsChanged)

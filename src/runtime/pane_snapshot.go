@@ -47,8 +47,8 @@ func compactPaneTail(s string) string {
 }
 
 func (r *Runtime) monitorParkedPanes() {
-	for sessID, target := range r.sessionPanes {
-		if sessID == r.activeSession || target == "" {
+	for frameID, target := range r.sessionPanes {
+		if frameID == r.activeFrameID || target == "" {
 			continue
 		}
 		snap, err := r.cfg.Tmux.InspectPane(target, paneSnapshotLines)
@@ -56,11 +56,11 @@ func (r *Runtime) monitorParkedPanes() {
 			continue
 		}
 		sig := parkedPaneSignature(snap)
-		if r.parkedPaneSnapshot[sessID] == sig {
+		if r.parkedPaneSnapshot[frameID] == sig {
 			continue
 		}
-		r.parkedPaneSnapshot[sessID] = sig
-		logParkedPaneSnapshot(sessID, snap)
+		r.parkedPaneSnapshot[frameID] = sig
+		logParkedPaneSnapshot(frameID, snap)
 	}
 }
 
@@ -83,11 +83,11 @@ func boolString(v bool) string {
 	return "0"
 }
 
-func logParkedPaneSnapshot(sessID state.SessionID, snap PaneSnapshot) {
+func logParkedPaneSnapshot(frameID state.FrameID, snap PaneSnapshot) {
 	slog.Debug("runtime: pane snapshot",
 		"reason", "park-watch",
 		"stage", "tick",
-		"session", sessID,
+		"frame", frameID,
 		"target", snap.Target,
 		"dead", snap.Dead,
 		"in_mode", snap.InMode,

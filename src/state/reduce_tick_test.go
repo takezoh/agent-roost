@@ -102,9 +102,9 @@ func TestTickInitializesConnectorsOnlyOnce(t *testing.T) {
 func TestPaneDiedActiveSessionEmitsDeactivate(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 	s.ActiveSession = id
-	_, effs := Reduce(s, EvPaneDied{Pane: "{sessionName}:0.0", OwnerSessionID: id})
+	_, effs := Reduce(s, EvPaneDied{Pane: "{sessionName}:0.0", OwnerFrameID: FrameID(id)})
 	if _, ok := findEff[EffDeactivateSession](effs); !ok {
 		t.Error("expected EffDeactivateSession when active session's pane dies")
 	}
@@ -113,9 +113,9 @@ func TestPaneDiedActiveSessionEmitsDeactivate(t *testing.T) {
 func TestTmuxWindowVanishedActiveSessionEmitsDeactivateAndRespawn(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 	s.ActiveSession = id
-	_, effs := Reduce(s, EvTmuxWindowVanished{SessionID: id})
+	_, effs := Reduce(s, EvTmuxWindowVanished{FrameID: FrameID(id)})
 	if _, ok := findEff[EffDeactivateSession](effs); !ok {
 		t.Error("expected EffDeactivateSession when active session's window vanishes")
 	}
@@ -128,11 +128,62 @@ func TestTmuxWindowVanishedInactiveSessionNoDeactivate(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	other := SessionID("other")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 	s.ActiveSession = other
-	_, effs := Reduce(s, EvTmuxWindowVanished{SessionID: id})
+	_, effs := Reduce(s, EvTmuxWindowVanished{FrameID: FrameID(id)})
 	if _, ok := findEff[EffDeactivateSession](effs); ok {
 		t.Error("should not emit EffDeactivateSession for inactive session's window vanish")
+	}
+}
+
+// === mid-frame truncate ===
+
+func TestMidFrameDeathTruncatesUpperFrames(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	rootID := FrameID("frame-root")
+	midID := FrameID("frame-mid")
+	topID := FrameID("frame-top")
+	s.Sessions[id] = Session{
+		ID:      id,
+		Project: "/foo",
+		Command: "stub",
+		Driver:  stubDriverState{},
+		Frames: []SessionFrame{
+			{ID: rootID, Project: "/foo", Command: "stub", Driver: stubDriverState{}},
+			{ID: midID, Project: "/foo", Command: "stub", Driver: stubDriverState{}},
+			{ID: topID, Project: "/foo", Command: "stub", Driver: stubDriverState{}},
+		},
+	}
+	s.ActiveSession = id
+
+	next, effs := Reduce(s, EvTmuxWindowVanished{FrameID: midID})
+
+	sess, ok := next.Sessions[id]
+	if !ok {
+		t.Fatal("session should remain when root frame survives")
+	}
+	if len(sess.Frames) != 1 {
+		t.Fatalf("frames = %d, want 1 (root only)", len(sess.Frames))
+	}
+	if sess.Frames[0].ID != rootID {
+		t.Errorf("surviving frame = %q, want root %q", sess.Frames[0].ID, rootID)
+	}
+
+	// mid and top must both be cleaned up
+	if countEff[EffUnregisterPane](effs) != 2 {
+		t.Errorf("EffUnregisterPane count = %d, want 2 (mid + top)", countEff[EffUnregisterPane](effs))
+	}
+	if countEff[EffUnwatchFile](effs) != 2 {
+		t.Errorf("EffUnwatchFile count = %d, want 2 (mid + top)", countEff[EffUnwatchFile](effs))
+	}
+
+	// active session remains and should be reactivated to the new tail (root)
+	if next.ActiveSession != id {
+		t.Errorf("ActiveSession = %q, want %q", next.ActiveSession, id)
+	}
+	if _, ok := findEff[EffActivateSession](effs); !ok {
+		t.Error("expected EffActivateSession to reactivate root frame after mid truncation")
 	}
 }
 
@@ -144,6 +195,11 @@ func TestTickNoBroadcastWhenNoChange(t *testing.T) {
 		ID:      "s1",
 		Command: "stub",
 		Driver:  stubDriverState{status: StatusRunning},
+		Frames: []SessionFrame{{
+			ID:      "s1",
+			Command: "stub",
+			Driver:  stubDriverState{status: StatusRunning},
+		}},
 	}
 
 	_, effs := Reduce(s, EvTick{Now: now})

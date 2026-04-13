@@ -114,6 +114,21 @@ func mustPayload(fields map[string]string) json.RawMessage {
 	return json.RawMessage(b)
 }
 
+func stubSession(id SessionID) Session {
+	return Session{
+		ID:      id,
+		Project: "/foo",
+		Command: "stub",
+		Driver:  stubDriverState{},
+		Frames: []SessionFrame{{
+			ID:      FrameID(id),
+			Project: "/foo",
+			Command: "stub",
+			Driver:  stubDriverState{},
+		}},
+	}
+}
+
 // === reduceCreateSession ===
 
 func TestCreateSessionMissingProject(t *testing.T) {
@@ -243,10 +258,11 @@ func TestTmuxSpawnedRegistersWindowAndActivates(t *testing.T) {
 	s := New()
 	s.Now = time.Now()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Project: "/foo", Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 
 	next, effs := Reduce(s, EvTmuxPaneSpawned{
 		SessionID:  id,
+		FrameID:    FrameID(id),
 		PaneTarget: "%1",
 		ReplyConn:  1,
 		ReplyReqID: "r",
@@ -274,7 +290,7 @@ func TestTmuxSpawnedRegistersWindowAndActivates(t *testing.T) {
 func TestTmuxSpawnedUnknownSessionDropsSilently(t *testing.T) {
 	s := New()
 	_, effs := Reduce(s, EvTmuxPaneSpawned{
-		SessionID: "ghost", PaneTarget: "%1", ReplyConn: 1, ReplyReqID: "r",
+		SessionID: "ghost", FrameID: "ghost", PaneTarget: "%1", ReplyConn: 1, ReplyReqID: "r",
 	})
 	if len(effs) != 0 {
 		t.Errorf("expected no effects, got %d", len(effs))
@@ -284,9 +300,9 @@ func TestTmuxSpawnedUnknownSessionDropsSilently(t *testing.T) {
 func TestTmuxSpawnFailedEvictsAndReplies(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id}
+	s.Sessions[id] = stubSession(id)
 	next, effs := Reduce(s, EvTmuxSpawnFailed{
-		SessionID: id, Err: "boom", ReplyConn: 1, ReplyReqID: "r",
+		SessionID: id, FrameID: FrameID(id), Err: "boom", ReplyConn: 1, ReplyReqID: "r",
 	})
 	if _, ok := next.Sessions[id]; ok {
 		t.Error("session should be evicted")
@@ -299,9 +315,9 @@ func TestTmuxSpawnFailedEvictsAndReplies(t *testing.T) {
 func TestTmuxSpawnFailedRemovesManagedWorktree(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Command: "planner", Driver: stubDriverState{}}
+	s.Sessions[id] = Session{ID: id, Command: "planner", Driver: stubDriverState{}, Frames: []SessionFrame{{ID: FrameID(id), Command: "planner", Driver: stubDriverState{}}}}
 	_, effs := Reduce(s, EvTmuxSpawnFailed{
-		SessionID: id, Err: "boom", ReplyConn: 1, ReplyReqID: "r",
+		SessionID: id, FrameID: FrameID(id), Err: "boom", ReplyConn: 1, ReplyReqID: "r",
 	})
 	if _, ok := findEff[EffRemoveManagedWorktree](effs); !ok {
 		t.Fatal("expected EffRemoveManagedWorktree")
@@ -311,9 +327,9 @@ func TestTmuxSpawnFailedRemovesManagedWorktree(t *testing.T) {
 func TestTmuxSpawnFailedNoManagedWorktreeForStub(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 	_, effs := Reduce(s, EvTmuxSpawnFailed{
-		SessionID: id, Err: "boom", ReplyConn: 1, ReplyReqID: "r",
+		SessionID: id, FrameID: FrameID(id), Err: "boom", ReplyConn: 1, ReplyReqID: "r",
 	})
 	if _, ok := findEff[EffRemoveManagedWorktree](effs); ok {
 		t.Fatal("did not expect EffRemoveManagedWorktree")
@@ -325,7 +341,7 @@ func TestTmuxSpawnFailedNoManagedWorktreeForStub(t *testing.T) {
 func TestStopSessionRemovesAndKills(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 	s.ActiveSession = id
 	next, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "stop-session",
@@ -357,7 +373,7 @@ func TestStopSessionUnknownReturnsError(t *testing.T) {
 func TestStopActiveSessionEmitsDeactivate(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 	s.ActiveSession = id
 	_, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "stop-session",
@@ -372,7 +388,7 @@ func TestStopInactiveSessionNoDeactivate(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	other := SessionID("other")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 	s.ActiveSession = other
 	_, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "stop-session",
@@ -388,7 +404,7 @@ func TestStopInactiveSessionNoDeactivate(t *testing.T) {
 func TestPreviewSessionActivatesAndBroadcasts(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 	next, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "preview-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
@@ -418,7 +434,7 @@ func TestPreviewSessionUnknownErrors(t *testing.T) {
 func TestSwitchSessionAlsoSelectsPane(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 	_, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "switch-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
@@ -552,9 +568,9 @@ func TestDetach(t *testing.T) {
 func TestTmuxWindowVanishedEvicts(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 	s.ActiveSession = id
-	next, effs := Reduce(s, EvTmuxWindowVanished{SessionID: id})
+	next, effs := Reduce(s, EvTmuxWindowVanished{FrameID: FrameID(id)})
 	if _, ok := next.Sessions[id]; ok {
 		t.Error("session should be evicted")
 	}
@@ -633,13 +649,13 @@ func TestPaneDiedUnknownPaneIsNoop(t *testing.T) {
 func TestPaneDiedEvictsSessionByOwnerID(t *testing.T) {
 	s := New()
 	s.Sessions = map[SessionID]Session{
-		"s1": {ID: "s1", Command: "stub", Driver: stubDriverState{}},
+		"s1": stubSession("s1"),
 	}
 	s.ActiveSession = "s1"
 
 	next, effs := Reduce(s, EvPaneDied{
-		Pane:           "{sessionName}:0.0",
-		OwnerSessionID: "s1",
+		Pane:         "{sessionName}:0.0",
+		OwnerFrameID: "s1",
 	})
 	if _, ok := next.Sessions["s1"]; ok {
 		t.Fatal("session should be deleted")
@@ -661,13 +677,13 @@ func TestPaneDiedEvictsSessionByOwnerID(t *testing.T) {
 func TestPaneDiedFallbackViaActiveSession(t *testing.T) {
 	s := New()
 	s.Sessions = map[SessionID]Session{
-		"s1": {ID: "s1", Command: "stub", Driver: stubDriverState{}},
+		"s1": stubSession("s1"),
 	}
 	s.ActiveSession = "s1"
 
 	next, effs := Reduce(s, EvPaneDied{
-		Pane:           "{sessionName}:0.0",
-		OwnerSessionID: "", // runtime couldn't identify owner
+		Pane:         "{sessionName}:0.0",
+		OwnerFrameID: "", // runtime couldn't identify owner
 	})
 	if _, ok := next.Sessions["s1"]; ok {
 		t.Fatal("session should be deleted via ActiveSession fallback")
@@ -683,12 +699,12 @@ func TestPaneDiedFallbackViaActiveSession(t *testing.T) {
 func TestPaneDiedNoActiveRespawnsMainTUI(t *testing.T) {
 	s := New()
 	s.Sessions = map[SessionID]Session{
-		"s1": {ID: "s1", Command: "stub", Driver: stubDriverState{}},
+		"s1": stubSession("s1"),
 	}
 
 	_, effs := Reduce(s, EvPaneDied{
-		Pane:           "{sessionName}:0.0",
-		OwnerSessionID: "",
+		Pane:         "{sessionName}:0.0",
+		OwnerFrameID: "",
 	})
 	respawn, ok := findEff[EffRespawnPane](effs)
 	if !ok {
@@ -715,8 +731,8 @@ func TestJobResultUnknownDropsSilently(t *testing.T) {
 func TestJobResultRoutesToDriver(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
-	s.Jobs[1] = JobMeta{SessionID: id}
+	s.Sessions[id] = stubSession(id)
+	s.Jobs[1] = JobMeta{SessionID: id, FrameID: FrameID(id)}
 	next, effs := Reduce(s, EvJobResult{JobID: 1, Result: "irrelevant"})
 	if _, ok := next.Jobs[1]; ok {
 		t.Error("job should be removed")
@@ -756,8 +772,8 @@ func TestJobResultRoutesToConnector(t *testing.T) {
 func TestFileChangedRoutes(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
-	_, effs := Reduce(s, EvFileChanged{SessionID: id, Path: "/x"})
+	s.Sessions[id] = stubSession(id)
+	_, effs := Reduce(s, EvFileChanged{FrameID: FrameID(id), Path: "/x"})
 	if len(effs) != 0 {
 		t.Errorf("expected 0 effects from no-op driver, got %d", len(effs))
 	}
@@ -765,7 +781,7 @@ func TestFileChangedRoutes(t *testing.T) {
 
 func TestFileChangedUnknownSession(t *testing.T) {
 	s := New()
-	_, effs := Reduce(s, EvFileChanged{SessionID: "ghost", Path: "/x"})
+	_, effs := Reduce(s, EvFileChanged{FrameID: "ghost", Path: "/x"})
 	if len(effs) != 0 {
 		t.Errorf("expected 0 effects, got %d", len(effs))
 	}
@@ -792,9 +808,9 @@ func TestReduceHookUnknownSession(t *testing.T) {
 func TestReduceHookRoutes(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 	_, effs := Reduce(s, EvDriverEvent{
-		ConnID: 1, ReqID: "r", SenderID: id, Event: "session-start",
+		ConnID: 1, ReqID: "r", SenderID: FrameID(id), Event: "session-start",
 		Payload: json.RawMessage(`{}`),
 	})
 	if _, ok := findEff[EffSendResponse](effs); !ok {
@@ -805,9 +821,9 @@ func TestReduceHookRoutes(t *testing.T) {
 func TestReduceHookInjectsRoostSessionID(t *testing.T) {
 	s := New()
 	id := SessionID("roost-xyz")
-	s.Sessions[id] = Session{ID: id, Command: "stub", Driver: stubDriverState{}}
+	s.Sessions[id] = stubSession(id)
 	_, effs := Reduce(s, EvDriverEvent{
-		ConnID: 1, ReqID: "r", SenderID: id, Event: "test",
+		ConnID: 1, ReqID: "r", SenderID: FrameID(id), Event: "test",
 		Payload: json.RawMessage(`{}`),
 	})
 	if _, ok := findEff[EffSendError](effs); ok {
@@ -820,7 +836,7 @@ func TestReduceHookInjectsRoostSessionID(t *testing.T) {
 func TestPostProcessAssignsJobID(t *testing.T) {
 	s := New()
 	s.Now = time.Now()
-	patched, next := postProcessEffect(s, "abc", EffStartJob{Input: stubJobInput{}})
+	patched, next := postProcessEffect(s, "abc", "abc", EffStartJob{Input: stubJobInput{}})
 	job := patched.(EffStartJob)
 	if job.JobID == 0 {
 		t.Error("JobID should be assigned")
@@ -839,18 +855,18 @@ func TestPostProcessAssignsJobID(t *testing.T) {
 
 func TestPostProcessFillsSessionID(t *testing.T) {
 	s := New()
-	patched, _ := postProcessEffect(s, "abc", EffEventLogAppend{Line: "x"})
+	patched, _ := postProcessEffect(s, "abc", "abc", EffEventLogAppend{Line: "x"})
 	eff := patched.(EffEventLogAppend)
-	if eff.SessionID != "abc" {
-		t.Errorf("SessionID = %q, want abc", eff.SessionID)
+	if eff.FrameID != "abc" {
+		t.Errorf("FrameID = %q, want abc", eff.FrameID)
 	}
 }
 
 func TestPostProcessLeavesSessionIDIfSet(t *testing.T) {
 	s := New()
-	patched, _ := postProcessEffect(s, "abc", EffWatchFile{SessionID: "preset", Path: "/x"})
-	if patched.(EffWatchFile).SessionID != "preset" {
-		t.Error("preset SessionID overwritten")
+	patched, _ := postProcessEffect(s, "abc", "abc", EffWatchFile{FrameID: "preset", Path: "/x"})
+	if patched.(EffWatchFile).FrameID != "preset" {
+		t.Error("preset FrameID overwritten")
 	}
 }
 
@@ -887,4 +903,65 @@ func TestReduceCreateSession_FallbackToShell(t *testing.T) {
 		return
 	}
 	t.Fatal("no session created")
+}
+
+// === reducePushDriver ===
+
+func TestPushDriverAppendsFrame(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	s.Sessions[id] = stubSession(id)
+
+	next, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "push-driver",
+		Payload: mustPayload(map[string]string{
+			"session_id": string(id),
+			"project":    "/bar",
+			"command":    "stub",
+		}),
+	})
+	mustOK(t, effs)
+
+	sess := next.Sessions[id]
+	if len(sess.Frames) != 2 {
+		t.Fatalf("frames = %d, want 2", len(sess.Frames))
+	}
+	newFrame := sess.Frames[1]
+	if newFrame.Command != "stub" {
+		t.Errorf("frame.Command = %q, want stub", newFrame.Command)
+	}
+	if newFrame.Project != "/bar" {
+		t.Errorf("frame.Project = %q, want /bar", newFrame.Project)
+	}
+	if newFrame.ID == FrameID(id) {
+		t.Error("new frame should have a different FrameID from the root frame")
+	}
+
+	spawn, ok := findEff[EffSpawnTmuxWindow](effs)
+	if !ok {
+		t.Fatal("expected EffSpawnTmuxWindow")
+	}
+	if spawn.SessionID != id {
+		t.Errorf("spawn.SessionID = %q, want %q", spawn.SessionID, id)
+	}
+	if spawn.FrameID != newFrame.ID {
+		t.Errorf("spawn.FrameID = %q, want %q", spawn.FrameID, newFrame.ID)
+	}
+	if spawn.Env["ROOST_SESSION_ID"] != string(id) {
+		t.Errorf("env ROOST_SESSION_ID = %q", spawn.Env["ROOST_SESSION_ID"])
+	}
+	if spawn.Env["ROOST_FRAME_ID"] != string(newFrame.ID) {
+		t.Errorf("env ROOST_FRAME_ID = %q", spawn.Env["ROOST_FRAME_ID"])
+	}
+}
+
+func TestPushDriverUnknownSessionErrors(t *testing.T) {
+	s := New()
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "push-driver",
+		Payload: mustPayload(map[string]string{"session_id": "ghost", "command": "stub"}),
+	})
+	if _, ok := findEff[EffSendError](effs); !ok {
+		t.Error("expected EffSendError for unknown session")
+	}
 }

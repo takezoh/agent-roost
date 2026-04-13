@@ -24,10 +24,10 @@ func newTestFileRelay(t *testing.T) *FileRelay {
 func TestUnwatchFile(t *testing.T) {
 	fr := newTestFileRelay(t)
 
-	sid := state.SessionID("sess-1")
-	fr.files["/tmp/a.log"] = &relayFile{path: "/tmp/a.log", sessionID: sid, kind: "transcript"}
-	fr.files["/tmp/b.log"] = &relayFile{path: "/tmp/b.log", sessionID: sid, kind: "log"}
-	fr.files["/tmp/c.log"] = &relayFile{path: "/tmp/c.log", sessionID: "other", kind: "log"}
+	sid := state.FrameID("sess-1")
+	fr.files["/tmp/a.log"] = &relayFile{path: "/tmp/a.log", frameID: sid, kind: "transcript"}
+	fr.files["/tmp/b.log"] = &relayFile{path: "/tmp/b.log", frameID: sid, kind: "log"}
+	fr.files["/tmp/c.log"] = &relayFile{path: "/tmp/c.log", frameID: "other", kind: "log"}
 
 	fr.UnwatchFile(sid)
 
@@ -44,7 +44,7 @@ func TestUnwatchFile(t *testing.T) {
 
 func TestUnwatchFileNoMatch(t *testing.T) {
 	fr := newTestFileRelay(t)
-	fr.files["/tmp/x.log"] = &relayFile{path: "/tmp/x.log", sessionID: "keep", kind: "log"}
+	fr.files["/tmp/x.log"] = &relayFile{path: "/tmp/x.log", frameID: "keep", kind: "log"}
 
 	fr.UnwatchFile("nonexistent")
 
@@ -55,8 +55,8 @@ func TestUnwatchFileNoMatch(t *testing.T) {
 
 func TestUnwatch(t *testing.T) {
 	fr := newTestFileRelay(t)
-	fr.files["/tmp/d.log"] = &relayFile{path: "/tmp/d.log", sessionID: "s1", kind: "log"}
-	fr.files["/tmp/e.log"] = &relayFile{path: "/tmp/e.log", sessionID: "s2", kind: "log"}
+	fr.files["/tmp/d.log"] = &relayFile{path: "/tmp/d.log", frameID: "s1", kind: "log"}
+	fr.files["/tmp/e.log"] = &relayFile{path: "/tmp/e.log", frameID: "s2", kind: "log"}
 
 	fr.Unwatch("/tmp/d.log")
 

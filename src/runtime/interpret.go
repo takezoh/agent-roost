@@ -40,8 +40,8 @@ func (r *Runtime) execute(eff state.Effect) {
 		r.executeFSEffect(e)
 
 	case state.EffEventLogAppend:
-		if err := r.cfg.EventLog.Append(e.SessionID, e.Line); err != nil {
-			slog.Debug("runtime: event log append failed", "session", e.SessionID, "err", err)
+		if err := r.cfg.EventLog.Append(e.FrameID, e.Line); err != nil {
+			slog.Debug("runtime: event log append failed", "frame", e.FrameID, "err", err)
 		}
 
 	case state.EffRemoveManagedWorktree:
@@ -63,16 +63,16 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 		go r.spawnTmuxWindowAsync(e)
 
 	case state.EffKillSessionWindow:
-		if target := r.sessionPanes[e.SessionID]; target != "" {
+		if target := r.sessionPanes[e.FrameID]; target != "" {
 			if err := r.cfg.Tmux.KillPaneWindow(target); err != nil {
 				slog.Error("runtime: kill window failed", "target", target, "err", err)
 			}
 		}
 
 	case state.EffTerminateSession:
-		if target := r.sessionPanes[e.SessionID]; target != "" {
+		if target := r.sessionPanes[e.FrameID]; target != "" {
 			if err := r.cfg.Tmux.TerminatePane(target); err != nil {
-				slog.Warn("runtime: terminate pane failed", "session", e.SessionID, "target", target, "err", err)
+				slog.Warn("runtime: terminate pane failed", "frame", e.FrameID, "target", target, "err", err)
 			}
 		}
 
@@ -83,14 +83,15 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 		r.deactivateSession()
 
 	case state.EffRegisterPane:
-		r.sessionPanes[e.SessionID] = e.PaneTarget
-		r.cfg.Tmux.SetEnv(sessionPaneEnvKey(e.SessionID), e.PaneTarget)
+		r.sessionPanes[e.FrameID] = e.PaneTarget
+		r.cfg.Tmux.SetEnv(sessionPaneEnvKey(e.FrameID), e.PaneTarget)
 
 	case state.EffUnregisterPane:
-		if _, ok := r.sessionPanes[e.SessionID]; ok {
-			delete(r.sessionPanes, e.SessionID)
-			delete(r.parkedPaneSnapshot, e.SessionID)
-			r.cfg.Tmux.UnsetEnv(sessionPaneEnvKey(e.SessionID))
+		if _, ok := r.sessionPanes[e.FrameID]; ok {
+			delete(r.sessionPanes, e.FrameID)
+			delete(r.parkedPaneSnapshot, e.FrameID)
+			r.cfg.Tmux.UnsetEnv(sessionPaneEnvKey(e.FrameID))
+			r.cfg.EventLog.Close(e.FrameID)
 		}
 
 	case state.EffSelectPane:
@@ -115,7 +116,7 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 		if alive, err := r.cfg.Tmux.PaneAlive(target); err == nil && !alive {
 			ev := state.EvPaneDied{Pane: e.Pane}
 			if e.Pane == "{sessionName}:0.0" {
-				ev.OwnerSessionID = r.findPaneOwner(target)
+				ev.OwnerFrameID = r.findPaneOwner(target)
 			}
 			r.Enqueue(ev)
 		}
@@ -161,15 +162,15 @@ func (r *Runtime) executeIPCEffect(eff state.Effect) {
 func (r *Runtime) executeFSEffect(eff state.Effect) {
 	switch e := eff.(type) {
 	case state.EffWatchFile:
-		r.cfg.Watcher.Watch(e.SessionID, e.Path)
+		r.cfg.Watcher.Watch(e.FrameID, e.Path)
 		if r.relay != nil {
-			r.relay.WatchFile(e.SessionID, e.Path, e.Kind)
+			r.relay.WatchFile(e.FrameID, e.Path, e.Kind)
 		}
 
 	case state.EffUnwatchFile:
-		r.cfg.Watcher.Unwatch(e.SessionID)
+		r.cfg.Watcher.Unwatch(e.FrameID)
 		if r.relay != nil {
-			r.relay.UnwatchFile(e.SessionID)
+			r.relay.UnwatchFile(e.FrameID)
 		}
 	}
 }
@@ -178,7 +179,7 @@ func (r *Runtime) executeFSEffect(eff state.Effect) {
 // event loop is not blocked on subprocess wait time. Posts back via
 // EvTmuxPaneSpawned / EvTmuxSpawnFailed.
 func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
-	name := windowName(e.Project, string(e.SessionID))
+	name := windowName(e.Project, string(e.FrameID))
 	spawnCmd := "exec " + e.Command
 	if isShellCommand(e.Command) {
 		spawnCmd = ""
@@ -188,6 +189,7 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	if err != nil {
 		r.Enqueue(state.EvTmuxSpawnFailed{
 			SessionID:  e.SessionID,
+			FrameID:    e.FrameID,
 			Err:        err.Error(),
 			ReplyConn:  e.ReplyConn,
 			ReplyReqID: e.ReplyReqID,
@@ -197,6 +199,7 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	r.resizeWindowToMain(r.cfg.SessionName+":"+target, size)
 	r.Enqueue(state.EvTmuxPaneSpawned{
 		SessionID:  e.SessionID,
+		FrameID:    e.FrameID,
 		PaneTarget: paneID,
 		ReplyConn:  e.ReplyConn,
 		ReplyReqID: e.ReplyReqID,
@@ -280,23 +283,30 @@ func (r *Runtime) submitJob(e state.EffStartJob) {
 func (r *Runtime) snapshotSessions() []SessionSnapshot {
 	out := make([]SessionSnapshot, 0, len(r.state.Sessions))
 	for _, sess := range r.state.Sessions {
-		drv := state.GetDriver(sess.Command)
-		var bag map[string]string
-		if drv != nil {
-			bag = drv.Persist(sess.Driver)
-		}
-		var driverName string
-		if drv != nil {
-			driverName = drv.Name()
+		frames := make([]SessionFrameSnapshot, 0, len(sess.Frames))
+		for _, frame := range sess.Frames {
+			drv := state.GetDriver(frame.Command)
+			var bag map[string]string
+			var driverName string
+			if drv != nil {
+				bag = drv.Persist(frame.Driver)
+				driverName = drv.Name()
+			}
+			frames = append(frames, SessionFrameSnapshot{
+				ID:            string(frame.ID),
+				Project:       frame.Project,
+				Command:       frame.Command,
+				LaunchOptions: frame.LaunchOptions,
+				CreatedAt:     frame.CreatedAt.UTC().Format(time.RFC3339),
+				Driver:        driverName,
+				DriverState:   bag,
+			})
 		}
 		out = append(out, SessionSnapshot{
-			ID:            string(sess.ID),
-			Project:       sess.Project,
-			Command:       sess.Command,
-			LaunchOptions: sess.LaunchOptions,
-			CreatedAt:     sess.CreatedAt.UTC().Format(time.RFC3339),
-			Driver:        driverName,
-			DriverState:   bag,
+			ID:        string(sess.ID),
+			Project:   sess.Project,
+			CreatedAt: sess.CreatedAt.UTC().Format(time.RFC3339),
+			Frames:    frames,
 		})
 	}
 	return out
@@ -313,32 +323,36 @@ func (r *Runtime) activeStatusLine() string {
 	if !ok {
 		return ""
 	}
-	drv := state.GetDriver(sess.Command)
+	frame, ok := sessionActiveFrame(sess)
+	if !ok {
+		return ""
+	}
+	drv := state.GetDriver(frame.Command)
 	if drv == nil {
 		return ""
 	}
-	return drv.View(sess.Driver).StatusLine
+	return drv.View(frame.Driver).StatusLine
 }
 
 // reconcileWindows checks whether each tracked session pane still
 // exists. Missing panes are reported via EvTmuxWindowVanished.
 func (r *Runtime) reconcileWindows() {
-	for sessID, target := range r.sessionPanes {
-		if sessID == r.activeSession {
+	for frameID, target := range r.sessionPanes {
+		if frameID == r.activeFrameID {
 			continue
 		}
 		alive, err := r.cfg.Tmux.PaneAlive(target)
 		if err != nil {
-			slog.Debug("runtime: reconcile pane failed", "session", sessID, "pane", target, "err", err)
+			slog.Debug("runtime: reconcile pane failed", "frame", frameID, "pane", target, "err", err)
 			continue
 		}
 		if !alive {
-			r.Enqueue(state.EvTmuxWindowVanished{SessionID: sessID})
+			r.Enqueue(state.EvTmuxWindowVanished{FrameID: frameID})
 		}
 	}
 }
 
-// findPaneOwner returns the SessionID currently active in pane 0.0.
-func (r *Runtime) findPaneOwner(_ string) state.SessionID {
-	return r.activeSession
+// findPaneOwner returns the FrameID currently active in pane 0.0.
+func (r *Runtime) findPaneOwner(_ string) state.FrameID {
+	return r.activeFrameID
 }
