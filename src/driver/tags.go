@@ -43,7 +43,7 @@ func GeminiCommandTag() state.Tag {
 
 // BranchTag returns a VCS branch tag with pre-resolved brand colors.
 // When parentBranch is non-empty the tag text includes an arrow
-// showing the main worktree's branch (e.g. "feature ← main").
+// showing the main worktree's branch (e.g. "feature → main").
 // Empty branch name produces an empty Tag (Text == "") which callers
 // should not append.
 func BranchTag(branch, bg, fg, parentBranch string) state.Tag {
@@ -52,7 +52,7 @@ func BranchTag(branch, bg, fg, parentBranch string) state.Tag {
 	}
 	text := branch
 	if parentBranch != "" {
-		text = branch + " \u2190 " + parentBranch
+		text = branch + " \u2192 " + parentBranch
 	}
 	return state.Tag{
 		Text:       text,

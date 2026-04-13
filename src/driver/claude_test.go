@@ -1031,7 +1031,7 @@ func TestClaudeViewBranchTagWorktree(t *testing.T) {
 	cs.BranchTag = "feature"
 	cs.BranchParentBranch = "main"
 	v := d.view(cs)
-	if len(v.Card.Tags) < 1 || v.Card.Tags[0].Text != "feature \u2190 main" {
+	if len(v.Card.Tags) < 1 || v.Card.Tags[0].Text != "feature \u2192 main" {
 		t.Errorf("worktree branch tag: %+v", v.Card.Tags)
 	}
 }
