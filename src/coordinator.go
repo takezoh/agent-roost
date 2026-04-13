@@ -69,7 +69,7 @@ func runCoordinator() error {
 	warmRestart := client.SessionExists()
 	if warmRestart {
 		slog.Info("session exists, restoring")
-		if err := rt.LoadSnapshot(); err != nil {
+		if err := rt.LoadSnapshot(false); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
 		if err := rt.LoadSessionPanes(); err != nil {
@@ -87,7 +87,7 @@ func runCoordinator() error {
 		if err := rt.LoadSessionPanes(); err != nil {
 			slog.Warn("window map load failed", "err", err)
 		}
-		if err := rt.LoadSnapshot(); err != nil {
+		if err := rt.LoadSnapshot(true); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
 		if err := rt.RecreateAll(); err != nil {

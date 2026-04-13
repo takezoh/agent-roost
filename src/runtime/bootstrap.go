@@ -16,7 +16,7 @@ import (
 // LoadSnapshot reads sessions.json and registers each session in
 // r.state. Driver state is restored via the registered Driver's
 // Restore method.
-func (r *Runtime) LoadSnapshot() error {
+func (r *Runtime) LoadSnapshot(coldStart bool) error {
 	snaps, err := r.cfg.Persist.Load()
 	if err != nil {
 		return err
@@ -35,6 +35,11 @@ func (r *Runtime) LoadSnapshot() error {
 		if createdAt.IsZero() {
 			createdAt = now
 		}
+
+		if coldStart && snap.DriverState["status"] == "running" {
+			snap.DriverState["status"] = "waiting"
+		}
+
 		r.state.Sessions[state.SessionID(snap.ID)] = state.Session{
 			ID:            state.SessionID(snap.ID),
 			Project:       snap.Project,
