@@ -95,18 +95,22 @@ func (d GenericDriver) NewState(now time.Time) state.DriverState {
 	}
 }
 
-func (d GenericDriver) PrepareLaunch(s state.DriverState, _ state.LaunchMode, project, baseCommand string) (state.LaunchPlan, error) {
+func (d GenericDriver) PrepareLaunch(s state.DriverState, _ state.LaunchMode, project, baseCommand string, options state.LaunchOptions) (state.LaunchPlan, error) {
 	gs, ok := s.(GenericState)
 	if !ok {
 		gs = GenericState{}
 	}
 	startDir := project
-	command := strings.TrimSpace(baseCommand)
+	req, command := resolveWorktreeRequest(baseCommand, options, "--worktree")
 	if gs.WorkingDir != "" {
 		startDir = gs.WorkingDir
-		_, command = parseWorktreeFlags(command, "--worktree")
+		req.Enabled = true
 	}
-	return state.LaunchPlan{Command: command, StartDir: startDir}, nil
+	return state.LaunchPlan{
+		Command:  strings.TrimSpace(command),
+		StartDir: startDir,
+		Options:  state.LaunchOptions{Worktree: state.WorktreeOption{Enabled: req.Enabled}},
+	}, nil
 }
 
 func (d GenericDriver) Persist(s state.DriverState) map[string]string {
@@ -185,12 +189,12 @@ func (d GenericDriver) Step(prev state.DriverState, ev state.DriverEvent) (state
 	return gs, nil, d.view(gs)
 }
 
-func (d GenericDriver) PrepareCreate(s state.DriverState, _ state.SessionID, project, command string) (state.DriverState, state.CreatePlan, error) {
+func (d GenericDriver) PrepareCreate(s state.DriverState, _ state.SessionID, project, command string, options state.LaunchOptions) (state.DriverState, state.CreatePlan, error) {
 	gs, ok := s.(GenericState)
 	if !ok {
 		gs = GenericState{}
 	}
-	plan, name, err := managedWorktreePlan(project, command, "--worktree")
+	plan, name, err := managedWorktreePlan(project, command, options, "--worktree")
 	if err != nil {
 		return gs, state.CreatePlan{}, err
 	}
@@ -200,7 +204,7 @@ func (d GenericDriver) PrepareCreate(s state.DriverState, _ state.SessionID, pro
 	return gs, plan, nil
 }
 
-func (d GenericDriver) CompleteCreate(s state.DriverState, command string, result any, err error) (state.DriverState, state.CreateLaunch, error) {
+func (d GenericDriver) CompleteCreate(s state.DriverState, command string, options state.LaunchOptions, result any, err error) (state.DriverState, state.CreateLaunch, error) {
 	gs, ok := s.(GenericState)
 	if !ok {
 		gs = GenericState{}
@@ -216,7 +220,11 @@ func (d GenericDriver) CompleteCreate(s state.DriverState, command string, resul
 	if r.Name != "" {
 		gs.WorktreeName = r.Name
 	}
-	return gs, state.CreateLaunch{Command: command, StartDir: r.WorkingDir}, nil
+	return gs, state.CreateLaunch{
+		Command:  strings.TrimSpace(command),
+		StartDir: r.WorkingDir,
+		Options:  state.LaunchOptions{Worktree: state.WorktreeOption{Enabled: true}},
+	}, nil
 }
 
 func (d GenericDriver) ManagedWorktreePath(s state.DriverState) string {

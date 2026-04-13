@@ -114,13 +114,22 @@ const (
 	LaunchModeWarmStart
 )
 
+type WorktreeOption struct {
+	Enabled bool `json:"enabled,omitempty"`
+}
+
+type LaunchOptions struct {
+	Worktree WorktreeOption `json:"worktree,omitempty"`
+}
+
 type LaunchPlan struct {
 	Command  string
 	StartDir string
+	Options  LaunchOptions
 }
 
 type LaunchPreparer interface {
-	PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string) (LaunchPlan, error)
+	PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string, options LaunchOptions) (LaunchPlan, error)
 }
 
 // Driver is the interface every per-driver-type plugin implements. Each
@@ -156,6 +165,7 @@ type Driver interface {
 type CreateLaunch struct {
 	Command  string
 	StartDir string
+	Options  LaunchOptions
 }
 
 // CreatePlan is the driver-owned create-session plan. Drivers that do
@@ -169,8 +179,8 @@ type CreatePlan struct {
 // that need to transform or prepare their start environment during
 // create-session before tmux spawn happens.
 type CreateSessionPlanner interface {
-	PrepareCreate(s DriverState, sessionID SessionID, project, command string) (DriverState, CreatePlan, error)
-	CompleteCreate(s DriverState, command string, result any, err error) (DriverState, CreateLaunch, error)
+	PrepareCreate(s DriverState, sessionID SessionID, project, command string, options LaunchOptions) (DriverState, CreatePlan, error)
+	CompleteCreate(s DriverState, command string, options LaunchOptions, result any, err error) (DriverState, CreateLaunch, error)
 }
 
 // ManagedWorktreeProvider is an optional driver extension for exposing

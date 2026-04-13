@@ -50,7 +50,7 @@ func (d GeminiDriver) NewState(now time.Time) state.DriverState {
 	}
 }
 
-func (d GeminiDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, project, baseCommand string) (state.LaunchPlan, error) {
+func (d GeminiDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, project, baseCommand string, options state.LaunchOptions) (state.LaunchPlan, error) {
 	gs, ok := s.(GeminiState)
 	if !ok {
 		gs = GeminiState{}
@@ -59,19 +59,19 @@ func (d GeminiDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, 
 	if gs.WorkingDir != "" {
 		startDir = gs.WorkingDir
 	}
-	stripped := strings.TrimSpace(baseCommand)
-	if mode == state.LaunchModeCreate || gs.WorkingDir != "" {
-		stripped = strings.TrimSpace(stripGeminiWorktreeFlag(stripped))
-	}
+	req, stripped := resolveWorktreeRequest(baseCommand, options, "--worktree", "--workspace")
+	command := appendFlag(stripped, "--worktree", req.Enabled)
 	if mode != state.LaunchModeColdStart || gs.GeminiSessionID == "" || !isAlphanumHyphen(gs.GeminiSessionID) {
-		return state.LaunchPlan{Command: stripped, StartDir: startDir}, nil
+		return state.LaunchPlan{Command: command, StartDir: startDir}, nil
 	}
-	if strings.Contains(stripped, "--resume") || strings.Contains(stripped, " -r") {
-		return state.LaunchPlan{Command: stripped, StartDir: startDir}, nil
+	command = strings.TrimSpace(stripGeminiWorktreeFlag(command))
+	if strings.Contains(command, "--resume") || strings.Contains(command, " -r") {
+		return state.LaunchPlan{Command: command, StartDir: startDir}, nil
 	}
 	return state.LaunchPlan{
-		Command:  strings.TrimSpace(stripGeminiWorktreeFlag(stripped)) + " --resume " + gs.GeminiSessionID,
+		Command:  command + " --resume " + gs.GeminiSessionID,
 		StartDir: startDir,
+		Options:  state.LaunchOptions{},
 	}, nil
 }
 

@@ -808,6 +808,9 @@ func TestSpawnTmuxWindowAsyncUsesPrepareLaunch(t *testing.T) {
 		SessionID: state.SessionID("s1"),
 		Mode:      state.LaunchModeCreate,
 		Project:   "/repo",
+		Command:   "codex --model gpt-5-codex",
+		StartDir:  "/repo/.roost/worktrees/example",
+		Options:   state.LaunchOptions{Worktree: state.WorktreeOption{Enabled: true}},
 		Env:       map[string]string{"ROOST_SESSION_ID": "s1"},
 	})
 

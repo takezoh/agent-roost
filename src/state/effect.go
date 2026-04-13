@@ -20,6 +20,7 @@ type EffSpawnTmuxWindow struct {
 	Project    string
 	Command    string
 	StartDir   string
+	Options    LaunchOptions
 	Env        map[string]string
 	ReplyConn  ConnID
 	ReplyReqID string

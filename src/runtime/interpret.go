@@ -179,27 +179,12 @@ func (r *Runtime) executeFSEffect(eff state.Effect) {
 // EvTmuxPaneSpawned / EvTmuxSpawnFailed.
 func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	name := windowName(e.Project, string(e.SessionID))
-	sess, ok := r.state.Sessions[e.SessionID]
-	if !ok {
-		return
-	}
-	drv := state.GetDriver(sess.Command)
-	launch, err := drv.PrepareLaunch(sess.Driver, e.Mode, sess.Project, sess.Command)
-	if err != nil {
-		r.Enqueue(state.EvTmuxSpawnFailed{
-			SessionID:  e.SessionID,
-			Err:        err.Error(),
-			ReplyConn:  e.ReplyConn,
-			ReplyReqID: e.ReplyReqID,
-		})
-		return
-	}
-	spawnCmd := "exec " + launch.Command
-	if isShellCommand(launch.Command) {
+	spawnCmd := "exec " + e.Command
+	if isShellCommand(e.Command) {
 		spawnCmd = ""
 	}
 	size := r.mainPaneSize()
-	target, paneID, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, launch.StartDir, e.Env)
+	target, paneID, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, e.StartDir, e.Env)
 	if err != nil {
 		r.Enqueue(state.EvTmuxSpawnFailed{
 			SessionID:  e.SessionID,
@@ -305,12 +290,13 @@ func (r *Runtime) snapshotSessions() []SessionSnapshot {
 			driverName = drv.Name()
 		}
 		out = append(out, SessionSnapshot{
-			ID:          string(sess.ID),
-			Project:     sess.Project,
-			Command:     sess.Command,
-			CreatedAt:   sess.CreatedAt.UTC().Format(time.RFC3339),
-			Driver:      driverName,
-			DriverState: bag,
+			ID:            string(sess.ID),
+			Project:       sess.Project,
+			Command:       sess.Command,
+			LaunchOptions: sess.LaunchOptions,
+			CreatedAt:     sess.CreatedAt.UTC().Format(time.RFC3339),
+			Driver:        driverName,
+			DriverState:   bag,
 		})
 	}
 	return out

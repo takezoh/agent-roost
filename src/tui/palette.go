@@ -28,6 +28,7 @@ type PaletteModel struct {
 	paramArgs    map[string]string
 	paramOptions []string
 	paramCursor  int
+	worktreeOn   bool
 
 	width  int
 	height int
@@ -42,6 +43,7 @@ func NewPaletteModel(registry *tools.Registry, ctx *tools.ToolContext, initialTo
 		paramArgs:   make(map[string]string),
 		initialTool: initialTool,
 	}
+	m.worktreeOn = ctx != nil && ctx.Args["worktree"] == "on"
 	return m
 }
 
