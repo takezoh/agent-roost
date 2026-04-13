@@ -19,7 +19,7 @@ const testKindTranscript state.TabKind = "transcript"
 type stubRenderer struct{}
 
 func (stubRenderer) Append([]byte) string { return "" }
-func (stubRenderer) Reset()              {}
+func (stubRenderer) Reset()               {}
 
 func TestMain(m *testing.M) {
 	state.RegisterTabRenderer[struct{}](testKindTranscript, func(struct{}) state.TabRenderer {
@@ -156,9 +156,9 @@ func TestHandleLogEvent_PreviewActivatesInfoTab(t *testing.T) {
 	sess := sessionWithTranscript(t)
 
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
-		Sessions:       []proto.SessionInfo{sess},
+		Sessions:        []proto.SessionInfo{sess},
 		ActiveSessionID: sess.ID,
-		IsPreview:      true,
+		IsPreview:       true,
 	})
 	lm := model.(LogModel)
 	if !lm.activeTabIs("INFO") {
@@ -172,9 +172,9 @@ func TestHandleLogEvent_PaneFocusedActivatesTranscript(t *testing.T) {
 
 	// Step 1: preview → INFO becomes active.
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
-		Sessions:       []proto.SessionInfo{sess},
+		Sessions:        []proto.SessionInfo{sess},
 		ActiveSessionID: sess.ID,
-		IsPreview:      true,
+		IsPreview:       true,
 	})
 	lm := model.(LogModel)
 	if !lm.activeTabIs("INFO") {
@@ -198,9 +198,9 @@ func TestHandleLogEvent_PaneFocusedWithoutTranscriptKeepsInfo(t *testing.T) {
 
 	// First preview to land on INFO.
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
-		Sessions:       []proto.SessionInfo{sess},
+		Sessions:        []proto.SessionInfo{sess},
 		ActiveSessionID: sess.ID,
-		IsPreview:      true,
+		IsPreview:       true,
 	})
 	lm := model.(LogModel)
 	if !lm.activeTabIs("INFO") {
@@ -226,9 +226,9 @@ func TestHandleLogEvent_NonPreviewSessionsChangedKeepsCurrentTab(t *testing.T) {
 
 	// Preview → INFO is active.
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
-		Sessions:       []proto.SessionInfo{sess},
+		Sessions:        []proto.SessionInfo{sess},
 		ActiveSessionID: sess.ID,
-		IsPreview:      true,
+		IsPreview:       true,
 	})
 	lm := model.(LogModel)
 	if !lm.activeTabIs("INFO") {
@@ -237,9 +237,9 @@ func TestHandleLogEvent_NonPreviewSessionsChangedKeepsCurrentTab(t *testing.T) {
 
 	// Simulate a Tick-driven broadcast (IsPreview=false) for the same session.
 	model, _ = lm.handleLogEvent(proto.EvtSessionsChanged{
-		Sessions:       []proto.SessionInfo{sess},
+		Sessions:        []proto.SessionInfo{sess},
 		ActiveSessionID: sess.ID,
-		IsPreview:      false,
+		IsPreview:       false,
 	})
 	lm = model.(LogModel)
 	if !lm.activeTabIs("INFO") {
@@ -253,9 +253,9 @@ func TestHandleLogEvent_PaneFocusedNonMainPaneIgnored(t *testing.T) {
 
 	// Preview → INFO active.
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
-		Sessions:       []proto.SessionInfo{sess},
+		Sessions:        []proto.SessionInfo{sess},
 		ActiveSessionID: sess.ID,
-		IsPreview:      true,
+		IsPreview:       true,
 	})
 	lm := model.(LogModel)
 	if !lm.activeTabIs("INFO") {
@@ -292,7 +292,7 @@ func TestSwitchToTab_RebuildRendererOnTabChange(t *testing.T) {
 
 	// Set the active session → TRANSCRIPT tab active, renderer is set.
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
-		Sessions:       []proto.SessionInfo{sess},
+		Sessions:        []proto.SessionInfo{sess},
 		ActiveSessionID: sess.ID,
 	})
 	lm := model.(LogModel)
@@ -326,7 +326,7 @@ func TestAppendContent_PlainTextWhenNoRenderer(t *testing.T) {
 	sess := sessionWithTranscript(t)
 
 	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
-		Sessions:       []proto.SessionInfo{sess},
+		Sessions:        []proto.SessionInfo{sess},
 		ActiveSessionID: sess.ID,
 	})
 	lm := model.(LogModel)
@@ -405,6 +405,32 @@ func TestHandleLogEvent_SessionFileLineDroppedWhenNoActiveSession(t *testing.T) 
 	content := lm.viewport.GetContent()
 	if strings.Contains(content, "should be dropped") {
 		t.Errorf("line should be dropped when currentSession is nil, got %q", content)
+	}
+}
+
+func TestHandleLogEvent_ClearsTabsWhenActiveSessionDisappears(t *testing.T) {
+	m := NewLogModel("/var/log/roost.log", nil)
+	sess := sessionWithTranscript(t)
+
+	model, _ := m.handleLogEvent(proto.EvtSessionsChanged{
+		Sessions:        []proto.SessionInfo{sess},
+		ActiveSessionID: sess.ID,
+	})
+	lm := model.(LogModel)
+	if lm.currentSession == nil {
+		t.Fatal("currentSession should be set")
+	}
+
+	model, _ = lm.handleLogEvent(proto.EvtSessionsChanged{
+		Sessions:        []proto.SessionInfo{},
+		ActiveSessionID: "",
+	})
+	lm = model.(LogModel)
+	if lm.currentSession != nil {
+		t.Fatal("currentSession should be cleared")
+	}
+	if len(lm.tabs) != 1 || lm.tabs[0].label != "LOG" {
+		t.Fatalf("tabs = %#v, want only LOG", lm.tabs)
 	}
 }
 

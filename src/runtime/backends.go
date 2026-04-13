@@ -20,6 +20,9 @@ type TmuxBackend interface {
 	// KillPaneWindow destroys the tmux window containing the named pane.
 	KillPaneWindow(paneTarget string) error
 
+	// TerminatePane sends a normal termination key sequence to the pane.
+	TerminatePane(paneTarget string) error
+
 	// RunChain executes a sequence of swap-pane (or other) commands as
 	// a single tmux invocation. Used for the swap-pane preview chain.
 	RunChain(ops ...[]string) error
@@ -148,6 +151,7 @@ func (noopTmux) SpawnWindow(name, command, startDir string, env map[string]strin
 	return "", "", nil
 }
 func (noopTmux) KillPaneWindow(string) error    { return nil }
+func (noopTmux) TerminatePane(string) error     { return nil }
 func (noopTmux) RunChain(...[]string) error     { return nil }
 func (noopTmux) SwapPane(string, string) error  { return nil }
 func (noopTmux) BreakPane(string, string) error { return nil }

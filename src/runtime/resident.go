@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"log/slog"
+	"strings"
 
 	"github.com/takezoh/agent-roost/state"
 )
@@ -44,6 +45,9 @@ func (r *Runtime) swapSessionIntoMain(sessID state.SessionID) bool {
 		return false
 	}
 	if err := r.cfg.Tmux.SwapPane(paneID, r.mainPaneTarget()); err != nil {
+		if isMissingPaneErr(err) {
+			r.Enqueue(state.EvTmuxWindowVanished{SessionID: sessID})
+		}
 		slog.Warn("runtime: swap-pane session failed", "session", sessID, "pane", paneID, "err", err)
 		return false
 	}
@@ -84,6 +88,14 @@ func (r *Runtime) ensureMainPaneID() (string, bool) {
 
 func (r *Runtime) mainPaneTarget() string {
 	return r.cfg.SessionName + ":0.0"
+}
+
+func isMissingPaneErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "can't find pane")
 }
 
 func windowNameForSession(sessions map[state.SessionID]state.Session, sessID state.SessionID) string {

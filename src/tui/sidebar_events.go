@@ -29,6 +29,15 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 		m.sessions = e.Sessions
 		m.connectors = e.Connectors
 		m.rebuildItems()
+		if e.ActiveSessionID == "" {
+			m.active = ""
+		}
+		if m.active != "" && m.findSessionCursorByID(m.active) < 0 {
+			m.active = ""
+		}
+		if m.anchored != "" && m.findSessionCursorByID(m.anchored) < 0 {
+			m.anchored = ""
+		}
 		if e.ActiveSessionID != "" && e.ActiveSessionID != m.active {
 			m.active = e.ActiveSessionID
 			m.anchored = e.ActiveSessionID

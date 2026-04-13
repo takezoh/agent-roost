@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/takezoh/agent-roost/proto"
+	"github.com/takezoh/agent-roost/state"
 )
 
 func TestDeactivateDoneMsgClearsState(t *testing.T) {
@@ -114,5 +115,31 @@ func TestClickConnectorSummaryWithoutActiveSession(t *testing.T) {
 	_, cmd := m.handleMouseClick(msg)
 	if cmd == nil {
 		t.Fatal("expected focusCmd, got nil")
+	}
+}
+
+func TestHandleServerEventClearsMissingActiveAndAnchor(t *testing.T) {
+	m := Model{
+		active:   "gone",
+		anchored: "gone",
+		folded:   make(map[string]bool),
+		filter:   allOnFilter(),
+		sessions: []proto.SessionInfo{
+			{ID: "gone", Project: "/tmp/p", View: state.View{DisplayName: "p"}},
+		},
+	}
+	m.rebuildItems()
+
+	result, _ := m.handleServerEvent(proto.EvtSessionsChanged{
+		Sessions: []proto.SessionInfo{
+			{ID: "keep", Project: "/tmp/p", View: state.View{DisplayName: "p"}},
+		},
+	})
+	got := result.(Model)
+	if got.active != "" {
+		t.Errorf("active = %q, want empty", got.active)
+	}
+	if got.anchored != "" {
+		t.Errorf("anchored = %q, want empty", got.anchored)
 	}
 }

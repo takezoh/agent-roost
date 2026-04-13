@@ -323,17 +323,14 @@ func TestStopSessionRemovesAndKills(t *testing.T) {
 		ConnID: 1, ReqID: "r", Event: "stop-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
 	})
-	if _, ok := next.Sessions[id]; ok {
-		t.Error("session should be removed")
+	if _, ok := next.Sessions[id]; !ok {
+		t.Error("session should remain until pane/window actually exits")
 	}
-	if next.ActiveSession != "" {
-		t.Errorf("ActiveSession = %q, want empty", next.ActiveSession)
+	if next.ActiveSession != id {
+		t.Errorf("ActiveSession = %q, want unchanged", next.ActiveSession)
 	}
-	if _, ok := findEff[EffKillSessionWindow](effs); !ok {
-		t.Error("expected EffKillSessionWindow")
-	}
-	if _, ok := findEff[EffUnregisterPane](effs); !ok {
-		t.Error("expected EffUnregisterPane")
+	if _, ok := findEff[EffTerminateSession](effs); !ok {
+		t.Error("expected EffTerminateSession")
 	}
 	mustOK(t, effs)
 }
@@ -358,8 +355,8 @@ func TestStopActiveSessionEmitsDeactivate(t *testing.T) {
 		ConnID: 1, ReqID: "r", Event: "stop-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
 	})
-	if _, ok := findEff[EffDeactivateSession](effs); !ok {
-		t.Error("expected EffDeactivateSession when stopping active session")
+	if _, ok := findEff[EffDeactivateSession](effs); ok {
+		t.Error("should not emit EffDeactivateSession before the pane actually exits")
 	}
 }
 
@@ -373,8 +370,8 @@ func TestStopInactiveSessionNoDeactivate(t *testing.T) {
 		ConnID: 1, ReqID: "r", Event: "stop-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
 	})
-	if _, ok := findEff[EffDeactivateSession](effs); ok {
-		t.Error("should not emit EffDeactivateSession for inactive session")
+	if _, ok := findEff[EffTerminateSession](effs); !ok {
+		t.Error("expected EffTerminateSession for inactive session")
 	}
 }
 

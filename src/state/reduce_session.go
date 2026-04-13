@@ -186,20 +186,10 @@ func reduceStopSession(s State, connID ConnID, reqID string, p StopSessionParams
 	if _, ok := s.Sessions[sid]; !ok {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
-	s.Sessions = cloneSessions(s.Sessions)
-	delete(s.Sessions, sid)
-	var deactivate []Effect
-	if s.ActiveSession == sid {
-		s.ActiveSession = ""
-		deactivate = []Effect{EffDeactivateSession{}}
-	}
-	return s, append(deactivate, []Effect{
-		EffKillSessionWindow{SessionID: sid},
-		EffUnregisterPane{SessionID: sid},
-		EffPersistSnapshot{},
-		EffBroadcastSessionsChanged{},
+	return s, []Effect{
+		EffTerminateSession{SessionID: sid},
 		okResp(connID, reqID, nil),
-	}...)
+	}
 }
 
 func reducePreviewSession(s State, connID ConnID, reqID string, p PreviewSessionParams) (State, []Effect) {

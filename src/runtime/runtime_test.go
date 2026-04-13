@@ -52,6 +52,7 @@ type fakeTmuxBackend struct {
 	resizeWidths     []int
 	resizeHeights    []int
 	respawnCmds      []string
+	terminatedPanes  []string
 	statusLines      []string
 	envs             map[string]string
 	popups           []string
@@ -63,6 +64,7 @@ type fakeTmuxBackend struct {
 	spawnPane        string
 	breakNewWID      string
 	spawnErr         error
+	swapErr          error
 	envOutput        string
 	paneWidth        int
 	paneHeight       int
@@ -107,6 +109,13 @@ func (f *fakeTmuxBackend) KillPaneWindow(paneID string) error {
 	return nil
 }
 
+func (f *fakeTmuxBackend) TerminatePane(paneID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.terminatedPanes = append(f.terminatedPanes, paneID)
+	return nil
+}
+
 func (f *fakeTmuxBackend) RunChain(ops ...[]string) error {
 	return nil
 }
@@ -123,7 +132,7 @@ func (f *fakeTmuxBackend) SwapPane(srcPane, dstPane string) error {
 	f.swapCalls++
 	f.swapSources = append(f.swapSources, srcPane)
 	f.swapTargets = append(f.swapTargets, dstPane)
-	return nil
+	return f.swapErr
 }
 func (f *fakeTmuxBackend) BreakPaneToNewWindow(srcPane, name string) (string, error) {
 	f.mu.Lock()
@@ -551,6 +560,54 @@ func TestActivateSessionInitializesMainPaneIDOnDemand(t *testing.T) {
 	}
 }
 
+func TestTerminateSessionSendsTerminateKey(t *testing.T) {
+	tmux := newFakeTmux()
+	r := New(Config{
+		SessionName:       "roost-test",
+		MainPaneHeightPct: 70,
+		Tmux:              tmux,
+	})
+	r.sessionPanes["sess-1"] = "%3"
+
+	r.execute(state.EffTerminateSession{SessionID: "sess-1"})
+
+	tmux.mu.Lock()
+	defer tmux.mu.Unlock()
+	if len(tmux.terminatedPanes) != 1 || tmux.terminatedPanes[0] != "%3" {
+		t.Fatalf("terminatedPanes = %#v, want %%3", tmux.terminatedPanes)
+	}
+}
+
+func TestActivateSessionMissingPaneEnqueuesWindowVanished(t *testing.T) {
+	tmux := newFakeTmux()
+	tmux.swapErr = fmt.Errorf("tmux swap-pane -d -s %%3 -t roost-test:0.0: exit status 1: can't find pane: %%3")
+	r := New(Config{
+		SessionName:       "roost-test",
+		MainPaneHeightPct: 70,
+		Tmux:              tmux,
+	})
+	r.sessionPanes["_main"] = "%main"
+	r.sessionPanes["sess-1"] = "%3"
+
+	r.execute(state.EffActivateSession{
+		SessionID: "sess-1",
+		Reason:    state.EventPreviewSession,
+	})
+
+	select {
+	case ev := <-r.eventCh:
+		v, ok := ev.(state.EvTmuxWindowVanished)
+		if !ok {
+			t.Fatalf("event type = %T, want EvTmuxWindowVanished", ev)
+		}
+		if v.SessionID != "sess-1" {
+			t.Fatalf("SessionID = %q, want sess-1", v.SessionID)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected EvTmuxWindowVanished")
+	}
+}
+
 func TestSubstitutePlaceholders(t *testing.T) {
 	got := substitutePlaceholdersString("{sessionName}:0.1", "myroost", "/r")
 	if got != "myroost:0.1" {
@@ -625,7 +682,7 @@ func TestRuntimeStopSession(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		tmux.mu.Lock()
-		n := tmux.killCalls
+		n := len(tmux.terminatedPanes)
 		tmux.mu.Unlock()
 		if n > 0 {
 			break
@@ -636,8 +693,8 @@ func TestRuntimeStopSession(t *testing.T) {
 	<-r.Done()
 	tmux.mu.Lock()
 	defer tmux.mu.Unlock()
-	if tmux.killCalls != 1 {
-		t.Errorf("killCalls = %d, want 1", tmux.killCalls)
+	if len(tmux.terminatedPanes) != 1 || tmux.terminatedPanes[0] != "%5" {
+		t.Errorf("terminatedPanes = %#v, want [%%5]", tmux.terminatedPanes)
 	}
 }
 

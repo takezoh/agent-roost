@@ -19,7 +19,7 @@ import (
 // risking deadlock on the channel.
 func (r *Runtime) execute(eff state.Effect) {
 	switch e := eff.(type) {
-	case state.EffSpawnTmuxWindow, state.EffKillSessionWindow, state.EffActivateSession,
+	case state.EffSpawnTmuxWindow, state.EffKillSessionWindow, state.EffTerminateSession, state.EffActivateSession,
 		state.EffDeactivateSession, state.EffRegisterPane, state.EffUnregisterPane,
 		state.EffSelectPane, state.EffSyncStatusLine, state.EffSetTmuxEnv,
 		state.EffUnsetTmuxEnv, state.EffCheckPaneAlive, state.EffRespawnPane,
@@ -66,6 +66,13 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 		if target := r.sessionPanes[e.SessionID]; target != "" {
 			if err := r.cfg.Tmux.KillPaneWindow(target); err != nil {
 				slog.Error("runtime: kill window failed", "target", target, "err", err)
+			}
+		}
+
+	case state.EffTerminateSession:
+		if target := r.sessionPanes[e.SessionID]; target != "" {
+			if err := r.cfg.Tmux.TerminatePane(target); err != nil {
+				slog.Warn("runtime: terminate pane failed", "session", e.SessionID, "target", target, "err", err)
 			}
 		}
 

@@ -65,6 +65,11 @@ func (b *RealTmuxBackend) KillPaneWindow(target string) error {
 	return err
 }
 
+func (b *RealTmuxBackend) TerminatePane(target string) error {
+	_, err := b.client.Run("send-keys", "-t", target, "C-c")
+	return err
+}
+
 func (b *RealTmuxBackend) RunChain(ops ...[]string) error {
 	return b.client.RunChain(ops...)
 }
