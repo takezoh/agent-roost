@@ -110,6 +110,66 @@ func TestCodexStopTransitionsWaiting(t *testing.T) {
 	}
 }
 
+func TestCodexNotificationPermissionPromptTransitionsPending(t *testing.T) {
+	d, cs, now := newCodex(t)
+	next, effs := d.handleHook(cs, codexHook(map[string]string{
+		"session_id":        "sess-1",
+		"hook_event_name":   "Notification",
+		"notification_type": "permission_prompt",
+	}, now))
+	if next.Status != state.StatusPending {
+		t.Fatalf("Status = %v, want pending", next.Status)
+	}
+	if _, ok := findEffect[state.EffEventLogAppend](effs); !ok {
+		t.Fatal("expected EffEventLogAppend")
+	}
+}
+
+func TestCodexNotificationWaitingTypesTransitionWaiting(t *testing.T) {
+	tests := []string{"idle_prompt", "elicitation_dialog"}
+	for _, typ := range tests {
+		t.Run(typ, func(t *testing.T) {
+			d, cs, now := newCodex(t)
+			next, _ := d.handleHook(cs, codexHook(map[string]string{
+				"session_id":        "sess-1",
+				"hook_event_name":   "Notification",
+				"notification_type": typ,
+			}, now))
+			if next.Status != state.StatusWaiting {
+				t.Fatalf("Status = %v, want waiting", next.Status)
+			}
+		})
+	}
+}
+
+func TestCodexNotificationUnknownTypeDoesNotChangeStatus(t *testing.T) {
+	d, cs, now := newCodex(t)
+	cs.Status = state.StatusRunning
+	cs.StatusChangedAt = now.Add(-time.Minute)
+	next, _ := d.handleHook(cs, codexHook(map[string]string{
+		"session_id":        "sess-1",
+		"hook_event_name":   "Notification",
+		"notification_type": "something_else",
+	}, now))
+	if next.Status != state.StatusRunning {
+		t.Fatalf("Status = %v, want running", next.Status)
+	}
+}
+
+func TestCodexPendingTransitionsToRunningOnPreToolUse(t *testing.T) {
+	d, cs, now := newCodex(t)
+	cs.Status = state.StatusPending
+	cs.StatusChangedAt = now.Add(-time.Minute)
+	next, _ := d.handleHook(cs, codexHook(map[string]string{
+		"session_id":      "sess-1",
+		"hook_event_name": "PreToolUse",
+		"tool_name":       "Bash",
+	}, now))
+	if next.Status != state.StatusRunning {
+		t.Fatalf("Status = %v, want running", next.Status)
+	}
+}
+
 func TestCodexDropsStaleHook(t *testing.T) {
 	d, cs, now := newCodex(t)
 	cs.LastHookAt = now

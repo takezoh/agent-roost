@@ -33,6 +33,7 @@ type CodexDriver struct {
 type codexHookPayload struct {
 	SessionID            string         `json:"session_id"`
 	HookEventName        string         `json:"hook_event_name"`
+	NotificationType     string         `json:"notification_type"`
 	Cwd                  string         `json:"cwd"`
 	TranscriptPath       string         `json:"transcript_path"`
 	Source               string         `json:"source"`

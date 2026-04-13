@@ -33,6 +33,10 @@ func (hp codexHookPayload) formatLog() string {
 			return fmt.Sprintf(`%s cmd="%s"`, name, previewText(cmd))
 		}
 		return name
+	case "Notification":
+		if hp.NotificationType != "" {
+			return name + " " + hp.NotificationType
+		}
 	case "Stop":
 		var parts []string
 		if hp.StopReason != "" {
@@ -106,6 +110,13 @@ func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []s
 		effs = append(effs, d.startCodexTranscriptParse(&cs)...)
 	case "PreToolUse", "PostToolUse":
 		cs = applyHookStatus(cs, state.StatusRunning, e.Timestamp)
+	case "Notification":
+		switch hp.NotificationType {
+		case "permission_prompt":
+			cs = applyHookStatus(cs, state.StatusPending, e.Timestamp)
+		case "idle_prompt", "elicitation_dialog":
+			cs = applyHookStatus(cs, state.StatusWaiting, e.Timestamp)
+		}
 	case "Stop":
 		if msg := strings.TrimSpace(hp.LastAssistantMessage); msg != "" {
 			cs.LastAssistantMessage = msg
