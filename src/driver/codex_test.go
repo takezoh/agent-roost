@@ -219,7 +219,7 @@ func TestCodexDropsStaleHook(t *testing.T) {
 func TestCodexPrepareLaunchResume(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.CodexSessionID = "abc-123"
-	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "codex --model gpt-5-codex")
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "codex --model gpt-5-codex", state.LaunchOptions{})
 	if err != nil {
 		t.Fatalf("PrepareLaunch error: %v", err)
 	}
@@ -233,7 +233,7 @@ func TestCodexPrepareLaunchResume(t *testing.T) {
 func TestCodexPrepareLaunchNoDoubleResume(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.CodexSessionID = "abc-123"
-	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "codex resume abc")
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "codex resume abc", state.LaunchOptions{})
 	if err != nil {
 		t.Fatalf("PrepareLaunch error: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestCodexPrepareLaunchStripsWorktreeOnResume(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.CodexSessionID = "abc-123"
 	cs.ManagedWorkingDir = "/repo/.roost/worktrees/codex-1234"
-	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "codex --worktree feature --model gpt-5-codex")
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "codex --worktree feature --model gpt-5-codex", state.LaunchOptions{})
 	if err != nil {
 		t.Fatalf("PrepareLaunch error: %v", err)
 	}
@@ -261,7 +261,7 @@ func TestCodexPrepareLaunchStripsWorktreeOnResume(t *testing.T) {
 func TestCodexPrepareLaunchStripsWorktreeWithoutResume(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.ManagedWorkingDir = "/repo/.roost/worktrees/codex-1234"
-	plan, err := d.PrepareLaunch(cs, state.LaunchModeCreate, "/repo", "codex --worktree feature --model gpt-5-codex")
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeCreate, "/repo", "codex --worktree feature --model gpt-5-codex", state.LaunchOptions{})
 	if err != nil {
 		t.Fatalf("PrepareLaunch error: %v", err)
 	}
@@ -275,7 +275,7 @@ func TestCodexPrepareLaunchStripsWorktreeWithoutResume(t *testing.T) {
 func TestCodexPrepareLaunchSkipsNonCodexBaseCommand(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.CodexSessionID = "abc-123"
-	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "env FOO=bar")
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "env FOO=bar", state.LaunchOptions{})
 	if err != nil {
 		t.Fatalf("PrepareLaunch error: %v", err)
 	}
@@ -506,7 +506,7 @@ func TestGeneratedWorktreeNamesLookLikePetnames(t *testing.T) {
 
 func TestCodexPrepareCreateWithoutWorktree(t *testing.T) {
 	d, cs, _ := newCodex(t)
-	next, plan, err := d.PrepareCreate(cs, "sess-1", "/repo", "codex --model gpt-5")
+	next, plan, err := d.PrepareCreate(cs, "sess-1", "/repo", "codex --model gpt-5", state.LaunchOptions{})
 	if err != nil {
 		t.Fatalf("PrepareCreate error: %v", err)
 	}
@@ -523,7 +523,7 @@ func TestCodexPrepareCreateWithoutWorktree(t *testing.T) {
 
 func TestCodexPrepareCreateWithWorktree(t *testing.T) {
 	d, cs, _ := newCodex(t)
-	next, plan, err := d.PrepareCreate(cs, "sess-1", "/repo", "codex --worktree feature --model gpt-5")
+	next, plan, err := d.PrepareCreate(cs, "sess-1", "/repo", "codex --worktree feature --model gpt-5", state.LaunchOptions{})
 	if err != nil {
 		t.Fatalf("PrepareCreate error: %v", err)
 	}
@@ -546,7 +546,7 @@ func TestCodexPrepareCreateWithWorktree(t *testing.T) {
 func TestCodexCompleteCreateWithWorktree(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.WorktreeName = "feature"
-	next, launch, err := d.CompleteCreate(cs, "codex --worktree feature --model gpt-5", WorktreeSetupResult{
+	next, launch, err := d.CompleteCreate(cs, "codex --worktree feature --model gpt-5", state.LaunchOptions{}, WorktreeSetupResult{
 		WorkingDir: "/repo/.roost/worktrees/feature",
 		Name:       "feature",
 	}, nil)

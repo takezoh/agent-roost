@@ -70,7 +70,7 @@ func (d CodexDriver) NewState(now time.Time) state.DriverState {
 	}
 }
 
-func (d CodexDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, project, baseCommand string) (state.LaunchPlan, error) {
+func (d CodexDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, project, baseCommand string, options state.LaunchOptions) (state.LaunchPlan, error) {
 	cs, ok := s.(CodexState)
 	if !ok {
 		cs = CodexState{}
@@ -79,21 +79,26 @@ func (d CodexDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, p
 	if cs.WorkingDir != "" {
 		startDir = cs.WorkingDir
 	}
-	req, stripped := parseWorktreeFlags(baseCommand, "--worktree")
+	req, stripped := resolveWorktreeRequest(baseCommand, options, "--worktree")
 	fields := strings.Fields(stripped)
 	if len(fields) == 0 || fields[0] != CodexDriverName {
-		return state.LaunchPlan{Command: baseCommand, StartDir: startDir}, nil
+		return state.LaunchPlan{Command: strings.TrimSpace(baseCommand), StartDir: startDir, Options: options}, nil
 	}
 	base := strings.TrimSpace(baseCommand)
 	if mode == state.LaunchModeCreate || req.Enabled || cs.ManagedWorkingDir != "" {
 		base = stripped
 	}
 	if mode != state.LaunchModeColdStart || cs.CodexSessionID == "" || !isAlphanumHyphen(cs.CodexSessionID) || hasResumeToken(base) {
-		return state.LaunchPlan{Command: base, StartDir: startDir}, nil
+		return state.LaunchPlan{
+			Command:  base,
+			StartDir: startDir,
+			Options:  state.LaunchOptions{Worktree: state.WorktreeOption{Enabled: req.Enabled || cs.ManagedWorkingDir != ""}},
+		}, nil
 	}
 	return state.LaunchPlan{
 		Command:  strings.TrimSpace(base) + " resume " + cs.CodexSessionID,
 		StartDir: startDir,
+		Options:  state.LaunchOptions{Worktree: state.WorktreeOption{Enabled: req.Enabled || cs.ManagedWorkingDir != ""}},
 	}, nil
 }
 

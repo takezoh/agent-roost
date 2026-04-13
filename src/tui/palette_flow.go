@@ -16,6 +16,7 @@ var (
 	upBinding     = key.NewBinding(key.WithKeys("up", "ctrl+p"))
 	downBinding   = key.NewBinding(key.WithKeys("down", "ctrl+n"))
 	bsBinding     = key.NewBinding(key.WithKeys("backspace"))
+	tabBinding    = key.NewBinding(key.WithKeys("tab"))
 )
 
 func (m PaletteModel) handleToolSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -58,6 +59,7 @@ func (m PaletteModel) startTool(tool *tools.Tool) (tea.Model, tea.Cmd) {
 			m.paramArgs[k] = v
 		}
 	}
+	m.worktreeOn = m.paramArgs["worktree"] == "on"
 	return m.advanceParam()
 }
 
@@ -72,6 +74,13 @@ func (m PaletteModel) advanceParam() (tea.Model, tea.Cmd) {
 		m.paramOptions = p.Options(m.ctx)
 		m.paramCursor = 0
 		m.input = ""
+		if m.selectedTool != nil && m.selectedTool.Name == "new-session" && p.Name == "command" {
+			if m.worktreeOn {
+				m.paramArgs["worktree"] = "on"
+			} else {
+				delete(m.paramArgs, "worktree")
+			}
+		}
 		return m, nil
 	}
 
@@ -128,6 +137,17 @@ func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 		m.paramArgs[p.Name] = value
 		m.paramIndex++
 		return m.advanceParam()
+	case key.Matches(msg, tabBinding):
+		if m.selectedTool != nil && m.selectedTool.Name == "new-session" &&
+			m.paramIndex < len(m.selectedTool.Params) &&
+			m.selectedTool.Params[m.paramIndex].Name == "command" {
+			m.worktreeOn = !m.worktreeOn
+			if m.worktreeOn {
+				m.paramArgs["worktree"] = "on"
+			} else {
+				delete(m.paramArgs, "worktree")
+			}
+		}
 	case key.Matches(msg, upBinding):
 		if m.paramCursor > 0 {
 			m.paramCursor--

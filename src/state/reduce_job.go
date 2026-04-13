@@ -65,11 +65,18 @@ func handlePendingCreate(s State, pending PendingCreate, e EvJobResult) (State, 
 		return s, []Effect{errResp(pending.ReplyConn, pending.ReplyReqID, ErrCodeInternal, "driver missing create-session planner")}
 	}
 
-	nextDS, _, err := planner.CompleteCreate(pending.Session.Driver, pending.Session.Command, e.Result, e.Err)
+	nextDS, launch, err := planner.CompleteCreate(
+		pending.Session.Driver,
+		pending.Session.Command,
+		pending.Session.LaunchOptions,
+		e.Result,
+		e.Err,
+	)
 	if err != nil {
 		return s, []Effect{errResp(pending.ReplyConn, pending.ReplyReqID, ErrCodeInvalidArgument, err.Error())}
 	}
 	pending.Session.Driver = nextDS
+	pending.Session.LaunchOptions = launch.Options
 	s.Sessions = cloneSessions(s.Sessions)
 	s.Sessions[pending.Session.ID] = pending.Session
 	return s, []Effect{
@@ -77,8 +84,9 @@ func handlePendingCreate(s State, pending PendingCreate, e EvJobResult) (State, 
 			SessionID:  pending.Session.ID,
 			Mode:       LaunchModeCreate,
 			Project:    pending.Session.Project,
-			Command:    pending.Session.Command,
-			StartDir:   pending.Session.Project,
+			Command:    launch.Command,
+			StartDir:   launch.StartDir,
+			Options:    launch.Options,
 			Env:        map[string]string{"ROOST_SESSION_ID": string(pending.Session.ID)},
 			ReplyConn:  pending.ReplyConn,
 			ReplyReqID: pending.ReplyReqID,

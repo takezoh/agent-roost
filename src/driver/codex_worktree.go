@@ -4,23 +4,24 @@ import (
 	"github.com/takezoh/agent-roost/state"
 )
 
-func (d CodexDriver) PrepareCreate(s state.DriverState, _ state.SessionID, project, command string) (state.DriverState, state.CreatePlan, error) {
+func (d CodexDriver) PrepareCreate(s state.DriverState, _ state.SessionID, project, command string, options state.LaunchOptions) (state.DriverState, state.CreatePlan, error) {
 	cs, ok := s.(CodexState)
 	if !ok {
 		cs = CodexState{}
 	}
-	plan, err := CommonPrepareCreate(&cs.CommonState, project, command, "--worktree")
+	plan, err := CommonPrepareCreate(&cs.CommonState, project, command, options, "--worktree")
 	return cs, plan, err
 }
 
-func (d CodexDriver) CompleteCreate(s state.DriverState, command string, result any, err error) (state.DriverState, state.CreateLaunch, error) {
+func (d CodexDriver) CompleteCreate(s state.DriverState, command string, options state.LaunchOptions, result any, err error) (state.DriverState, state.CreateLaunch, error) {
 	cs, ok := s.(CodexState)
 	if !ok {
 		cs = CodexState{}
 	}
-	launch, err := CommonCompleteCreate(&cs.CommonState, command, result, err, "--worktree")
+	launch, err := CommonCompleteCreate(&cs.CommonState, command, options, result, err, "--worktree")
 	if err == nil {
 		cs.ManagedWorkingDir = cs.WorkingDir
+		launch.Options = state.LaunchOptions{Worktree: state.WorktreeOption{Enabled: true}}
 	}
 	return cs, launch, err
 }

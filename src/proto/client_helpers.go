@@ -48,8 +48,12 @@ func (c *Client) Subscribe() error {
 
 // CreateSession asks the daemon to spawn a new session. Returns
 // the freshly assigned session id, or an error.
-func (c *Client) CreateSession(project, command string) (sessionID string, err error) {
-	r, err := sendJSONEvent[RespCreateSession](c, state.EventCreateSession, map[string]string{"project": project, "command": command})
+func (c *Client) CreateSession(project, command string, options state.LaunchOptions) (sessionID string, err error) {
+	r, err := sendJSONEvent[RespCreateSession](c, state.EventCreateSession, state.CreateSessionParams{
+		Project: project,
+		Command: command,
+		Options: options,
+	})
 	if err != nil {
 		return "", err
 	}

@@ -6,8 +6,9 @@ import (
 )
 
 type CreateSessionParams struct {
-	Project string `json:"project"`
-	Command string `json:"command"`
+	Project string        `json:"project"`
+	Command string        `json:"command"`
+	Options LaunchOptions `json:"options,omitempty"`
 }
 
 type StopSessionParams struct {
@@ -52,17 +53,18 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 		return s, []Effect{errResp(connID, reqID, ErrCodeUnsupported, "no driver registered for command "+command)}
 	}
 
-	driverState, setupJob, err := prepareSessionDriver(s, drv, sessID, p.Project, command)
+	driverState, setupJob, err := prepareSessionDriver(s, drv, sessID, p.Project, command, p.Options)
 	if err != nil {
 		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, err.Error())}
 	}
 
 	session := Session{
-		ID:        sessID,
-		Project:   p.Project,
-		Command:   command,
-		CreatedAt: s.Now,
-		Driver:    driverState,
+		ID:            sessID,
+		Project:       p.Project,
+		Command:       command,
+		LaunchOptions: p.Options,
+		CreatedAt:     s.Now,
+		Driver:        driverState,
 	}
 
 	if setupJob != nil {
@@ -81,6 +83,12 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 		}
 	}
 
+	launch, err := drv.PrepareLaunch(driverState, LaunchModeCreate, p.Project, command, p.Options)
+	if err != nil {
+		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, err.Error())}
+	}
+	session.LaunchOptions = launch.Options
+
 	s.Sessions = cloneSessions(s.Sessions)
 	s.Sessions[sessID] = session
 
@@ -89,8 +97,9 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 			SessionID:  sessID,
 			Mode:       LaunchModeCreate,
 			Project:    p.Project,
-			Command:    command,
-			StartDir:   p.Project,
+			Command:    launch.Command,
+			StartDir:   launch.StartDir,
+			Options:    launch.Options,
 			Env:        map[string]string{"ROOST_SESSION_ID": string(sessID)},
 			ReplyConn:  connID,
 			ReplyReqID: reqID,
@@ -111,13 +120,13 @@ func resolveCreateCommand(s State, command string) string {
 	return command
 }
 
-func prepareSessionDriver(s State, drv Driver, sessID SessionID, project, command string) (DriverState, JobInput, error) {
+func prepareSessionDriver(s State, drv Driver, sessID SessionID, project, command string, options LaunchOptions) (DriverState, JobInput, error) {
 	driverState := drv.NewState(s.Now)
 	var setupJob JobInput
 	if planner, ok := drv.(CreateSessionPlanner); ok {
 		var plan CreatePlan
 		var err error
-		driverState, plan, err = planner.PrepareCreate(driverState, sessID, project, command)
+		driverState, plan, err = planner.PrepareCreate(driverState, sessID, project, command, options)
 		if err != nil {
 			return nil, nil, err
 		}

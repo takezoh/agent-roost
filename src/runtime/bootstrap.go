@@ -41,11 +41,12 @@ func (r *Runtime) LoadSnapshot(coldStart bool) error {
 		}
 
 		r.state.Sessions[state.SessionID(snap.ID)] = state.Session{
-			ID:        state.SessionID(snap.ID),
-			Project:   snap.Project,
-			Command:   snap.Command,
-			CreatedAt: createdAt,
-			Driver:    drv.Restore(snap.DriverState, now),
+			ID:            state.SessionID(snap.ID),
+			Project:       snap.Project,
+			Command:       snap.Command,
+			LaunchOptions: snap.LaunchOptions,
+			CreatedAt:     createdAt,
+			Driver:        drv.Restore(snap.DriverState, now),
 		}
 	}
 	slog.Info("bootstrap: snapshot loaded", "count", len(snaps))
@@ -233,7 +234,7 @@ func (r *Runtime) RecreateAll() error {
 		if drv == nil {
 			continue
 		}
-		launch, err := drv.PrepareLaunch(sess.Driver, state.LaunchModeColdStart, sess.Project, sess.Command)
+		launch, err := drv.PrepareLaunch(sess.Driver, state.LaunchModeColdStart, sess.Project, sess.Command, sess.LaunchOptions)
 		if err != nil {
 			slog.Error("bootstrap: prepare launch failed", "id", id, "err", err)
 			dead = append(dead, id)
@@ -270,6 +271,7 @@ func (r *Runtime) RecreateAll() error {
 	}
 	return nil
 }
+
 
 // SetAliases sets the command alias map on state. Called once at
 // startup from main.go with the config's [session] aliases.

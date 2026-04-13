@@ -30,7 +30,7 @@ func (stubDriver) Name() string                       { return "stub" }
 func (stubDriver) DisplayName() string                { return "stub" }
 func (stubDriver) Status(s DriverState) Status        { return s.(stubDriverState).status }
 func (stubDriver) NewState(now time.Time) DriverState { return stubDriverState{} }
-func (stubDriver) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string) (LaunchPlan, error) {
+func (stubDriver) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string, options LaunchOptions) (LaunchPlan, error) {
 	return LaunchPlan{Command: baseCommand, StartDir: project}, nil
 }
 func (stubDriver) Persist(s DriverState) map[string]string                  { return nil }
@@ -43,16 +43,16 @@ func (stubDriver) Step(prev DriverState, ev DriverEvent) (DriverState, []Effect,
 type plannerDriver struct{ stubDriver }
 
 func (plannerDriver) Name() string { return "planner" }
-func (plannerDriver) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string) (LaunchPlan, error) {
+func (plannerDriver) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string, options LaunchOptions) (LaunchPlan, error) {
 	return LaunchPlan{Command: "planner --prepared", StartDir: "/prepared"}, nil
 }
-func (plannerDriver) PrepareCreate(s DriverState, sessionID SessionID, project, command string) (DriverState, CreatePlan, error) {
+func (plannerDriver) PrepareCreate(s DriverState, sessionID SessionID, project, command string, options LaunchOptions) (DriverState, CreatePlan, error) {
 	return s, CreatePlan{
 		Launch:   CreateLaunch{Command: "planner --prepared", StartDir: project},
 		SetupJob: stubJobInput{},
 	}, nil
 }
-func (plannerDriver) CompleteCreate(s DriverState, command string, result any, err error) (DriverState, CreateLaunch, error) {
+func (plannerDriver) CompleteCreate(s DriverState, command string, options LaunchOptions, result any, err error) (DriverState, CreateLaunch, error) {
 	if err != nil {
 		return s, CreateLaunch{}, err
 	}
@@ -213,7 +213,7 @@ func TestCreateSessionPlannerDefersSpawnUntilJobResult(t *testing.T) {
 	if spawn.Mode != LaunchModeCreate {
 		t.Fatalf("spawn mode = %v", spawn.Mode)
 	}
-	if spawn.Command != "planner" || spawn.StartDir != "/foo" {
+	if spawn.Command != "planner --prepared" || spawn.StartDir != "/prepared" {
 		t.Fatalf("spawn = %+v", spawn)
 	}
 }
