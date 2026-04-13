@@ -41,10 +41,13 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) error {
 	client.SendKeys(sn+":0.1", envPrefix+exePath+" --tui log")
 	client.SendKeys(sn+":0.0", envPrefix+exePath+" --tui main")
 
+	paneMain, _ := client.DisplayMessage(sn+":0.0", "#{pane_id}")
+	client.SetEnv("ROOST_SESSION__main", paneMain)
+
 	client.ResizePane(sn+":0.2", tuiWidth, 0)
 	client.ResizePane(sn+":0.1", 0, logHeight)
-
 	setupKeyBindings(client, sn)
+
 	setupStatusBar(client, sn, cfg.Tmux.Prefix)
 	client.SelectPane(sn + ":0.0")
 	return nil
@@ -53,10 +56,13 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) error {
 func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {
 	slog.Info("restore session")
 	client.Run("select-window", "-t", sn+":0")
+	client.SetOption(sn+":0", "remain-on-exit", "on")
 	client.SetOption(sn, "prefix", cfg.Tmux.Prefix)
 	client.SetOption(sn, "mouse", "on")
+
 	tuiWidth := 100 - cfg.Tmux.PaneRatioHorizontal
 	logHeight := 100 - cfg.Tmux.PaneRatioVertical
+
 	client.ResizePane(sn+":0.2", tuiWidth, 0)
 	client.ResizePane(sn+":0.1", 0, logHeight)
 	setupKeyBindings(client, sn)

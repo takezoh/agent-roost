@@ -36,6 +36,11 @@ func (r *Runtime) deactivateSession() {
 func (r *Runtime) swapSessionIntoMain(sessID state.SessionID) bool {
 	paneID := r.sessionPanes[sessID]
 	if paneID == "" {
+		slog.Warn("runtime: swap-pane session skipped; pane missing", "session", sessID)
+		return false
+	}
+	if _, ok := r.ensureMainPaneID(); !ok {
+		slog.Warn("runtime: swap-pane session skipped; main pane unknown", "session", sessID)
 		return false
 	}
 	if err := r.cfg.Tmux.SwapPane(paneID, r.mainPaneTarget()); err != nil {
@@ -47,10 +52,14 @@ func (r *Runtime) swapSessionIntoMain(sessID state.SessionID) bool {
 }
 
 func (r *Runtime) swapMainIntoMain() bool {
-	paneID, ok := r.ensureMainPaneID()
-	if !ok {
+	if r.activeSession == "" {
+		return true
+	}
+	paneID := r.sessionPanes["_main"]
+	if paneID == "" {
 		return false
 	}
+
 	if err := r.cfg.Tmux.SwapPane(paneID, r.mainPaneTarget()); err != nil {
 		slog.Warn("runtime: swap-pane main failed", "pane", paneID, "err", err)
 		return false
@@ -60,15 +69,16 @@ func (r *Runtime) swapMainIntoMain() bool {
 }
 
 func (r *Runtime) ensureMainPaneID() (string, bool) {
-	if r.mainPaneID != "" {
-		return r.mainPaneID, true
+	if id := r.sessionPanes["_main"]; id != "" {
+		return id, true
 	}
 	paneID, err := r.cfg.Tmux.PaneID(r.mainPaneTarget())
 	if err != nil || paneID == "" {
 		slog.Warn("runtime: pane-id lookup failed", "target", r.mainPaneTarget(), "err", err)
 		return "", false
 	}
-	r.mainPaneID = paneID
+	r.sessionPanes["_main"] = paneID
+	_ = r.cfg.Tmux.SetEnv("ROOST_SESSION__main", paneID)
 	return paneID, true
 }
 

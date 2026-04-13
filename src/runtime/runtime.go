@@ -49,8 +49,6 @@ type Runtime struct {
 	sessionPanes map[state.SessionID]string
 	// activeSession is the SessionID currently shown in pane 0.0, or "".
 	activeSession state.SessionID
-	// mainPaneID is the pane id of the main TUI pane while the runtime is alive.
-	mainPaneID string
 	// parkedPaneSnapshot stores the last logged parked-pane signature per session.
 	parkedPaneSnapshot map[state.SessionID]string
 

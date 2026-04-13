@@ -100,7 +100,7 @@ func TestDeactivateBeforeExit_SwapsBack(t *testing.T) {
 	r.state.Sessions["s1"] = state.Session{ID: "s1"}
 	r.sessionPanes["s1"] = "%1"
 	r.activeSession = "s1"
-	r.mainPaneID = "%main"
+	r.sessionPanes["_main"] = "%main"
 
 	r.DeactivateBeforeExit()
 
@@ -172,5 +172,85 @@ func TestRecoverWarmStartSessions_ReinstallsTranscriptWatch(t *testing.T) {
 	}
 	if persist.saves == 0 {
 		t.Fatal("expected persist on rehydrate")
+	}
+}
+
+func TestRecoverActivePaneAtMain_RestoresMainTUIWhenSessionActive(t *testing.T) {
+	ftmux := newFakeTmux()
+	ftmux.mu.Lock()
+	ftmux.spawnPane = "%2"
+	ftmux.mu.Unlock()
+
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         ftmux,
+	})
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Project: "/repo/project"}
+	r.sessionPanes["s1"] = "%2"
+	r.sessionPanes["_main"] = "%1"
+
+	r.RecoverActivePaneAtMain()
+
+	if r.activeSession != "" {
+		t.Errorf("activeSession = %q, want empty", r.activeSession)
+	}
+	if r.sessionPanes["_main"] != "%1" {
+		t.Errorf("sessionPanes[_main] = %q, want %%1", r.sessionPanes["_main"])
+	}
+	ftmux.mu.Lock()
+	defer ftmux.mu.Unlock()
+	if ftmux.swapCalls != 1 {
+		t.Fatalf("swapCalls = %d, want 1", ftmux.swapCalls)
+	}
+	if ftmux.swapSources[0] != "%1" || ftmux.swapTargets[0] != "roost-test:0.0" {
+		t.Fatalf("swap = %q -> %q, want %%1 -> roost-test:0.0", ftmux.swapSources[0], ftmux.swapTargets[0])
+	}
+}
+
+func TestRecoverActivePaneAtMain_IdentifiesMainTUIActive(t *testing.T) {
+	ftmux := newFakeTmux()
+	// 0.0 contains %1, which is the Main TUI
+	ftmux.mu.Lock()
+	ftmux.spawnPane = "%1"
+	ftmux.mu.Unlock()
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         ftmux,
+	})
+	r.state.Sessions["s1"] = state.Session{ID: "s1"}
+	r.sessionPanes["s1"] = "%2"
+	r.sessionPanes["_main"] = "%1"
+
+	r.RecoverActivePaneAtMain()
+
+	if r.activeSession != "" {
+		t.Errorf("activeSession = %q, want empty", r.activeSession)
+	}
+}
+
+func TestRecoverActivePaneAtMain_LeavesSessionActiveWhenMainPaneUnknown(t *testing.T) {
+	ftmux := newFakeTmux()
+	ftmux.mu.Lock()
+	ftmux.spawnPane = "%2"
+	ftmux.mu.Unlock()
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         ftmux,
+	})
+	r.state.Sessions["s1"] = state.Session{ID: "s1"}
+	r.sessionPanes["s1"] = "%2"
+
+	r.RecoverActivePaneAtMain()
+
+	if r.activeSession != "s1" {
+		t.Errorf("activeSession = %q, want s1", r.activeSession)
+	}
+	ftmux.mu.Lock()
+	defer ftmux.mu.Unlock()
+	if ftmux.swapCalls != 0 {
+		t.Errorf("swapCalls = %d, want 0", ftmux.swapCalls)
 	}
 }

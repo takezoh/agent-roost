@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -64,12 +66,14 @@ type fakeTmuxBackend struct {
 	envOutput        string
 	paneWidth        int
 	paneHeight       int
+	paneIDs          map[string]string
 }
 
 func newFakeTmux() *fakeTmuxBackend {
 	return &fakeTmuxBackend{
 		alive:       map[string]bool{},
 		envs:        map[string]string{},
+		paneIDs:     map[string]string{},
 		spawnWID:    "1",
 		spawnPane:   "%1",
 		breakNewWID: "9",
@@ -139,6 +143,13 @@ func (f *fakeTmuxBackend) JoinPane(srcPane, dstPane string, before bool, sizePct
 func (f *fakeTmuxBackend) PaneID(target string) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	lookup := strings.Replace(target, ":=", ":", 1)
+	if id, ok := f.paneIDs[lookup]; ok {
+		if id == "error" {
+			return "", fmt.Errorf("tmux error for %s", target)
+		}
+		return id, nil
+	}
 	if target == "roost-test:0.0" && f.spawnPane != "" {
 		return f.spawnPane, nil
 	}
@@ -476,6 +487,7 @@ func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
 		MainPaneHeightPct: 70,
 		Tmux:              tmux,
 	})
+	r.sessionPanes["_main"] = "%main"
 	r.sessionPanes["sess-1"] = "%3"
 
 	r.execute(state.EffActivateSession{
@@ -491,6 +503,13 @@ func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
 	if tmux.swapSources[0] != "%3" || tmux.swapTargets[0] != "roost-test:0.0" {
 		t.Fatalf("swap = %q -> %q, want %%3 -> roost-test:0.0", tmux.swapSources[0], tmux.swapTargets[0])
 	}
+	if r.sessionPanes["sess-1"] != "%3" {
+		t.Errorf("sessionPanes[sess-1] = %q, want %%3", r.sessionPanes["sess-1"])
+	}
+	if r.sessionPanes["_main"] != "%main" {
+		t.Errorf("sessionPanes[_main] = %q, want %%main", r.sessionPanes["_main"])
+	}
+
 	if len(tmux.inspectCalls) != 3 {
 		t.Fatalf("inspectCalls = %d, want 3", len(tmux.inspectCalls))
 	}
@@ -503,8 +522,32 @@ func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
 	if r.activeSession != "sess-1" {
 		t.Fatalf("activeSession = %q, want sess-1", r.activeSession)
 	}
-	if r.sessionPanes["sess-1"] != "%3" {
-		t.Fatalf("sessionPanes[sess-1] = %q, want %%3", r.sessionPanes["sess-1"])
+}
+
+func TestActivateSessionInitializesMainPaneIDOnDemand(t *testing.T) {
+	tmux := newFakeTmux()
+	r := New(Config{
+		SessionName:       "roost-test",
+		MainPaneHeightPct: 70,
+		Tmux:              tmux,
+	})
+	r.sessionPanes["sess-1"] = "%3"
+
+	r.execute(state.EffActivateSession{
+		SessionID: "sess-1",
+		Reason:    state.EventPreviewSession,
+	})
+
+	if r.sessionPanes["_main"] != "%1" {
+		t.Fatalf("sessionPanes[_main] = %q, want %%1", r.sessionPanes["_main"])
+	}
+	tmux.mu.Lock()
+	defer tmux.mu.Unlock()
+	if tmux.envs["ROOST_SESSION__main"] != "%1" {
+		t.Fatalf("ROOST_SESSION__main = %q, want %%1", tmux.envs["ROOST_SESSION__main"])
+	}
+	if tmux.swapCalls != 1 {
+		t.Fatalf("swapCalls = %d, want 1", tmux.swapCalls)
 	}
 }
 

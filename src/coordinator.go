@@ -69,19 +69,23 @@ func runCoordinator() error {
 	warmRestart := client.SessionExists()
 	if warmRestart {
 		slog.Info("session exists, restoring")
-		restoreSession(client, cfg, sessionName)
 		if err := rt.LoadSnapshot(); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
 		if err := rt.LoadSessionPanes(); err != nil {
 			slog.Warn("window map load failed", "err", err)
 		}
+		rt.RecoverActivePaneAtMain()
+		restoreSession(client, cfg, sessionName)
 		rt.ReconcileOrphans()
 		rt.RecoverWarmStartSessions()
 	} else {
 		slog.Info("creating new session")
 		if err := setupNewSession(client, cfg, sessionName); err != nil {
 			return err
+		}
+		if err := rt.LoadSessionPanes(); err != nil {
+			slog.Warn("window map load failed", "err", err)
 		}
 		if err := rt.LoadSnapshot(); err != nil {
 			slog.Error("snapshot load failed", "err", err)
@@ -106,8 +110,7 @@ func runCoordinator() error {
 	}
 	slog.Info("server started", "sock", sockPath)
 
-	relay, err := runtime.NewFileRelay(rt)
-	if err != nil {
+	if relay, err := runtime.NewFileRelay(rt); err != nil {
 		slog.Warn("filerelay: start failed, TUI will show backfill only", "err", err)
 	} else {
 		defer relay.Close()
@@ -115,7 +118,7 @@ func runCoordinator() error {
 		rt.SetRelay(relay)
 	}
 
-	respawnMainPane(client, sessionName)
+	rt.RespawnMainPane()
 	respawnSessionsPane(client, sessionName)
 	respawnLogPane(client, sessionName)
 

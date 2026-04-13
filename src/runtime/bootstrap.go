@@ -91,6 +91,9 @@ func (r *Runtime) ReconcileOrphans() {
 
 	// Find sessionPanes entries without a matching session (stale env).
 	for sessID := range r.sessionPanes {
+		if sessID == "_main" {
+			continue
+		}
 		if _, ok := r.state.Sessions[sessID]; !ok {
 			delete(r.sessionPanes, sessID)
 			slog.Warn("bootstrap: removing stale pane env", "session", sessID)
@@ -103,6 +106,47 @@ func (r *Runtime) ReconcileOrphans() {
 			slog.Error("bootstrap: persist after reconcile failed", "err", err)
 		}
 	}
+}
+
+// RecoverActivePaneAtMain restores a consistent main-pane owner on warm start.
+func (r *Runtime) RecoverActivePaneAtMain() {
+	paneAtZero, err := r.cfg.Tmux.PaneID(r.mainPaneTarget())
+	if err != nil {
+		slog.Debug("bootstrap: could not get pane id at 0.0", "err", err)
+		return
+	}
+	if paneAtZero == "" {
+		return
+	}
+	var owner state.SessionID
+	for id, paneID := range r.sessionPanes {
+		if id == "_main" || paneID != paneAtZero {
+			continue
+		}
+		owner = id
+		break
+	}
+	if owner == "" {
+		if r.sessionPanes["_main"] == "" {
+			r.sessionPanes["_main"] = paneAtZero
+			_ = r.cfg.Tmux.SetEnv("ROOST_SESSION__main", paneAtZero)
+		}
+		r.activeSession = ""
+		slog.Info("bootstrap: main TUI active at 0.0", "pane", paneAtZero)
+		return
+	}
+	if r.sessionPanes["_main"] == "" {
+		r.activeSession = owner
+		slog.Warn("bootstrap: main pane id missing; leaving active session in place", "session", owner, "pane", paneAtZero)
+		return
+	}
+	r.activeSession = owner
+	slog.Info("bootstrap: session left active at 0.0; restoring main TUI", "session", owner, "pane", paneAtZero, "main_pane", r.sessionPanes["_main"])
+	if !r.swapMainIntoMain() {
+		slog.Warn("bootstrap: failed to restore main TUI at 0.0", "session", owner)
+		return
+	}
+	r.activeSession = ""
 }
 
 func (r *Runtime) RecoverWarmStartSessions() {
@@ -165,7 +209,6 @@ func (r *Runtime) bootstrapSessionEffect(sessID state.SessionID, now time.Time, 
 
 // DeactivateBeforeExit moves the active session back to its own window
 // so pane 0.0 shows the main TUI when the coordinator re-attaches.
-// Called immediately before coordinator exits (before cancel()).
 func (r *Runtime) DeactivateBeforeExit() {
 	if r.activeSession == "" {
 		return
@@ -240,6 +283,23 @@ func (r *Runtime) SetDefaultCommand(cmd string) {
 // Kept as a stable hook for future use.
 func (r *Runtime) SetSyncCallbacks(active, status func(string)) {
 	// Reserved.
+}
+
+// RespawnMainPane runs respawn-pane for the main TUI.
+func (r *Runtime) RespawnMainPane() {
+	target := r.sessionPanes["_main"]
+	if target == "" {
+		target = r.mainPaneTarget()
+	}
+
+	// Double check to protect active sessions if mapping failed
+	if target == r.mainPaneTarget() && r.activeSession != "" {
+		slog.Warn("bootstrap: skipping main TUI respawn to protect active session at 0.0")
+		return
+	}
+
+	slog.Info("bootstrap: respawning main TUI", "target", target)
+	_ = r.cfg.Tmux.RespawnPane(target, r.cfg.RoostExe+" --tui main")
 }
 
 // decodePersistedState parses the JSON-encoded persisted state blob.
