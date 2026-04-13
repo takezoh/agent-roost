@@ -308,19 +308,71 @@ func TestCodexPersistRestoreRoundTrip(t *testing.T) {
 	}
 }
 
-func TestCodexTranscriptChangedStartsParse(t *testing.T) {
-	d, cs, _ := newCodex(t)
+func TestCodexWarmStartRecoverReinstallsTranscriptWatch(t *testing.T) {
+	d, cs, now := newCodex(t)
 	cs.TranscriptPath = "/tmp/t.jsonl"
-	next, effs := d.handleTranscriptChanged(cs, state.DEvFileChanged{Path: "/tmp/t.jsonl"})
+	nextState, effs := d.WarmStartRecover(cs, now)
+	next := nextState.(CodexState)
+	if next.WatchedFile != "/tmp/t.jsonl" {
+		t.Fatalf("WatchedFile = %q, want /tmp/t.jsonl", next.WatchedFile)
+	}
 	if !next.TranscriptInFlight {
-		t.Fatal("expected TranscriptInFlight")
+		t.Fatal("TranscriptInFlight should be true")
+	}
+	if len(effs) != 2 {
+		t.Fatalf("effects = %d, want 2", len(effs))
+	}
+	if _, ok := effs[0].(state.EffWatchFile); !ok {
+		t.Fatalf("first effect = %T, want EffWatchFile", effs[0])
+	}
+	job, ok := effs[1].(state.EffStartJob)
+	if !ok {
+		t.Fatalf("second effect = %T, want EffStartJob", effs[1])
+	}
+	if _, ok := job.Input.(CodexTranscriptParseInput); !ok {
+		t.Fatalf("job input = %T, want CodexTranscriptParseInput", job.Input)
+	}
+	if next.Status != cs.Status {
+		t.Fatalf("Status = %v, want %v", next.Status, cs.Status)
+	}
+}
+
+func TestCodexWarmStartRecoverDedupesTranscriptParse(t *testing.T) {
+	d, cs, now := newCodex(t)
+	cs.TranscriptPath = "/tmp/t.jsonl"
+	cs.TranscriptInFlight = true
+	nextState, effs := d.WarmStartRecover(cs, now)
+	next := nextState.(CodexState)
+	if next.WatchedFile != "/tmp/t.jsonl" {
+		t.Fatalf("WatchedFile = %q, want /tmp/t.jsonl", next.WatchedFile)
 	}
 	if len(effs) != 1 {
 		t.Fatalf("effects = %d, want 1", len(effs))
 	}
-	job, ok := effs[0].(state.EffStartJob)
+	if _, ok := effs[0].(state.EffWatchFile); !ok {
+		t.Fatalf("effect = %T, want EffWatchFile", effs[0])
+	}
+}
+
+func TestCodexTranscriptChangedStartsParse(t *testing.T) {
+	d, cs, _ := newCodex(t)
+	cs.TranscriptPath = "/tmp/t.jsonl"
+	next, effs := d.handleTranscriptChanged(cs, state.DEvFileChanged{Path: "/tmp/t.jsonl"})
+	if next.WatchedFile != "/tmp/t.jsonl" {
+		t.Fatalf("WatchedFile = %q, want /tmp/t.jsonl", next.WatchedFile)
+	}
+	if !next.TranscriptInFlight {
+		t.Fatal("expected TranscriptInFlight")
+	}
+	if len(effs) != 2 {
+		t.Fatalf("effects = %d, want 2", len(effs))
+	}
+	if _, ok := effs[0].(state.EffWatchFile); !ok {
+		t.Fatalf("first effect = %T, want EffWatchFile", effs[0])
+	}
+	job, ok := effs[1].(state.EffStartJob)
 	if !ok {
-		t.Fatalf("effect = %T, want EffStartJob", effs[0])
+		t.Fatalf("second effect = %T, want EffStartJob", effs[1])
 	}
 	if _, ok := job.Input.(CodexTranscriptParseInput); !ok {
 		t.Fatalf("job input = %T, want CodexTranscriptParseInput", job.Input)

@@ -127,3 +127,13 @@ func (d CodexDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.D
 	}
 	return cs, nil, d.view(cs)
 }
+
+func (d CodexDriver) WarmStartRecover(s state.DriverState, now time.Time) (state.DriverState, []state.Effect) {
+	cs, ok := s.(CodexState)
+	if !ok {
+		cs = d.NewState(now).(CodexState)
+	}
+	effs := watchCodexTranscript(&cs)
+	effs = append(effs, d.startCodexTranscriptParse(&cs)...)
+	return cs, effs
+}

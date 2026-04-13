@@ -77,6 +77,7 @@ func runCoordinator() error {
 			slog.Warn("window map load failed", "err", err)
 		}
 		rt.ReconcileOrphans()
+		rt.RecoverWarmStartSessions()
 	} else {
 		slog.Info("creating new session")
 		if err := setupNewSession(client, cfg, sessionName); err != nil {

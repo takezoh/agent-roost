@@ -181,6 +181,35 @@ func (d ClaudeDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.
 	return cs, nil, d.view(cs)
 }
 
+func (d ClaudeDriver) WarmStartRecover(s state.DriverState, now time.Time) (state.DriverState, []state.Effect) {
+	cs, ok := s.(ClaudeState)
+	if !ok {
+		cs = d.NewState(now).(ClaudeState)
+	}
+	path := d.resolveTranscriptPath(cs)
+	if path == "" {
+		return cs, nil
+	}
+	if cs.TranscriptPath == "" {
+		cs.TranscriptPath = path
+	}
+	var effs []state.Effect
+	if cs.WatchedFile != path {
+		cs.WatchedFile = path
+		effs = append(effs, state.EffWatchFile{Path: path, Kind: "transcript"})
+	}
+	if !cs.TranscriptInFlight {
+		cs.TranscriptInFlight = true
+		effs = append(effs, state.EffStartJob{
+			Input: TranscriptParseInput{
+				ClaudeUUID: cs.ClaudeSessionID,
+				Path:       path,
+			},
+		})
+	}
+	return cs, effs
+}
+
 // resolveTranscriptPath picks the best known transcript path. Priority:
 //  1. Agent-reported path (canonical, handles --worktree)
 //  2. Computed from working_dir + claudeSessionID

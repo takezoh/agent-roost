@@ -75,9 +75,6 @@ func hasActiveSubagents(cs ClaudeState) bool {
 // active session's transcript file. We schedule an incremental parse
 // (deduped via TranscriptInFlight).
 func (d ClaudeDriver) handleTranscriptChanged(cs ClaudeState, e state.DEvFileChanged) (ClaudeState, []state.Effect) {
-	if cs.TranscriptInFlight {
-		return cs, nil
-	}
 	path := cs.TranscriptPath
 	if path == "" {
 		path = e.Path
@@ -85,15 +82,22 @@ func (d ClaudeDriver) handleTranscriptChanged(cs ClaudeState, e state.DEvFileCha
 	if path == "" {
 		return cs, nil
 	}
-	cs.TranscriptInFlight = true
-	return cs, []state.Effect{
-		state.EffStartJob{
-			Input: TranscriptParseInput{
-				ClaudeUUID: cs.ClaudeSessionID,
-				Path:       path,
-			},
-		},
+	var effs []state.Effect
+	if cs.WatchedFile != path {
+		cs.WatchedFile = path
+		effs = append(effs, state.EffWatchFile{Path: path, Kind: "transcript"})
 	}
+	if cs.TranscriptInFlight {
+		return cs, effs
+	}
+	cs.TranscriptInFlight = true
+	effs = append(effs, state.EffStartJob{
+		Input: TranscriptParseInput{
+			ClaudeUUID: cs.ClaudeSessionID,
+			Path:       path,
+		},
+	})
+	return cs, effs
 }
 
 // handleJobResult routes a finished worker pool result back to the

@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/takezoh/agent-roost/driver"
 	"github.com/takezoh/agent-roost/state"
 )
 
@@ -128,5 +129,48 @@ func TestDeactivateBeforeExit_NoActive(t *testing.T) {
 	if ftmux.breakCalls != 0 || ftmux.breakNewCalls != 0 || ftmux.joinCalls != 0 || ftmux.swapCalls != 0 {
 		t.Errorf("unexpected pane move calls: break=%d breakNew=%d join=%d swap=%d",
 			ftmux.breakCalls, ftmux.breakNewCalls, ftmux.joinCalls, ftmux.swapCalls)
+	}
+}
+
+func TestRecoverWarmStartSessions_ReinstallsTranscriptWatch(t *testing.T) {
+	watcher := &recordingWatcher{}
+	persist := &recordingPersist{}
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         newFakeTmux(),
+		Watcher:      watcher,
+		Persist:      persist,
+	})
+	now := time.Date(2026, 4, 13, 0, 0, 0, 0, time.UTC)
+	d := driver.NewCodexDriver("/tmp/events")
+	r.state.Sessions["s1"] = state.Session{
+		ID:        "s1",
+		Project:   "/repo",
+		Command:   "codex",
+		CreatedAt: now,
+		Driver: d.Restore(map[string]string{
+			"transcript_path":  "/tmp/t.jsonl",
+			"codex_session_id": "sess-1",
+		}, now),
+	}
+
+	r.RecoverWarmStartSessions()
+
+	watcher.mu.Lock()
+	gotPath := watcher.watches["s1"]
+	watcher.mu.Unlock()
+	if gotPath != "/tmp/t.jsonl" {
+		t.Fatalf("watch path = %q, want /tmp/t.jsonl", gotPath)
+	}
+	if len(r.state.Jobs) != 1 {
+		t.Fatalf("jobs = %d, want 1", len(r.state.Jobs))
+	}
+	got := r.state.Sessions["s1"].Driver.(driver.CodexState)
+	if !got.TranscriptInFlight {
+		t.Fatal("TranscriptInFlight should be true")
+	}
+	if persist.saves == 0 {
+		t.Fatal("expected persist on rehydrate")
 	}
 }

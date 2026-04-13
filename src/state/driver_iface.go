@@ -173,6 +173,14 @@ type ManagedWorktreeProvider interface {
 	ManagedWorktreePath(s DriverState) string
 }
 
+// WarmStartRecoverer is an optional driver extension for restoring
+// driver-owned runtime state after a warm start. Drivers use this to
+// re-install watches and resume async parsing from already-restored
+// DriverState without the runtime inspecting driver-specific fields.
+type WarmStartRecoverer interface {
+	WarmStartRecover(s DriverState, now time.Time) (DriverState, []Effect)
+}
+
 // driver registry. set once at init time by each driver impl package.
 var registry = map[string]Driver{}
 

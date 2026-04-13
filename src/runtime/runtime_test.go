@@ -22,6 +22,7 @@ func TestMain(m *testing.M) {
 	// SOMETHING in the registry.
 	state.Register(driver.NewGenericDriver("", 0))
 	state.Register(driver.NewGenericDriver("shell", 0))
+	state.Register(driver.NewCodexDriver(""))
 	os.Exit(m.Run())
 }
 
@@ -244,6 +245,31 @@ func (r *recordingEventLog) Append(_ state.SessionID, line string) error {
 }
 func (r *recordingEventLog) Close(state.SessionID) {}
 func (r *recordingEventLog) CloseAll()             {}
+
+type recordingWatcher struct {
+	mu      sync.Mutex
+	watches map[state.SessionID]string
+}
+
+func (r *recordingWatcher) Watch(sessionID state.SessionID, path string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.watches == nil {
+		r.watches = map[state.SessionID]string{}
+	}
+	r.watches[sessionID] = path
+	return nil
+}
+
+func (r *recordingWatcher) Unwatch(sessionID state.SessionID) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.watches, sessionID)
+	return nil
+}
+
+func (r *recordingWatcher) Events() <-chan FSEvent { return nil }
+func (r *recordingWatcher) Close() error           { return nil }
 
 // === Tests ===
 

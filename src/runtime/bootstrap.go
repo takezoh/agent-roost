@@ -105,6 +105,64 @@ func (r *Runtime) ReconcileOrphans() {
 	}
 }
 
+func (r *Runtime) RecoverWarmStartSessions() {
+	now := time.Now()
+	changed := false
+	for sessID, sess := range r.state.Sessions {
+		drv := state.GetDriver(sess.Command)
+		if drv == nil {
+			continue
+		}
+		recoverer, ok := drv.(state.WarmStartRecoverer)
+		if !ok {
+			continue
+		}
+		next, effs := recoverer.WarmStartRecover(sess.Driver, now)
+		sess.Driver = next
+		r.state.Sessions[sessID] = sess
+		for _, eff := range effs {
+			r.execute(r.bootstrapSessionEffect(sessID, now, eff))
+		}
+		changed = true
+	}
+	if changed {
+		if err := r.cfg.Persist.Save(r.snapshotSessions()); err != nil {
+			slog.Error("bootstrap: persist after warm start recovery failed", "err", err)
+		}
+	}
+}
+
+func (r *Runtime) bootstrapSessionEffect(sessID state.SessionID, now time.Time, eff state.Effect) state.Effect {
+	switch e := eff.(type) {
+	case state.EffStartJob:
+		r.state.NextJobID++
+		jobID := r.state.NextJobID
+		r.state.Jobs[jobID] = state.JobMeta{
+			SessionID: sessID,
+			StartedAt: now,
+		}
+		e.JobID = jobID
+		return e
+	case state.EffEventLogAppend:
+		if e.SessionID == "" {
+			e.SessionID = sessID
+		}
+		return e
+	case state.EffWatchFile:
+		if e.SessionID == "" {
+			e.SessionID = sessID
+		}
+		return e
+	case state.EffUnwatchFile:
+		if e.SessionID == "" {
+			e.SessionID = sessID
+		}
+		return e
+	default:
+		return eff
+	}
+}
+
 // DeactivateBeforeExit moves the active session back to its own window
 // so pane 0.0 shows the main TUI when the coordinator re-attaches.
 // Called immediately before coordinator exits (before cancel()).

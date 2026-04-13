@@ -523,6 +523,59 @@ func TestClaudeTickInFlightSkips(t *testing.T) {
 	}
 }
 
+func TestClaudeWarmStartRecoverReinstallsTranscriptWatch(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.WorkingDir = "/work"
+	nextState, effs := d.WarmStartRecover(cs, now)
+	next := nextState.(ClaudeState)
+	wantPath := "/home/test/.claude/projects/-work/uuid.jsonl"
+	if next.TranscriptPath != wantPath {
+		t.Fatalf("TranscriptPath = %q, want %q", next.TranscriptPath, wantPath)
+	}
+	if next.WatchedFile != wantPath {
+		t.Fatalf("WatchedFile = %q, want %q", next.WatchedFile, wantPath)
+	}
+	if !next.TranscriptInFlight {
+		t.Fatal("TranscriptInFlight should be true")
+	}
+	if len(effs) != 2 {
+		t.Fatalf("effects = %d, want 2", len(effs))
+	}
+	if _, ok := effs[0].(state.EffWatchFile); !ok {
+		t.Fatalf("first effect = %T, want EffWatchFile", effs[0])
+	}
+	job, ok := effs[1].(state.EffStartJob)
+	if !ok {
+		t.Fatalf("second effect = %T, want EffStartJob", effs[1])
+	}
+	if _, ok := job.Input.(TranscriptParseInput); !ok {
+		t.Fatalf("job input = %T, want TranscriptParseInput", job.Input)
+	}
+	if next.Status != cs.Status {
+		t.Fatalf("Status = %v, want %v", next.Status, cs.Status)
+	}
+}
+
+func TestClaudeWarmStartRecoverDedupesTranscriptParse(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.WorkingDir = "/work"
+	cs.TranscriptInFlight = true
+	nextState, effs := d.WarmStartRecover(cs, now)
+	next := nextState.(ClaudeState)
+	wantPath := "/home/test/.claude/projects/-work/uuid.jsonl"
+	if next.WatchedFile != wantPath {
+		t.Fatalf("WatchedFile = %q, want %q", next.WatchedFile, wantPath)
+	}
+	if len(effs) != 1 {
+		t.Fatalf("effects = %d, want 1", len(effs))
+	}
+	if _, ok := effs[0].(state.EffWatchFile); !ok {
+		t.Fatalf("effect = %T, want EffWatchFile", effs[0])
+	}
+}
+
 // === Transcript change handling ===
 
 func TestClaudeTranscriptChangedSchedulesParse(t *testing.T) {
@@ -530,8 +583,14 @@ func TestClaudeTranscriptChangedSchedulesParse(t *testing.T) {
 	cs.TranscriptPath = "/tmp/x.jsonl"
 	cs.ClaudeSessionID = "uuid"
 	next, effs := d.handleTranscriptChanged(cs, state.DEvFileChanged{Path: "/tmp/x.jsonl"})
+	if next.WatchedFile != "/tmp/x.jsonl" {
+		t.Fatalf("WatchedFile = %q, want /tmp/x.jsonl", next.WatchedFile)
+	}
 	if !next.TranscriptInFlight {
 		t.Error("TranscriptInFlight should be true")
+	}
+	if _, ok := findEffect[state.EffWatchFile](effs); !ok {
+		t.Fatal("expected EffWatchFile")
 	}
 	job, ok := findEffect[state.EffStartJob](effs)
 	if !ok {
@@ -546,9 +605,15 @@ func TestClaudeTranscriptChangedDedupes(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.TranscriptInFlight = true
 	cs.TranscriptPath = "/tmp/x.jsonl"
-	_, effs := d.handleTranscriptChanged(cs, state.DEvFileChanged{Path: "/tmp/x.jsonl"})
-	if len(effs) != 0 {
-		t.Errorf("dedup effs = %d, want 0", len(effs))
+	next, effs := d.handleTranscriptChanged(cs, state.DEvFileChanged{Path: "/tmp/x.jsonl"})
+	if next.WatchedFile != "/tmp/x.jsonl" {
+		t.Fatalf("WatchedFile = %q, want /tmp/x.jsonl", next.WatchedFile)
+	}
+	if len(effs) != 1 {
+		t.Fatalf("dedup effs = %d, want 1", len(effs))
+	}
+	if _, ok := effs[0].(state.EffWatchFile); !ok {
+		t.Fatalf("effect = %T, want EffWatchFile", effs[0])
 	}
 }
 

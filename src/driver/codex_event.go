@@ -179,7 +179,9 @@ func (d CodexDriver) handleTranscriptChanged(cs CodexState, e state.DEvFileChang
 	if cs.TranscriptPath != "" && e.Path != "" && cs.TranscriptPath != e.Path {
 		return cs, nil
 	}
-	return cs, d.startCodexTranscriptParse(&cs)
+	effs := watchCodexTranscript(&cs)
+	effs = append(effs, d.startCodexTranscriptParse(&cs)...)
+	return cs, effs
 }
 
 func (d CodexDriver) startCodexTranscriptParse(cs *CodexState) []state.Effect {
