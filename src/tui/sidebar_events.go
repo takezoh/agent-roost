@@ -47,7 +47,8 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(m.listenEvents(), m.focusCmd(mainPane))
 		}
 		if e.ActiveSessionID == "" && m.active == "" {
-			m.cursor = m.firstSessionIndex()
+			m.cursor = -1
+			m.anchored = ""
 		}
 	}
 	return m, m.listenEvents()

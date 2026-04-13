@@ -87,8 +87,6 @@ func (m *Model) restoreCursor(prev listItem) {
 	}
 	if m.cursor >= len(m.items) {
 		m.cursor = len(m.items) - 1
-	} else if m.cursor < 0 {
-		m.cursor = 0
 	}
 }
 
@@ -219,13 +217,4 @@ func (m Model) connectorSummaryLine() string {
 		return ""
 	}
 	return strings.Join(parts, " · ")
-}
-
-func (m Model) firstSessionIndex() int {
-	for i, item := range m.items {
-		if !item.isProject {
-			return i
-		}
-	}
-	return -1
 }
