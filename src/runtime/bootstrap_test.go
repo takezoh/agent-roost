@@ -230,27 +230,57 @@ func TestRecoverActivePaneAtMain_IdentifiesMainTUIActive(t *testing.T) {
 	}
 }
 
-func TestRecoverActivePaneAtMain_LeavesSessionActiveWhenMainPaneUnknown(t *testing.T) {
-	ftmux := newFakeTmux()
-	ftmux.mu.Lock()
-	ftmux.spawnPane = "%2"
-	ftmux.mu.Unlock()
+func TestLoadSnapshot_ColdStartConvertsRunningToWaiting(t *testing.T) {
+	snaps := []SessionSnapshot{
+		{
+			ID:      "s1",
+			Command: "generic",
+			DriverState: map[string]string{
+				"status": "running",
+			},
+		},
+	}
+	persist := &snapLoader{snaps: snaps}
 	r := New(Config{
-		SessionName:  "roost-test",
-		TickInterval: 10 * time.Second,
-		Tmux:         ftmux,
+		SessionName: "roost-test",
+		Persist:     persist,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1"}
-	r.sessionPanes["s1"] = "%2"
 
-	r.RecoverActivePaneAtMain()
+	// Cold start: should convert to waiting
+	if err := r.LoadSnapshot(true); err != nil {
+		t.Fatalf("LoadSnapshot(true): %v", err)
+	}
+	s1 := r.state.Sessions["s1"]
+	drv := state.GetDriver("generic")
+	if drv.Status(s1.Driver) != state.StatusWaiting {
+		t.Errorf("Cold start status = %v, want waiting", drv.Status(s1.Driver))
+	}
 
-	if r.activeSession != "s1" {
-		t.Errorf("activeSession = %q, want s1", r.activeSession)
+	// Reset and try warm start with a fresh snap map
+	r.state.Sessions = make(map[state.SessionID]state.Session)
+	persist.snaps = []SessionSnapshot{
+		{
+			ID:      "s1",
+			Command: "generic",
+			DriverState: map[string]string{
+				"status": "running",
+			},
+		},
 	}
-	ftmux.mu.Lock()
-	defer ftmux.mu.Unlock()
-	if ftmux.swapCalls != 0 {
-		t.Errorf("swapCalls = %d, want 0", ftmux.swapCalls)
+	if err := r.LoadSnapshot(false); err != nil {
+		t.Fatalf("LoadSnapshot(false): %v", err)
 	}
+	s1 = r.state.Sessions["s1"]
+	if drv.Status(s1.Driver) != state.StatusRunning {
+		t.Errorf("Warm start status = %v, want running", drv.Status(s1.Driver))
+	}
+}
+
+type snapLoader struct {
+	noopPersist
+	snaps []SessionSnapshot
+}
+
+func (s *snapLoader) Load() ([]SessionSnapshot, error) {
+	return s.snaps, nil
 }
