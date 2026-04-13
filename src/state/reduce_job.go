@@ -65,7 +65,7 @@ func handlePendingCreate(s State, pending PendingCreate, e EvJobResult) (State, 
 		return s, []Effect{errResp(pending.ReplyConn, pending.ReplyReqID, ErrCodeInternal, "driver missing create-session planner")}
 	}
 
-	nextDS, launch, err := planner.CompleteCreate(pending.Session.Driver, pending.Session.Command, e.Result, e.Err)
+	nextDS, _, err := planner.CompleteCreate(pending.Session.Driver, pending.Session.Command, e.Result, e.Err)
 	if err != nil {
 		return s, []Effect{errResp(pending.ReplyConn, pending.ReplyReqID, ErrCodeInvalidArgument, err.Error())}
 	}
@@ -75,16 +75,16 @@ func handlePendingCreate(s State, pending PendingCreate, e EvJobResult) (State, 
 	return s, []Effect{
 		EffSpawnTmuxWindow{
 			SessionID:  pending.Session.ID,
+			Mode:       LaunchModeCreate,
 			Project:    pending.Session.Project,
-			Command:    launch.Command,
-			StartDir:   launch.StartDir,
+			Command:    pending.Session.Command,
+			StartDir:   pending.Session.Project,
 			Env:        map[string]string{"ROOST_SESSION_ID": string(pending.Session.ID)},
 			ReplyConn:  pending.ReplyConn,
 			ReplyReqID: pending.ReplyReqID,
 		},
 	}
 }
-
 
 // reduceFileChanged routes a fsnotify event to the matching
 // session's driver as DEvFileChanged.

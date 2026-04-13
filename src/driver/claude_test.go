@@ -3,6 +3,8 @@ package driver
 import (
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -842,63 +844,114 @@ func TestClaudeRestoreEmpty(t *testing.T) {
 	}
 }
 
-// === SpawnCommand ===
+// === PrepareLaunch ===
 
-func TestClaudeSpawnCommandResume(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
-	cs := ClaudeState{ClaudeSessionID: "uuid-X"}
-	got := d.SpawnCommand(cs, "claude")
+func TestClaudePrepareLaunchResume(t *testing.T) {
+	home := t.TempDir()
+	d := NewClaudeDriver(home, testEventLogDir, ClaudeOptions{})
+	cs := ClaudeState{
+		CommonState:     CommonState{WorkingDir: "/repo"},
+		ClaudeSessionID: "uuid-X",
+	}
+	path := filepath.Join(home, ".claude", "projects", projectDir("/repo"), "uuid-X.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll error: %v", err)
+	}
+	if err := os.WriteFile(path, []byte("{}\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile error: %v", err)
+	}
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "claude")
+	if err != nil {
+		t.Fatalf("PrepareLaunch error: %v", err)
+	}
+	got := plan.Command
 	want := "claude --resume uuid-X"
 	if got != want {
-		t.Errorf("SpawnCommand = %q, want %q", got, want)
+		t.Errorf("PrepareLaunch.Command = %q, want %q", got, want)
 	}
 }
 
-func TestClaudeSpawnCommandNoSession(t *testing.T) {
+func TestClaudePrepareLaunchNoSession(t *testing.T) {
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{}
-	got := d.SpawnCommand(cs, "claude --foo")
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "claude --foo")
+	if err != nil {
+		t.Fatalf("PrepareLaunch error: %v", err)
+	}
+	got := plan.Command
 	if got != "claude --foo" {
-		t.Errorf("SpawnCommand = %q, want passthrough", got)
+		t.Errorf("PrepareLaunch.Command = %q, want passthrough", got)
 	}
 }
 
-func TestClaudeSpawnCommandStripsWorktree(t *testing.T) {
+func TestClaudePrepareLaunchStripsWorktree(t *testing.T) {
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
-	got := d.SpawnCommand(cs, "claude --worktree")
-	want := "claude --resume uuid-W"
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeCreate, "/repo", "claude --worktree")
+	if err != nil {
+		t.Fatalf("PrepareLaunch error: %v", err)
+	}
+	got := plan.Command
+	want := "claude"
 	if got != want {
-		t.Errorf("SpawnCommand = %q, want %q", got, want)
+		t.Errorf("PrepareLaunch.Command = %q, want %q", got, want)
 	}
 }
 
-func TestClaudeSpawnCommandStripsWorktreeWithName(t *testing.T) {
+func TestClaudePrepareLaunchStripsWorktreeWithName(t *testing.T) {
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
-	got := d.SpawnCommand(cs, "claude --worktree my-branch")
-	want := "claude --resume uuid-W"
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeCreate, "/repo", "claude --worktree my-branch")
+	if err != nil {
+		t.Fatalf("PrepareLaunch error: %v", err)
+	}
+	got := plan.Command
+	want := "claude"
 	if got != want {
-		t.Errorf("SpawnCommand = %q, want %q", got, want)
+		t.Errorf("PrepareLaunch.Command = %q, want %q", got, want)
 	}
 }
 
-func TestClaudeSpawnCommandStripsWorktreeEquals(t *testing.T) {
+func TestClaudePrepareLaunchStripsWorktreeEquals(t *testing.T) {
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
-	got := d.SpawnCommand(cs, "claude --worktree=my-branch")
-	want := "claude --resume uuid-W"
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeCreate, "/repo", "claude --worktree=my-branch")
+	if err != nil {
+		t.Fatalf("PrepareLaunch error: %v", err)
+	}
+	got := plan.Command
+	want := "claude"
 	if got != want {
-		t.Errorf("SpawnCommand = %q, want %q", got, want)
+		t.Errorf("PrepareLaunch.Command = %q, want %q", got, want)
 	}
 }
 
-func TestClaudeSpawnCommandAlreadyHasResume(t *testing.T) {
+func TestClaudePrepareLaunchMissingTranscriptSkipsResume(t *testing.T) {
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	cs := ClaudeState{
+		CommonState:     CommonState{WorkingDir: "/repo"},
+		ClaudeSessionID: "uuid-Y",
+	}
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "claude")
+	if err != nil {
+		t.Fatalf("PrepareLaunch error: %v", err)
+	}
+	got := plan.Command
+	if got != "claude" {
+		t.Errorf("PrepareLaunch.Command = %q, want plain command", got)
+	}
+}
+
+func TestClaudePrepareLaunchAlreadyHasResume(t *testing.T) {
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{ClaudeSessionID: "uuid-Y"}
-	got := d.SpawnCommand(cs, "claude --resume preset")
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "claude --resume preset")
+	if err != nil {
+		t.Fatalf("PrepareLaunch error: %v", err)
+	}
+	got := plan.Command
 	if got != "claude --resume preset" {
-		t.Errorf("SpawnCommand = %q, should not double --resume", got)
+		t.Errorf("PrepareLaunch.Command = %q, should not double --resume", got)
 	}
 }
 

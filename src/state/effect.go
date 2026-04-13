@@ -16,6 +16,7 @@ type Effect interface {
 // fields so the reducer can complete the create-session round trip.
 type EffSpawnTmuxWindow struct {
 	SessionID  SessionID
+	Mode       LaunchMode
 	Project    string
 	Command    string
 	StartDir   string

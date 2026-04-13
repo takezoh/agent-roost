@@ -216,52 +216,72 @@ func TestCodexDropsStaleHook(t *testing.T) {
 	}
 }
 
-func TestCodexSpawnCommandResume(t *testing.T) {
+func TestCodexPrepareLaunchResume(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.CodexSessionID = "abc-123"
-	got := d.SpawnCommand(cs, "codex --model gpt-5-codex")
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "codex --model gpt-5-codex")
+	if err != nil {
+		t.Fatalf("PrepareLaunch error: %v", err)
+	}
+	got := plan.Command
 	want := "codex --model gpt-5-codex resume abc-123"
 	if got != want {
-		t.Fatalf("SpawnCommand = %q, want %q", got, want)
+		t.Fatalf("PrepareLaunch.Command = %q, want %q", got, want)
 	}
 }
 
-func TestCodexSpawnCommandNoDoubleResume(t *testing.T) {
+func TestCodexPrepareLaunchNoDoubleResume(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.CodexSessionID = "abc-123"
-	got := d.SpawnCommand(cs, "codex resume abc")
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "codex resume abc")
+	if err != nil {
+		t.Fatalf("PrepareLaunch error: %v", err)
+	}
+	got := plan.Command
 	if got != "codex resume abc" {
-		t.Fatalf("SpawnCommand = %q", got)
+		t.Fatalf("PrepareLaunch.Command = %q", got)
 	}
 }
 
-func TestCodexSpawnCommandStripsWorktreeOnResume(t *testing.T) {
+func TestCodexPrepareLaunchStripsWorktreeOnResume(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.CodexSessionID = "abc-123"
 	cs.ManagedWorkingDir = "/repo/.roost/worktrees/codex-1234"
-	got := d.SpawnCommand(cs, "codex --worktree feature --model gpt-5-codex")
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "codex --worktree feature --model gpt-5-codex")
+	if err != nil {
+		t.Fatalf("PrepareLaunch error: %v", err)
+	}
+	got := plan.Command
 	want := "codex --model gpt-5-codex resume abc-123"
 	if got != want {
-		t.Fatalf("SpawnCommand = %q, want %q", got, want)
+		t.Fatalf("PrepareLaunch.Command = %q, want %q", got, want)
 	}
 }
 
-func TestCodexSpawnCommandStripsWorktreeWithoutResume(t *testing.T) {
+func TestCodexPrepareLaunchStripsWorktreeWithoutResume(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.ManagedWorkingDir = "/repo/.roost/worktrees/codex-1234"
-	got := d.SpawnCommand(cs, "codex --worktree feature --model gpt-5-codex")
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeCreate, "/repo", "codex --worktree feature --model gpt-5-codex")
+	if err != nil {
+		t.Fatalf("PrepareLaunch error: %v", err)
+	}
+	got := plan.Command
 	want := "codex --model gpt-5-codex"
 	if got != want {
-		t.Fatalf("SpawnCommand = %q, want %q", got, want)
+		t.Fatalf("PrepareLaunch.Command = %q, want %q", got, want)
 	}
 }
 
-func TestCodexSpawnCommandSkipsNonCodexBaseCommand(t *testing.T) {
+func TestCodexPrepareLaunchSkipsNonCodexBaseCommand(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.CodexSessionID = "abc-123"
-	got := d.SpawnCommand(cs, "env FOO=bar")
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "env FOO=bar")
+	if err != nil {
+		t.Fatalf("PrepareLaunch error: %v", err)
+	}
+	got := plan.Command
 	if got != "env FOO=bar" {
-		t.Fatalf("SpawnCommand = %q", got)
+		t.Fatalf("PrepareLaunch.Command = %q", got)
 	}
 }
 
@@ -537,7 +557,7 @@ func TestCodexCompleteCreateWithWorktree(t *testing.T) {
 	if got.ManagedWorkingDir != "/repo/.roost/worktrees/feature" || got.WorkingDir != "/repo/.roost/worktrees/feature" {
 		t.Fatalf("working dir fields = %+v", got)
 	}
-	if launch.Command != "codex --model gpt-5" || launch.StartDir != "/repo/.roost/worktrees/feature" {
+	if launch.Command != "codex --worktree feature --model gpt-5" || launch.StartDir != "/repo/.roost/worktrees/feature" {
 		t.Fatalf("launch = %+v", launch)
 	}
 }

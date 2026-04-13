@@ -95,10 +95,18 @@ func (d GenericDriver) NewState(now time.Time) state.DriverState {
 	}
 }
 
-// SpawnCommand returns baseCommand unchanged — generic drivers do not
-// support resuming a prior agent session.
-func (d GenericDriver) SpawnCommand(_ state.DriverState, baseCommand string) string {
-	return baseCommand
+func (d GenericDriver) PrepareLaunch(s state.DriverState, _ state.LaunchMode, project, baseCommand string) (state.LaunchPlan, error) {
+	gs, ok := s.(GenericState)
+	if !ok {
+		gs = GenericState{}
+	}
+	startDir := project
+	command := strings.TrimSpace(baseCommand)
+	if gs.WorkingDir != "" {
+		startDir = gs.WorkingDir
+		_, command = parseWorktreeFlags(command, "--worktree")
+	}
+	return state.LaunchPlan{Command: command, StartDir: startDir}, nil
 }
 
 func (d GenericDriver) Persist(s state.DriverState) map[string]string {
@@ -208,8 +216,7 @@ func (d GenericDriver) CompleteCreate(s state.DriverState, command string, resul
 	if r.Name != "" {
 		gs.WorktreeName = r.Name
 	}
-	_, stripped := parseWorktreeFlags(command, "--worktree")
-	return gs, state.CreateLaunch{Command: stripped, StartDir: r.WorkingDir}, nil
+	return gs, state.CreateLaunch{Command: command, StartDir: r.WorkingDir}, nil
 }
 
 func (d GenericDriver) ManagedWorktreePath(s state.DriverState) string {

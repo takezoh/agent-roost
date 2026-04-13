@@ -52,7 +52,7 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 		return s, []Effect{errResp(connID, reqID, ErrCodeUnsupported, "no driver registered for command "+command)}
 	}
 
-	driverState, launch, setupJob, err := prepareSessionDriver(s, drv, sessID, p.Project, command)
+	driverState, setupJob, err := prepareSessionDriver(s, drv, sessID, p.Project, command)
 	if err != nil {
 		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, err.Error())}
 	}
@@ -87,9 +87,10 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 	return s, []Effect{
 		EffSpawnTmuxWindow{
 			SessionID:  sessID,
+			Mode:       LaunchModeCreate,
 			Project:    p.Project,
-			Command:    launch.Command,
-			StartDir:   launch.StartDir,
+			Command:    command,
+			StartDir:   p.Project,
 			Env:        map[string]string{"ROOST_SESSION_ID": string(sessID)},
 			ReplyConn:  connID,
 			ReplyReqID: reqID,
@@ -110,26 +111,19 @@ func resolveCreateCommand(s State, command string) string {
 	return command
 }
 
-func prepareSessionDriver(s State, drv Driver, sessID SessionID, project, command string) (DriverState, CreateLaunch, JobInput, error) {
+func prepareSessionDriver(s State, drv Driver, sessID SessionID, project, command string) (DriverState, JobInput, error) {
 	driverState := drv.NewState(s.Now)
-	launch := CreateLaunch{Command: command, StartDir: project}
 	var setupJob JobInput
 	if planner, ok := drv.(CreateSessionPlanner); ok {
 		var plan CreatePlan
 		var err error
 		driverState, plan, err = planner.PrepareCreate(driverState, sessID, project, command)
 		if err != nil {
-			return nil, launch, nil, err
-		}
-		if plan.Launch.Command != "" {
-			launch.Command = plan.Launch.Command
-		}
-		if plan.Launch.StartDir != "" {
-			launch.StartDir = plan.Launch.StartDir
+			return nil, nil, err
 		}
 		setupJob = plan.SetupJob
 	}
-	return driverState, launch, setupJob, nil
+	return driverState, setupJob, nil
 }
 
 func reduceTmuxPaneSpawned(s State, e EvTmuxPaneSpawned) (State, []Effect) {

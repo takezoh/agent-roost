@@ -26,11 +26,13 @@ type stubDriverState struct {
 
 type stubDriver struct{}
 
-func (stubDriver) Name() string                                             { return "stub" }
-func (stubDriver) DisplayName() string                                      { return "stub" }
-func (stubDriver) Status(s DriverState) Status                              { return s.(stubDriverState).status }
-func (stubDriver) NewState(now time.Time) DriverState                       { return stubDriverState{} }
-func (stubDriver) SpawnCommand(s DriverState, baseCommand string) string    { return baseCommand }
+func (stubDriver) Name() string                       { return "stub" }
+func (stubDriver) DisplayName() string                { return "stub" }
+func (stubDriver) Status(s DriverState) Status        { return s.(stubDriverState).status }
+func (stubDriver) NewState(now time.Time) DriverState { return stubDriverState{} }
+func (stubDriver) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string) (LaunchPlan, error) {
+	return LaunchPlan{Command: baseCommand, StartDir: project}, nil
+}
 func (stubDriver) Persist(s DriverState) map[string]string                  { return nil }
 func (stubDriver) Restore(bag map[string]string, now time.Time) DriverState { return stubDriverState{} }
 func (stubDriver) View(s DriverState) View                                  { return View{} }
@@ -41,6 +43,9 @@ func (stubDriver) Step(prev DriverState, ev DriverEvent) (DriverState, []Effect,
 type plannerDriver struct{ stubDriver }
 
 func (plannerDriver) Name() string { return "planner" }
+func (plannerDriver) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string) (LaunchPlan, error) {
+	return LaunchPlan{Command: "planner --prepared", StartDir: "/prepared"}, nil
+}
 func (plannerDriver) PrepareCreate(s DriverState, sessionID SessionID, project, command string) (DriverState, CreatePlan, error) {
 	return s, CreatePlan{
 		Launch:   CreateLaunch{Command: "planner --prepared", StartDir: project},
@@ -205,7 +210,10 @@ func TestCreateSessionPlannerDefersSpawnUntilJobResult(t *testing.T) {
 	if !ok {
 		t.Fatal("expected EffSpawnTmuxWindow after setup completion")
 	}
-	if spawn.Command != "planner --prepared" || spawn.StartDir != "/prepared" {
+	if spawn.Mode != LaunchModeCreate {
+		t.Fatalf("spawn mode = %v", spawn.Mode)
+	}
+	if spawn.Command != "planner" || spawn.StartDir != "/foo" {
 		t.Fatalf("spawn = %+v", spawn)
 	}
 }

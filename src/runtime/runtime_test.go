@@ -751,6 +751,76 @@ func TestRuntimeShellSessionSpawnsWithoutCommand(t *testing.T) {
 	}
 }
 
+func TestRecreateAllUsesPrepareLaunch(t *testing.T) {
+	tmux := newFakeTmux()
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         tmux,
+		Persist:      &recordingPersist{},
+	})
+	drv := state.GetDriver("codex")
+	ds := drv.NewState(time.Now()).(driver.CodexState)
+	ds.CodexSessionID = "resume-123"
+	ds.ManagedWorkingDir = "/repo/.roost/worktrees/example"
+	ds.WorkingDir = "/repo/.roost/worktrees/example"
+	r.state.Sessions[state.SessionID("s1")] = state.Session{
+		ID:      state.SessionID("s1"),
+		Project: "/repo",
+		Command: "codex --worktree example --model gpt-5-codex",
+		Driver:  ds,
+	}
+
+	if err := r.RecreateAll(); err != nil {
+		t.Fatalf("RecreateAll error: %v", err)
+	}
+
+	tmux.mu.Lock()
+	defer tmux.mu.Unlock()
+	if len(tmux.spawnCmds) != 1 {
+		t.Fatalf("spawnCmds = %d, want 1", len(tmux.spawnCmds))
+	}
+	if tmux.spawnCmds[0] != "exec codex --model gpt-5-codex resume resume-123" {
+		t.Fatalf("spawnCmd = %q", tmux.spawnCmds[0])
+	}
+}
+
+func TestSpawnTmuxWindowAsyncUsesPrepareLaunch(t *testing.T) {
+	tmux := newFakeTmux()
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         tmux,
+		Persist:      &recordingPersist{},
+	})
+	drv := state.GetDriver("codex")
+	ds := drv.NewState(time.Now()).(driver.CodexState)
+	ds.ManagedWorkingDir = "/repo/.roost/worktrees/example"
+	ds.WorkingDir = "/repo/.roost/worktrees/example"
+	r.state.Sessions[state.SessionID("s1")] = state.Session{
+		ID:      state.SessionID("s1"),
+		Project: "/repo",
+		Command: "codex --worktree example --model gpt-5-codex",
+		Driver:  ds,
+	}
+
+	r.spawnTmuxWindowAsync(state.EffSpawnTmuxWindow{
+		SessionID: state.SessionID("s1"),
+		Mode:      state.LaunchModeCreate,
+		Project:   "/repo",
+		Env:       map[string]string{"ROOST_SESSION_ID": "s1"},
+	})
+
+	tmux.mu.Lock()
+	defer tmux.mu.Unlock()
+	if len(tmux.spawnCmds) != 1 {
+		t.Fatalf("spawnCmds = %d, want 1", len(tmux.spawnCmds))
+	}
+	if tmux.spawnCmds[0] != "exec codex --model gpt-5-codex" {
+		t.Fatalf("spawnCmd = %q", tmux.spawnCmds[0])
+	}
+}
+
 func TestReconcileDetectsVanishedPane(t *testing.T) {
 	ftmux := newFakeTmux()
 	ftmux.alive["%3"] = false

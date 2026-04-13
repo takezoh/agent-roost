@@ -50,16 +50,29 @@ func (d GeminiDriver) NewState(now time.Time) state.DriverState {
 	}
 }
 
-func (d GeminiDriver) SpawnCommand(s state.DriverState, baseCommand string) string {
+func (d GeminiDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, project, baseCommand string) (state.LaunchPlan, error) {
 	gs, ok := s.(GeminiState)
-	if !ok || gs.GeminiSessionID == "" || !isAlphanumHyphen(gs.GeminiSessionID) {
-		return baseCommand
+	if !ok {
+		gs = GeminiState{}
 	}
-	if strings.Contains(baseCommand, "--resume") || strings.Contains(baseCommand, " -r") {
-		return baseCommand
+	startDir := project
+	if gs.WorkingDir != "" {
+		startDir = gs.WorkingDir
 	}
-	stripped := stripGeminiWorktreeFlag(baseCommand)
-	return strings.TrimSpace(stripped) + " --resume " + gs.GeminiSessionID
+	stripped := strings.TrimSpace(baseCommand)
+	if mode == state.LaunchModeCreate || gs.WorkingDir != "" {
+		stripped = strings.TrimSpace(stripGeminiWorktreeFlag(stripped))
+	}
+	if mode != state.LaunchModeColdStart || gs.GeminiSessionID == "" || !isAlphanumHyphen(gs.GeminiSessionID) {
+		return state.LaunchPlan{Command: stripped, StartDir: startDir}, nil
+	}
+	if strings.Contains(stripped, "--resume") || strings.Contains(stripped, " -r") {
+		return state.LaunchPlan{Command: stripped, StartDir: startDir}, nil
+	}
+	return state.LaunchPlan{
+		Command:  strings.TrimSpace(stripGeminiWorktreeFlag(stripped)) + " --resume " + gs.GeminiSessionID,
+		StartDir: startDir,
+	}, nil
 }
 
 func stripGeminiWorktreeFlag(command string) string {

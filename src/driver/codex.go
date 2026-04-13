@@ -70,24 +70,31 @@ func (d CodexDriver) NewState(now time.Time) state.DriverState {
 	}
 }
 
-func (d CodexDriver) SpawnCommand(s state.DriverState, baseCommand string) string {
+func (d CodexDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, project, baseCommand string) (state.LaunchPlan, error) {
 	cs, ok := s.(CodexState)
 	if !ok {
-		return baseCommand
+		cs = CodexState{}
+	}
+	startDir := project
+	if cs.WorkingDir != "" {
+		startDir = cs.WorkingDir
 	}
 	req, stripped := parseWorktreeFlags(baseCommand, "--worktree")
 	fields := strings.Fields(stripped)
 	if len(fields) == 0 || fields[0] != CodexDriverName {
-		return baseCommand
+		return state.LaunchPlan{Command: baseCommand, StartDir: startDir}, nil
 	}
 	base := strings.TrimSpace(baseCommand)
-	if req.Enabled || cs.ManagedWorkingDir != "" {
+	if mode == state.LaunchModeCreate || req.Enabled || cs.ManagedWorkingDir != "" {
 		base = stripped
 	}
-	if cs.CodexSessionID == "" || !isAlphanumHyphen(cs.CodexSessionID) || hasResumeToken(base) {
-		return base
+	if mode != state.LaunchModeColdStart || cs.CodexSessionID == "" || !isAlphanumHyphen(cs.CodexSessionID) || hasResumeToken(base) {
+		return state.LaunchPlan{Command: base, StartDir: startDir}, nil
 	}
-	return strings.TrimSpace(base) + " resume " + cs.CodexSessionID
+	return state.LaunchPlan{
+		Command:  strings.TrimSpace(base) + " resume " + cs.CodexSessionID,
+		StartDir: startDir,
+	}, nil
 }
 
 func hasResumeToken(command string) bool {

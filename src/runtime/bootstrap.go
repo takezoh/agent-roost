@@ -228,20 +228,19 @@ func (r *Runtime) RecreateAll() error {
 		if drv == nil {
 			continue
 		}
-		spawnCmd := drv.SpawnCommand(sess.Driver, sess.Command)
-		startDir := sess.Project
-		if bag := drv.Persist(sess.Driver); bag != nil {
-			if wd := bag["working_dir"]; wd != "" {
-				startDir = wd
-			}
+		launch, err := drv.PrepareLaunch(sess.Driver, state.LaunchModeColdStart, sess.Project, sess.Command)
+		if err != nil {
+			slog.Error("bootstrap: prepare launch failed", "id", id, "err", err)
+			dead = append(dead, id)
+			continue
 		}
 		name := windowName(sess.Project, string(id))
-		tmuxCmd := "exec " + spawnCmd
-		if isShellCommand(sess.Command) {
+		tmuxCmd := "exec " + launch.Command
+		if isShellCommand(launch.Command) {
 			tmuxCmd = ""
 		}
 		target, paneID, err := r.cfg.Tmux.SpawnWindow(
-			name, tmuxCmd, startDir,
+			name, tmuxCmd, launch.StartDir,
 			map[string]string{"ROOST_SESSION_ID": string(id)},
 		)
 		if err != nil {

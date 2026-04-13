@@ -106,14 +106,21 @@ type Persister interface {
 	Restore(bag map[string]string, now time.Time) DriverState
 }
 
-// Spawnable is an optional capability for drivers that need to
-// customize the agent process launch command (e.g. for resume).
-type Spawnable interface {
-	// SpawnCommand returns the shell command for (re)starting the agent
-	// process during cold-boot recovery. Drivers that support resume
-	// (e.g. mydriver --resume <id>) augment the base command using their
-	// own keys recovered from the persisted state.
-	SpawnCommand(s DriverState, baseCommand string) string
+type LaunchMode int
+
+const (
+	LaunchModeCreate LaunchMode = iota
+	LaunchModeColdStart
+	LaunchModeWarmStart
+)
+
+type LaunchPlan struct {
+	Command  string
+	StartDir string
+}
+
+type LaunchPreparer interface {
+	PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string) (LaunchPlan, error)
 }
 
 // Driver is the interface every per-driver-type plugin implements. Each
@@ -141,7 +148,7 @@ type Driver interface {
 
 	ViewProvider
 	Persister
-	Spawnable
+	LaunchPreparer
 }
 
 // CreateLaunch is the fully resolved process launch information for a

@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -115,22 +116,36 @@ func (d ClaudeDriver) NewState(now time.Time) state.DriverState {
 // is known so cold-boot recovery picks up the prior conversation.
 // Mirrors lib/claude/cli.ResumeCommand exactly so we don't take a
 // dependency on lib/claude/cli from the pure-state layer.
-func (d ClaudeDriver) SpawnCommand(s state.DriverState, baseCommand string) string {
+func (d ClaudeDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, project, baseCommand string) (state.LaunchPlan, error) {
 	cs, ok := s.(ClaudeState)
-	if !ok || cs.ClaudeSessionID == "" {
-		return baseCommand
+	if !ok {
+		cs = ClaudeState{}
 	}
-	if strings.Contains(baseCommand, "--resume") {
-		return baseCommand
+	startDir := project
+	if cs.WorkingDir != "" {
+		startDir = cs.WorkingDir
 	}
-	if !isAlphanumHyphen(cs.ClaudeSessionID) {
-		return baseCommand
+	command := strings.TrimSpace(stripWorktreeFlag(baseCommand))
+	if mode != state.LaunchModeColdStart || cs.ClaudeSessionID == "" {
+		return state.LaunchPlan{Command: command, StartDir: startDir}, nil
 	}
-	// Strip --worktree before adding --resume. Claude treats
-	// --worktree as "create a new worktree" which is incompatible
-	// with --resume. The caller (RecreateAll) starts the process
-	// inside the existing worktree directory instead.
-	return stripWorktreeFlag(baseCommand) + " --resume " + cs.ClaudeSessionID
+	if strings.Contains(command, "--resume") || !isAlphanumHyphen(cs.ClaudeSessionID) {
+		return state.LaunchPlan{Command: command, StartDir: startDir}, nil
+	}
+	path := d.resolveTranscriptPath(cs)
+	if path == "" {
+		return state.LaunchPlan{Command: command, StartDir: startDir}, nil
+	}
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return state.LaunchPlan{Command: command, StartDir: startDir}, nil
+		}
+		return state.LaunchPlan{}, err
+	}
+	return state.LaunchPlan{
+		Command:  command + " --resume " + cs.ClaudeSessionID,
+		StartDir: startDir,
+	}, nil
 }
 
 // stripWorktreeFlag removes --worktree (and its optional name

@@ -124,10 +124,8 @@ func CommonCompleteCreate(c *CommonState, command string, result any, err error,
 	if r.Name != "" {
 		c.WorktreeName = r.Name
 	}
-	_, stripped := parseWorktreeFlags(command, flags...)
 	return state.CreateLaunch{
-		Command:  stripped,
+		Command:  command,
 		StartDir: r.WorkingDir,
 	}, nil
 }
-
