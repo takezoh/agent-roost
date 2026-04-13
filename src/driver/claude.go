@@ -116,7 +116,7 @@ func (d ClaudeDriver) NewState(now time.Time) state.DriverState {
 // is known so cold-boot recovery picks up the prior conversation.
 // Mirrors lib/claude/cli.ResumeCommand exactly so we don't take a
 // dependency on lib/claude/cli from the pure-state layer.
-func (d ClaudeDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, project, baseCommand string) (state.LaunchPlan, error) {
+func (d ClaudeDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, project, baseCommand string, options state.LaunchOptions) (state.LaunchPlan, error) {
 	cs, ok := s.(ClaudeState)
 	if !ok {
 		cs = ClaudeState{}
@@ -125,10 +125,12 @@ func (d ClaudeDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, 
 	if cs.WorkingDir != "" {
 		startDir = cs.WorkingDir
 	}
-	command := strings.TrimSpace(stripWorktreeFlag(baseCommand))
+	req, stripped := resolveWorktreeRequest(baseCommand, options, "--worktree")
+	command := appendFlag(stripped, "--worktree", req.Enabled)
 	if mode != state.LaunchModeColdStart || cs.ClaudeSessionID == "" {
 		return state.LaunchPlan{Command: command, StartDir: startDir}, nil
 	}
+	command = strings.TrimSpace(stripWorktreeFlag(command))
 	if strings.Contains(command, "--resume") || !isAlphanumHyphen(cs.ClaudeSessionID) {
 		return state.LaunchPlan{Command: command, StartDir: startDir}, nil
 	}
@@ -145,6 +147,7 @@ func (d ClaudeDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, 
 	return state.LaunchPlan{
 		Command:  command + " --resume " + cs.ClaudeSessionID,
 		StartDir: startDir,
+		Options:  state.LaunchOptions{},
 	}, nil
 }
 

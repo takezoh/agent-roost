@@ -48,6 +48,22 @@ func parseWorktreeFlags(command string, flags ...string) (worktreeRequest, strin
 	return req, strings.Join(out, " ")
 }
 
+func resolveWorktreeRequest(command string, options state.LaunchOptions, flags ...string) (worktreeRequest, string) {
+	req, stripped := parseWorktreeFlags(command, flags...)
+	if options.Worktree.Enabled {
+		req.Enabled = true
+	}
+	return req, strings.TrimSpace(stripped)
+}
+
+func appendFlag(command, flag string, enabled bool) string {
+	command = strings.TrimSpace(command)
+	if !enabled || command == "" {
+		return command
+	}
+	return strings.TrimSpace(command + " " + flag)
+}
+
 func generatedWorktreeNames() []string {
 	out := make([]string, 0, worktreeNameAttempts)
 	seen := map[string]struct{}{}
@@ -62,11 +78,15 @@ func generatedWorktreeNames() []string {
 	return out
 }
 
-func managedWorktreePlan(project, command string, flags ...string) (state.CreatePlan, string, error) {
-	req, stripped := parseWorktreeFlags(command, flags...)
+func managedWorktreePlan(project, command string, options state.LaunchOptions, flags ...string) (state.CreatePlan, string, error) {
+	req, stripped := resolveWorktreeRequest(command, options, flags...)
 	if !req.Enabled {
 		return state.CreatePlan{
-			Launch: state.CreateLaunch{Command: command, StartDir: project},
+			Launch: state.CreateLaunch{
+				Command:  strings.TrimSpace(command),
+				StartDir: project,
+				Options:  state.LaunchOptions{},
+			},
 		}, "", nil
 	}
 	names := []string{req.Name}
@@ -77,7 +97,10 @@ func managedWorktreePlan(project, command string, flags ...string) (state.Create
 		}
 	}
 	return state.CreatePlan{
-		Launch: state.CreateLaunch{Command: stripped},
+		Launch: state.CreateLaunch{
+			Command: strings.TrimSpace(stripped),
+			Options: state.LaunchOptions{Worktree: state.WorktreeOption{Enabled: true}},
+		},
 		SetupJob: WorktreeSetupInput{
 			RepoDir:        project,
 			CandidateNames: names,
@@ -100,8 +123,8 @@ func isManagedWorktreePath(path string) bool {
 }
 
 // CommonPrepareCreate handles the shared logic for preparing a worktree-enabled session.
-func CommonPrepareCreate(c *CommonState, project, command string, flags ...string) (state.CreatePlan, error) {
-	plan, name, err := managedWorktreePlan(project, command, flags...)
+func CommonPrepareCreate(c *CommonState, project, command string, options state.LaunchOptions, flags ...string) (state.CreatePlan, error) {
+	plan, name, err := managedWorktreePlan(project, command, options, flags...)
 	if err != nil {
 		return state.CreatePlan{}, err
 	}
@@ -112,7 +135,7 @@ func CommonPrepareCreate(c *CommonState, project, command string, flags ...strin
 }
 
 // CommonCompleteCreate handles the shared logic for completing a worktree-enabled session creation.
-func CommonCompleteCreate(c *CommonState, command string, result any, err error, flags ...string) (state.CreateLaunch, error) {
+func CommonCompleteCreate(c *CommonState, command string, options state.LaunchOptions, result any, err error, flags ...string) (state.CreateLaunch, error) {
 	if err != nil {
 		return state.CreateLaunch{}, err
 	}
@@ -125,7 +148,8 @@ func CommonCompleteCreate(c *CommonState, command string, result any, err error,
 		c.WorktreeName = r.Name
 	}
 	return state.CreateLaunch{
-		Command:  command,
+		Command:  strings.TrimSpace(command),
 		StartDir: r.WorkingDir,
+		Options:  options,
 	}, nil
 }

@@ -181,7 +181,7 @@ func TestGenericPersistRoundTrip(t *testing.T) {
 
 func TestGenericPrepareCreateWithWorktree(t *testing.T) {
 	d, s, _ := newGenericState(t, 0)
-	next, plan, err := d.PrepareCreate(s, "sess-1", "/repo", "bash --worktree")
+	next, plan, err := d.PrepareCreate(s, "sess-1", "/repo", "bash --worktree", state.LaunchOptions{})
 	if err != nil {
 		t.Fatalf("PrepareCreate error: %v", err)
 	}

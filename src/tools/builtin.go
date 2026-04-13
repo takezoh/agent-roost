@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/takezoh/agent-roost/state"
 )
 
 // DefaultRegistry returns the built-in palette tool set.
@@ -19,7 +21,9 @@ func DefaultRegistry() *Registry {
 			{Name: "command", Options: func(ctx *ToolContext) []string { return ctx.Config.Commands }},
 		},
 		Run: func(ctx *ToolContext, args map[string]string) (*ToolInvocation, error) {
-			_, err := ctx.Client.CreateSession(args["project"], args["command"])
+			_, err := ctx.Client.CreateSession(args["project"], args["command"], state.LaunchOptions{
+				Worktree: state.WorktreeOption{Enabled: args["worktree"] == "on"},
+			})
 			return nil, err
 		},
 	})

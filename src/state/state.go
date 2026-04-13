@@ -43,11 +43,12 @@ type State struct {
 // All dynamic per-session data lives in Driver (a sum-typed value), which
 // each driver impl returns from its Step method.
 type Session struct {
-	ID        SessionID
-	Project   string
-	Command   string
-	CreatedAt time.Time
-	Driver    DriverState // sum type implemented by driver impls
+	ID            SessionID
+	Project       string
+	Command       string
+	LaunchOptions LaunchOptions
+	CreatedAt     time.Time
+	Driver        DriverState // sum type implemented by driver impls
 }
 
 // PendingCreate tracks a session creation that is blocked on an async

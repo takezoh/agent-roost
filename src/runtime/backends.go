@@ -99,12 +99,13 @@ type PersistBackend interface {
 // bag (opaque map of strings). Pane ids are tracked in tmux session env
 // vars (ROOST_SESSION_<sid>); sessions.json stays pane-id free.
 type SessionSnapshot struct {
-	ID          string            `json:"id"`
-	Project     string            `json:"project"`
-	Command     string            `json:"command"`
-	CreatedAt   string            `json:"created_at"`
-	Driver      string            `json:"driver"`
-	DriverState map[string]string `json:"driver_state"`
+	ID            string              `json:"id"`
+	Project       string              `json:"project"`
+	Command       string              `json:"command"`
+	LaunchOptions state.LaunchOptions `json:"launch_options,omitempty"`
+	CreatedAt     string              `json:"created_at"`
+	Driver        string              `json:"driver"`
+	DriverState   map[string]string   `json:"driver_state"`
 }
 
 // EventLogBackend writes per-session event log lines. The

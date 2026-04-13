@@ -94,6 +94,18 @@ func renderPaletteParam(m PaletteModel, innerWidth int) string {
 	b.WriteString(inputStyle.Render(m.input))
 	b.WriteString("█\n\n")
 
+	if m.selectedTool != nil && m.selectedTool.Name == "new-session" &&
+		m.paramIndex < len(m.selectedTool.Params) &&
+		m.selectedTool.Params[m.paramIndex].Name == "command" {
+		stateText := "off"
+		if m.worktreeOn {
+			stateText = "on"
+		}
+		b.WriteString(selItemStyle.Render(" worktree " + stateText + " "))
+		b.WriteString(descStyle.Render("  Tab to toggle"))
+		b.WriteString("\n\n")
+	}
+
 	if len(m.paramOptions) == 0 {
 		b.WriteString(descStyle.Render("(type value, enter to confirm)"))
 		return b.String()
