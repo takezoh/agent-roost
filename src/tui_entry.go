@@ -123,7 +123,7 @@ func runPalette(args []string) error {
 	}
 
 	if toolName == "push-driver" {
-		_, activeID, _, err := client.ListSessions()
+		_, activeID, _, _, err := client.ListSessions()
 		if err != nil || activeID == "" {
 			fmt.Fprintln(os.Stderr, "no active session")
 			time.Sleep(700 * time.Millisecond)
