@@ -1,9 +1,9 @@
 ---
-name: push
+name: roost-push
 description: Open another agent (claude, codex, gemini) or a shell as an overlay on top of the current session. Pipe stdin to seed the new agent with an initial prompt. Use when you want to delegate a focused sub-task or run a side command and return to where you were when it exits.
 ---
 
-# push
+# roost-push
 
 Open a sibling agent or shell as an overlay. When it exits, you return to the current session.
 
