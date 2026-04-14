@@ -1,6 +1,11 @@
 package driver
 
-import "github.com/takezoh/agent-roost/state"
+import (
+	"path/filepath"
+	"strings"
+
+	"github.com/takezoh/agent-roost/state"
+)
 
 // Standard tag colors. Drivers reference these via the helper
 // constructors below so that color decisions live in one place inside
@@ -13,6 +18,14 @@ const (
 	codexTagFg   = "#FFFFFF"
 	geminiTagBg  = "#1A73E8"
 	geminiTagFg  = "#FFFFFF"
+
+	// shell brand colors
+	bashTagBg       = "#4EAA25" // GNU bash logo green
+	zshTagBg        = "#2D6DB5" // Z Shell blue
+	fishTagBg       = "#F57900" // fish-shell orange
+	powershellTagBg = "#012456" // classic PowerShell navy
+	powershellTagFg = "#EEEDF0"
+	nushellTagBg    = "#3AA675" // Nushell logo green
 )
 
 // CommandTag returns the canonical command tag for a driver name, used
@@ -23,6 +36,28 @@ func CommandTag(name string) state.Tag {
 		Background: commandTagBg,
 		Foreground: commandTagFg,
 	}
+}
+
+// ShellCommandTag returns a command tag colored with the brand color of
+// well-known shells. name is matched case-insensitively against the
+// basename so that full paths (e.g. /usr/bin/bash) work correctly.
+// Unknown shell names fall back to the default command tag color.
+func ShellCommandTag(name string) state.Tag {
+	key := strings.ToLower(filepath.Base(name))
+	bg, fg := commandTagBg, commandTagFg
+	switch key {
+	case "bash":
+		bg = bashTagBg
+	case "zsh":
+		bg = zshTagBg
+	case "fish":
+		bg = fishTagBg
+	case "powershell", "pwsh":
+		bg, fg = powershellTagBg, powershellTagFg
+	case "nu", "nushell":
+		bg = nushellTagBg
+	}
+	return state.Tag{Text: name, Background: bg, Foreground: fg}
 }
 
 func CodexCommandTag() state.Tag {

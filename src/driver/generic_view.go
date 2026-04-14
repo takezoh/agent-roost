@@ -9,7 +9,7 @@ import "github.com/takezoh/agent-roost/state"
 func (d GenericDriver) view(gs GenericState) state.View {
 	var borderTitle state.Tag
 	if d.displayName != "" {
-		borderTitle = CommandTag(d.displayName)
+		borderTitle = ShellCommandTag(d.displayName)
 	}
 	return state.View{
 		Card: state.Card{
