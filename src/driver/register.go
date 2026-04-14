@@ -3,8 +3,6 @@ package driver
 import (
 	"encoding/json"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -24,23 +22,36 @@ type RegisterOptions struct {
 // RegisterDefaults wires the built-in driver set into the global
 // state registry. Idempotent — repeated calls are no-ops so test
 // binaries that import multiple sub-packages don't double-register.
+//
+// The "shell" driver is intentionally NOT registered here because its
+// display name must reflect the shell tmux will actually spawn
+// (tmux default-shell option). Call RegisterShellDriver separately,
+// after tmux is running.
 func RegisterDefaults(opts RegisterOptions) {
 	registerOnce.Do(func() {
 		claudeOpts := decodeConfig[ClaudeOptions](opts.DriverConfigs[ClaudeDriverName])
 		state.Register(NewClaudeDriver(opts.Home, opts.EventLogDir, claudeOpts))
-		state.Register(NewGenericDriver("bash", opts.IdleThreshold))
 		state.Register(NewCodexDriver(opts.EventLogDir))
 		state.Register(NewGeminiDriver(opts.EventLogDir))
-		shellDisplay := filepath.Base(os.Getenv("SHELL"))
-		if shellDisplay == "" || shellDisplay == "." {
-			shellDisplay = "shell"
-		}
-		state.Register(NewGenericDriver("shell", opts.IdleThreshold).WithDisplayName(shellDisplay))
 		state.Register(NewGenericDriver("", opts.IdleThreshold))
 	})
 }
 
+// RegisterShellDriver registers the "shell" generic driver with the
+// given display name. Must be called after tmux is running so the
+// display name matches the shell tmux will actually spawn.
+// Idempotent — repeated calls (warm/cold paths) are no-ops.
 var registerOnce sync.Once
+var shellOnce sync.Once
+
+func RegisterShellDriver(threshold time.Duration, displayName string) {
+	if displayName == "" {
+		displayName = "shell"
+	}
+	shellOnce.Do(func() {
+		state.Register(NewGenericDriver("shell", threshold).WithDisplayName(displayName))
+	})
+}
 
 // ParseClaudeOptions decodes the driver config section keyed by
 // ClaudeDriverName into a ClaudeOptions value. Exported so the runtime coordinator can read

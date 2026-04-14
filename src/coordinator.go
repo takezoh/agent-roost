@@ -72,6 +72,7 @@ func runCoordinator() error {
 	warmRestart := client.SessionExists()
 	if warmRestart {
 		slog.Info("session exists, restoring")
+		statedriver.RegisterShellDriver(idleThreshold, resolveShellDisplay(client))
 		if err := rt.LoadSnapshot(false); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
@@ -87,6 +88,7 @@ func runCoordinator() error {
 		if err := setupNewSession(client, cfg, sessionName); err != nil {
 			return err
 		}
+		statedriver.RegisterShellDriver(idleThreshold, resolveShellDisplay(client))
 		if err := rt.LoadSessionPanes(); err != nil {
 			slog.Warn("window map load failed", "err", err)
 		}
@@ -144,4 +146,23 @@ func runCoordinator() error {
 		slog.Info("tmux server exited")
 	}
 	return nil
+}
+
+// resolveShellDisplayFromValues picks the display name for the shell
+// driver from the two sources. Pure function — used directly by tests.
+func resolveShellDisplayFromValues(tmuxDefault, envSHELL string) string {
+	for _, raw := range []string{tmuxDefault, envSHELL} {
+		if name := filepath.Base(raw); name != "" && name != "." && name != "/" {
+			return name
+		}
+	}
+	return "shell"
+}
+
+// resolveShellDisplay queries tmux's default-shell option (the shell
+// tmux will actually spawn for login-shell panes) and falls back to
+// $SHELL if the query fails or returns empty.
+func resolveShellDisplay(client *tmux.Client) string {
+	tmuxDefault, _ := client.ShowOption("default-shell")
+	return resolveShellDisplayFromValues(tmuxDefault, os.Getenv("SHELL"))
 }
