@@ -972,19 +972,21 @@ func TestClaudePrepareLaunchAlreadyHasResume(t *testing.T) {
 	}
 }
 
-func TestClaudePrepareCreateWithWorktree(t *testing.T) {
+func TestClaudeNotCreateSessionPlanner(t *testing.T) {
+	d, _, _ := newClaude(t)
+	if _, ok := any(d).(state.CreateSessionPlanner); ok {
+		t.Fatal("ClaudeDriver must not implement CreateSessionPlanner (worktree handled by claude CLI itself)")
+	}
+}
+
+func TestClaudePrepareLaunchWorktreeFromCommand(t *testing.T) {
 	d, cs, _ := newClaude(t)
-	next, plan, err := d.PrepareCreate(cs, "sess-1", "/repo", "claude --worktree", state.LaunchOptions{})
+	plan, err := d.PrepareLaunch(cs, state.LaunchModeCreate, "/repo", "claude --worktree", state.LaunchOptions{})
 	if err != nil {
-		t.Fatalf("PrepareCreate error: %v", err)
+		t.Fatalf("PrepareLaunch error: %v", err)
 	}
-	_ = next.(ClaudeState)
-	in, ok := plan.SetupJob.(WorktreeSetupInput)
-	if !ok {
-		t.Fatalf("SetupJob = %T", plan.SetupJob)
-	}
-	if len(in.CandidateNames) != worktreeNameAttempts {
-		t.Fatalf("candidate names = %d, want %d", len(in.CandidateNames), worktreeNameAttempts)
+	if plan.Command != "claude --worktree" {
+		t.Errorf("PrepareLaunch.Command = %q, want %q", plan.Command, "claude --worktree")
 	}
 }
 
