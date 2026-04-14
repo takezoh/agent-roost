@@ -85,7 +85,7 @@ func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 	}
 
 	// Pane 0.0 dead with active session: evict the owning session.
-	// OwnerSessionID is set by the runtime; fall back to ActiveSession
+	// OwnerFrameID is set by the runtime; fall back to ActiveSession
 	// if the runtime couldn't identify the owner via pane_id.
 	ownerID := e.OwnerFrameID
 	if ownerID == "" {
@@ -98,41 +98,10 @@ func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 	if ownerID == "" {
 		return s, nil
 	}
-	sessID, sess, idx, ok := findFrame(s, ownerID)
+	s, effs, ok := evictFrame(s, ownerID, true)
 	if !ok {
 		return s, nil
 	}
-	nextSess, removed := truncateFrames(sess, idx)
-	s.Sessions = cloneSessions(s.Sessions)
-	var deactivate []Effect
-	var reactivate []Effect
-	if len(nextSess.Frames) == 0 {
-		delete(s.Sessions, sessID)
-	} else {
-		s.Sessions[sessID] = nextSess
-	}
-	if s.ActiveSession == sessID && len(nextSess.Frames) == 0 {
-		s.ActiveSession = ""
-		deactivate = []Effect{EffDeactivateSession{}}
-	} else if s.ActiveSession == sessID {
-		reactivate = []Effect{EffActivateSession{SessionID: sessID, Reason: EventSwitchSession}}
-	}
-	var cleanup []Effect
-	for _, frame := range removed {
-		cleanup = append(cleanup,
-			EffKillSessionWindow{FrameID: frame.ID},
-			EffUnregisterPane{FrameID: frame.ID},
-			EffUnwatchFile{FrameID: frame.ID},
-		)
-	}
-	// CRITICAL: reactivate BEFORE cleanup. EffActivateSession swaps the
-	// parent pane back into 0.0, moving the dead top-frame pane out to its
-	// own window. Only then does EffKillSessionWindow kill that window —
-	// never window 0. Reversing this order causes kill-window to target
-	// the still-active window 0 and destroy the main layout.
-	effs := append(deactivate, reactivate...)
-	effs = append(effs, cleanup...)
-	effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
 	return s, effs
 }
 
@@ -150,34 +119,9 @@ func paneRespawnCommand(pane string) string {
 // disappeared (agent process exited) and broadcasts the new list.
 // If the vanished session was active, deactivation restores the main TUI.
 func reduceTmuxWindowVanished(s State, e EvTmuxWindowVanished) (State, []Effect) {
-	sessID, sess, idx, ok := findFrame(s, e.FrameID)
+	s, effs, ok := evictFrame(s, e.FrameID, false)
 	if !ok {
 		return s, nil
 	}
-	nextSess, removed := truncateFrames(sess, idx)
-	s.Sessions = cloneSessions(s.Sessions)
-	var deactivate []Effect
-	var reactivate []Effect
-	if len(nextSess.Frames) == 0 {
-		delete(s.Sessions, sessID)
-	} else {
-		s.Sessions[sessID] = nextSess
-	}
-	if s.ActiveSession == sessID && len(nextSess.Frames) == 0 {
-		s.ActiveSession = ""
-		deactivate = []Effect{EffDeactivateSession{}}
-	} else if s.ActiveSession == sessID {
-		reactivate = []Effect{EffActivateSession{SessionID: sessID, Reason: EventSwitchSession}}
-	}
-	var cleanup []Effect
-	for _, frame := range removed {
-		cleanup = append(cleanup,
-			EffUnregisterPane{FrameID: frame.ID},
-			EffUnwatchFile{FrameID: frame.ID},
-		)
-	}
-	return s, append(append(append(deactivate, cleanup...), reactivate...), []Effect{
-		EffPersistSnapshot{},
-		EffBroadcastSessionsChanged{},
-	}...)
+	return s, effs
 }
