@@ -94,12 +94,6 @@ func loadConfig() (*config.Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	if cfg.Session.DefaultCommand == "" {
-		cfg.Session.DefaultCommand = "shell"
-	}
-	if len(cfg.Session.Commands) == 0 {
-		cfg.Session.Commands = []string{"shell"}
-	}
 	return cfg, nil
 }
 
