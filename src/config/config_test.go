@@ -14,11 +14,11 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Monitor.PollIntervalMs != 1000 {
 		t.Errorf("PollIntervalMs = %d, want 1000", cfg.Monitor.PollIntervalMs)
 	}
-	if cfg.Session.DefaultCommand != "" {
-		t.Errorf("DefaultCommand = %q, want empty", cfg.Session.DefaultCommand)
+	if cfg.Session.DefaultCommand != "shell" {
+		t.Errorf("DefaultCommand = %q, want %q", cfg.Session.DefaultCommand, "shell")
 	}
-	if len(cfg.Session.Commands) != 0 {
-		t.Errorf("len(Commands) = %d, want 0", len(cfg.Session.Commands))
+	if len(cfg.Session.Commands) != 1 || cfg.Session.Commands[0] != "shell" {
+		t.Errorf("Commands = %v, want [shell]", cfg.Session.Commands)
 	}
 	if cfg.Log.Level != "info" {
 		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "info")

@@ -101,12 +101,12 @@ func DefaultConfig() *Config {
 			IdleThresholdSec: 30,
 		},
 		Session: SessionConfig{
-			AutoName:     true,
-			PushCommands: []string{"shell"},
+			AutoName:       true,
+			DefaultCommand: "shell",
+			Commands:       []string{"shell"},
+			PushCommands:   []string{"shell"},
 		},
-		Projects: ProjectsConfig{
-			ProjectRoots: []string{"~/dev", "~/work"},
-		},
+		Projects: ProjectsConfig{},
 	}
 }
 
