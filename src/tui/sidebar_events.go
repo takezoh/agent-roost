@@ -3,6 +3,7 @@ package tui
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/takezoh/agent-roost/features"
 	"github.com/takezoh/agent-roost/proto"
 )
 
@@ -28,6 +29,9 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 	case proto.EvtSessionsChanged:
 		m.sessions = e.Sessions
 		m.connectors = e.Connectors
+		if len(e.Features) > 0 {
+			m.features = features.FromConfig(stringSliceToMap(e.Features), features.All())
+		}
 		m.rebuildItems()
 		if e.ActiveSessionID == "" {
 			m.active = ""
@@ -52,4 +56,14 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, m.listenEvents()
+}
+
+// stringSliceToMap converts a list of enabled flag names into the map form
+// that [features.FromConfig] expects (all values true).
+func stringSliceToMap(names []string) map[string]bool {
+	m := make(map[string]bool, len(names))
+	for _, n := range names {
+		m[n] = true
+	}
+	return m
 }

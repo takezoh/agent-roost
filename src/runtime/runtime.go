@@ -16,6 +16,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/takezoh/agent-roost/features"
 	"github.com/takezoh/agent-roost/runtime/worker"
 	"github.com/takezoh/agent-roost/state"
 )
@@ -35,6 +36,10 @@ type Config struct {
 	EventLog EventLogBackend
 	Watcher  FSWatcher
 	Pool     *worker.Pool
+
+	// Features is the set of runtime flags built from the config file.
+	// Injected into state.State once at construction; never mutated.
+	Features features.Set
 }
 
 // Runtime owns the event loop goroutine and the side-effect backends.
@@ -93,9 +98,11 @@ func New(cfg Config) *Runtime {
 	if cfg.Watcher == nil {
 		cfg.Watcher = noopWatcher{}
 	}
+	initial := state.New()
+	initial.Features = cfg.Features
 	r := &Runtime{
 		cfg:                cfg,
-		state:              state.New(),
+		state:              initial,
 		sessionPanes:       map[state.FrameID]string{},
 		parkedPaneSnapshot: map[state.FrameID]string{},
 		eventCh:            make(chan state.Event, 256),

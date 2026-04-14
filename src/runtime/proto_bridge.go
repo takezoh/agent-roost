@@ -69,7 +69,7 @@ func (r *Runtime) translateResponseBody(body any) proto.Response {
 		}
 	case state.SessionsReply:
 		infos, active := r.buildSessionInfos()
-		return proto.RespSessions{Sessions: infos, ActiveSessionID: active, Connectors: r.buildConnectorInfos()}
+		return proto.RespSessions{Sessions: infos, ActiveSessionID: active, Connectors: r.buildConnectorInfos(), Features: r.buildFeatureList()}
 	case state.ActiveSessionReply:
 		return proto.RespActiveSession{ActiveSessionID: b.ActiveSessionID}
 	}
@@ -100,6 +100,7 @@ func (r *Runtime) broadcastSessionsChanged(preview bool) {
 		ActiveSessionID: active,
 		IsPreview:       preview,
 		Connectors:      r.buildConnectorInfos(),
+		Features:        r.buildFeatureList(),
 	}
 	wire, err := proto.EncodeEvent(ev)
 	if err != nil {
@@ -249,6 +250,22 @@ func (r *Runtime) buildConnectorInfos() []proto.ConnectorInfo {
 		})
 	}
 	return infos
+}
+
+// buildFeatureList converts the state's runtime feature set into the wire
+// format ([]string of enabled flag names). Returns nil when no flags are
+// enabled so the JSON field is omitted.
+func (r *Runtime) buildFeatureList() []string {
+	if len(r.state.Features) == 0 {
+		return nil
+	}
+	var list []string
+	for f, on := range r.state.Features {
+		if on {
+			list = append(list, string(f))
+		}
+	}
+	return list
 }
 
 func typeNameOf(v any) string {

@@ -49,6 +49,7 @@ proto/         Typed IPC — Command / Response / ServerEvent sum types + wire c
 tools/         Palette tools — Tool abstraction for TUI + DefaultRegistry
 tui/           Presentation layer — Bubbletea UI state management, rendering, key input
 tmux/          Infrastructure layer — tmux command execution wrapper
+features/      Feature flags — Flag/Set types (runtime), build-tag const (compile-time). No external deps
 lib/           Utilities — external tool integration (lib/git/, lib/claude/, lib/github/)
 config/        Configuration — TOML loading, DataDir injection
 logger/        Logging — slog initialization, log file management
@@ -90,6 +91,51 @@ Code dependency direction:
 | Hook payload abstraction | Carry `CmdEvent.Payload` as an opaque `json.RawMessage` | Adding driver-specific fields requires no changes to state / runtime / proto |
 | Agent event integration | `roost event <eventType>` → `proto.CmdEvent` → `EvDriverEvent` → `reduceDriverHook` → `Driver.Step(DEvHook)` | Hook bridge reads the frame id from its pane environment and sends it as `CmdEvent.SenderID`. The reducer locates the owning frame directly and routes the hook to that frame's driver. Hooks for frames that have already been truncated off the stack are silently dropped. Details in [state-monitoring.md](docs/state-monitoring.md#hook-event-routing-and-race-free-identification) |
 | Connector scope | Per-daemon (one instance each), no state persistence (TTL-based), initialization on first EvTick | External service information is tied to the entire user account. Embedding in Driver would cause duplicate fetching. Initializing within the reducer enables pure function test coverage |
+
+## Feature Flags
+
+Experimental features are gated by one of **two independent mechanisms**. They share no key space — pick one based on whether the experimental code should physically exist in the binary.
+
+| Mechanism | Where defined | Toggle | Code in binary? | Use when |
+|---|---|---|---|---|
+| **Runtime flag** | `features.Flag` constant + `features.Set` injected into `state.State` | `~/.roost/settings.toml` `[features.enabled]` | Yes (both branches always compiled) | The user should be able to opt-in without rebuilding |
+| **Compile-time flag** | `features` package `const` guarded by `//go:build <tag>` | `go build -tags <tag>` (e.g. `make build-experimental`) | No (off-side is removed by dead code elimination) | The experimental code is unfinished, unsafe, or should not enter release binaries |
+
+The C analogue: runtime flag is `if () {}`, compile-time flag is `#if / #endif`.
+
+### Runtime flag — how to add
+
+1. Add a `Flag` constant in `features/features.go` and append it to `features.All()`.
+2. Reference it where needed: `if st.Features.On(features.MyFeature) { ... }`. Allowed in `state/`, `runtime/`, `tui/`. **Not** in `driver/` or `connector/` (driver-specific gating uses `config.Drivers[name]` instead).
+3. Users opt in via:
+   ```toml
+   [features.enabled]
+   my-feature = true
+   ```
+4. When the feature stabilises, delete the constant and inline the enabled branch. Unknown keys in user config are silently ignored, so no migration is needed.
+
+### Compile-time flag — how to add
+
+1. Create paired files in `features/` guarded by build tag:
+   ```go
+   //go:build my_feat
+   package features
+   const MyFeat = true
+   ```
+   ```go
+   //go:build !my_feat
+   package features
+   const MyFeat = false
+   ```
+2. Gate code with `if features.MyFeat { ... }`. Because `MyFeat` is a `const`, the off-side branch is eliminated entirely from the binary.
+3. For larger experimental code, put the implementation in a `//go:build my_feat` file and provide a no-op stub in `//go:build !my_feat`. Callers do not need to be guarded.
+4. Add a Makefile target for first-class build variants (e.g. `make build-experimental`). CI should build both variants.
+
+### What goes where
+
+- The `features/` package imports nothing outside the standard library — `state/` can depend on it without breaking the self-contained core.
+- `state.State.Features` is set once at startup and never mutated, preserving Reduce's purity.
+- `tui/` receives the active flag list over `proto` (daemon → tui via `EvtSessionsChanged.Features`) and rebuilds its own `features.Set`. `proto` carries it as `[]string`, matching the existing pattern of crossing the wire as primitives.
 
 ## Side-Effect Naming Convention
 

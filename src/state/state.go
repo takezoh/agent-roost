@@ -7,7 +7,11 @@
 // All concurrency lives in runtime; state is single-threaded by construction.
 package state
 
-import "time"
+import (
+	"time"
+
+	"github.com/takezoh/agent-roost/features"
+)
 
 // Identifier types. Distinct named types prevent accidental mix-up at the
 // type level instead of at runtime.
@@ -38,6 +42,11 @@ type State struct {
 
 	Connectors      map[string]ConnectorState // connector name → state
 	ConnectorsReady bool                      // true after first initialization
+
+	// Features is the set of enabled runtime flags, built once at startup
+	// from the config file and never mutated. Reduce reads it as a
+	// read-only value, so it does not break pure-function semantics.
+	Features features.Set
 }
 
 // Session is the static metadata + driver state of one roost session.
