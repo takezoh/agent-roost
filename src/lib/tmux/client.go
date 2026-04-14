@@ -168,6 +168,17 @@ func (c *Client) UnbindAllKeys(table string) error {
 	return err
 }
 
+// ShowOption returns the value of a tmux server-global option.
+// Wraps `tmux show-option -gv <key>`. Returns empty string if the
+// option is unset or if the server is not running.
+func (c *Client) ShowOption(key string) (string, error) {
+	out, err := c.Run("show-option", "-gv", key)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(out, "\n"), nil
+}
+
 func (c *Client) SetOption(target, key, value string) error {
 	_, err := c.Run("set-option", "-t", target, key, value)
 	return err

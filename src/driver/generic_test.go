@@ -371,15 +371,6 @@ func TestGenericFallbackHasNoCommandTag(t *testing.T) {
 	}
 }
 
-func TestGenericRegisteredViaInit(t *testing.T) {
-	// Phase 2-A only registers the fallback. Phase 2-B will register
-	// other named drivers and fallback driver. For now we just verify
-	// the fallback resolves.
-	d := state.GetDriver("/usr/bin/bash")
-	if d == nil {
-		t.Skip("no driver registered yet (Phase 2-B will register them)")
-	}
-}
 
 func TestWithDisplayName(t *testing.T) {
 	d := NewGenericDriver("shell", 0).WithDisplayName("zsh")
