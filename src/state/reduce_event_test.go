@@ -42,6 +42,72 @@ func init() {
 	}
 }
 
+// bogusSessionDriverStub emits EffPushDriver with a non-existent SessionID.
+type bogusSessionDriverStub struct{}
+
+func (bogusSessionDriverStub) Name() string        { return "bogussessionstub" }
+func (bogusSessionDriverStub) DisplayName() string { return "bogussessionstub" }
+func (bogusSessionDriverStub) Status(s DriverState) Status { return StatusIdle }
+func (bogusSessionDriverStub) NewState(now time.Time) DriverState { return pushStubState{} }
+func (bogusSessionDriverStub) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string, options LaunchOptions) (LaunchPlan, error) {
+	return LaunchPlan{Command: baseCommand, StartDir: project}, nil
+}
+func (bogusSessionDriverStub) Persist(s DriverState) map[string]string { return nil }
+func (bogusSessionDriverStub) Restore(bag map[string]string, now time.Time) DriverState {
+	return pushStubState{}
+}
+func (bogusSessionDriverStub) View(s DriverState) View {
+	return View{Card: Card{BorderTitle: Tag{Text: "bogussessionstub"}}}
+}
+func (bogusSessionDriverStub) Step(prev DriverState, ev DriverEvent) (DriverState, []Effect, View) {
+	if _, ok := ev.(DEvHook); ok {
+		return prev, []Effect{EffPushDriver{SessionID: "does-not-exist", Command: "stub"}}, View{}
+	}
+	return prev, nil, View{}
+}
+
+func init() {
+	if _, exists := registry["bogussessionstub"]; !exists {
+		Register(bogusSessionDriverStub{})
+	}
+}
+
+func TestDriverHookEffPushDriverBogusSessionIDDropped(t *testing.T) {
+	s := New()
+	s.Now = time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	sid := SessionID("sess-bogus")
+	frameID := FrameID("frame-bogus")
+	s.Sessions = map[SessionID]Session{
+		sid: {
+			ID:      sid,
+			Project: "/project",
+			Command: "bogussessionstub",
+			Driver:  pushStubState{},
+			Frames: []SessionFrame{{
+				ID:      frameID,
+				Project: "/project",
+				Command: "bogussessionstub",
+				Driver:  pushStubState{},
+			}},
+		},
+	}
+
+	payload, _ := json.Marshal(map[string]string{"hook_event_name": "test"})
+	_, effs := Reduce(s, EvDriverEvent{
+		ConnID:    1,
+		ReqID:     "r",
+		Event:     "test",
+		Timestamp: time.Now(),
+		SenderID:  frameID,
+		Payload:   json.RawMessage(payload),
+	})
+
+	// EffPushDriver with bogus SessionID should be dropped — no EffSpawnTmuxWindow.
+	if _, ok := findEff[EffSpawnTmuxWindow](effs); ok {
+		t.Error("expected EffSpawnTmuxWindow to be absent (bogus SessionID should be dropped)")
+	}
+}
+
 func TestDriverHookEffPushDriverIsResolved(t *testing.T) {
 	s := New()
 	s.Now = time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)

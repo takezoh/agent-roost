@@ -132,11 +132,11 @@ func (c *Client) Detach() error {
 	return err
 }
 
-// PushDriver asks the daemon to push a new driver frame onto the active
-// session. SessionID is left empty so the daemon uses the active session.
-func (c *Client) PushDriver(command string) error {
+// PushDriver asks the daemon to push a new driver frame onto the given session.
+func (c *Client) PushDriver(sessionID, command string) error {
 	_, err := sendJSONEvent[RespOK](c, state.EventPushDriver, state.PushDriverParams{
-		Command: command,
+		SessionID: sessionID,
+		Command:   command,
 	})
 	return err
 }

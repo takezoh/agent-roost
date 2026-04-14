@@ -21,7 +21,7 @@ func (r *Runtime) activateSession(sessID state.SessionID, reason string) {
 		slog.Warn("runtime: activate session — no pane target", "session", sessID)
 		return
 	}
-	if r.activeSession == sessID {
+	if r.activeFrameID == frame.ID {
 		return
 	}
 

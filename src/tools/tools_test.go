@@ -1,6 +1,8 @@
 package tools
 
-import "testing"
+import (
+	"testing"
+)
 
 func TestHiddenToolExcludedFromAll(t *testing.T) {
 	r := NewRegistry()
@@ -62,5 +64,21 @@ func TestPushDriverToolIsHidden(t *testing.T) {
 		if tool.Name == "push-driver" {
 			t.Error("push-driver should not appear in All()")
 		}
+	}
+}
+
+func TestPushDriverToolRequiresSessionID(t *testing.T) {
+	r := DefaultRegistry()
+	tool := r.Get("push-driver")
+	if tool == nil {
+		t.Fatal("push-driver not registered")
+	}
+	ctx := &ToolContext{
+		Client: nil, // won't be reached if session_id validation fires first
+		Args:   map[string]string{},
+	}
+	_, err := tool.Run(ctx, map[string]string{"command": "shell"})
+	if err == nil {
+		t.Fatal("expected error when session_id is empty")
 	}
 }
