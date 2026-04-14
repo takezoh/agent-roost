@@ -154,6 +154,11 @@ func postProcessEffect(s State, sessID SessionID, frameID FrameID, eff Effect) (
 			e.FrameID = frameID
 		}
 		return e, s
+	case EffPushDriver:
+		if e.SessionID == "" {
+			e.SessionID = sessID
+		}
+		return e, s
 	default:
 		return eff, s
 	}

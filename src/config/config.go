@@ -42,6 +42,7 @@ type SessionConfig struct {
 	AutoName       bool              `toml:"auto_name"`
 	DefaultCommand string            `toml:"default_command"`
 	Commands       []string          `toml:"commands"`
+	PushCommands   []string          `toml:"push_commands"`
 	Aliases        map[string]string `toml:"aliases"`
 }
 
@@ -93,7 +94,8 @@ func DefaultConfig() *Config {
 			IdleThresholdSec: 30,
 		},
 		Session: SessionConfig{
-			AutoName: true,
+			AutoName:     true,
+			PushCommands: []string{"shell"},
 		},
 		Projects: ProjectsConfig{
 			ProjectRoots: []string{"~/dev", "~/work"},

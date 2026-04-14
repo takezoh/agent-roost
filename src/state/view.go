@@ -32,12 +32,13 @@ type View struct {
 // proto.SessionInfo. The driver fills its own Title / Subtitle / Tags /
 // Indicators.
 type Card struct {
-	Title       string   `json:"title,omitempty"`
-	Subtitle    string   `json:"subtitle,omitempty"`
-	Tags        []Tag    `json:"tags,omitempty"`
-	Indicators  []string `json:"indicators,omitempty"`
-	BorderTitle Tag      `json:"border_title,omitempty"`
-	BorderBadge string   `json:"border_badge,omitempty"`
+	Title                string   `json:"title,omitempty"`
+	Subtitle             string   `json:"subtitle,omitempty"`
+	Tags                 []Tag    `json:"tags,omitempty"`
+	Indicators           []string `json:"indicators,omitempty"`
+	BorderTitle          Tag      `json:"border_title,omitempty"`
+	BorderTitleSecondary Tag      `json:"border_title_secondary,omitempty"`
+	BorderBadge          string   `json:"border_badge,omitempty"`
 }
 
 // Tag is a colored chip rendered in the session card. The driver picks

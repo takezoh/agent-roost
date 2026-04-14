@@ -33,7 +33,7 @@ func Panel(title, badge, body string, outerWidth int) string {
 // Card wraps body in a small rounded border. When selected, the border color
 // is switched to the accent color instead of a dim line.
 // outerWidth is the total width including borders + padding.
-func Card(body string, selected bool, outerWidth int, borderTitle state.Tag, borderBadge string) string {
+func Card(body string, selected bool, outerWidth int, borderTitle, borderTitleSecondary state.Tag, borderBadge string) string {
 	if outerWidth < 8 {
 		outerWidth = 8
 	}
@@ -42,12 +42,12 @@ func Card(body string, selected bool, outerWidth int, borderTitle state.Tag, bor
 		style = cardSelStyle
 	}
 	rendered := style.Width(outerWidth).Render(body)
-	if borderTitle.Text != "" || borderBadge != "" {
+	if borderTitle.Text != "" || borderTitleSecondary.Text != "" || borderBadge != "" {
 		fg := Active.Dim
 		if selected {
 			fg = Active.Primary
 		}
-		rendered = overlayCardBorderTitle(rendered, borderTitle, borderBadge, outerWidth, fg)
+		rendered = overlayCardBorderTitle(rendered, borderTitle, borderTitleSecondary, borderBadge, outerWidth, fg)
 	}
 	return rendered
 }
@@ -117,7 +117,10 @@ func overlayBorderTitle(rendered, title, badge string, outerWidth int) string {
 // border foreground color instead of the shared sectionStyle/titleStyle.
 // This lets Card() match the overlay color to the card's border
 // (Dim for normal, Primary for selected).
-func overlayCardBorderTitle(rendered string, title state.Tag, badge string, outerWidth int, fg color.Color) string {
+//
+// Layout: ╭─ [primary] [secondary] ────────── badge ─╮
+// When width is tight, badge is dropped first, then secondary.
+func overlayCardBorderTitle(rendered string, title, secondary state.Tag, badge string, outerWidth int, fg color.Color) string {
 	lines := strings.Split(rendered, "\n")
 	if len(lines) == 0 {
 		return rendered
@@ -132,26 +135,34 @@ func overlayCardBorderTitle(rendered string, title state.Tag, badge string, oute
 	if title.Text != "" {
 		titleW = 3 + lipgloss.Width(title.Text)
 	}
+	secondaryW := 0
+	if secondary.Text != "" {
+		secondaryW = 1 + lipgloss.Width(secondary.Text) // space + text
+	}
 	badgeW := 1
 	if badge != "" {
 		badgeW = 3 + lipgloss.Width(badge)
 	}
 
-	fill := middleW - titleW - badgeW
+	fill := middleW - titleW - secondaryW - badgeW
 	if fill < 0 && badge != "" {
-		// Badge too long — try truncating it.
-		// Minimum badge frame: " X… ─" = 4 chars around the badge text.
-		maxBadge := middleW - titleW - 4
+		// Drop badge first.
+		maxBadge := middleW - titleW - secondaryW - 4
 		if maxBadge >= 4 {
 			badge = truncate(badge, maxBadge)
 			badgeW = 3 + lipgloss.Width(badge)
-			fill = middleW - titleW - badgeW
+			fill = middleW - titleW - secondaryW - badgeW
 		} else {
-			// Drop badge entirely, show title only.
 			badge = ""
 			badgeW = 1
-			fill = middleW - titleW - badgeW
+			fill = middleW - titleW - secondaryW - badgeW
 		}
+	}
+	if fill < 0 && secondary.Text != "" {
+		// Drop secondary chip.
+		secondary = state.Tag{}
+		secondaryW = 0
+		fill = middleW - titleW - badgeW
 	}
 	if fill < 0 {
 		return rendered
@@ -166,6 +177,10 @@ func overlayCardBorderTitle(rendered string, title state.Tag, badge string, oute
 		b.WriteString(renderTag(title))
 	} else {
 		b.WriteString(border.Render("─"))
+	}
+	if secondary.Text != "" {
+		b.WriteString(border.Render(" "))
+		b.WriteString(renderTag(secondary))
 	}
 	b.WriteString(border.Render(strings.Repeat("─", fill)))
 	if badge != "" {

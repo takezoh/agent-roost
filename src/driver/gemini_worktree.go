@@ -27,5 +27,5 @@ func (d GeminiDriver) ManagedWorktreePath(s state.DriverState) string {
 	if !ok {
 		return ""
 	}
-	return managedWorktreePath(gs.WorkingDir)
+	return managedWorktreePath(gs.StartDir)
 }

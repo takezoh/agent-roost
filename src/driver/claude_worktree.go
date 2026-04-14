@@ -27,5 +27,5 @@ func (d ClaudeDriver) ManagedWorktreePath(s state.DriverState) string {
 	if !ok {
 		return ""
 	}
-	return managedWorktreePath(cs.WorkingDir)
+	return managedWorktreePath(cs.StartDir)
 }

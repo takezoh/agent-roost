@@ -206,6 +206,17 @@ func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
 		if drv != nil {
 			view = drv.View(frame.Driver)
 		}
+		// When the frame stack has more than one frame, show the active
+		// frame's BorderTitle as a secondary chip on the card border.
+		if len(sess.Frames) > 1 {
+			if activeF, ok := sessionActiveFrame(sess); ok {
+				activeDrv := state.GetDriver(activeF.Command)
+				if activeDrv != nil {
+					activeView := activeDrv.View(activeF.Driver)
+					view.Card.BorderTitleSecondary = activeView.Card.BorderTitle
+				}
+			}
+		}
 		info := proto.SessionInfo{
 			ID:        string(sess.ID),
 			Project:   sess.Project,

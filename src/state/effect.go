@@ -208,6 +208,17 @@ type JobInput interface {
 	JobKind() string
 }
 
+// EffPushDriver asks the reducer to push a new driver frame onto the
+// given session. Drivers return this from Step to request a frame
+// push without knowing the session ID directly. The reducer fills in
+// SessionID when it is empty (using the owning session).
+type EffPushDriver struct {
+	SessionID SessionID
+	Command   string
+}
+
+func (EffPushDriver) isEffect() {}
+
 // EffStartJob enqueues a job on the worker pool. JobID is allocated
 // by the reducer (via State.NextJobID) and recorded in State.Jobs so
 // the EvJobResult callback can be routed back to the right session.

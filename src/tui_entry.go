@@ -130,6 +130,7 @@ func runPalette(args []string) error {
 		Config: tools.ToolConfig{
 			DefaultCommand: cfg.Session.DefaultCommand,
 			Commands:       cfg.Session.Commands,
+			PushCommands:   cfg.Session.PushCommands,
 			Projects:       cfg.ListProjects(),
 			ProjectRoots:   roots,
 		},

@@ -168,7 +168,7 @@ func renderSession(s *proto.SessionInfo, selected bool, width int) string {
 	cardOuter := width - 2     // leave room for the 2-space indent
 	textWidth := cardOuter - 4 // subtract Card border + padding
 	body := strings.Join(sessionCardLines(s, textWidth), "\n")
-	return indent(Card(body, selected, cardOuter, s.View.Card.BorderTitle, s.View.Card.BorderBadge), "  ")
+	return indent(Card(body, selected, cardOuter, s.View.Card.BorderTitle, s.View.Card.BorderTitleSecondary, s.View.Card.BorderBadge), "  ")
 }
 
 // renderSessionMinimal draws a session as a borderless block with a

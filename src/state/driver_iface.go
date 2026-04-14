@@ -198,6 +198,17 @@ type WarmStartRecoverer interface {
 	WarmStartRecover(s DriverState, now time.Time) (DriverState, []Effect)
 }
 
+// StartDirAware is an optional driver extension that lets the state
+// layer read and write the session's working directory without
+// inspecting driver-specific concrete types. Used by reducePushDriver
+// to inherit the root frame's directory into a new child frame.
+type StartDirAware interface {
+	// StartDir returns the working directory stored in the given DriverState.
+	StartDir(s DriverState) string
+	// WithStartDir returns a copy of s with the working directory set to dir.
+	WithStartDir(s DriverState, dir string) DriverState
+}
+
 // driver registry. set once at init time by each driver impl package.
 var registry = map[string]Driver{}
 

@@ -23,6 +23,28 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.Log.Level != "info" {
 		t.Errorf("Log.Level = %q, want %q", cfg.Log.Level, "info")
 	}
+	if len(cfg.Session.PushCommands) != 1 || cfg.Session.PushCommands[0] != "shell" {
+		t.Errorf("PushCommands = %v, want [shell]", cfg.Session.PushCommands)
+	}
+}
+
+func TestLoadFrom_PushCommands(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.toml")
+	os.WriteFile(path, []byte(`[session]
+push_commands = ["shell", "claude"]
+`), 0o644)
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Session.PushCommands) != 2 {
+		t.Fatalf("PushCommands = %v, want [shell, claude]", cfg.Session.PushCommands)
+	}
+	if cfg.Session.PushCommands[0] != "shell" || cfg.Session.PushCommands[1] != "claude" {
+		t.Errorf("PushCommands = %v, want [shell, claude]", cfg.Session.PushCommands)
+	}
 }
 
 func TestLoadFrom_LogLevel(t *testing.T) {

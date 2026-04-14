@@ -18,7 +18,7 @@ func (d GeminiDriver) view(gs GeminiState) state.View {
 			Subtitle:    firstNonEmpty(gs.LastPrompt, gs.LastAssistantMessage),
 			Tags:        tags,
 			BorderTitle: GeminiCommandTag(),
-			BorderBadge: fishpath.Shorten(gs.WorkingDir, ""),
+			BorderBadge: fishpath.Shorten(gs.StartDir, ""),
 		},
 		DisplayName:     GeminiDriverName,
 		LogTabs:         tabs,
@@ -36,7 +36,7 @@ func geminiInfoExtras(gs GeminiState) []state.InfoLine {
 		}
 	}
 	add("Gemini Session", gs.GeminiSessionID)
-	add("Working Dir", gs.WorkingDir)
+	add("Working Dir", gs.StartDir)
 	if gs.BranchIsWorktree {
 		add("Parent Branch", gs.BranchParentBranch)
 	}

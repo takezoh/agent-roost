@@ -24,6 +24,7 @@ const (
 	EventLaunchTool     = "launch-tool"
 	EventShutdown       = "shutdown"
 	EventDetach         = "detach"
+	EventPushDriver     = "push-driver"
 )
 
 // === IPC commands (caller → daemon) ===

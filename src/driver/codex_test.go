@@ -44,7 +44,7 @@ func TestCodexSessionStartSetsIdle(t *testing.T) {
 	if next.RoostSessionID != "r1" {
 		t.Fatalf("RoostSessionID = %q", next.RoostSessionID)
 	}
-	if next.WorkingDir != "/repo" || next.TranscriptPath != "/tmp/t.jsonl" {
+	if next.StartDir != "/repo" || next.TranscriptPath != "/tmp/t.jsonl" {
 		t.Fatalf("working data not absorbed: %+v", next)
 	}
 	if len(effs) != 4 {
@@ -289,7 +289,7 @@ func TestCodexPersistRestoreRoundTrip(t *testing.T) {
 	d, cs, now := newCodex(t)
 	cs.CommonState = CommonState{
 		RoostSessionID:       "r1",
-		WorkingDir:           "/repo",
+		StartDir:           "/repo",
 		TranscriptPath:       "/repo/t.jsonl",
 		WorktreeName:         "codex-abcd",
 		Status:               state.StatusRunning,
@@ -311,7 +311,7 @@ func TestCodexPersistRestoreRoundTrip(t *testing.T) {
 
 	bag := d.Persist(cs)
 	got := d.Restore(bag, now.Add(time.Hour)).(CodexState)
-	if got.CodexSessionID != "c1" || got.WorkingDir != "/repo" {
+	if got.CodexSessionID != "c1" || got.StartDir != "/repo" {
 		t.Fatalf("restore mismatch: %+v", got)
 	}
 	if got.ManagedWorkingDir != "/repo/.roost/worktrees/codex-abcd" || got.WorktreeName != "codex-abcd" {
@@ -547,14 +547,14 @@ func TestCodexCompleteCreateWithWorktree(t *testing.T) {
 	d, cs, _ := newCodex(t)
 	cs.WorktreeName = "feature"
 	next, launch, err := d.CompleteCreate(cs, "codex --worktree feature --model gpt-5", state.LaunchOptions{}, WorktreeSetupResult{
-		WorkingDir: "/repo/.roost/worktrees/feature",
+		StartDir: "/repo/.roost/worktrees/feature",
 		Name:       "feature",
 	}, nil)
 	if err != nil {
 		t.Fatalf("CompleteCreate error: %v", err)
 	}
 	got := next.(CodexState)
-	if got.ManagedWorkingDir != "/repo/.roost/worktrees/feature" || got.WorkingDir != "/repo/.roost/worktrees/feature" {
+	if got.ManagedWorkingDir != "/repo/.roost/worktrees/feature" || got.StartDir != "/repo/.roost/worktrees/feature" {
 		t.Fatalf("working dir fields = %+v", got)
 	}
 	if launch.Command != "codex --worktree feature --model gpt-5" || launch.StartDir != "/repo/.roost/worktrees/feature" {

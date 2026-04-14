@@ -784,7 +784,7 @@ func TestRecreateAllUsesPrepareLaunch(t *testing.T) {
 	ds := drv.NewState(time.Now()).(driver.CodexState)
 	ds.CodexSessionID = "resume-123"
 	ds.ManagedWorkingDir = "/repo/.roost/worktrees/example"
-	ds.WorkingDir = "/repo/.roost/worktrees/example"
+	ds.StartDir = "/repo/.roost/worktrees/example"
 	r.state.Sessions[state.SessionID("s1")] = state.Session{
 		ID:      state.SessionID("s1"),
 		Project: "/repo",
@@ -818,7 +818,7 @@ func TestSpawnTmuxWindowAsyncUsesPrepareLaunch(t *testing.T) {
 	drv := state.GetDriver("codex")
 	ds := drv.NewState(time.Now()).(driver.CodexState)
 	ds.ManagedWorkingDir = "/repo/.roost/worktrees/example"
-	ds.WorkingDir = "/repo/.roost/worktrees/example"
+	ds.StartDir = "/repo/.roost/worktrees/example"
 	r.state.Sessions[state.SessionID("s1")] = state.Session{
 		ID:      state.SessionID("s1"),
 		Project: "/repo",

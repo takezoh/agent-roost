@@ -10,7 +10,7 @@ import (
 
 func TestOverlayCardBorderTitle_BothFit(t *testing.T) {
 	rendered := fakeCard(60)
-	result := overlayCardBorderTitle(rendered, state.Tag{Text: "claude", Background: "#D97757", Foreground: "#FFFFFF"}, "~/proj", 60, lipgloss.Color("#626262"))
+	result := overlayCardBorderTitle(rendered, state.Tag{Text: "claude", Background: "#D97757", Foreground: "#FFFFFF"}, state.Tag{}, "~/proj", 60, lipgloss.Color("#626262"))
 	line0 := strings.Split(result, "\n")[0]
 	if !strings.Contains(line0, "claude") {
 		t.Error("title missing from border")
@@ -26,7 +26,7 @@ func TestOverlayCardBorderTitle_BothFit(t *testing.T) {
 func TestOverlayCardBorderTitle_BadgeTruncated(t *testing.T) {
 	longBadge := "/workspace/agent-roost/.claude/worktrees/compressed-honking-sparrow"
 	rendered := fakeCard(46)
-	result := overlayCardBorderTitle(rendered, state.Tag{Text: "claude", Background: "#D97757", Foreground: "#FFFFFF"}, longBadge, 46, lipgloss.Color("#626262"))
+	result := overlayCardBorderTitle(rendered, state.Tag{Text: "claude", Background: "#D97757", Foreground: "#FFFFFF"}, state.Tag{}, longBadge, 46, lipgloss.Color("#626262"))
 	line0 := strings.Split(result, "\n")[0]
 	if !strings.Contains(line0, "claude") {
 		t.Error("title missing from border")
@@ -42,7 +42,7 @@ func TestOverlayCardBorderTitle_BadgeTruncated(t *testing.T) {
 func TestOverlayCardBorderTitle_TitleOnlyWhenBadgeTooLong(t *testing.T) {
 	// maxBadge = middleW - titleW - 4 = 16 - 9 - 4 = 3 < 4 → badge dropped
 	rendered := fakeCard(18)
-	result := overlayCardBorderTitle(rendered, state.Tag{Text: "claude", Background: "#D97757", Foreground: "#FFFFFF"}, "/some/path", 18, lipgloss.Color("#626262"))
+	result := overlayCardBorderTitle(rendered, state.Tag{Text: "claude", Background: "#D97757", Foreground: "#FFFFFF"}, state.Tag{}, "/some/path", 18, lipgloss.Color("#626262"))
 	line0 := strings.Split(result, "\n")[0]
 	if !strings.Contains(line0, "claude") {
 		t.Error("title missing from border")
@@ -57,7 +57,7 @@ func TestOverlayCardBorderTitle_TitleOnlyWhenBadgeTooLong(t *testing.T) {
 
 func TestOverlayCardBorderTitle_TitleTooWide(t *testing.T) {
 	rendered := fakeCard(10)
-	result := overlayCardBorderTitle(rendered, state.Tag{Text: "verylongcommand"}, "", 10, lipgloss.Color("#626262"))
+	result := overlayCardBorderTitle(rendered, state.Tag{Text: "verylongcommand"}, state.Tag{}, "", 10, lipgloss.Color("#626262"))
 	line0 := strings.Split(result, "\n")[0]
 	// Should skip overlay entirely — return original border
 	if strings.Contains(line0, "verylongcommand") {

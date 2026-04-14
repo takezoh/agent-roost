@@ -60,6 +60,17 @@ func DefaultRegistry() *Registry {
 			return nil, ctx.Client.Shutdown()
 		},
 	})
+	r.Register(Tool{
+		Name:        "push-driver",
+		Description: "Push driver onto active session",
+		Hidden:      true,
+		Params: []Param{
+			{Name: "command", Options: func(ctx *ToolContext) []string { return ctx.Config.PushCommands }},
+		},
+		Run: func(ctx *ToolContext, args map[string]string) (*ToolInvocation, error) {
+			return nil, ctx.Client.PushDriver(args["command"])
+		},
+	})
 	return r
 }
 

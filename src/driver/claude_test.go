@@ -57,8 +57,8 @@ func TestClaudeSessionStartAbsorbsIdentityAndWatches(t *testing.T) {
 	if next.ClaudeSessionID != "claude-uuid" {
 		t.Errorf("ClaudeSessionID = %q, want claude-uuid", next.ClaudeSessionID)
 	}
-	if next.WorkingDir != "/work" {
-		t.Errorf("WorkingDir = %q, want /work", next.WorkingDir)
+	if next.StartDir != "/work" {
+		t.Errorf("StartDir = %q, want /work", next.StartDir)
 	}
 	if next.TranscriptPath != "/tmp/x.jsonl" {
 		t.Errorf("TranscriptPath = %q, want /tmp/x.jsonl", next.TranscriptPath)
@@ -462,7 +462,7 @@ func TestClaudePendingTransitionsToRunningOnToolUse(t *testing.T) {
 
 func TestClaudeTickInactiveIdleDoesNothing(t *testing.T) {
 	d, cs, now := newClaude(t)
-	cs.WorkingDir = "/work"
+	cs.StartDir = "/work"
 	// Idle (default) + inactive → no effects
 	_, effs := d.handleTick(cs, state.DEvTick{Now: now, Active: false})
 	if len(effs) != 0 {
@@ -472,7 +472,7 @@ func TestClaudeTickInactiveIdleDoesNothing(t *testing.T) {
 
 func TestClaudeTickActiveSchedulesBranchJob(t *testing.T) {
 	d, cs, now := newClaude(t)
-	cs.WorkingDir = "/work"
+	cs.StartDir = "/work"
 	next, effs := d.handleTick(cs, state.DEvTick{Now: now, Active: true})
 	if !next.BranchInFlight {
 		t.Error("BranchInFlight should be true")
@@ -495,7 +495,7 @@ func TestClaudeTickActiveSchedulesBranchJob(t *testing.T) {
 
 func TestClaudeTickFreshCacheSkips(t *testing.T) {
 	d, cs, now := newClaude(t)
-	cs.WorkingDir = "/work"
+	cs.StartDir = "/work"
 	cs.BranchTarget = "/work"
 	cs.BranchAt = now // fresh
 	_, effs := d.handleTick(cs, state.DEvTick{Now: now.Add(time.Second), Active: true})
@@ -506,7 +506,7 @@ func TestClaudeTickFreshCacheSkips(t *testing.T) {
 
 func TestClaudeTickStaleCacheRefreshes(t *testing.T) {
 	d, cs, now := newClaude(t)
-	cs.WorkingDir = "/work"
+	cs.StartDir = "/work"
 	cs.BranchTarget = "/work"
 	cs.BranchAt = now.Add(-time.Hour)
 	_, effs := d.handleTick(cs, state.DEvTick{Now: now, Active: true})
@@ -517,7 +517,7 @@ func TestClaudeTickStaleCacheRefreshes(t *testing.T) {
 
 func TestClaudeTickInFlightSkips(t *testing.T) {
 	d, cs, now := newClaude(t)
-	cs.WorkingDir = "/work"
+	cs.StartDir = "/work"
 	cs.BranchInFlight = true
 	_, effs := d.handleTick(cs, state.DEvTick{Now: now, Active: true})
 	if len(effs) != 0 {
@@ -528,7 +528,7 @@ func TestClaudeTickInFlightSkips(t *testing.T) {
 func TestClaudeWarmStartRecoverReinstallsTranscriptWatch(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
-	cs.WorkingDir = "/work"
+	cs.StartDir = "/work"
 	nextState, effs := d.WarmStartRecover(cs, now)
 	next := nextState.(ClaudeState)
 	wantPath := "/home/test/.claude/projects/-work/uuid.jsonl"
@@ -562,7 +562,7 @@ func TestClaudeWarmStartRecoverReinstallsTranscriptWatch(t *testing.T) {
 func TestClaudeWarmStartRecoverDedupesTranscriptParse(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
-	cs.WorkingDir = "/work"
+	cs.StartDir = "/work"
 	cs.TranscriptInFlight = true
 	nextState, effs := d.WarmStartRecover(cs, now)
 	next := nextState.(ClaudeState)
@@ -766,7 +766,7 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 	cs := ClaudeState{
 		CommonState: CommonState{
 			RoostSessionID:     "roost-1",
-			WorkingDir:         "/work",
+			StartDir:         "/work",
 			TranscriptPath:     "/tmp/x.jsonl",
 			Status:             state.StatusRunning,
 			StatusChangedAt:    now,
@@ -850,7 +850,7 @@ func TestClaudePrepareLaunchResume(t *testing.T) {
 	home := t.TempDir()
 	d := NewClaudeDriver(home, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{
-		CommonState:     CommonState{WorkingDir: "/repo"},
+		CommonState:     CommonState{StartDir: "/repo"},
 		ClaudeSessionID: "uuid-X",
 	}
 	path := filepath.Join(home, ".claude", "projects", projectDir("/repo"), "uuid-X.jsonl")
@@ -946,7 +946,7 @@ func TestClaudePrepareLaunchAddsWorktreeFlagFromOptions(t *testing.T) {
 func TestClaudePrepareLaunchMissingTranscriptSkipsResume(t *testing.T) {
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{
-		CommonState:     CommonState{WorkingDir: "/repo"},
+		CommonState:     CommonState{StartDir: "/repo"},
 		ClaudeSessionID: "uuid-Y",
 	}
 	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "claude", state.LaunchOptions{})
@@ -1018,7 +1018,7 @@ func TestClaudeViewBorderTitle(t *testing.T) {
 
 func TestClaudeViewBorderBadge(t *testing.T) {
 	d, cs, _ := newClaude(t)
-	cs.WorkingDir = "/home/test/project"
+	cs.StartDir = "/home/test/project"
 	v := d.view(cs)
 	if v.Card.BorderBadge != "~/project" {
 		t.Errorf("BorderBadge = %q, want ~/project", v.Card.BorderBadge)
@@ -1027,7 +1027,7 @@ func TestClaudeViewBorderBadge(t *testing.T) {
 
 func TestClaudeViewBorderBadgeDeepPath(t *testing.T) {
 	d, cs, _ := newClaude(t)
-	cs.WorkingDir = "/home/test/code/go/agent-roost"
+	cs.StartDir = "/home/test/code/go/agent-roost"
 	v := d.view(cs)
 	if v.Card.BorderBadge != "~/c/g/agent-roost" {
 		t.Errorf("BorderBadge = %q, want ~/c/g/agent-roost", v.Card.BorderBadge)
@@ -1134,7 +1134,7 @@ func TestClaudeViewEventsTabOmittedWithoutRoostSessionID(t *testing.T) {
 func TestClaudeViewInfoExtras(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.Title = "T"
-	cs.WorkingDir = "/w"
+	cs.StartDir = "/w"
 	v := d.view(cs)
 	wantLabels := map[string]string{"Title": "T", "Working Dir": "/w"}
 	got := map[string]string{}
@@ -1174,7 +1174,7 @@ func TestResolveTranscriptPathFallback(t *testing.T) {
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
 	cs := ClaudeState{
 		CommonState: CommonState{
-			WorkingDir: "/some/work",
+			StartDir: "/some/work",
 		},
 		ClaudeSessionID: "uuid-Z",
 	}
@@ -1215,7 +1215,7 @@ func TestResolveTranscriptPathPrefersExplicit(t *testing.T) {
 	cs := ClaudeState{
 		CommonState: CommonState{
 			TranscriptPath: "/explicit/path.jsonl",
-			WorkingDir:     "/w",
+			StartDir:     "/w",
 		},
 		ClaudeSessionID: "u",
 	}
@@ -1444,27 +1444,27 @@ func TestClaudeViewIndicatorsStale(t *testing.T) {
 	}
 }
 
-func TestClaudeStateChangeDoesNotUpdateWorkingDir(t *testing.T) {
+func TestClaudeStateChangeDoesNotUpdateStartDir(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs, _ = d.handleHook(cs, hookEvent("SessionStart", map[string]string{
 		"session_id":      "uuid",
 		"cwd":             "/original",
 		"hook_event_name": "SessionStart",
 	}, now))
-	if cs.WorkingDir != "/original" {
-		t.Fatalf("WorkingDir after SessionStart = %q, want /original", cs.WorkingDir)
+	if cs.StartDir != "/original" {
+		t.Fatalf("StartDir after SessionStart = %q, want /original", cs.StartDir)
 	}
 	cs, _ = d.handleHook(cs, hookEvent("Stop", map[string]string{
 		"session_id":      "uuid",
 		"cwd":             "/changed",
 		"hook_event_name": "Stop",
 	}, now.Add(time.Second)))
-	if cs.WorkingDir != "/original" {
-		t.Errorf("WorkingDir after Stop = %q, want /original (should not change)", cs.WorkingDir)
+	if cs.StartDir != "/original" {
+		t.Errorf("StartDir after Stop = %q, want /original (should not change)", cs.StartDir)
 	}
 }
 
-func TestClaudeUserPromptSubmitDoesNotUpdateWorkingDir(t *testing.T) {
+func TestClaudeUserPromptSubmitDoesNotUpdateStartDir(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs, _ = d.handleHook(cs, hookEvent("SessionStart", map[string]string{
 		"session_id":      "uuid",
@@ -1477,7 +1477,7 @@ func TestClaudeUserPromptSubmitDoesNotUpdateWorkingDir(t *testing.T) {
 		"hook_event_name": "UserPromptSubmit",
 		"prompt":          "hello",
 	}, now.Add(time.Second)))
-	if cs.WorkingDir != "/original" {
-		t.Errorf("WorkingDir after UserPromptSubmit = %q, want /original (should not change)", cs.WorkingDir)
+	if cs.StartDir != "/original" {
+		t.Errorf("StartDir after UserPromptSubmit = %q, want /original (should not change)", cs.StartDir)
 	}
 }

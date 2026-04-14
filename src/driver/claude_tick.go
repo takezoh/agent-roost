@@ -15,7 +15,7 @@ func (d ClaudeDriver) handleTick(cs ClaudeState, e state.DEvTick) (ClaudeState, 
 	// and the cache is stale or the working dir changed. The job is async;
 	// the in-flight flag prevents pile-up.
 	if e.Active {
-		target := cs.WorkingDir
+		target := cs.StartDir
 		if target == "" {
 			target = e.Project
 		}

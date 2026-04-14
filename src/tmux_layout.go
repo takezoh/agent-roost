@@ -88,6 +88,7 @@ func paneHints(prefix string) string {
 	main := k + prefix + " Space" + d + " toggle" + sep +
 		k + prefix + " z" + d + " zoom" + sep +
 		k + prefix + " p" + d + " palette" + sep +
+		k + prefix + " C-p" + d + " push" + sep +
 		k + prefix + " d" + d + " detach" + sep +
 		k + prefix + " q" + d + " quit"
 
@@ -126,6 +127,9 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 	client.BindKey("prefix", "p",
 		"display-popup", "-E", "-w", "60%", "-h", "50%",
 		exePath+" --tui palette")
+	client.BindKey("prefix", "C-p",
+		"display-popup", "-E", "-w", "60%", "-h", "50%",
+		exePath+" --tui palette --tool=push-driver")
 }
 
 func respawnMainPane(client *tmux.Client, sn string) {
