@@ -119,13 +119,15 @@ type WorktreeOption struct {
 }
 
 type LaunchOptions struct {
-	Worktree WorktreeOption `json:"worktree,omitempty"`
+	Worktree     WorktreeOption `json:"worktree,omitempty"`
+	InitialInput []byte         `json:"initial_input,omitempty"`
 }
 
 type LaunchPlan struct {
 	Command  string
 	StartDir string
 	Options  LaunchOptions
+	Stdin    []byte // content piped into the spawned command; nil = no stdin
 }
 
 type LaunchPreparer interface {

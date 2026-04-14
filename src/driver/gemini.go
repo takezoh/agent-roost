@@ -79,16 +79,17 @@ func (d GeminiDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, 
 	req, stripped := resolveWorktreeRequest(baseCommand, options, "--worktree", "--workspace")
 	command := appendFlag(stripped, "--worktree", req.Enabled)
 	if mode != state.LaunchModeColdStart || gs.GeminiSessionID == "" || !isAlphanumHyphen(gs.GeminiSessionID) {
-		return state.LaunchPlan{Command: command, StartDir: startDir}, nil
+		return state.LaunchPlan{Command: command, StartDir: startDir, Stdin: options.InitialInput}, nil
 	}
 	command = strings.TrimSpace(stripGeminiWorktreeFlag(command))
 	if strings.Contains(command, "--resume") || strings.Contains(command, " -r") {
-		return state.LaunchPlan{Command: command, StartDir: startDir}, nil
+		return state.LaunchPlan{Command: command, StartDir: startDir, Stdin: options.InitialInput}, nil
 	}
 	return state.LaunchPlan{
 		Command:  command + " --resume " + gs.GeminiSessionID,
 		StartDir: startDir,
 		Options:  state.LaunchOptions{},
+		Stdin:    options.InitialInput,
 	}, nil
 }
 

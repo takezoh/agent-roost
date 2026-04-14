@@ -133,10 +133,12 @@ func (c *Client) Detach() error {
 }
 
 // PushDriver asks the daemon to push a new driver frame onto the given session.
-func (c *Client) PushDriver(sessionID, command string) error {
+// input is the stdin content to pipe into the spawned command; nil means no stdin.
+func (c *Client) PushDriver(sessionID, command string, input []byte) error {
 	_, err := sendJSONEvent[RespCreateSession](c, state.EventPushDriver, state.PushDriverParams{
 		SessionID: sessionID,
 		Command:   command,
+		Input:     input,
 	})
 	return err
 }

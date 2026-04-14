@@ -229,7 +229,7 @@ func TestPushDriverDecodesCreateSessionReply(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		errCh <- c.PushDriver("sess-1", "shell")
+		errCh <- c.PushDriver("sess-1", "shell", nil)
 	}()
 
 	env := server.recv()

@@ -127,6 +127,7 @@ func (d GenericDriver) PrepareLaunch(s state.DriverState, _ state.LaunchMode, pr
 		Command:  strings.TrimSpace(command),
 		StartDir: startDir,
 		Options:  state.LaunchOptions{Worktree: state.WorktreeOption{Enabled: req.Enabled}},
+		Stdin:    options.InitialInput,
 	}, nil
 }
 
