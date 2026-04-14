@@ -36,6 +36,7 @@ type RespSessions struct {
 	Sessions        []SessionInfo   `json:"sessions"`
 	ActiveSessionID string          `json:"active_session_id,omitempty"`
 	Connectors      []ConnectorInfo `json:"connectors,omitempty"`
+	Features        []string        `json:"features,omitempty"`
 }
 
 func (RespSessions) isResponse() {}

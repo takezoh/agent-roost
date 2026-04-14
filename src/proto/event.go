@@ -23,6 +23,7 @@ type EvtSessionsChanged struct {
 	ActiveSessionID string          `json:"active_session_id,omitempty"`
 	IsPreview       bool            `json:"is_preview,omitempty"`
 	Connectors      []ConnectorInfo `json:"connectors,omitempty"`
+	Features        []string        `json:"features,omitempty"`
 }
 
 func (EvtSessionsChanged) isEvent()          {}

@@ -196,6 +196,42 @@ show_thinking = true
 	}
 }
 
+func TestLoadFrom_FeaturesEnabled(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.toml")
+	os.WriteFile(path, []byte(`[features.enabled]
+example-feature = true
+another = false
+`), 0o644)
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Features.Enabled["example-feature"] != true {
+		t.Errorf("features.enabled[example-feature] = %v, want true", cfg.Features.Enabled["example-feature"])
+	}
+	if cfg.Features.Enabled["another"] != false {
+		t.Errorf("features.enabled[another] = %v, want false", cfg.Features.Enabled["another"])
+	}
+}
+
+func TestLoadFrom_FeaturesEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "settings.toml")
+	os.WriteFile(path, []byte(`[tmux]
+session_name = "test"
+`), 0o644)
+
+	cfg, err := LoadFrom(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Features.Enabled) != 0 {
+		t.Errorf("expected empty Features.Enabled, got %v", cfg.Features.Enabled)
+	}
+}
+
 func TestLoadFrom_DriversEmpty(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "settings.toml")

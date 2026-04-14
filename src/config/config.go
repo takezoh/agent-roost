@@ -17,7 +17,14 @@ type Config struct {
 	Monitor    MonitorConfig    `toml:"monitor"`
 	Session    SessionConfig    `toml:"session"`
 	Projects   ProjectsConfig   `toml:"projects"`
-	Drivers map[string]map[string]any `toml:"drivers"`
+	Drivers    map[string]map[string]any `toml:"drivers"`
+	Features   FeaturesConfig   `toml:"features"`
+}
+
+// FeaturesConfig holds the runtime feature-flag table from the TOML config.
+// Each key in Enabled is a [features.Flag] identifier; true enables the flag.
+type FeaturesConfig struct {
+	Enabled map[string]bool `toml:"enabled"`
 }
 
 // LogConfig controls slog handler verbosity. Level values: "debug", "info",

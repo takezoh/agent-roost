@@ -77,7 +77,7 @@ func (m MainModel) handleEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 
 func (m MainModel) requestSessions() tea.Cmd {
 	return func() tea.Msg {
-		sessions, _, connectors, err := m.client.ListSessions()
+		sessions, _, connectors, _, err := m.client.ListSessions()
 		if err != nil {
 			return nil
 		}

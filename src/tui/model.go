@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/takezoh/agent-roost/config"
+	"github.com/takezoh/agent-roost/features"
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/tools"
 )
@@ -13,6 +14,7 @@ type Model struct {
 	cfg      *config.Config
 	registry *tools.Registry
 	keys     KeyMap
+	features features.Set
 
 	sessions   []proto.SessionInfo
 	connectors []proto.ConnectorInfo

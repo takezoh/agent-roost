@@ -11,6 +11,7 @@ import (
 
 	"github.com/takezoh/agent-roost/connector"
 	statedriver "github.com/takezoh/agent-roost/driver"
+	"github.com/takezoh/agent-roost/features"
 	"github.com/takezoh/agent-roost/lib/tmux"
 	"github.com/takezoh/agent-roost/logger"
 	"github.com/takezoh/agent-roost/runtime"
@@ -51,6 +52,7 @@ func runCoordinator() error {
 	connector.RegisterRunners()
 	pool := worker.NewPool(4)
 
+	featureSet := features.FromConfig(cfg.Features.Enabled, features.All())
 	rt := runtime.New(runtime.Config{
 		SessionName:       sessionName,
 		RoostExe:          resolveExe(),
@@ -61,6 +63,7 @@ func runCoordinator() error {
 		Persist:           runtime.NewFilePersist(dataDir),
 		EventLog:          runtime.NewFileEventLog(dataDir),
 		Pool:              pool,
+		Features:          featureSet,
 	})
 
 	rt.SetAliases(cfg.Session.Aliases)
