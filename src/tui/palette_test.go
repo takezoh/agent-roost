@@ -223,6 +223,94 @@ func TestPaletteViewDoesNotPanicAfterToolExecution(t *testing.T) {
 	_ = m.View()
 }
 
+func TestRenderPaletteParamWorktreeChipOnCursorOnly(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.Register(tools.Tool{
+		Name: "new-session",
+		Params: []tools.Param{
+			{Name: "command", Options: func(ctx *tools.ToolContext) []string {
+				return []string{"cmd-a", "cmd-b", "cmd-c"}
+			}},
+		},
+		Run: func(ctx *tools.ToolContext, args map[string]string) (*tools.ToolInvocation, error) {
+			return nil, nil
+		},
+	})
+
+	m := NewPaletteModel(registry, &tools.ToolContext{}, "")
+	m.width = 60
+	m.height = 20
+	m.phase = phaseParamSelect
+	m.selectedTool = registry.Get("new-session")
+	m.paramIndex = 0
+	m.paramOptions = []string{"cmd-a", "cmd-b", "cmd-c"}
+	m.worktreeOn = true
+	m.paramCursor = 1
+
+	out := renderPaletteParam(m, 56)
+
+	// カーソル行 (cmd-b) にチップが含まれる
+	lines := strings.Split(out, "\n")
+	cursorLine := ""
+	for _, l := range lines {
+		if strings.Contains(l, "cmd-b") {
+			cursorLine = l
+		}
+	}
+	if !strings.Contains(cursorLine, "wt on") {
+		t.Errorf("cursor line should contain 'wt on', got: %q", cursorLine)
+	}
+
+	// 非カーソル行にチップが含まれない
+	for _, l := range lines {
+		if strings.Contains(l, "cmd-a") || strings.Contains(l, "cmd-c") {
+			if strings.Contains(l, "wt ") {
+				t.Errorf("non-cursor line should not contain worktree chip, got: %q", l)
+			}
+		}
+	}
+
+	// worktreeOn=false のとき "wt off" になる
+	m.worktreeOn = false
+	out2 := renderPaletteParam(m, 56)
+	for _, l := range strings.Split(out2, "\n") {
+		if strings.Contains(l, "cmd-b") && strings.Contains(l, "wt off") {
+			return
+		}
+	}
+	t.Error("cursor line should contain 'wt off' when worktreeOn is false")
+}
+
+func TestRenderPaletteParamNoChipForOtherTools(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.Register(tools.Tool{
+		Name: "other-tool",
+		Params: []tools.Param{
+			{Name: "command", Options: func(ctx *tools.ToolContext) []string {
+				return []string{"opt-a", "opt-b"}
+			}},
+		},
+		Run: func(ctx *tools.ToolContext, args map[string]string) (*tools.ToolInvocation, error) {
+			return nil, nil
+		},
+	})
+
+	m := NewPaletteModel(registry, &tools.ToolContext{}, "")
+	m.width = 60
+	m.height = 20
+	m.phase = phaseParamSelect
+	m.selectedTool = registry.Get("other-tool")
+	m.paramIndex = 0
+	m.paramOptions = []string{"opt-a", "opt-b"}
+	m.worktreeOn = true
+	m.paramCursor = 0
+
+	out := renderPaletteParam(m, 56)
+	if strings.Contains(out, "wt ") {
+		t.Error("worktree chip should not appear for non-new-session tools")
+	}
+}
+
 func TestPaletteIgnoresUnknownChainTarget(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(tools.Tool{
