@@ -386,44 +386,30 @@ func TestTmuxSpawnFailedNoManagedWorktreeForStub(t *testing.T) {
 
 // === reduceStopSession ===
 
-func TestStopSessionRemovesAndKills(t *testing.T) {
+func TestStopSessionEvictsImmediately(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = stubSession(id)
-	s.ActiveSession = id
 	next, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "stop-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
 	})
-	if _, ok := next.Sessions[id]; !ok {
-		t.Error("session should remain until pane/window actually exits")
+	if _, ok := next.Sessions[id]; ok {
+		t.Error("session must be evicted immediately from state")
 	}
-	if next.ActiveSession != id {
-		t.Errorf("ActiveSession = %q, want unchanged", next.ActiveSession)
+	if _, ok := findEff[EffKillSessionWindow](effs); !ok {
+		t.Error("expected EffKillSessionWindow")
 	}
-	if _, ok := findEff[EffTerminateSession](effs); !ok {
-		t.Error("expected EffTerminateSession")
+	if _, ok := findEff[EffBroadcastSessionsChanged](effs); !ok {
+		t.Error("expected EffBroadcastSessionsChanged")
+	}
+	if _, ok := findEff[EffPersistSnapshot](effs); !ok {
+		t.Error("expected EffPersistSnapshot")
 	}
 	mustOK(t, effs)
 }
 
-func TestStopSessionDoesNotUnregisterImmediately(t *testing.T) {
-	s := New()
-	id := SessionID("abc")
-	s.Sessions[id] = stubSession(id)
-	_, effs := Reduce(s, EvEvent{
-		ConnID: 1, ReqID: "r", Event: "stop-session",
-		Payload: mustPayload(map[string]string{"session_id": string(id)}),
-	})
-	if _, ok := findEff[EffUnregisterPane](effs); ok {
-		t.Error("stop-session must not emit EffUnregisterPane immediately; reconcile detects dead pane and cleans up via EvTmuxWindowVanished")
-	}
-	if _, ok := findEff[EffUnwatchFile](effs); ok {
-		t.Error("stop-session must not emit EffUnwatchFile immediately; cleanup happens via EvTmuxWindowVanished path")
-	}
-}
-
-func TestStopSessionThenVanishRemovesSession(t *testing.T) {
+func TestStopSessionThenVanishIsNoop(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = stubSession(id)
@@ -433,19 +419,14 @@ func TestStopSessionThenVanishRemovesSession(t *testing.T) {
 		ConnID: 1, ReqID: "r", Event: "stop-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
 	})
-	if _, ok := s.Sessions[id]; !ok {
-		t.Fatal("session must survive stop-session; pane death not yet detected")
+	if _, ok := s.Sessions[id]; ok {
+		t.Fatal("session must be evicted by stop-session")
 	}
 
-	s, effs := Reduce(s, EvTmuxWindowVanished{FrameID: frame.ID})
-	if _, ok := s.Sessions[id]; ok {
-		t.Error("session should be removed after EvTmuxWindowVanished")
-	}
-	if _, ok := findEff[EffUnregisterPane](effs); !ok {
-		t.Error("expected EffUnregisterPane after EvTmuxWindowVanished")
-	}
-	if _, ok := findEff[EffBroadcastSessionsChanged](effs); !ok {
-		t.Error("expected EffBroadcastSessionsChanged after EvTmuxWindowVanished")
+	// EvTmuxWindowVanished should be a no-op since session is gone
+	_, effs := Reduce(s, EvTmuxWindowVanished{FrameID: frame.ID})
+	if _, ok := findEff[EffBroadcastSessionsChanged](effs); ok {
+		t.Error("EvTmuxWindowVanished after eviction should be no-op, not broadcast again")
 	}
 }
 
@@ -465,12 +446,15 @@ func TestStopActiveSessionEmitsDeactivate(t *testing.T) {
 	id := SessionID("abc")
 	s.Sessions[id] = stubSession(id)
 	s.ActiveSession = id
-	_, effs := Reduce(s, EvEvent{
+	next, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "stop-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
 	})
-	if _, ok := findEff[EffDeactivateSession](effs); ok {
-		t.Error("should not emit EffDeactivateSession before the pane actually exits")
+	if _, ok := findEff[EffDeactivateSession](effs); !ok {
+		t.Error("expected EffDeactivateSession for active session")
+	}
+	if next.ActiveSession != "" {
+		t.Errorf("ActiveSession = %q, want empty", next.ActiveSession)
 	}
 }
 
@@ -484,8 +468,82 @@ func TestStopInactiveSessionNoDeactivate(t *testing.T) {
 		ConnID: 1, ReqID: "r", Event: "stop-session",
 		Payload: mustPayload(map[string]string{"session_id": string(id)}),
 	})
-	if _, ok := findEff[EffTerminateSession](effs); !ok {
-		t.Error("expected EffTerminateSession for inactive session")
+	if _, ok := findEff[EffDeactivateSession](effs); ok {
+		t.Error("must not emit EffDeactivateSession for inactive session")
+	}
+	if _, ok := findEff[EffKillSessionWindow](effs); !ok {
+		t.Error("expected EffKillSessionWindow for inactive session")
+	}
+}
+
+func TestStopSessionMultiFrameKillsAllWindows(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	sess := stubSession(id)
+	// 2 フレーム目を追加
+	sess.Frames = append(sess.Frames, SessionFrame{
+		ID:      "abc-frame-2",
+		Command: "shell",
+		Driver:  GetDriver("shell").NewState(sess.CreatedAt),
+	})
+	s.Sessions[id] = sess
+	s.ActiveSession = id
+
+	next, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "stop-session",
+		Payload: mustPayload(map[string]string{"session_id": string(id)}),
+	})
+	if _, ok := next.Sessions[id]; ok {
+		t.Error("session must be evicted immediately")
+	}
+	// 全 frame 分 EffKillSessionWindow が出る
+	killCount := 0
+	for _, e := range effs {
+		if _, ok := e.(EffKillSessionWindow); ok {
+			killCount++
+		}
+	}
+	if killCount != 2 {
+		t.Errorf("EffKillSessionWindow count = %d, want 2", killCount)
+	}
+	// EffDeactivateSession は 1 回だけ
+	deactivateCount := 0
+	for _, e := range effs {
+		if _, ok := e.(EffDeactivateSession); ok {
+			deactivateCount++
+		}
+	}
+	if deactivateCount != 1 {
+		t.Errorf("EffDeactivateSession count = %d, want 1", deactivateCount)
+	}
+}
+
+func TestStopSessionBroadcastBeforeKill(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	s.Sessions[id] = stubSession(id)
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "stop-session",
+		Payload: mustPayload(map[string]string{"session_id": string(id)}),
+	})
+	broadcastIdx := -1
+	killIdx := -1
+	for i, e := range effs {
+		if _, ok := e.(EffBroadcastSessionsChanged); ok && broadcastIdx == -1 {
+			broadcastIdx = i
+		}
+		if _, ok := e.(EffKillSessionWindow); ok && killIdx == -1 {
+			killIdx = i
+		}
+	}
+	if broadcastIdx == -1 {
+		t.Fatal("expected EffBroadcastSessionsChanged")
+	}
+	if killIdx == -1 {
+		t.Fatal("expected EffKillSessionWindow")
+	}
+	if broadcastIdx > killIdx {
+		t.Errorf("broadcast (idx=%d) must come before kill (idx=%d)", broadcastIdx, killIdx)
 	}
 }
 

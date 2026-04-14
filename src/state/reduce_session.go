@@ -320,11 +320,29 @@ func reduceStopSession(s State, connID ConnID, reqID string, p StopSessionParams
 	if !ok {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
-	var effs []Effect
-	for _, frame := range sess.Frames {
-		effs = append(effs, EffTerminateSession{FrameID: frame.ID})
+	nextSess, removed := truncateFrames(sess, 0)
+	s.Sessions = cloneSessions(s.Sessions)
+	if len(nextSess.Frames) == 0 {
+		delete(s.Sessions, sid)
+	} else {
+		s.Sessions[sid] = nextSess
 	}
-	effs = append(effs, okResp(connID, reqID, nil))
+	var deactivate []Effect
+	if s.ActiveSession == sid {
+		s.ActiveSession = ""
+		deactivate = []Effect{EffDeactivateSession{}}
+	}
+	// broadcast を先頭に置く — tmux kill が完了する前に TUI が更新される
+	effs := []Effect{EffBroadcastSessionsChanged{}}
+	effs = append(effs, deactivate...)
+	for _, frame := range removed {
+		effs = append(effs,
+			EffKillSessionWindow{FrameID: frame.ID},
+			EffUnregisterPane{FrameID: frame.ID},
+			EffUnwatchFile{FrameID: frame.ID},
+		)
+	}
+	effs = append(effs, okResp(connID, reqID, nil), EffPersistSnapshot{})
 	return s, effs
 }
 

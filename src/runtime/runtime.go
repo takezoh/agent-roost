@@ -28,6 +28,7 @@ type Config struct {
 	RoostExe          string
 	DataDir           string
 	TickInterval      time.Duration
+	FastTickInterval  time.Duration // 既定 100ms。active frame の pane 死亡を高速検出する。
 	Workers           int
 	MainPaneHeightPct int
 
@@ -82,6 +83,9 @@ func New(cfg Config) *Runtime {
 	}
 	if cfg.TickInterval <= 0 {
 		cfg.TickInterval = time.Second
+	}
+	if cfg.FastTickInterval <= 0 {
+		cfg.FastTickInterval = 100 * time.Millisecond
 	}
 	if cfg.MainPaneHeightPct <= 0 {
 		cfg.MainPaneHeightPct = 70
@@ -150,6 +154,8 @@ func (r *Runtime) Run(ctx context.Context) error {
 
 	ticker := time.NewTicker(r.cfg.TickInterval)
 	defer ticker.Stop()
+	fastTicker := time.NewTicker(r.cfg.FastTickInterval)
+	defer fastTicker.Stop()
 
 	slog.Info("runtime: event loop started",
 		"tick", r.cfg.TickInterval,
@@ -174,6 +180,9 @@ func (r *Runtime) Run(ctx context.Context) error {
 			r.monitorParkedPanes()
 			r.dispatch(state.EvTick{Now: t, PaneTargets: r.snapshotPaneTargets()})
 
+		case <-fastTicker.C:
+			r.checkActiveFramePane()
+
 		case res := <-r.workers.Results():
 			r.dispatch(res)
 
@@ -184,6 +193,25 @@ func (r *Runtime) Run(ctx context.Context) error {
 			})
 		}
 	}
+}
+
+// checkActiveFramePane は active frame (pane 0.0 にスワップ中) の
+// 死亡を高速検出する。alive なら何もしない。dead なら EvPaneDied を
+// enqueue して reducePaneDied 経由でスタック pop を即時実行する。
+// 100ms 間隔で呼ばれるため、tmux shell-out は 1 回のみ (display-message)。
+func (r *Runtime) checkActiveFramePane() {
+	if r.activeFrameID == "" {
+		return
+	}
+	target := substitutePlaceholdersString("{sessionName}:0.0", r.cfg.SessionName, r.cfg.RoostExe)
+	alive, err := r.cfg.Tmux.PaneAlive(target)
+	if err != nil || alive {
+		return
+	}
+	r.Enqueue(state.EvPaneDied{
+		Pane:         "{sessionName}:0.0",
+		OwnerFrameID: r.activeFrameID,
+	})
 }
 
 // dispatch runs Reduce against the current state and executes every

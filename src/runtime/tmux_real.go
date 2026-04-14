@@ -84,11 +84,6 @@ func guardNotMainWindow(target string, displayFn func(string, string) (string, e
 	return nil
 }
 
-func (b *RealTmuxBackend) TerminatePane(target string) error {
-	_, err := b.client.Run("send-keys", "-t", target, "C-c")
-	return err
-}
-
 func (b *RealTmuxBackend) RunChain(ops ...[]string) error {
 	return b.client.RunChain(ops...)
 }

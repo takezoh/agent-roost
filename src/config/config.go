@@ -41,8 +41,9 @@ type TmuxConfig struct {
 }
 
 type MonitorConfig struct {
-	PollIntervalMs   int `toml:"poll_interval_ms"`
-	IdleThresholdSec int `toml:"idle_threshold_sec"`
+	PollIntervalMs     int `toml:"poll_interval_ms"`
+	FastPollIntervalMs int `toml:"fast_poll_interval_ms"`
+	IdleThresholdSec   int `toml:"idle_threshold_sec"`
 }
 
 type SessionConfig struct {
@@ -97,8 +98,9 @@ func DefaultConfig() *Config {
 			PaneRatioVertical:   70,
 		},
 		Monitor: MonitorConfig{
-			PollIntervalMs:   1000,
-			IdleThresholdSec: 30,
+			PollIntervalMs:     1000,
+			FastPollIntervalMs: 100,
+			IdleThresholdSec:   30,
 		},
 		Session: SessionConfig{
 			AutoName:       true,

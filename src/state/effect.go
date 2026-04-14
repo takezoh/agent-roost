@@ -33,12 +33,6 @@ type EffKillSessionWindow struct {
 	FrameID FrameID
 }
 
-// EffTerminateSession asks the runtime to send a normal termination
-// signal to the session's pane.
-type EffTerminateSession struct {
-	FrameID FrameID
-}
-
 // EffActivateSession moves a session's agent pane into pane 0.0.
 // The runtime resolves the current pane target from its sessionPanes map.
 type EffActivateSession struct {
@@ -231,7 +225,6 @@ type EffStartJob struct {
 
 func (EffSpawnTmuxWindow) isEffect()          {}
 func (EffKillSessionWindow) isEffect()        {}
-func (EffTerminateSession) isEffect()         {}
 func (EffActivateSession) isEffect()          {}
 func (EffDeactivateSession) isEffect()        {}
 func (EffRegisterPane) isEffect()             {}
