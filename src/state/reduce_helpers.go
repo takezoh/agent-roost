@@ -288,6 +288,53 @@ func postProcessConnectorEffect(s State, connName string, eff Effect) (Effect, S
 	}
 }
 
+// evictFrame removes all frames from frameID onward, updates state, and
+// returns the effects to clean up tmux and file-watch resources.
+//
+// killWindow controls whether EffKillSessionWindow is emitted per removed
+// frame. Pass true when the tmux window still exists (e.g. EvPaneDied);
+// pass false when the window has already vanished (e.g. EvTmuxWindowVanished).
+//
+// Effect ordering: deactivate → reactivate → cleanup → persist → broadcast.
+// Reactivate precedes cleanup so that EffActivateSession swaps the parent
+// pane into 0.0 before EffKillSessionWindow destroys the old window —
+// preventing kill-window from targeting window 0.
+func evictFrame(s State, frameID FrameID, killWindow bool) (State, []Effect, bool) {
+	sessID, sess, idx, ok := findFrame(s, frameID)
+	if !ok {
+		return s, nil, false
+	}
+	nextSess, removed := truncateFrames(sess, idx)
+	s.Sessions = cloneSessions(s.Sessions)
+	if len(nextSess.Frames) == 0 {
+		delete(s.Sessions, sessID)
+	} else {
+		s.Sessions[sessID] = nextSess
+	}
+	var deactivate []Effect
+	var reactivate []Effect
+	if s.ActiveSession == sessID && len(nextSess.Frames) == 0 {
+		s.ActiveSession = ""
+		deactivate = []Effect{EffDeactivateSession{}}
+	} else if s.ActiveSession == sessID {
+		reactivate = []Effect{EffActivateSession{SessionID: sessID, Reason: EventSwitchSession}}
+	}
+	var cleanup []Effect
+	for _, frame := range removed {
+		if killWindow {
+			cleanup = append(cleanup, EffKillSessionWindow{FrameID: frame.ID})
+		}
+		cleanup = append(cleanup,
+			EffUnregisterPane{FrameID: frame.ID},
+			EffUnwatchFile{FrameID: frame.ID},
+		)
+	}
+	effs := append(deactivate, reactivate...)
+	effs = append(effs, cleanup...)
+	effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
+	return s, effs, true
+}
+
 // === ErrCode constants used by reducers ===
 //
 // These mirror proto.ErrCode but live in state pkg so reducers can
