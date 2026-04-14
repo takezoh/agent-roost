@@ -52,9 +52,8 @@ type fakeTmuxBackend struct {
 	resizeTargets    []string
 	resizeWidths     []int
 	resizeHeights    []int
-	respawnCmds      []string
-	terminatedPanes  []string
-	statusLines      []string
+	respawnCmds []string
+	statusLines []string
 	envs             map[string]string
 	popups           []string
 	alive            map[string]bool
@@ -108,13 +107,6 @@ func (f *fakeTmuxBackend) KillPaneWindow(paneID string) error {
 	f.killCalls++
 	f.killedPanes = append(f.killedPanes, paneID)
 	f.callLog = append(f.callLog, "kill")
-	return nil
-}
-
-func (f *fakeTmuxBackend) TerminatePane(paneID string) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.terminatedPanes = append(f.terminatedPanes, paneID)
 	return nil
 }
 
@@ -575,24 +567,6 @@ func TestActivateSessionInitializesMainPaneIDOnDemand(t *testing.T) {
 	}
 }
 
-func TestTerminateSessionSendsTerminateKey(t *testing.T) {
-	tmux := newFakeTmux()
-	r := New(Config{
-		SessionName:       "roost-test",
-		MainPaneHeightPct: 70,
-		Tmux:              tmux,
-	})
-	r.sessionPanes["frame-1"] = "%3"
-
-	r.execute(state.EffTerminateSession{FrameID: "frame-1"})
-
-	tmux.mu.Lock()
-	defer tmux.mu.Unlock()
-	if len(tmux.terminatedPanes) != 1 || tmux.terminatedPanes[0] != "%3" {
-		t.Fatalf("terminatedPanes = %#v, want %%3", tmux.terminatedPanes)
-	}
-}
-
 func TestActivateSessionMissingPaneEnqueuesWindowVanished(t *testing.T) {
 	tmux := newFakeTmux()
 	tmux.swapErr = fmt.Errorf("tmux swap-pane -d -s %%3 -t roost-test:0.0: exit status 1: can't find pane: %%3")
@@ -680,9 +654,7 @@ func TestEventTypeName(t *testing.T) {
 	}
 }
 
-// Sanity: ensure interpret receives every effect type without
-// crashing. We push a synthetic effect through the loop's enqueue
-// path indirectly via a real reducer event.
+// stop-session immediately kills the session window (no SIGINT).
 func TestRuntimeStopSession(t *testing.T) {
 	tmux := newFakeTmux()
 	r := New(Config{
@@ -690,7 +662,6 @@ func TestRuntimeStopSession(t *testing.T) {
 		TickInterval: 10 * time.Second,
 		Tmux:         tmux,
 	})
-	// Inject a session manually.
 	r.state.Sessions["abc"] = state.Session{
 		ID:      "abc",
 		Command: "stub-x",
@@ -706,7 +677,7 @@ func TestRuntimeStopSession(t *testing.T) {
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		tmux.mu.Lock()
-		n := len(tmux.terminatedPanes)
+		n := tmux.killCalls
 		tmux.mu.Unlock()
 		if n > 0 {
 			break
@@ -717,8 +688,76 @@ func TestRuntimeStopSession(t *testing.T) {
 	<-r.Done()
 	tmux.mu.Lock()
 	defer tmux.mu.Unlock()
-	if len(tmux.terminatedPanes) != 1 || tmux.terminatedPanes[0] != "%5" {
-		t.Errorf("terminatedPanes = %#v, want [%%5]", tmux.terminatedPanes)
+	if tmux.killCalls != 1 {
+		t.Errorf("killCalls = %d, want 1 (kill-window should fire)", tmux.killCalls)
+	}
+}
+
+func TestFastTickDetectsActivePaneDeath(t *testing.T) {
+	tmux := newFakeTmux()
+	tmux.alive["roost-test:0.0"] = false // pane 0.0 を dead に設定
+	r := New(Config{
+		SessionName:      "roost-test",
+		TickInterval:     10 * time.Second,
+		FastTickInterval: 10 * time.Millisecond,
+		Tmux:             tmux,
+	})
+	r.activeFrameID = "frame-1"
+
+	r.checkActiveFramePane()
+
+	select {
+	case ev := <-r.eventCh:
+		pd, ok := ev.(state.EvPaneDied)
+		if !ok {
+			t.Fatalf("expected EvPaneDied, got %T", ev)
+		}
+		if pd.OwnerFrameID != "frame-1" {
+			t.Errorf("OwnerFrameID = %q, want frame-1", pd.OwnerFrameID)
+		}
+	default:
+		t.Fatal("expected EvPaneDied to be enqueued")
+	}
+}
+
+func TestFastTickSkipsWhenNoActiveFrame(t *testing.T) {
+	tmux := newFakeTmux()
+	r := New(Config{
+		SessionName:      "roost-test",
+		TickInterval:     10 * time.Second,
+		FastTickInterval: 10 * time.Millisecond,
+		Tmux:             tmux,
+	})
+	// activeFrameID は空のまま
+
+	r.checkActiveFramePane()
+
+	select {
+	case ev := <-r.eventCh:
+		t.Fatalf("expected no event, got %T", ev)
+	default:
+		// OK: no-op
+	}
+}
+
+func TestFastTickIgnoresAliveActivePane(t *testing.T) {
+	tmux := newFakeTmux()
+	tmux.alive["roost-test:0.0"] = true
+	r := New(Config{
+		SessionName:      "roost-test",
+		TickInterval:     10 * time.Second,
+		FastTickInterval: 10 * time.Millisecond,
+		Tmux:             tmux,
+	})
+	r.activeFrameID = "frame-1"
+
+	r.checkActiveFramePane()
+
+	select {
+	case ev := <-r.eventCh:
+		t.Fatalf("expected no event for alive pane, got %T", ev)
+	default:
+		// OK: no-op
 	}
 }
 

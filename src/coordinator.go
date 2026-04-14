@@ -44,6 +44,7 @@ func runCoordinator() error {
 
 	tmuxBackend := runtime.NewRealTmuxBackend(client)
 	pollInterval := time.Duration(cfg.Monitor.PollIntervalMs) * time.Millisecond
+	fastPollInterval := time.Duration(cfg.Monitor.FastPollIntervalMs) * time.Millisecond
 	sockPath := filepath.Join(dataDir, "roost.sock")
 
 	claudeOpts := statedriver.ParseClaudeOptions(cfg.Drivers[statedriver.ClaudeDriverName])
@@ -58,6 +59,7 @@ func runCoordinator() error {
 		RoostExe:          resolveExe(),
 		DataDir:           dataDir,
 		TickInterval:      pollInterval,
+		FastTickInterval:  fastPollInterval,
 		MainPaneHeightPct: cfg.Tmux.PaneRatioVertical,
 		Tmux:              tmuxBackend,
 		Persist:           runtime.NewFilePersist(dataDir),
