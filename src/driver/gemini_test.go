@@ -15,19 +15,21 @@ func newGemini(t *testing.T) (GeminiDriver, GeminiState, time.Time) {
 	return d, gs, now
 }
 
-func TestGeminiPrepareCreateWithWorktree(t *testing.T) {
+func TestGeminiNotCreateSessionPlanner(t *testing.T) {
+	d, _, _ := newGemini(t)
+	if _, ok := any(d).(state.CreateSessionPlanner); ok {
+		t.Fatal("GeminiDriver must not implement CreateSessionPlanner (worktree handled by gemini CLI itself)")
+	}
+}
+
+func TestGeminiPrepareLaunchWorktreeFromCommand(t *testing.T) {
 	d, gs, _ := newGemini(t)
-	next, plan, err := d.PrepareCreate(gs, "sess-1", "/repo", "gemini --worktree", state.LaunchOptions{})
+	plan, err := d.PrepareLaunch(gs, state.LaunchModeCreate, "/repo", "gemini --worktree", state.LaunchOptions{})
 	if err != nil {
-		t.Fatalf("PrepareCreate error: %v", err)
+		t.Fatalf("PrepareLaunch error: %v", err)
 	}
-	_ = next.(GeminiState)
-	in, ok := plan.SetupJob.(WorktreeSetupInput)
-	if !ok {
-		t.Fatalf("SetupJob = %T", plan.SetupJob)
-	}
-	if len(in.CandidateNames) != worktreeNameAttempts {
-		t.Fatalf("candidate names = %d, want %d", len(in.CandidateNames), worktreeNameAttempts)
+	if plan.Command != "gemini --worktree" {
+		t.Errorf("PrepareLaunch.Command = %q, want %q", plan.Command, "gemini --worktree")
 	}
 }
 
@@ -47,10 +49,3 @@ func TestGeminiPrepareLaunchAddsWorktreeFlagFromOptions(t *testing.T) {
 	}
 }
 
-func TestGeminiManagedWorktreePath(t *testing.T) {
-	d, gs, _ := newGemini(t)
-	gs.StartDir = "/repo/.roost/worktrees/example"
-	if got := d.ManagedWorktreePath(gs); got == "" {
-		t.Fatal("expected managed worktree path")
-	}
-}
