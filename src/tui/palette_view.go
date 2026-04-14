@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/takezoh/agent-roost/tools"
 )
@@ -94,17 +95,9 @@ func renderPaletteParam(m PaletteModel, innerWidth int) string {
 	b.WriteString(inputStyle.Render(m.input))
 	b.WriteString("█\n\n")
 
-	if m.selectedTool != nil && m.selectedTool.Name == "new-session" &&
+	showWorktreeChip := m.selectedTool != nil && m.selectedTool.Name == "new-session" &&
 		m.paramIndex < len(m.selectedTool.Params) &&
-		m.selectedTool.Params[m.paramIndex].Name == "command" {
-		stateText := "off"
-		if m.worktreeOn {
-			stateText = "on"
-		}
-		b.WriteString(selItemStyle.Render(" worktree " + stateText + " "))
-		b.WriteString(descStyle.Render("  Tab to toggle"))
-		b.WriteString("\n\n")
-	}
+		m.selectedTool.Params[m.paramIndex].Name == "command"
 
 	if len(m.paramOptions) == 0 {
 		b.WriteString(descStyle.Render("(type value, enter to confirm)"))
@@ -125,11 +118,28 @@ func renderPaletteParam(m PaletteModel, innerWidth int) string {
 	for i := start; i < end; i++ {
 		display := tools.ProjectDisplayName(filtered[i])
 		suffix := paramOptionSuffix(filtered[i])
-		line := fmt.Sprintf("  %s", display) + suffix
 		if i == m.paramCursor {
-			line = fmt.Sprintf("▸ %s", display) + suffix
-			b.WriteString(selItemStyle.Width(innerWidth).MaxHeight(1).Render(line))
+			left := fmt.Sprintf("▸ %s", display) + suffix
+			var rendered string
+			if showWorktreeChip {
+				stateText := "off"
+				if m.worktreeOn {
+					stateText = "on"
+				}
+				chip := worktreeChipStyle.Render(" wt " + stateText + " ⇥")
+				chipW := lipgloss.Width(chip)
+				leftW := lipgloss.Width(left)
+				gap := innerWidth - leftW - chipW
+				if gap < 1 {
+					gap = 1
+				}
+				rendered = selItemStyle.MaxHeight(1).Render(left + strings.Repeat(" ", gap) + chip)
+			} else {
+				rendered = selItemStyle.Width(innerWidth).MaxHeight(1).Render(left)
+			}
+			b.WriteString(rendered)
 		} else {
+			line := fmt.Sprintf("  %s", display) + suffix
 			b.WriteString(itemStyle.Width(innerWidth).MaxHeight(1).Render(line))
 		}
 		if i < end-1 || end < total {

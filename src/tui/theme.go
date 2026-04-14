@@ -103,11 +103,12 @@ var (
 	cardTitleStyle lipgloss.Style // Fg, +Bold when Active.Minimal
 
 	// Palette
-	promptStyle  lipgloss.Style
-	inputStyle   lipgloss.Style
-	descStyle    lipgloss.Style
-	selItemStyle lipgloss.Style
-	itemStyle    lipgloss.Style
+	promptStyle       lipgloss.Style
+	inputStyle        lipgloss.Style
+	descStyle         lipgloss.Style
+	selItemStyle      lipgloss.Style
+	itemStyle         lipgloss.Style
+	worktreeChipStyle lipgloss.Style
 
 	// Sessions filter bar chips
 	filterChipOnStyle  lipgloss.Style
@@ -194,6 +195,7 @@ func rebuildPaletteStyles(t Theme) {
 	descStyle = lipgloss.NewStyle().Foreground(t.Muted)
 	selItemStyle = lipgloss.NewStyle().Background(t.SelBg).Foreground(t.SelFg)
 	itemStyle = lipgloss.NewStyle()
+	worktreeChipStyle = lipgloss.NewStyle().Background(t.Primary).Foreground(t.TagFg).Bold(true)
 }
 
 func rebuildFilterStyles(t Theme) {
