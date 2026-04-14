@@ -322,11 +322,7 @@ func reduceStopSession(s State, connID ConnID, reqID string, p StopSessionParams
 	}
 	var effs []Effect
 	for _, frame := range sess.Frames {
-		effs = append(effs,
-			EffTerminateSession{FrameID: frame.ID},
-			EffUnwatchFile{FrameID: frame.ID},
-			EffUnregisterPane{FrameID: frame.ID},
-		)
+		effs = append(effs, EffTerminateSession{FrameID: frame.ID})
 	}
 	effs = append(effs, okResp(connID, reqID, nil))
 	return s, effs

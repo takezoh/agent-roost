@@ -407,6 +407,48 @@ func TestStopSessionRemovesAndKills(t *testing.T) {
 	mustOK(t, effs)
 }
 
+func TestStopSessionDoesNotUnregisterImmediately(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	s.Sessions[id] = stubSession(id)
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "stop-session",
+		Payload: mustPayload(map[string]string{"session_id": string(id)}),
+	})
+	if _, ok := findEff[EffUnregisterPane](effs); ok {
+		t.Error("stop-session must not emit EffUnregisterPane immediately; reconcile detects dead pane and cleans up via EvTmuxWindowVanished")
+	}
+	if _, ok := findEff[EffUnwatchFile](effs); ok {
+		t.Error("stop-session must not emit EffUnwatchFile immediately; cleanup happens via EvTmuxWindowVanished path")
+	}
+}
+
+func TestStopSessionThenVanishRemovesSession(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	s.Sessions[id] = stubSession(id)
+	frame, _ := activeFrame(s.Sessions[id])
+
+	s, _ = Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "stop-session",
+		Payload: mustPayload(map[string]string{"session_id": string(id)}),
+	})
+	if _, ok := s.Sessions[id]; !ok {
+		t.Fatal("session must survive stop-session; pane death not yet detected")
+	}
+
+	s, effs := Reduce(s, EvTmuxWindowVanished{FrameID: frame.ID})
+	if _, ok := s.Sessions[id]; ok {
+		t.Error("session should be removed after EvTmuxWindowVanished")
+	}
+	if _, ok := findEff[EffUnregisterPane](effs); !ok {
+		t.Error("expected EffUnregisterPane after EvTmuxWindowVanished")
+	}
+	if _, ok := findEff[EffBroadcastSessionsChanged](effs); !ok {
+		t.Error("expected EffBroadcastSessionsChanged after EvTmuxWindowVanished")
+	}
+}
+
 func TestStopSessionUnknownReturnsError(t *testing.T) {
 	s := New()
 	_, effs := Reduce(s, EvEvent{
