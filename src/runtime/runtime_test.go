@@ -47,6 +47,7 @@ type fakeTmuxBackend struct {
 	swapCalls        int
 	swapSources      []string
 	swapTargets      []string
+	callLog          []string // records "swap"/"kill" in order, for ordering assertions
 	resizeCalls      int
 	resizeTargets    []string
 	resizeWidths     []int
@@ -106,6 +107,7 @@ func (f *fakeTmuxBackend) KillPaneWindow(paneID string) error {
 	defer f.mu.Unlock()
 	f.killCalls++
 	f.killedPanes = append(f.killedPanes, paneID)
+	f.callLog = append(f.callLog, "kill")
 	return nil
 }
 
@@ -132,6 +134,7 @@ func (f *fakeTmuxBackend) SwapPane(srcPane, dstPane string) error {
 	f.swapCalls++
 	f.swapSources = append(f.swapSources, srcPane)
 	f.swapTargets = append(f.swapTargets, dstPane)
+	f.callLog = append(f.callLog, "swap")
 	return f.swapErr
 }
 func (f *fakeTmuxBackend) BreakPaneToNewWindow(srcPane, name string) (string, error) {
@@ -1046,5 +1049,76 @@ func TestMonitorParkedPanesTracksInactiveOnly(t *testing.T) {
 	}
 	if _, ok := r.parkedPaneSnapshot["idle"]; !ok {
 		t.Fatal("inactive session should be tracked as parked")
+	}
+}
+
+// TestPopTopFrameSwapBeforeKill verifies Fix A: when the active top frame's pane
+// dies, SwapPane (restoring the parent pane to 0.0) is called before
+// KillPaneWindow (tearing down the top frame's window).
+func TestPopTopFrameSwapBeforeKill(t *testing.T) {
+	tmux := newFakeTmux()
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         tmux,
+		Persist:      &recordingPersist{},
+	})
+
+	drv := state.GetDriver("shell")
+	sid := state.SessionID("sess-pop")
+	rootFrameID := state.FrameID("frame-root")
+	topFrameID := state.FrameID("frame-top")
+
+	r.state.Sessions[sid] = state.Session{
+		ID:      sid,
+		Project: "/project",
+		Command: "shell",
+		Driver:  drv.NewState(time.Now()),
+		Frames: []state.SessionFrame{
+			{ID: rootFrameID, Project: "/project", Command: "shell", Driver: drv.NewState(time.Now())},
+			{ID: topFrameID, Project: "/project", Command: "shell", Driver: drv.NewState(time.Now())},
+		},
+	}
+	r.state.ActiveSession = sid
+	r.sessionPanes[rootFrameID] = "%A"
+	r.sessionPanes[topFrameID] = "%B"
+	r.sessionPanes["_main"] = "%main"
+	r.activeSession = sid
+	r.activeFrameID = topFrameID
+
+	// Drive the pane-died event directly (no goroutines needed).
+	next, effs := state.Reduce(r.state, state.EvPaneDied{
+		Pane:         "{sessionName}:0.0",
+		OwnerFrameID: topFrameID,
+	})
+	r.state = next
+	for _, eff := range effs {
+		r.execute(eff)
+	}
+
+	tmux.mu.Lock()
+	defer tmux.mu.Unlock()
+
+	swapIdx := -1
+	killIdx := -1
+	for i, call := range tmux.callLog {
+		switch call {
+		case "swap":
+			swapIdx = i
+		case "kill":
+			killIdx = i
+		}
+	}
+	if swapIdx < 0 {
+		t.Fatal("SwapPane was not called")
+	}
+	if killIdx < 0 {
+		t.Fatal("KillPaneWindow was not called")
+	}
+	if swapIdx > killIdx {
+		t.Errorf("SwapPane (callLog[%d]) must precede KillPaneWindow (callLog[%d])", swapIdx, killIdx)
+	}
+	if r.activeFrameID != rootFrameID {
+		t.Errorf("activeFrameID = %q, want root %q", r.activeFrameID, rootFrameID)
 	}
 }

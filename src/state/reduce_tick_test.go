@@ -187,6 +187,62 @@ func TestMidFrameDeathTruncatesUpperFrames(t *testing.T) {
 	}
 }
 
+// TestPaneDiedTopFrameReactivateBeforeKill asserts Fix A: when the active top
+// frame's pane dies, EffActivateSession (restore parent to 0.0) must precede
+// EffKillSessionWindow (tear down the top frame's window).
+// Reversing the order causes kill-window to destroy window 0.
+func TestPaneDiedTopFrameReactivateBeforeKill(t *testing.T) {
+	s := New()
+	id := SessionID("sess-pop")
+	rootID := FrameID("frame-root")
+	topID := FrameID("frame-top")
+	s.Sessions[id] = Session{
+		ID:      id,
+		Project: "/project",
+		Command: "stub",
+		Driver:  stubDriverState{},
+		Frames: []SessionFrame{
+			{ID: rootID, Project: "/project", Command: "stub", Driver: stubDriverState{}},
+			{ID: topID, Project: "/project", Command: "stub", Driver: stubDriverState{}},
+		},
+	}
+	s.ActiveSession = id
+
+	next, effs := Reduce(s, EvPaneDied{Pane: "{sessionName}:0.0", OwnerFrameID: topID})
+
+	activateIdx := -1
+	killIdx := -1
+	for i, e := range effs {
+		if _, ok := e.(EffActivateSession); ok {
+			activateIdx = i
+		}
+		if ks, ok := e.(EffKillSessionWindow); ok && ks.FrameID == topID {
+			killIdx = i
+		}
+	}
+	if activateIdx < 0 {
+		t.Fatal("expected EffActivateSession")
+	}
+	if killIdx < 0 {
+		t.Fatal("expected EffKillSessionWindow for top frame")
+	}
+	if activateIdx > killIdx {
+		t.Errorf("EffActivateSession (idx %d) must precede EffKillSessionWindow (idx %d)", activateIdx, killIdx)
+	}
+
+	// Verify state: root frame survives, session stays active.
+	sess, ok := next.Sessions[id]
+	if !ok {
+		t.Fatal("session should survive when root frame remains")
+	}
+	if len(sess.Frames) != 1 || sess.Frames[0].ID != rootID {
+		t.Errorf("frames = %v, want [root]", sess.Frames)
+	}
+	if next.ActiveSession != id {
+		t.Errorf("ActiveSession = %q, want %q", next.ActiveSession, id)
+	}
+}
+
 func TestTickNoBroadcastWhenNoChange(t *testing.T) {
 	now := time.Now()
 	s := New()

@@ -134,7 +134,7 @@ func (c *Client) Detach() error {
 
 // PushDriver asks the daemon to push a new driver frame onto the given session.
 func (c *Client) PushDriver(sessionID, command string) error {
-	_, err := sendJSONEvent[RespOK](c, state.EventPushDriver, state.PushDriverParams{
+	_, err := sendJSONEvent[RespCreateSession](c, state.EventPushDriver, state.PushDriverParams{
 		SessionID: sessionID,
 		Command:   command,
 	})

@@ -221,6 +221,26 @@ func TestDecodeResponseByCommandHeuristics(t *testing.T) {
 	}
 }
 
+// TestPushDriverDecodesCreateSessionReply verifies Fix C: PushDriver expects a
+// CreateSessionReply from the daemon (not RespOK) and returns nil on success.
+func TestPushDriverDecodesCreateSessionReply(t *testing.T) {
+	c, server := newFakeServer(t)
+	defer c.Close()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.PushDriver("sess-1", "shell")
+	}()
+
+	env := server.recv()
+	wire, _ := EncodeResponse(env.ReqID, RespCreateSession{SessionID: "sess-1"})
+	server.send(wire)
+
+	if err := <-errCh; err != nil {
+		t.Fatalf("PushDriver returned error: %v", err)
+	}
+}
+
 func mustMarshal(v any) []byte {
 	b, err := json.Marshal(v)
 	if err != nil {

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"fmt"
+	"log/slog"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -57,12 +58,30 @@ func (b *RealTmuxBackend) SpawnWindow(name, command, startDir string, env map[st
 }
 
 func (b *RealTmuxBackend) KillPaneWindow(target string) error {
+	if err := guardNotMainWindow(target, b.client.DisplayMessage); err != nil {
+		return err
+	}
 	windowID, err := b.client.DisplayMessage(target, "#{window_id}")
 	if err != nil {
 		return err
 	}
 	_, err = b.client.Run("kill-window", "-t", windowID)
 	return err
+}
+
+// guardNotMainWindow returns an error if target is in tmux window index 0.
+// roost invariant: window index 0 is the main layout (0.0/0.1/0.2) and must
+// never be destroyed except during daemon shutdown.
+func guardNotMainWindow(target string, displayFn func(string, string) (string, error)) error {
+	windowIdx, err := displayFn(target, "#{window_index}")
+	if err != nil {
+		return err
+	}
+	if windowIdx == "0" {
+		slog.Error("runtime: refusing to kill main window (index 0)", "target", target)
+		return fmt.Errorf("kill-pane-window: refusing to destroy main window (index 0)")
+	}
+	return nil
 }
 
 func (b *RealTmuxBackend) TerminatePane(target string) error {
