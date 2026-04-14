@@ -22,6 +22,7 @@ type EffSpawnTmuxWindow struct {
 	Command    string
 	StartDir   string
 	Options    LaunchOptions
+	Stdin      []byte // piped into the spawned command; nil = no stdin
 	Env        map[string]string
 	ReplyConn  ConnID
 	ReplyReqID string

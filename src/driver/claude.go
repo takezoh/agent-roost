@@ -145,19 +145,19 @@ func (d ClaudeDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, 
 	req, stripped := resolveWorktreeRequest(baseCommand, options, "--worktree")
 	command := appendFlag(stripped, "--worktree", req.Enabled)
 	if mode != state.LaunchModeColdStart || cs.ClaudeSessionID == "" {
-		return state.LaunchPlan{Command: command, StartDir: startDir}, nil
+		return state.LaunchPlan{Command: command, StartDir: startDir, Stdin: options.InitialInput}, nil
 	}
 	command = strings.TrimSpace(stripWorktreeFlag(command))
 	if strings.Contains(command, "--resume") || !isAlphanumHyphen(cs.ClaudeSessionID) {
-		return state.LaunchPlan{Command: command, StartDir: startDir}, nil
+		return state.LaunchPlan{Command: command, StartDir: startDir, Stdin: options.InitialInput}, nil
 	}
 	path := d.resolveTranscriptPath(cs)
 	if path == "" {
-		return state.LaunchPlan{Command: command, StartDir: startDir}, nil
+		return state.LaunchPlan{Command: command, StartDir: startDir, Stdin: options.InitialInput}, nil
 	}
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return state.LaunchPlan{Command: command, StartDir: startDir}, nil
+			return state.LaunchPlan{Command: command, StartDir: startDir, Stdin: options.InitialInput}, nil
 		}
 		return state.LaunchPlan{}, err
 	}
@@ -165,6 +165,7 @@ func (d ClaudeDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, 
 		Command:  command + " --resume " + cs.ClaudeSessionID,
 		StartDir: startDir,
 		Options:  state.LaunchOptions{},
+		Stdin:    options.InitialInput,
 	}, nil
 }
 

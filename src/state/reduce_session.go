@@ -16,6 +16,7 @@ type PushDriverParams struct {
 	Project   string        `json:"project"`
 	Command   string        `json:"command"`
 	Options   LaunchOptions `json:"options,omitempty"`
+	Input     []byte        `json:"input,omitempty"`
 }
 
 type StopSessionParams struct {
@@ -165,7 +166,7 @@ func reducePushDriver(s State, connID ConnID, reqID string, p PushDriverParams) 
 	if _, ok := s.Sessions[sid]; !ok {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
-	newS, effs, err := pushDriverInternal(s, sid, p.Project, p.Command, p.Options, connID, reqID)
+	newS, effs, err := pushDriverInternal(s, sid, p.Project, p.Command, p.Options, p.Input, connID, reqID)
 	if err != nil {
 		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, err.Error())}
 	}
@@ -174,7 +175,7 @@ func reducePushDriver(s State, connID ConnID, reqID string, p PushDriverParams) 
 
 // pushDriverInternal is the shared implementation for pushing a new driver frame
 // onto a session. Used by reducePushDriver (IPC) and reduceDriverHook (EffPushDriver).
-func pushDriverInternal(s State, sid SessionID, project, rawCommand string, options LaunchOptions, connID ConnID, reqID string) (State, []Effect, error) {
+func pushDriverInternal(s State, sid SessionID, project, rawCommand string, options LaunchOptions, input []byte, connID ConnID, reqID string) (State, []Effect, error) {
 	sess, ok := s.Sessions[sid]
 	if !ok {
 		return s, nil, fmt.Errorf("session not found")
@@ -182,6 +183,7 @@ func pushDriverInternal(s State, sid SessionID, project, rawCommand string, opti
 	if project == "" {
 		project = sess.Project
 	}
+	options.InitialInput = input
 
 	command := resolveCreateCommand(s, rawCommand)
 	drv := GetDriver(command)
@@ -244,6 +246,7 @@ func pushDriverInternal(s State, sid SessionID, project, rawCommand string, opti
 			Command:   launch.Command,
 			StartDir:  launch.StartDir,
 			Options:   launch.Options,
+			Stdin:     launch.Stdin,
 			Env: map[string]string{
 				"ROOST_SESSION_ID": string(sid),
 				"ROOST_FRAME_ID":   string(frame.ID),

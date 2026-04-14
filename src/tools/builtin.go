@@ -72,7 +72,7 @@ func DefaultRegistry() *Registry {
 			if sid == "" {
 				return nil, fmt.Errorf("session_id required")
 			}
-			return nil, ctx.Client.PushDriver(sid, args["command"])
+			return nil, ctx.Client.PushDriver(sid, args["command"], nil)
 		},
 	})
 	return r

@@ -99,7 +99,7 @@ func (d CodexDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, p
 	req, stripped := resolveWorktreeRequest(baseCommand, options, "--worktree")
 	fields := strings.Fields(stripped)
 	if len(fields) == 0 || fields[0] != CodexDriverName {
-		return state.LaunchPlan{Command: strings.TrimSpace(baseCommand), StartDir: startDir, Options: options}, nil
+		return state.LaunchPlan{Command: strings.TrimSpace(baseCommand), StartDir: startDir, Options: options, Stdin: options.InitialInput}, nil
 	}
 	base := strings.TrimSpace(baseCommand)
 	if mode == state.LaunchModeCreate || req.Enabled || cs.ManagedWorkingDir != "" {
@@ -110,12 +110,14 @@ func (d CodexDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, p
 			Command:  base,
 			StartDir: startDir,
 			Options:  state.LaunchOptions{Worktree: state.WorktreeOption{Enabled: req.Enabled || cs.ManagedWorkingDir != ""}},
+			Stdin:    options.InitialInput,
 		}, nil
 	}
 	return state.LaunchPlan{
 		Command:  strings.TrimSpace(base) + " resume " + cs.CodexSessionID,
 		StartDir: startDir,
 		Options:  state.LaunchOptions{Worktree: state.WorktreeOption{Enabled: req.Enabled || cs.ManagedWorkingDir != ""}},
+		Stdin:    options.InitialInput,
 	}, nil
 }
 

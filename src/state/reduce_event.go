@@ -32,7 +32,7 @@ func reduceDriverHook(s State, e EvDriverEvent) (State, []Effect) {
 			effs = append(effs, eff)
 			continue
 		}
-		newS, pushEffs, err := pushDriverInternal(s, pd.SessionID, "", pd.Command, LaunchOptions{}, 0, "")
+		newS, pushEffs, err := pushDriverInternal(s, pd.SessionID, "", pd.Command, LaunchOptions{}, nil, 0, "")
 		if err != nil {
 			continue
 		}

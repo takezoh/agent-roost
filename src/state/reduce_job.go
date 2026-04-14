@@ -74,6 +74,7 @@ func handlePendingCreate(s State, pending PendingCreate, e EvJobResult) (State, 
 		return s, []Effect{errResp(pending.ReplyConn, pending.ReplyReqID, ErrCodeInternal, "driver missing create-session planner")}
 	}
 
+	initialInput := frame.LaunchOptions.InitialInput
 	nextDS, launch, err := planner.CompleteCreate(
 		frame.Driver,
 		frame.Command,
@@ -98,6 +99,7 @@ func handlePendingCreate(s State, pending PendingCreate, e EvJobResult) (State, 
 			Command:   launch.Command,
 			StartDir:  launch.StartDir,
 			Options:   launch.Options,
+			Stdin:     initialInput,
 			Env: map[string]string{
 				"ROOST_SESSION_ID": string(pending.Session.ID),
 				"ROOST_FRAME_ID":   string(pending.FrameID),

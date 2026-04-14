@@ -1114,3 +1114,97 @@ func TestPushDriverMissingSessionIDErrors(t *testing.T) {
 		t.Errorf("error code = %q, want %q", errEff.Code, ErrCodeInvalidArgument)
 	}
 }
+
+// === PushDriver: stdin propagation ===
+
+// stdinDriver propagates InitialInput to LaunchPlan.Stdin so the runtime
+// can pipe it into the spawned process.
+type stdinDriver struct{ stubDriver }
+
+func (stdinDriver) Name() string { return "stdinstub" }
+func (stdinDriver) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string, options LaunchOptions) (LaunchPlan, error) {
+	return LaunchPlan{Command: baseCommand, StartDir: project, Stdin: options.InitialInput}, nil
+}
+
+func init() {
+	if _, exists := registry["stdinstub"]; !exists {
+		Register(stdinDriver{})
+	}
+}
+
+func TestPushDriverInputPropagatesAsStdin(t *testing.T) {
+	s := New()
+	s.Now = time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	sid := SessionID("sess-stdin")
+	s.Sessions = map[SessionID]Session{
+		sid: {
+			ID:      sid,
+			Project: "/project",
+			Command: "stdinstub",
+			Driver:  stubDriverState{},
+			Frames: []SessionFrame{{
+				ID:      FrameID("frame-1"),
+				Project: "/project",
+				Command: "stdinstub",
+				Driver:  stubDriverState{},
+			}},
+		},
+	}
+
+	input := []byte("initial prompt text")
+	params := PushDriverParams{
+		SessionID: string(sid),
+		Command:   "stdinstub",
+		Input:     input,
+	}
+	payload, _ := json.Marshal(params)
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: EventPushDriver,
+		Payload: json.RawMessage(payload),
+	})
+	mustOK(t, effs)
+
+	spawn, ok := findEff[EffSpawnTmuxWindow](effs)
+	if !ok {
+		t.Fatal("expected EffSpawnTmuxWindow")
+	}
+	if string(spawn.Stdin) != string(input) {
+		t.Errorf("spawn.Stdin = %q, want %q", spawn.Stdin, input)
+	}
+}
+
+func TestPushDriverNilInputProducesNilStdin(t *testing.T) {
+	s := New()
+	s.Now = time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	sid := SessionID("sess-no-stdin")
+	s.Sessions = map[SessionID]Session{
+		sid: {
+			ID:      sid,
+			Project: "/project",
+			Command: "stdinstub",
+			Driver:  stubDriverState{},
+			Frames: []SessionFrame{{
+				ID:      FrameID("frame-1"),
+				Project: "/project",
+				Command: "stdinstub",
+				Driver:  stubDriverState{},
+			}},
+		},
+	}
+
+	params := PushDriverParams{SessionID: string(sid), Command: "stdinstub"}
+	payload, _ := json.Marshal(params)
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: EventPushDriver,
+		Payload: json.RawMessage(payload),
+	})
+	mustOK(t, effs)
+
+	spawn, ok := findEff[EffSpawnTmuxWindow](effs)
+	if !ok {
+		t.Fatal("expected EffSpawnTmuxWindow")
+	}
+	if spawn.Stdin != nil {
+		t.Errorf("spawn.Stdin = %q, want nil", spawn.Stdin)
+	}
+}

@@ -3,6 +3,7 @@ package runtime
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"strings"
 	"time"
 
@@ -183,6 +184,8 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	spawnCmd := "exec " + e.Command
 	if isShellCommand(e.Command) {
 		spawnCmd = ""
+	} else if len(e.Stdin) > 0 {
+		spawnCmd = wrapCommandWithStdin(e.Command, e.Stdin)
 	}
 	size := r.mainPaneSize()
 	target, paneID, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, e.StartDir, e.Env)
@@ -265,8 +268,29 @@ func isShellCommand(command string) bool {
 	return command == "shell"
 }
 
+// wrapCommandWithStdin writes input to a temp file and returns a shell
+// command that feeds the file to command on stdin, then deletes it.
+func wrapCommandWithStdin(command string, input []byte) string {
+	f, err := os.CreateTemp("", "roost-push-*.in")
+	if err != nil {
+		slog.Warn("buildStdinCommand: could not create temp file, stdin ignored",
+			"err", err)
+		return "exec " + command
+	}
+	if _, err := f.Write(input); err != nil {
+		slog.Warn("buildStdinCommand: could not write temp file, stdin ignored",
+			"err", err, "path", f.Name())
+		f.Close()
+		os.Remove(f.Name())
+		return "exec " + command
+	}
+	f.Close()
+	tmp := f.Name() // CreateTemp paths never contain special shell chars
+	return "bash -c " + shellQuote(command+" < "+tmp+"; _ec=$?; rm -f "+tmp+"; exit $_ec")
+}
+
 // shellQuote wraps s in single quotes and escapes inner single quotes
-// with the standard POSIX '\” sequence.
+// with the standard POSIX '\" sequence.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
@@ -292,11 +316,16 @@ func (r *Runtime) snapshotSessions() []SessionSnapshot {
 				bag = drv.Persist(frame.Driver)
 				driverName = drv.Name()
 			}
+			// Strip InitialInput before persisting: it is a one-shot spawn
+			// parameter and must not be written to sessions.json (would
+			// re-pipe stale stdin on cold-start recovery and leak content).
+			persistOpts := frame.LaunchOptions
+			persistOpts.InitialInput = nil
 			frames = append(frames, SessionFrameSnapshot{
 				ID:            string(frame.ID),
 				Project:       frame.Project,
 				Command:       frame.Command,
-				LaunchOptions: frame.LaunchOptions,
+				LaunchOptions: persistOpts,
 				CreatedAt:     frame.CreatedAt.UTC().Format(time.RFC3339),
 				Driver:        driverName,
 				DriverState:   bag,
