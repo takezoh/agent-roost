@@ -323,13 +323,9 @@ func reduceStopSession(s State, connID ConnID, reqID string, p StopSessionParams
 	if !ok {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
-	nextSess, removed := truncateFrames(sess, 0)
+	_, removed := truncateFrames(sess, 0)
 	s.Sessions = cloneSessions(s.Sessions)
-	if len(nextSess.Frames) == 0 {
-		delete(s.Sessions, sid)
-	} else {
-		s.Sessions[sid] = nextSess
-	}
+	delete(s.Sessions, sid)
 	var deactivate []Effect
 	if s.ActiveSession == sid {
 		s.ActiveSession = ""
