@@ -68,7 +68,11 @@ func DefaultRegistry() *Registry {
 			{Name: "command", Options: func(ctx *ToolContext) []string { return ctx.Config.PushCommands }},
 		},
 		Run: func(ctx *ToolContext, args map[string]string) (*ToolInvocation, error) {
-			return nil, ctx.Client.PushDriver(args["command"])
+			sid := ctx.Args["session_id"]
+			if sid == "" {
+				return nil, fmt.Errorf("session_id required")
+			}
+			return nil, ctx.Client.PushDriver(sid, args["command"])
 		},
 	})
 	return r

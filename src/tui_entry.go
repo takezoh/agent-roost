@@ -3,8 +3,10 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -118,6 +120,16 @@ func runPalette(args []string) error {
 				prefill[parts[0]] = parts[1]
 			}
 		}
+	}
+
+	if toolName == "push-driver" {
+		_, activeID, _, err := client.ListSessions()
+		if err != nil || activeID == "" {
+			fmt.Fprintln(os.Stderr, "no active session")
+			time.Sleep(700 * time.Millisecond)
+			return nil
+		}
+		prefill["session_id"] = activeID
 	}
 
 	reg := tools.DefaultRegistry()

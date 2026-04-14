@@ -930,6 +930,98 @@ func TestRuntimeEnqueueDoesNotBlock(t *testing.T) {
 	}
 }
 
+func TestActivateSessionSwapsOnFrameChange(t *testing.T) {
+	tmux := newFakeTmux()
+	tmux.alive["%0"] = true // main pane
+	tmux.alive["%1"] = true // root frame pane
+	tmux.alive["%2"] = true // pushed frame pane
+	tmux.envs["ROOST_FRAME__main"] = "%0"
+
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         tmux,
+		Persist:      &recordingPersist{},
+	})
+
+	drv := state.GetDriver("shell")
+	sid := state.SessionID("sess-swap")
+	rootFrameID := state.FrameID("frame-root")
+	newFrameID := state.FrameID("frame-new")
+
+	r.state.Sessions[sid] = state.Session{
+		ID:      sid,
+		Project: "/project",
+		Command: "shell",
+		Driver:  drv.NewState(time.Now()),
+		Frames: []state.SessionFrame{
+			{ID: rootFrameID, Project: "/project", Command: "shell", Driver: drv.NewState(time.Now())},
+			{ID: newFrameID, Project: "/project", Command: "shell", Driver: drv.NewState(time.Now())},
+		},
+	}
+	// Root frame is currently active in 0.0.
+	r.sessionPanes[rootFrameID] = "%1"
+	r.sessionPanes[newFrameID] = "%2"
+	r.sessionPanes["_main"] = "%0"
+	r.activeSession = sid
+	r.activeFrameID = rootFrameID // old frame — different from top-of-stack
+
+	r.activateSession(sid, "push")
+
+	tmux.mu.Lock()
+	defer tmux.mu.Unlock()
+	if tmux.swapCalls != 1 {
+		t.Fatalf("swapCalls = %d, want 1 (new frame should be swapped into 0.0)", tmux.swapCalls)
+	}
+	// Swap source should be the new frame's pane.
+	if tmux.swapSources[0] != "%2" {
+		t.Errorf("swap source = %q, want %%2 (new frame pane)", tmux.swapSources[0])
+	}
+	if r.activeFrameID != newFrameID {
+		t.Errorf("activeFrameID = %q, want %q", r.activeFrameID, newFrameID)
+	}
+}
+
+func TestActivateSessionNoopWhenFrameUnchanged(t *testing.T) {
+	tmux := newFakeTmux()
+	tmux.alive["%0"] = true
+	tmux.alive["%1"] = true
+	tmux.envs["ROOST_FRAME__main"] = "%0"
+
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tmux:         tmux,
+		Persist:      &recordingPersist{},
+	})
+
+	drv := state.GetDriver("shell")
+	sid := state.SessionID("sess-noop")
+	frameID := state.FrameID("frame-only")
+
+	r.state.Sessions[sid] = state.Session{
+		ID:      sid,
+		Project: "/project",
+		Command: "shell",
+		Driver:  drv.NewState(time.Now()),
+		Frames: []state.SessionFrame{
+			{ID: frameID, Project: "/project", Command: "shell", Driver: drv.NewState(time.Now())},
+		},
+	}
+	r.sessionPanes[frameID] = "%1"
+	r.sessionPanes["_main"] = "%0"
+	r.activeSession = sid
+	r.activeFrameID = frameID // already on the active frame
+
+	r.activateSession(sid, "noop")
+
+	tmux.mu.Lock()
+	defer tmux.mu.Unlock()
+	if tmux.swapCalls != 0 {
+		t.Fatalf("swapCalls = %d, want 0 (same frame, no swap needed)", tmux.swapCalls)
+	}
+}
+
 func TestMonitorParkedPanesTracksInactiveOnly(t *testing.T) {
 	tmux := newFakeTmux()
 	tmux.inspectSnapshot = PaneSnapshot{

@@ -1065,7 +1065,7 @@ func TestPushDriverInheritsRootStartDir(t *testing.T) {
 	}
 }
 
-func TestPushDriverEmptySessionIDUsesActive(t *testing.T) {
+func TestPushDriverEmptySessionIDErrors(t *testing.T) {
 	s := New()
 	s.Now = time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
 	sid := SessionID("active-sess")
@@ -1085,28 +1085,32 @@ func TestPushDriverEmptySessionIDUsesActive(t *testing.T) {
 		},
 	}
 
-	// SessionID empty — should use s.ActiveSession.
-	next, effs := Reduce(s, EvEvent{
+	// SessionID empty — must return ErrCodeInvalidArgument regardless of ActiveSession.
+	_, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: EventPushDriver,
 		Payload: mustPayload(map[string]string{"command": "stub"}),
 	})
-	mustOK(t, effs)
-	if _, ok := findEff[EffSpawnTmuxWindow](effs); !ok {
-		t.Fatal("expected EffSpawnTmuxWindow")
+	errEff, ok := findEff[EffSendError](effs)
+	if !ok {
+		t.Fatal("expected EffSendError for empty session_id")
 	}
-	if len(next.Sessions[sid].Frames) != 2 {
-		t.Errorf("frame count = %d, want 2", len(next.Sessions[sid].Frames))
+	if errEff.Code != ErrCodeInvalidArgument {
+		t.Errorf("error code = %q, want %q", errEff.Code, ErrCodeInvalidArgument)
 	}
 }
 
-func TestPushDriverNoActiveSession(t *testing.T) {
+func TestPushDriverMissingSessionIDErrors(t *testing.T) {
 	s := New()
 	// No sessions, no active session, empty SessionID.
 	_, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: EventPushDriver,
 		Payload: mustPayload(map[string]string{"command": "stub"}),
 	})
-	if _, ok := findEff[EffSendError](effs); !ok {
-		t.Error("expected EffSendError when no active session")
+	errEff, ok := findEff[EffSendError](effs)
+	if !ok {
+		t.Fatal("expected EffSendError for missing session_id")
+	}
+	if errEff.Code != ErrCodeInvalidArgument {
+		t.Errorf("error code = %q, want %q", errEff.Code, ErrCodeInvalidArgument)
 	}
 }

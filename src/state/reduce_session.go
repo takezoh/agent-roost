@@ -160,10 +160,7 @@ func prepareSessionDriver(s State, drv Driver, sessID SessionID, project, comman
 func reducePushDriver(s State, connID ConnID, reqID string, p PushDriverParams) (State, []Effect) {
 	sid := SessionID(p.SessionID)
 	if sid == "" {
-		sid = s.ActiveSession
-	}
-	if sid == "" {
-		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "no active session")}
+		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, "session_id required")}
 	}
 	if _, ok := s.Sessions[sid]; !ok {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
