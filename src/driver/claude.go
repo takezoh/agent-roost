@@ -92,6 +92,23 @@ func (ClaudeDriver) Name() string                            { return ClaudeDriv
 func (ClaudeDriver) DisplayName() string                     { return ClaudeDriverName }
 func (ClaudeDriver) Status(s state.DriverState) state.Status { return s.(ClaudeState).Status }
 
+func (ClaudeDriver) StartDir(s state.DriverState) string {
+	cs, ok := s.(ClaudeState)
+	if !ok {
+		return ""
+	}
+	return cs.CommonState.StartDir
+}
+
+func (ClaudeDriver) WithStartDir(s state.DriverState, dir string) state.DriverState {
+	cs, ok := s.(ClaudeState)
+	if !ok {
+		return s
+	}
+	cs.CommonState.StartDir = dir
+	return cs
+}
+
 // View returns the cached View for the given ClaudeState. Pure
 // getter — same payload Step would return, but callable from the
 // runtime without going through Step.
@@ -122,8 +139,8 @@ func (d ClaudeDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, 
 		cs = ClaudeState{}
 	}
 	startDir := project
-	if cs.WorkingDir != "" {
-		startDir = cs.WorkingDir
+	if cs.StartDir != "" {
+		startDir = cs.StartDir
 	}
 	req, stripped := resolveWorktreeRequest(baseCommand, options, "--worktree")
 	command := appendFlag(stripped, "--worktree", req.Enabled)
@@ -236,10 +253,10 @@ func (d ClaudeDriver) resolveTranscriptPath(cs ClaudeState) string {
 	if cs.TranscriptPath != "" {
 		return cs.TranscriptPath
 	}
-	if d.home == "" || cs.ClaudeSessionID == "" || cs.WorkingDir == "" {
+	if d.home == "" || cs.ClaudeSessionID == "" || cs.StartDir == "" {
 		return ""
 	}
-	return filepath.Join(d.home, ".claude", "projects", projectDir(cs.WorkingDir), cs.ClaudeSessionID+".jsonl")
+	return filepath.Join(d.home, ".claude", "projects", projectDir(cs.StartDir), cs.ClaudeSessionID+".jsonl")
 }
 
 // projectDir mirrors Claude Code's encoding of working dir →

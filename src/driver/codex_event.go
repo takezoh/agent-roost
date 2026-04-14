@@ -83,7 +83,7 @@ func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []s
 	}
 	cs.CodexSessionID = hp.SessionID
 	if hp.Cwd != "" {
-		cs.WorkingDir = hp.Cwd
+		cs.StartDir = hp.Cwd
 	}
 	if hp.TranscriptPath != "" {
 		cs.TranscriptPath = hp.TranscriptPath
@@ -96,7 +96,7 @@ func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []s
 	case "SessionStart":
 		cs = applyHookStatus(cs, state.StatusIdle, e.Timestamp)
 		effs = append(effs, d.startCodexTranscriptParse(&cs)...)
-		target := cs.WorkingDir
+		target := cs.StartDir
 		if target != "" && !cs.BranchInFlight {
 			cs.BranchInFlight = true
 			cs.BranchTarget = target

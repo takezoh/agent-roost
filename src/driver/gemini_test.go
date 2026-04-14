@@ -49,7 +49,7 @@ func TestGeminiPrepareLaunchAddsWorktreeFlagFromOptions(t *testing.T) {
 
 func TestGeminiManagedWorktreePath(t *testing.T) {
 	d, gs, _ := newGemini(t)
-	gs.WorkingDir = "/repo/.roost/worktrees/example"
+	gs.StartDir = "/repo/.roost/worktrees/example"
 	if got := d.ManagedWorktreePath(gs); got == "" {
 		t.Fatal("expected managed worktree path")
 	}

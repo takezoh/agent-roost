@@ -106,8 +106,8 @@ type WorktreeSetupInput struct {
 // WorktreeSetupResult carries the created worktree path and chosen
 // worktree name.
 type WorktreeSetupResult struct {
-	WorkingDir string
-	Name       string
+	StartDir string
+	Name     string
 }
 
 func (CapturePaneInput) JobKind() string     { return "capture_pane" }

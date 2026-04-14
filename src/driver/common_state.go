@@ -14,7 +14,7 @@ type CommonState struct {
 
 	// Identity & Context
 	RoostSessionID string
-	WorkingDir     string
+	StartDir       string
 	TranscriptPath string
 	WorktreeName   string
 
@@ -47,7 +47,7 @@ type CommonState struct {
 // Common persistence keys shared across drivers.
 const (
 	keyRoostSessionID     = "roost_session_id"
-	keyWorkingDir         = "working_dir"
+	keyStartDir           = "start_dir"
 	keyTranscriptPath     = "transcript_path"
 	keyWorktreeName       = "worktree_name"
 	keyStatus             = "status"
@@ -72,8 +72,8 @@ func (c *CommonState) PersistCommon(out map[string]string) {
 	if c.RoostSessionID != "" {
 		out[keyRoostSessionID] = c.RoostSessionID
 	}
-	if c.WorkingDir != "" {
-		out[keyWorkingDir] = c.WorkingDir
+	if c.StartDir != "" {
+		out[keyStartDir] = c.StartDir
 	}
 	if c.TranscriptPath != "" {
 		out[keyTranscriptPath] = c.TranscriptPath
@@ -132,7 +132,7 @@ func (c *CommonState) RestoreCommon(bag map[string]string) {
 		return
 	}
 	c.RoostSessionID = bag[keyRoostSessionID]
-	c.WorkingDir = bag[keyWorkingDir]
+	c.StartDir = bag[keyStartDir]
 	c.TranscriptPath = bag[keyTranscriptPath]
 	c.WorktreeName = bag[keyWorktreeName]
 	if v := bag[keyStatus]; v != "" {

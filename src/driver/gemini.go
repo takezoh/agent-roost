@@ -33,6 +33,23 @@ func (GeminiDriver) Name() string                            { return GeminiDriv
 func (GeminiDriver) DisplayName() string                     { return GeminiDriverName }
 func (GeminiDriver) Status(s state.DriverState) state.Status { return s.(GeminiState).Status }
 
+func (GeminiDriver) StartDir(s state.DriverState) string {
+	gs, ok := s.(GeminiState)
+	if !ok {
+		return ""
+	}
+	return gs.CommonState.StartDir
+}
+
+func (GeminiDriver) WithStartDir(s state.DriverState, dir string) state.DriverState {
+	gs, ok := s.(GeminiState)
+	if !ok {
+		return s
+	}
+	gs.CommonState.StartDir = dir
+	return gs
+}
+
 func (d GeminiDriver) View(s state.DriverState) state.View {
 	gs, ok := s.(GeminiState)
 	if !ok {
@@ -56,8 +73,8 @@ func (d GeminiDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, 
 		gs = GeminiState{}
 	}
 	startDir := project
-	if gs.WorkingDir != "" {
-		startDir = gs.WorkingDir
+	if gs.StartDir != "" {
+		startDir = gs.StartDir
 	}
 	req, stripped := resolveWorktreeRequest(baseCommand, options, "--worktree", "--workspace")
 	command := appendFlag(stripped, "--worktree", req.Enabled)

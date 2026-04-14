@@ -20,7 +20,7 @@ func (d CodexDriver) CompleteCreate(s state.DriverState, command string, options
 	}
 	launch, err := CommonCompleteCreate(&cs.CommonState, command, options, result, err, "--worktree")
 	if err == nil {
-		cs.ManagedWorkingDir = cs.WorkingDir
+		cs.ManagedWorkingDir = cs.StartDir
 		launch.Options = state.LaunchOptions{Worktree: state.WorktreeOption{Enabled: true}}
 	}
 	return cs, launch, err
@@ -34,5 +34,5 @@ func (d CodexDriver) ManagedWorktreePath(s state.DriverState) string {
 	if path := managedWorktreePath(cs.ManagedWorkingDir); path != "" {
 		return path
 	}
-	return managedWorktreePath(cs.WorkingDir)
+	return managedWorktreePath(cs.StartDir)
 }

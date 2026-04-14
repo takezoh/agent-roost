@@ -177,7 +177,7 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, now time.Time) (ClaudeState, []state.Effect) {
 	cs = absorbIdentityFromHP(cs, hp)
 	if hp.Cwd != "" {
-		cs.WorkingDir = hp.Cwd
+		cs.StartDir = hp.Cwd
 	}
 	if now.IsZero() {
 		now = cs.StatusChangedAt
@@ -208,7 +208,7 @@ func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, now tim
 
 	// Trigger branch detection immediately so the tag appears before
 	// the user types anything (Idle sessions are skipped by tick).
-	target := cs.WorkingDir
+	target := cs.StartDir
 	if target != "" && !cs.BranchInFlight {
 		cs.BranchInFlight = true
 		cs.BranchTarget = target

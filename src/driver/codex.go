@@ -53,6 +53,23 @@ func (CodexDriver) Name() string                            { return CodexDriver
 func (CodexDriver) DisplayName() string                     { return CodexDriverName }
 func (CodexDriver) Status(s state.DriverState) state.Status { return s.(CodexState).Status }
 
+func (CodexDriver) StartDir(s state.DriverState) string {
+	cs, ok := s.(CodexState)
+	if !ok {
+		return ""
+	}
+	return cs.CommonState.StartDir
+}
+
+func (CodexDriver) WithStartDir(s state.DriverState, dir string) state.DriverState {
+	cs, ok := s.(CodexState)
+	if !ok {
+		return s
+	}
+	cs.CommonState.StartDir = dir
+	return cs
+}
+
 func (d CodexDriver) View(s state.DriverState) state.View {
 	cs, ok := s.(CodexState)
 	if !ok {
@@ -76,8 +93,8 @@ func (d CodexDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, p
 		cs = CodexState{}
 	}
 	startDir := project
-	if cs.WorkingDir != "" {
-		startDir = cs.WorkingDir
+	if cs.StartDir != "" {
+		startDir = cs.StartDir
 	}
 	req, stripped := resolveWorktreeRequest(baseCommand, options, "--worktree")
 	fields := strings.Fields(stripped)

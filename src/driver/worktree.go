@@ -140,16 +140,16 @@ func CommonCompleteCreate(c *CommonState, command string, options state.LaunchOp
 		return state.CreateLaunch{}, err
 	}
 	r, ok := result.(WorktreeSetupResult)
-	if !ok || r.WorkingDir == "" {
+	if !ok || r.StartDir == "" {
 		return state.CreateLaunch{}, fmt.Errorf("worktree setup did not return a working directory")
 	}
-	c.WorkingDir = r.WorkingDir
+	c.StartDir = r.StartDir
 	if r.Name != "" {
 		c.WorktreeName = r.Name
 	}
 	return state.CreateLaunch{
 		Command:  strings.TrimSpace(command),
-		StartDir: r.WorkingDir,
+		StartDir: r.StartDir,
 		Options:  options,
 	}, nil
 }

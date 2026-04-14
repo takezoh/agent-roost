@@ -54,7 +54,7 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 			Tags:        tags,
 			Indicators:  claudeIndicators(cs),
 			BorderTitle: CommandTag(ClaudeDriverName),
-			BorderBadge: fishpath.Shorten(cs.WorkingDir, d.home),
+			BorderBadge: fishpath.Shorten(cs.StartDir, d.home),
 		},
 		DisplayName:     ClaudeDriverName,
 		LogTabs:         logTabs,
@@ -93,7 +93,7 @@ func claudeInfoExtras(cs ClaudeState) []state.InfoLine {
 	add("Title", cs.Title)
 	add("Summary", cs.Summary)
 	add("Last Prompt", cs.LastPrompt)
-	add("Working Dir", cs.WorkingDir)
+	add("Working Dir", cs.StartDir)
 	if cs.BranchIsWorktree {
 		add("Parent Branch", cs.BranchParentBranch)
 	}

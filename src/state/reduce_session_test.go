@@ -66,6 +66,51 @@ type fallbackDriver struct{ stubDriver }
 
 func (fallbackDriver) Name() string { return "" }
 
+// sdState is a StartDirAware driver state for testing StartDir inheritance.
+type sdState struct {
+	DriverStateBase
+	startDir string
+}
+
+// sdDriver implements StartDirAware in addition to the Driver interface.
+type sdDriver struct{ stubDriver }
+
+func (sdDriver) Name() string { return "sdstub" }
+func (sdDriver) NewState(now time.Time) DriverState {
+	return sdState{}
+}
+func (sdDriver) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string, options LaunchOptions) (LaunchPlan, error) {
+	ss := s.(sdState)
+	startDir := project
+	if ss.startDir != "" {
+		startDir = ss.startDir
+	}
+	return LaunchPlan{Command: baseCommand, StartDir: startDir}, nil
+}
+func (sdDriver) Persist(s DriverState) map[string]string                  { return nil }
+func (sdDriver) Restore(bag map[string]string, now time.Time) DriverState { return sdState{} }
+func (sdDriver) View(s DriverState) View {
+	return View{Card: Card{BorderTitle: Tag{Text: "sdstub"}}}
+}
+func (sdDriver) Step(prev DriverState, ev DriverEvent) (DriverState, []Effect, View) {
+	return prev, nil, View{}
+}
+func (sdDriver) Status(s DriverState) Status { return StatusIdle }
+func (sdDriver) StartDir(s DriverState) string {
+	if ss, ok := s.(sdState); ok {
+		return ss.startDir
+	}
+	return ""
+}
+func (sdDriver) WithStartDir(s DriverState, dir string) DriverState {
+	ss, ok := s.(sdState)
+	if !ok {
+		return s
+	}
+	ss.startDir = dir
+	return ss
+}
+
 func init() {
 	if _, exists := registry[""]; !exists {
 		Register(fallbackDriver{})
@@ -75,6 +120,9 @@ func init() {
 	}
 	if _, exists := registry["planner"]; !exists {
 		Register(plannerDriver{})
+	}
+	if _, exists := registry["sdstub"]; !exists {
+		Register(sdDriver{})
 	}
 }
 
@@ -963,5 +1011,102 @@ func TestPushDriverUnknownSessionErrors(t *testing.T) {
 	})
 	if _, ok := findEff[EffSendError](effs); !ok {
 		t.Error("expected EffSendError for unknown session")
+	}
+}
+
+// === pushDriverInternal: StartDir inheritance ===
+
+func TestPushDriverInheritsRootStartDir(t *testing.T) {
+	s := New()
+	s.Now = time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	// Set up a session with root frame using sdstub (StartDirAware driver)
+	// and pre-set StartDir to /root/dir.
+	rootDS := sdState{startDir: "/root/dir"}
+	sid := SessionID("sess-1")
+	rootFrame := SessionFrame{
+		ID:      FrameID("frame-root"),
+		Project: "/project",
+		Command: "sdstub",
+		Driver:  rootDS,
+	}
+	s.Sessions = map[SessionID]Session{
+		sid: {
+			ID:      sid,
+			Project: "/project",
+			Command: "sdstub",
+			Driver:  rootDS,
+			Frames:  []SessionFrame{rootFrame},
+		},
+	}
+
+	// Push a new sdstub frame (also StartDirAware) — should inherit /root/dir.
+	next, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: EventPushDriver,
+		Payload: mustPayload(map[string]string{"session_id": string(sid), "command": "sdstub"}),
+	})
+	mustOK(t, effs)
+	spawn, ok := findEff[EffSpawnTmuxWindow](effs)
+	if !ok {
+		t.Fatal("expected EffSpawnTmuxWindow")
+	}
+	if spawn.StartDir != "/root/dir" {
+		t.Errorf("spawn.StartDir = %q, want /root/dir", spawn.StartDir)
+	}
+
+	// New frame in state should also have StartDir = /root/dir.
+	sess := next.Sessions[sid]
+	if len(sess.Frames) != 2 {
+		t.Fatalf("frame count = %d, want 2", len(sess.Frames))
+	}
+	newFrame := sess.Frames[1]
+	newDS := newFrame.Driver.(sdState)
+	if newDS.startDir != "/root/dir" {
+		t.Errorf("new frame startDir = %q, want /root/dir", newDS.startDir)
+	}
+}
+
+func TestPushDriverEmptySessionIDUsesActive(t *testing.T) {
+	s := New()
+	s.Now = time.Date(2026, 4, 14, 12, 0, 0, 0, time.UTC)
+	sid := SessionID("active-sess")
+	s.ActiveSession = sid
+	s.Sessions = map[SessionID]Session{
+		sid: {
+			ID:      sid,
+			Project: "/project",
+			Command: "stub",
+			Driver:  stubDriverState{},
+			Frames: []SessionFrame{{
+				ID:      FrameID("frame-1"),
+				Project: "/project",
+				Command: "stub",
+				Driver:  stubDriverState{},
+			}},
+		},
+	}
+
+	// SessionID empty — should use s.ActiveSession.
+	next, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: EventPushDriver,
+		Payload: mustPayload(map[string]string{"command": "stub"}),
+	})
+	mustOK(t, effs)
+	if _, ok := findEff[EffSpawnTmuxWindow](effs); !ok {
+		t.Fatal("expected EffSpawnTmuxWindow")
+	}
+	if len(next.Sessions[sid].Frames) != 2 {
+		t.Errorf("frame count = %d, want 2", len(next.Sessions[sid].Frames))
+	}
+}
+
+func TestPushDriverNoActiveSession(t *testing.T) {
+	s := New()
+	// No sessions, no active session, empty SessionID.
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: EventPushDriver,
+		Payload: mustPayload(map[string]string{"command": "stub"}),
+	})
+	if _, ok := findEff[EffSendError](effs); !ok {
+		t.Error("expected EffSendError when no active session")
 	}
 }

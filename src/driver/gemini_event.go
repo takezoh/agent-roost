@@ -105,7 +105,7 @@ func (d GeminiDriver) handleHook(gs GeminiState, e state.DEvHook) (GeminiState, 
 	}
 	gs.GeminiSessionID = hp.SessionID
 	if hp.Cwd != "" {
-		gs.WorkingDir = hp.Cwd
+		gs.StartDir = hp.Cwd
 	}
 	if hp.TranscriptPath != "" {
 		gs.TranscriptPath = hp.TranscriptPath
@@ -121,7 +121,7 @@ func (d GeminiDriver) handleHook(gs GeminiState, e state.DEvHook) (GeminiState, 
 
 	// Session Start specific work
 	if hp.HookEventName == "SessionStart" {
-		target := gs.WorkingDir
+		target := gs.StartDir
 		if target != "" && !gs.BranchInFlight {
 			gs.BranchInFlight = true
 			gs.BranchTarget = target

@@ -31,7 +31,7 @@ func (d CodexDriver) view(cs CodexState) state.View {
 			Subtitle:    firstNonEmpty(cs.Summary, cs.LastPrompt, cs.LastAssistantMessage),
 			Tags:        tags,
 			BorderTitle: CodexCommandTag(),
-			BorderBadge: fishpath.Shorten(cs.WorkingDir, ""),
+			BorderBadge: fishpath.Shorten(cs.StartDir, ""),
 		},
 		DisplayName:     CodexDriverName,
 		LogTabs:         tabs,
@@ -51,7 +51,7 @@ func codexInfoExtras(cs CodexState) []state.InfoLine {
 	}
 	add("Title", cs.Title)
 	add("Codex Session", cs.CodexSessionID)
-	add("Working Dir", cs.WorkingDir)
+	add("Working Dir", cs.StartDir)
 	add("Managed Worktree", cs.ManagedWorkingDir)
 	add("Worktree Name", cs.WorktreeName)
 	if cs.BranchIsWorktree {

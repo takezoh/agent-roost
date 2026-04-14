@@ -72,6 +72,23 @@ func (d GenericDriver) Name() string                          { return d.name }
 func (d GenericDriver) DisplayName() string                   { return d.displayName }
 func (GenericDriver) Status(s state.DriverState) state.Status { return s.(GenericState).Status }
 
+func (GenericDriver) StartDir(s state.DriverState) string {
+	gs, ok := s.(GenericState)
+	if !ok {
+		return ""
+	}
+	return gs.CommonState.StartDir
+}
+
+func (GenericDriver) WithStartDir(s state.DriverState, dir string) state.DriverState {
+	gs, ok := s.(GenericState)
+	if !ok {
+		return s
+	}
+	gs.CommonState.StartDir = dir
+	return gs
+}
+
 // View returns the cached View for the given GenericState. Pure
 // getter — same as the View Step returns, but callable from the
 // runtime without going through Step.
@@ -102,8 +119,8 @@ func (d GenericDriver) PrepareLaunch(s state.DriverState, _ state.LaunchMode, pr
 	}
 	startDir := project
 	req, command := resolveWorktreeRequest(baseCommand, options, "--worktree")
-	if gs.WorkingDir != "" {
-		startDir = gs.WorkingDir
+	if gs.StartDir != "" {
+		startDir = gs.StartDir
 		req.Enabled = true
 	}
 	return state.LaunchPlan{
@@ -213,16 +230,16 @@ func (d GenericDriver) CompleteCreate(s state.DriverState, command string, optio
 		return gs, state.CreateLaunch{}, err
 	}
 	r, ok := result.(WorktreeSetupResult)
-	if !ok || r.WorkingDir == "" {
+	if !ok || r.StartDir == "" {
 		return gs, state.CreateLaunch{}, errors.New("worktree setup did not return a working directory")
 	}
-	gs.WorkingDir = r.WorkingDir
+	gs.StartDir = r.StartDir
 	if r.Name != "" {
 		gs.WorktreeName = r.Name
 	}
 	return gs, state.CreateLaunch{
 		Command:  strings.TrimSpace(command),
-		StartDir: r.WorkingDir,
+		StartDir: r.StartDir,
 		Options:  state.LaunchOptions{Worktree: state.WorktreeOption{Enabled: true}},
 	}, nil
 }
@@ -232,7 +249,7 @@ func (d GenericDriver) ManagedWorktreePath(s state.DriverState) string {
 	if !ok {
 		return ""
 	}
-	return managedWorktreePath(gs.WorkingDir)
+	return managedWorktreePath(gs.StartDir)
 }
 
 // applyCapture is the pure status transition logic. Extracted from

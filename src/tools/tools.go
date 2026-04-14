@@ -23,6 +23,7 @@ type Param struct {
 type Tool struct {
 	Name        string
 	Description string
+	Hidden      bool // Hidden tools are excluded from All() and Match() but reachable via Get()
 	Params      []Param
 	Run         func(ctx *ToolContext, args map[string]string) (*ToolInvocation, error)
 }
@@ -48,6 +49,7 @@ type ToolContext struct {
 type ToolConfig struct {
 	DefaultCommand string
 	Commands       []string
+	PushCommands   []string
 	Projects       []string
 	ProjectRoots   []string
 }
@@ -69,16 +71,24 @@ func (r *Registry) Register(t Tool) {
 
 func (r *Registry) Get(name string) *Tool { return r.byName[name] }
 
-func (r *Registry) All() []Tool { return r.tools }
+func (r *Registry) All() []Tool {
+	var visible []Tool
+	for _, t := range r.tools {
+		if !t.Hidden {
+			visible = append(visible, t)
+		}
+	}
+	return visible
+}
 
 func (r *Registry) Match(query string) []Tool {
-	if query == "" {
-		return r.tools
-	}
 	q := strings.ToLower(query)
 	var matched []Tool
 	for _, t := range r.tools {
-		if strings.Contains(strings.ToLower(t.Name), q) ||
+		if t.Hidden {
+			continue
+		}
+		if q == "" || strings.Contains(strings.ToLower(t.Name), q) ||
 			strings.Contains(strings.ToLower(t.Description), q) {
 			matched = append(matched, t)
 		}

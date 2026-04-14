@@ -13,7 +13,7 @@ func reduceDriverHook(s State, e EvDriverEvent) (State, []Effect) {
 		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeNotFound, "unknown session")}
 	}
 
-	next, effs, _, ok := stepDriver(s, FrameID(e.SenderID), DEvHook{
+	next, rawEffs, _, ok := stepDriver(s, FrameID(e.SenderID), DEvHook{
 		Event:          e.Event,
 		Timestamp:      e.Timestamp,
 		RoostSessionID: string(e.SenderID),
@@ -23,6 +23,22 @@ func reduceDriverHook(s State, e EvDriverEvent) (State, []Effect) {
 		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeInternal, "no driver for session")}
 	}
 	s = next
+
+	// Resolve EffPushDriver effects emitted by the driver.
+	var effs []Effect
+	for _, eff := range rawEffs {
+		pd, isPush := eff.(EffPushDriver)
+		if !isPush {
+			effs = append(effs, eff)
+			continue
+		}
+		newS, pushEffs, err := pushDriverInternal(s, pd.SessionID, "", pd.Command, LaunchOptions{}, 0, "")
+		if err != nil {
+			continue
+		}
+		s = newS
+		effs = append(effs, pushEffs...)
+	}
 
 	effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
 	if e.ConnID != 0 {

@@ -66,7 +66,7 @@ func newWorktreeSetup() func(WorktreeSetupInput) (WorktreeSetupResult, error) {
 			}
 			dir, err := roostgit.CreateWorktree(in.RepoDir, name)
 			if err == nil {
-				return WorktreeSetupResult{WorkingDir: dir, Name: name}, nil
+				return WorktreeSetupResult{StartDir: dir, Name: name}, nil
 			}
 		}
 		return WorktreeSetupResult{}, errors.New("failed to create managed worktree")
