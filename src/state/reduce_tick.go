@@ -125,8 +125,13 @@ func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 			EffUnwatchFile{FrameID: frame.ID},
 		)
 	}
-	effs := append(deactivate, cleanup...)
-	effs = append(effs, reactivate...)
+	// CRITICAL: reactivate BEFORE cleanup. EffActivateSession swaps the
+	// parent pane back into 0.0, moving the dead top-frame pane out to its
+	// own window. Only then does EffKillSessionWindow kill that window —
+	// never window 0. Reversing this order causes kill-window to target
+	// the still-active window 0 and destroy the main layout.
+	effs := append(deactivate, reactivate...)
+	effs = append(effs, cleanup...)
 	effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
 	return s, effs
 }
