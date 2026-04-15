@@ -162,13 +162,23 @@ type PersistBackend interface {
 // runtime/worker/pool.go — typed worker pool
 // runtime/worker/registry.go — JobKind-based runner registry
 
-func RegisterRunner[In state.JobInput, Out any](kind string, runner func(In) (Out, error))
+func NewPool(parent context.Context, size int) *Pool
+func RegisterRunner[In state.JobInput, Out any](
+    kind string,
+    runner func(context.Context, In) (Out, error),
+)
 func Dispatch(pool *Pool, jobID state.JobID, input state.JobInput)
 
-type Pool struct { /* fixed-size goroutine pool */ }
-func Submit[In state.JobInput, Out any](p *Pool, jobID state.JobID, input In, runner func(In) (Out, error))
-func (p *Pool) Results() <-chan state.Event  // EvJobResult
+type Pool struct { /* fixed-size goroutine pool, scoped to pool ctx */ }
+func Submit[In state.JobInput, Out any](
+    p *Pool, jobID state.JobID, input In,
+    runner func(context.Context, In) (Out, error),
+)
+func (p *Pool) Results() <-chan state.Event   // EvJobResult
+func (p *Pool) Stop()                         // bounded 500ms; cancels pool ctx
 ```
+
+The `context.Context` handed to each runner is the pool's shutdown context. `Stop()` cancels it and waits up to 500 ms; runners must start any subprocess via `exec.CommandContext` (or otherwise honour the ctx) so cancellation propagates as SIGKILL. Jobs still queued when `Stop()` is called are discarded.
 
 ```go
 // proto/envelope.go — typed IPC wire format

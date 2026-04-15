@@ -121,12 +121,14 @@ runDaemon()
 │       └── RecreateAll — for each session, walk frames root-to-tail and spawn a window per frame
 │                        via Driver.PrepareLaunch(LaunchModeColdStart, …) using the persisted LaunchOptions
 ├── rt.Run(ctx) — start event loop goroutine (select: eventCh / ticker / workers / fsnotify)
+│                 defer stack tears down in reverse: deactivateBeforeExit → EventLog.CloseAll
+│                 → shutdownIPC → workers.Stop (bounded 500ms; pool ctx cancels runner
+│                 subprocesses via SIGKILL) → close(done)
 ├── rt.StartIPC() — start Unix socket server
 ├── FileRelay startup — push monitoring for log/transcript files
 ├── tmux attach (blocking)
 └── On attach exit
     ├── Shutdown received → KillSession()
-    ├── DeactivateBeforeExit() — deactivate active session before coordinator exits
     └── Normal detach → exit (tmux session survives)
 ```
 

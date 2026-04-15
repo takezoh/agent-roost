@@ -146,7 +146,7 @@ flowchart LR
 
     Interp -->|EffSpawnTmuxWindow| Tmux["tmux backend<br/>(go async spawn)"]:::async
     Interp -->|EffKillSessionWindow<br/>EffActivateSession<br/>EffDeactivateSession<br/>EffSelectPane<br/>EffSyncStatusLine<br/>EffRegisterPane<br/>EffUnregisterPane| TmuxSync["tmux backend<br/>(inline sync)"]:::sync
-    Interp -->|EffSendResponse<br/>EffBroadcastSessionsChanged| IPC["IPC conn writer"]:::sync
+    Interp -->|EffSendResponse<br/>EffSendResponseSync<br/>EffBroadcastSessionsChanged| IPC["IPC conn writer"]:::sync
     Interp -->|EffPersistSnapshot| Persist["sessions.json writer"]:::sync
     Interp -->|EffStartJob| Pool["Worker pool<br/>(4 goroutine)"]:::async
     Interp -->|EffWatchFile| Watcher["fsnotify watcher"]:::sync
@@ -160,6 +160,8 @@ flowchart LR
 Legend:
 - **Solid border** = executed synchronously on the event loop goroutine
 - **Dashed border** = executed asynchronously in a separate goroutine. Results are fed back to the event loop as Events
+
+**`EffSendResponse` vs `EffSendResponseSync`**: the former enqueues the wire frame on the connection's writer-goroutine outbox and returns immediately. The latter writes directly to the socket from the event loop goroutine, guaranteeing the response reaches the kernel buffer before the next effect in the same Reduce cycle runs. `reduceDetach` uses the sync form so the response lands before the following `EffDetachClient` tears the connection down.
 
 #### Worker Pool (Off-Loop Execution of Slow I/O)
 
