@@ -45,22 +45,42 @@ roost
 
 Creates a tmux session (or attaches to an existing one) and launches with a 3-pane layout.
 
-### Prefix Key
+### Hook Setup
 
-Default: `Ctrl+b` (same as tmux). Configurable via config.
+Register roost hooks so agent status (● ◆ ◇ ○ ■) updates in real time. Run once per agent type:
+
+```bash
+roost claude setup    # registers hooks in ~/.claude/settings.json
+roost codex setup     # registers hooks in ~/.codex/
+roost gemini setup    # registers hooks in ~/.gemini/settings.json
+```
+
+Hooks are idempotent — re-running adds only missing entries and never overwrites existing config.
+
+Without hooks, roost still launches sessions but status detection degrades to polling (idle detection only).
+
+### Key Bindings
+
+**Prefix bindings** work regardless of which pane is focused (ペイン移動・detach・palette 起動)。  
+**SESSIONS pane bindings** are active only when the SESSIONS pane is focused (セッション操作)。
+
+#### Prefix Keys
+
+Default prefix: `Ctrl+b` (same as tmux default). Configurable via `[tmux] prefix`.
 
 | Key | Action |
 |------|-----------|
 | `prefix Space` | Toggle MAIN ↔ SESSIONS pane |
-| `prefix Escape`| Preview project |
+| `prefix Escape` | Preview project |
 | `prefix z` | Zoom MAIN pane |
 | `prefix d` | Detach (tmux stays alive; re-run `roost` to resume) |
 | `prefix q` | Quit all (tmux session is destroyed) |
-| `prefix p` | Command palette (shows tools with completion) |
+| `prefix p` | Command palette |
+| `prefix C-p` | Push driver palette (overlay a new agent onto the current session) |
 
-### Command Palette
+#### Command Palette (`prefix p`)
 
-Displayed as a popup with `prefix p`. Filter tools by typing, press Enter to execute.
+Displayed as a popup. Filter tools by typing, press Enter to execute.
 
 ```text
 > new█
@@ -76,7 +96,7 @@ Displayed as a popup with `prefix p`. Filter tools by typing, press Enter to exe
 | `detach` | Detach (keep session) |
 | `shutdown` | Shutdown (discard sessions) |
 
-### TUI Key Bindings (when SESSIONS pane is focused)
+#### SESSIONS Pane Bindings
 
 | Key | Action |
 |------|-----------|
@@ -86,7 +106,7 @@ Displayed as a popup with `prefix p`. Filter tools by typing, press Enter to exe
 | `N` | Launch with command selection |
 | `d` | Stop session |
 | `Tab` | Collapse/expand project |
-| `1`-`5` | Toggle status filter |
+| `1`-`5` | Toggle status filter (Running / Waiting / Idle / Stopped / Pending) |
 | `0` | Reset filter |
 
 ### Session States
@@ -104,27 +124,44 @@ Displayed as a popup with `prefix p`. Filter tools by typing, press Enter to exe
 ```toml
 # ~/.roost/settings.toml
 
+# data_dir = ""                 # Override config/data directory (default: ~/.roost)
+
+[log]
+level = "info"                  # "debug" | "info" | "warn" | "error"
+
 [tmux]
 session_name = "roost"
-prefix = "C-Space"              # Prefix key (default: C-b)
-pane_ratio_horizontal = 75      # Main pane width % (default: 75)
-pane_ratio_vertical = 70        # Main pane height % (default: 70)
+prefix = "C-b"                  # Prefix key
+pane_ratio_horizontal = 75      # Main pane width % (1-99)
+pane_ratio_vertical = 70        # Main pane height % (1-99)
 
 [monitor]
-poll_interval_ms = 1000
-idle_threshold_sec = 30
+poll_interval_ms = 1000         # Background polling interval
+fast_poll_interval_ms = 100     # Polling interval while TUI is active
+idle_threshold_sec = 30         # Seconds of silence before "Idle" (○)
 
 [session]
-auto_name = true
-default_command = "claude"
-commands = ["claude", "gemini", "codex"]
-
-[session.aliases]
-cc = "claude"
+auto_name = true                # Auto-generate session names
+default_command = "shell"       # Command run by `n` (quick launch)
+commands = [                    # Commands available via `N`
+  "claude",
+  "codex",
+  "gemini",
+  "shell",
+]
+push_commands = [               # Commands available via push-driver palette
+  "shell",
+  "git diff",
+  "git diff --staged",
+]
 
 [projects]
-project_roots = ["~/dev", "~/work"]
-project_paths = ["~/dotfiles"]
+project_roots = ["~/projects"]       # Subdirs of each root become projects
+project_paths = ["~/myproject"] # Explicit project paths
+
+[drivers.claude]
+# summarize_command = ""        # Shell command to summarize transcripts (default: disabled)
+
 ```
 
 Works with default values even without a config file.
