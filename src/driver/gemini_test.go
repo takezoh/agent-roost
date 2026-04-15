@@ -1,11 +1,17 @@
 package driver
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
 	"github.com/takezoh/agent-roost/state"
 )
+
+func geminiHook(fields map[string]string, ts time.Time) state.DEvHook {
+	raw, _ := json.Marshal(fields)
+	return state.DEvHook{Payload: raw, Timestamp: ts}
+}
 
 func newGemini(t *testing.T) (GeminiDriver, GeminiState, time.Time) {
 	t.Helper()
@@ -46,6 +52,178 @@ func TestGeminiPrepareLaunchAddsWorktreeFlagFromOptions(t *testing.T) {
 	}
 	if plan.Options.Worktree.Enabled {
 		t.Fatal("PrepareLaunch.Options.Worktree.Enabled should be false")
+	}
+}
+
+func TestGeminiSessionStartSetsIdle(t *testing.T) {
+	d, gs, now := newGemini(t)
+	ev := geminiHook(map[string]string{
+		"session_id":      "sess-1",
+		"hook_event_name": "SessionStart",
+		"cwd":             "/repo",
+		"transcript_path": "/tmp/t.jsonl",
+		"source":          "startup",
+	}, now)
+	ev.RoostSessionID = "r1"
+	next, effs := d.handleHook(gs, ev)
+
+	if next.Status != state.StatusIdle {
+		t.Fatalf("Status = %v, want idle", next.Status)
+	}
+	if next.GeminiSessionID != "sess-1" {
+		t.Fatalf("GeminiSessionID = %q", next.GeminiSessionID)
+	}
+	if next.RoostSessionID != "r1" {
+		t.Fatalf("RoostSessionID = %q", next.RoostSessionID)
+	}
+	if next.StartDir != "/repo" || next.TranscriptPath != "/tmp/t.jsonl" {
+		t.Fatalf("working data not absorbed: %+v", next)
+	}
+	foundBranch := false
+	for _, eff := range effs {
+		job, ok := eff.(state.EffStartJob)
+		if !ok {
+			continue
+		}
+		if _, ok := job.Input.(BranchDetectInput); ok {
+			foundBranch = true
+		}
+	}
+	if !foundBranch {
+		t.Fatal("expected BranchDetectInput job")
+	}
+}
+
+func TestGeminiBeforeAgentTransitionsRunning(t *testing.T) {
+	d, gs, now := newGemini(t)
+	gs.GeminiSessionID = "sess-1"
+	next, _ := d.handleHook(gs, geminiHook(map[string]string{
+		"session_id":      "sess-1",
+		"hook_event_name": "BeforeAgent",
+		"prompt":          "do something",
+	}, now))
+	if next.Status != state.StatusRunning {
+		t.Fatalf("Status = %v, want running", next.Status)
+	}
+	if next.LastPrompt != "do something" {
+		t.Fatalf("LastPrompt = %q", next.LastPrompt)
+	}
+}
+
+func TestGeminiBeforeToolTransitionsRunning(t *testing.T) {
+	d, gs, now := newGemini(t)
+	gs.GeminiSessionID = "sess-1"
+	next, _ := d.handleHook(gs, geminiHook(map[string]string{
+		"session_id":      "sess-1",
+		"hook_event_name": "BeforeTool",
+		"tool_name":       "read_file",
+	}, now))
+	if next.Status != state.StatusRunning {
+		t.Fatalf("Status = %v, want running", next.Status)
+	}
+}
+
+func TestGeminiAfterToolTransitionsRunning(t *testing.T) {
+	d, gs, now := newGemini(t)
+	gs.GeminiSessionID = "sess-1"
+	next, _ := d.handleHook(gs, geminiHook(map[string]string{
+		"session_id":      "sess-1",
+		"hook_event_name": "AfterTool",
+		"tool_name":       "read_file",
+	}, now))
+	if next.Status != state.StatusRunning {
+		t.Fatalf("Status = %v, want running", next.Status)
+	}
+}
+
+func TestGeminiAfterAgentTransitionsWaiting(t *testing.T) {
+	d, gs, now := newGemini(t)
+	gs.GeminiSessionID = "sess-1"
+	gs.Status = state.StatusRunning
+	next, _ := d.handleHook(gs, geminiHook(map[string]string{
+		"session_id":      "sess-1",
+		"hook_event_name": "AfterAgent",
+		"prompt_response": "here is my answer",
+	}, now))
+	if next.Status != state.StatusWaiting {
+		t.Fatalf("Status = %v, want waiting", next.Status)
+	}
+	if next.LastAssistantMessage != "here is my answer" {
+		t.Fatalf("LastAssistantMessage = %q", next.LastAssistantMessage)
+	}
+}
+
+func TestGeminiNotificationToolPermissionTransitionsPending(t *testing.T) {
+	d, gs, now := newGemini(t)
+	gs.GeminiSessionID = "sess-1"
+	next, effs := d.handleHook(gs, geminiHook(map[string]string{
+		"session_id":        "sess-1",
+		"hook_event_name":   "Notification",
+		"notification_type": "ToolPermission",
+	}, now))
+	if next.Status != state.StatusPending {
+		t.Fatalf("Status = %v, want pending", next.Status)
+	}
+	if _, ok := findEffect[state.EffEventLogAppend](effs); !ok {
+		t.Fatal("expected EffEventLogAppend")
+	}
+}
+
+func TestGeminiNotificationUnknownTypeDoesNotChangeStatus(t *testing.T) {
+	d, gs, now := newGemini(t)
+	gs.GeminiSessionID = "sess-1"
+	gs.Status = state.StatusRunning
+	gs.StatusChangedAt = now.Add(-time.Minute)
+	next, _ := d.handleHook(gs, geminiHook(map[string]string{
+		"session_id":        "sess-1",
+		"hook_event_name":   "Notification",
+		"notification_type": "something_else",
+	}, now))
+	if next.Status != state.StatusRunning {
+		t.Fatalf("Status = %v, want running", next.Status)
+	}
+}
+
+func TestGeminiSessionEndTransitionsStopped(t *testing.T) {
+	d, gs, now := newGemini(t)
+	gs.GeminiSessionID = "sess-1"
+	gs.Status = state.StatusWaiting
+	next, _ := d.handleHook(gs, geminiHook(map[string]string{
+		"session_id":      "sess-1",
+		"hook_event_name": "SessionEnd",
+	}, now))
+	if next.Status != state.StatusStopped {
+		t.Fatalf("Status = %v, want stopped", next.Status)
+	}
+}
+
+func TestGeminiDropsStaleHook(t *testing.T) {
+	d, gs, now := newGemini(t)
+	gs.GeminiSessionID = "sess-1"
+	gs.LastHookAt = now
+	next, effs := d.handleHook(gs, geminiHook(map[string]string{
+		"session_id":      "sess-1",
+		"hook_event_name": "AfterAgent",
+	}, now))
+	if next.Status != gs.Status {
+		t.Fatal("stale hook should not update status")
+	}
+	if len(effs) != 0 {
+		t.Fatalf("effects = %d, want 0", len(effs))
+	}
+}
+
+func TestGeminiEmptySessionIDDropped(t *testing.T) {
+	d, gs, now := newGemini(t)
+	gs.Status = state.StatusRunning
+	next, effs := d.handleHook(gs, geminiHook(map[string]string{
+		"hook_event_name": "AfterAgent",
+	}, now))
+	if next.Status != state.StatusRunning {
+		t.Fatal("empty session_id should not change status")
+	}
+	if len(effs) != 0 {
+		t.Fatalf("effects = %d, want 0", len(effs))
 	}
 }
 

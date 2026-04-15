@@ -143,7 +143,6 @@ func mergeHooksFile(path, command string) (bool, []string, error) {
 func hookSpecs() []eventSpec {
 	return []eventSpec{
 		{Name: "SessionStart", Matcher: "startup|resume"},
-		{Name: "Notification"},
 		{Name: "UserPromptSubmit"},
 		{Name: "Stop", Timeout: 30},
 		{Name: "PreToolUse", Matcher: "Bash"},

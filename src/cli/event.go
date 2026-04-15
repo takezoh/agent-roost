@@ -31,6 +31,7 @@ func RunEvent(args []string) error {
 
 	senderID := os.Getenv("ROOST_FRAME_ID")
 	if senderID == "" {
+		slog.Warn("event: ROOST_FRAME_ID not set; dropping event", "type", eventType)
 		return nil
 	}
 	ts := time.Now()

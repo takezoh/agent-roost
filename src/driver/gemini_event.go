@@ -8,17 +8,17 @@ import (
 )
 
 type geminiHookPayload struct {
-	SessionID            string         `json:"session_id"`
-	HookEventName        string         `json:"hook_event_name"`
-	NotificationType     string         `json:"notification_type"`
-	Cwd                  string         `json:"cwd"`
-	TranscriptPath       string         `json:"transcript_path"`
-	Source               string         `json:"source"`
-	Prompt               string         `json:"prompt"`
-	ToolName             string         `json:"tool_name"`
-	ToolInput            map[string]any `json:"tool_input"`
-	LastAssistantMessage string         `json:"last_assistant_message"`
-	StopReason           string         `json:"stop_reason"`
+	SessionID        string         `json:"session_id"`
+	HookEventName    string         `json:"hook_event_name"`
+	NotificationType string         `json:"notification_type"`
+	Cwd              string         `json:"cwd"`
+	TranscriptPath   string         `json:"transcript_path"`
+	Source           string         `json:"source"`
+	Prompt           string         `json:"prompt"`
+	ToolName         string         `json:"tool_name"`
+	ToolInput        map[string]any `json:"tool_input"`
+	PromptResponse   string         `json:"prompt_response"`
+	StopReason       string         `json:"stop_reason"`
 }
 
 func (hp geminiHookPayload) toolInputString(key string) string {
@@ -38,12 +38,11 @@ func (hp geminiHookPayload) deriveStatus() (state.Status, bool) {
 	case "SessionStart":
 		return state.StatusIdle, true
 	case "Notification":
-		switch hp.NotificationType {
-		case "permission_prompt":
+		if hp.NotificationType == "ToolPermission" {
 			return state.StatusPending, true
-		case "idle_prompt", "elicitation_dialog":
-			return state.StatusWaiting, true
 		}
+	case "SessionEnd":
+		return state.StatusStopped, true
 	}
 	return 0, false
 }
@@ -77,8 +76,8 @@ func (hp geminiHookPayload) formatLog() string {
 		if hp.StopReason != "" {
 			parts = append(parts, "reason="+previewText(hp.StopReason))
 		}
-		if hp.LastAssistantMessage != "" {
-			parts = append(parts, fmt.Sprintf(`last="%s"`, previewText(hp.LastAssistantMessage)))
+		if hp.PromptResponse != "" {
+			parts = append(parts, fmt.Sprintf(`resp="%s"`, previewText(hp.PromptResponse)))
 		}
 		if len(parts) > 0 {
 			return name + " " + strings.Join(parts, " ")
@@ -137,7 +136,7 @@ func (d GeminiDriver) handleHook(gs GeminiState, e state.DEvHook) (GeminiState, 
 		gs.LastPrompt = strings.TrimSpace(hp.Prompt)
 	}
 	if hp.HookEventName == "AfterAgent" {
-		if msg := strings.TrimSpace(hp.LastAssistantMessage); msg != "" {
+		if msg := strings.TrimSpace(hp.PromptResponse); msg != "" {
 			gs.LastAssistantMessage = msg
 		}
 	}
