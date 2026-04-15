@@ -12,6 +12,7 @@ import (
 	"github.com/takezoh/agent-roost/connector"
 	statedriver "github.com/takezoh/agent-roost/driver"
 	"github.com/takezoh/agent-roost/features"
+	libnotify "github.com/takezoh/agent-roost/lib/notify"
 	"github.com/takezoh/agent-roost/lib/tmux"
 	"github.com/takezoh/agent-roost/logger"
 	"github.com/takezoh/agent-roost/runtime"
@@ -57,6 +58,11 @@ func runCoordinator() error {
 	connector.RegisterRunners()
 	pool := worker.NewPool(ctx, 4)
 
+	ln, err := libnotify.New(ctx, dataDir)
+	if err != nil {
+		return fmt.Errorf("notify: %w", err)
+	}
+
 	featureSet := features.FromConfig(cfg.Features.Enabled, features.All())
 	rt := runtime.New(runtime.Config{
 		SessionName:       sessionName,
@@ -69,6 +75,7 @@ func runCoordinator() error {
 		Persist:           runtime.NewFilePersist(dataDir),
 		EventLog:          runtime.NewFileEventLog(dataDir),
 		Pool:              pool,
+		Notifier:          runtime.NewNotifier(&cfg.Notifications, ln),
 		Features:          featureSet,
 	})
 

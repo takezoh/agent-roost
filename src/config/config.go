@@ -9,16 +9,17 @@ import (
 )
 
 type Config struct {
-	DataDir    string           `toml:"data_dir"`
-	Theme      string           `toml:"theme"`
-	Log        LogConfig        `toml:"log"`
-	Tmux       TmuxConfig       `toml:"tmux"`
-	Monitor    MonitorConfig    `toml:"monitor"`
-	Session    SessionConfig    `toml:"session"`
-	Projects   ProjectsConfig   `toml:"projects"`
-	Driver     CommonDriverConfig        `toml:"driver"`
-	Drivers    map[string]map[string]any `toml:"drivers"`
-	Features   FeaturesConfig   `toml:"features"`
+	DataDir       string                    `toml:"data_dir"`
+	Theme         string                    `toml:"theme"`
+	Log           LogConfig                 `toml:"log"`
+	Tmux          TmuxConfig                `toml:"tmux"`
+	Monitor       MonitorConfig             `toml:"monitor"`
+	Session       SessionConfig             `toml:"session"`
+	Projects      ProjectsConfig            `toml:"projects"`
+	Driver        CommonDriverConfig        `toml:"driver"`
+	Drivers       map[string]map[string]any `toml:"drivers"`
+	Features      FeaturesConfig            `toml:"features"`
+	Notifications NotificationsConfig       `toml:"notifications"`
 }
 
 // CommonDriverConfig holds settings that apply to all drivers.
@@ -82,6 +83,9 @@ func LoadFrom(path string) (*Config, error) {
 		return cfg, nil
 	}
 	if _, err := toml.DecodeFile(path, cfg); err != nil {
+		return nil, err
+	}
+	if err := cfg.Notifications.Validate(); err != nil {
 		return nil, err
 	}
 	return cfg, nil

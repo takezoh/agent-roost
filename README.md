@@ -167,6 +167,21 @@ project_paths = ["~/myproject"] # Explicit project paths
 [drivers.claude]
 show_thinking = false           # Show extended thinking blocks in MAIN pane
 
+# Desktop notifications — empty rules = disabled.
+# Each rule AND-combines driver / command / project / kind.
+# Empty string or "*" on any axis means "match any".
+# Driver / command / project are glob patterns (path.Match);
+# project supports "~" expansion.
+
+[[notifications.rules]]
+# claude requests tool approval under ~/projects/prjA
+driver  = "claude"
+project = "~/projects/prjA"
+kind    = "pending_approval"
+
+[[notifications.rules]]
+# any agent finishes its turn
+kind = "done"
 ```
 
 Works with default values even without a config file.

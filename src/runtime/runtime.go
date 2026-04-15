@@ -38,6 +38,7 @@ type Config struct {
 	EventLog EventLogBackend
 	Watcher  FSWatcher
 	Pool     *worker.Pool
+	Notifier Notifier
 
 	// Features is the set of runtime flags built from the config file.
 	// Injected into state.State once at construction; never mutated.
@@ -107,6 +108,9 @@ func New(cfg Config) *Runtime {
 	}
 	if cfg.Watcher == nil {
 		cfg.Watcher = noopWatcher{}
+	}
+	if cfg.Notifier == nil {
+		cfg.Notifier = noopNotifier{}
 	}
 	initial := state.New()
 	initial.Features = cfg.Features

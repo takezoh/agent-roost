@@ -102,6 +102,8 @@ func stepDriver(s State, frameID FrameID, ev DriverEvent) (State, []Effect, View
 	if drv == nil {
 		return s, nil, View{}, false
 	}
+
+	oldStatus := drv.Status(frame.Driver)
 	nextDS, rawEffs, view := drv.Step(frame.Driver, ev)
 
 	s.Sessions = cloneSessions(s.Sessions)
@@ -110,16 +112,27 @@ func stepDriver(s State, frameID FrameID, ev DriverEvent) (State, []Effect, View
 	sess.Frames[frameIdx] = frame
 	s.Sessions[sessID] = sess
 
-	if len(rawEffs) == 0 {
-		return s, nil, view, true
-	}
-
 	out := make([]Effect, 0, len(rawEffs))
 	for _, eff := range rawEffs {
 		patched, newState := postProcessEffect(s, sessID, frameID, eff)
 		s = newState
 		out = append(out, patched)
 	}
+
+	newStatus := drv.Status(nextDS)
+	if kind, ok := ClassifyStatusTransition(oldStatus, newStatus); ok {
+		out = append(out, EffNotify{
+			SessionID: sessID,
+			FrameID:   frameID,
+			Driver:    drv.Name(),
+			Command:   FirstToken(frame.Command),
+			Project:   sess.Project,
+			Kind:      kind,
+			OldStatus: oldStatus,
+			NewStatus: newStatus,
+		})
+	}
+
 	return s, out, view, true
 }
 

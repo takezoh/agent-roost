@@ -59,6 +59,9 @@ func (r *Runtime) execute(eff state.Effect) {
 	case state.EffStartJob:
 		r.submitJob(e)
 
+	case state.EffNotify:
+		r.cfg.Notifier.Dispatch(e)
+
 	default:
 		slog.Warn("runtime: unhandled effect type", "type", fmt.Sprintf("%T", eff))
 	}
