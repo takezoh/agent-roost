@@ -93,6 +93,9 @@ func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []sta
 	}
 
 	// Pane capture for hang detection: background Running sessions only.
+	// When active, the agent pane is swapped into 0.0 and the window's .0
+	// holds the main TUI — capturing it would be meaningless. The user
+	// can see the active session directly; hang detection adds no value.
 	if !e.Active && c.Status == state.StatusRunning && e.PaneTarget != "" && !c.CaptureInFlight {
 		c.CaptureInFlight = true
 		effs = append(effs, state.EffStartJob{
@@ -121,18 +124,20 @@ func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []sta
 }
 
 // HandleCapturePaneResult updates the pane hash baseline.
-func (c *CommonState) HandleCapturePaneResult(r CapturePaneResult, now time.Time) {
+func (c *CommonState) HandleCapturePaneResult(r CapturePaneResult, err error, now time.Time) {
 	c.CaptureInFlight = false
-	if c.PaneHash == "" {
-		c.PaneHash = r.Hash
-		c.PaneHashAt = now
-	} else if r.Hash != c.PaneHash {
+	if err != nil {
+		return
+	}
+	if c.PaneHash == "" || r.Hash != c.PaneHash {
 		c.PaneHash = r.Hash
 		c.PaneHashAt = now
 	}
 }
 
 // ResetHangDetection clears hang state, restarting the timer from scratch.
+// PaneHashAt is not cleared; it will be naturally re-primed on the next
+// successful capture.
 func (c *CommonState) ResetHangDetection() {
 	c.HangDetected = false
 	c.PaneHash = ""

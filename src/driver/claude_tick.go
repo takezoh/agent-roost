@@ -89,7 +89,7 @@ func (d ClaudeDriver) handleJobResult(cs ClaudeState, e state.DEvJobResult) (Cla
 		return cs, nil
 
 	case CapturePaneResult:
-		cs.HandleCapturePaneResult(r, e.Now)
+		cs.HandleCapturePaneResult(r, e.Err, e.Now)
 		return cs, nil
 	}
 	return cs, nil

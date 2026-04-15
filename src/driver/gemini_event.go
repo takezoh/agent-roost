@@ -163,7 +163,7 @@ func (d GeminiDriver) handleJobResult(gs GeminiState, e state.DEvJobResult) (Gem
 		gs.BranchIsWorktree = r.IsWorktree
 		gs.BranchParentBranch = r.ParentBranch
 	case CapturePaneResult:
-		gs.HandleCapturePaneResult(r, e.Now)
+		gs.HandleCapturePaneResult(r, e.Err, e.Now)
 	}
 	return gs, nil
 }

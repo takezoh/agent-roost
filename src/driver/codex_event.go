@@ -173,7 +173,7 @@ func (d CodexDriver) handleJobResult(cs CodexState, e state.DEvJobResult) (Codex
 		cs.BranchIsWorktree = r.IsWorktree
 		cs.BranchParentBranch = r.ParentBranch
 	case CapturePaneResult:
-		cs.HandleCapturePaneResult(r, e.Now)
+		cs.HandleCapturePaneResult(r, e.Err, e.Now)
 	}
 	return cs, nil
 }

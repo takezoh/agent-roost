@@ -25,9 +25,6 @@ const (
 
 	// PersistedState bag keys for sessions.json round-trip.
 	claudeKeyClaudeSessionID = "claude_session_id"
-
-	// Re-detect branch at most every N seconds (only when active).
-	claudeBranchRefreshInterval = 30 * time.Second
 )
 
 // ClaudeState is the per-session private state for the Claude driver.
