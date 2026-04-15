@@ -6,24 +6,33 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
 //go:embed notify.ps1
 var notifyScript []byte
 
-func sendWindowsToast(ctx context.Context, psPath, title, body string) error {
-	tmp, err := writeScriptTempFile()
-	if err != nil {
-		return fmt.Errorf("write script: %w", err)
+// installScript writes the embedded script to <dataDir>/scripts/notify.ps1
+// and returns its Windows path. The file is always overwritten so that an
+// updated binary automatically deploys the latest script version.
+func installScript(ctx context.Context, dataDir string) (string, error) {
+	scriptDir := filepath.Join(dataDir, "scripts")
+	if err := os.MkdirAll(scriptDir, 0o755); err != nil {
+		return "", fmt.Errorf("mkdir scripts: %w", err)
 	}
-	defer os.Remove(tmp)
-
-	winPath, err := toWindowsPath(ctx, tmp)
-	if err != nil {
-		return fmt.Errorf("wslpath: %w", err)
+	scriptPath := filepath.Join(scriptDir, "notify.ps1")
+	if err := os.WriteFile(scriptPath, notifyScript, 0o644); err != nil {
+		return "", fmt.Errorf("write script: %w", err)
 	}
+	winPath, err := toWindowsPath(ctx, scriptPath)
+	if err != nil {
+		return "", fmt.Errorf("wslpath: %w", err)
+	}
+	return winPath, nil
+}
 
+func sendToast(ctx context.Context, psPath, winPath, title, body string) error {
 	cmd := exec.CommandContext(ctx, psPath,
 		"-NoProfile", "-ExecutionPolicy", "Bypass",
 		"-File", winPath,
@@ -36,19 +45,6 @@ func sendWindowsToast(ctx context.Context, psPath, title, body string) error {
 		return fmt.Errorf("powershell: %w: %s", err, out)
 	}
 	return nil
-}
-
-func writeScriptTempFile() (string, error) {
-	f, err := os.CreateTemp("", "roost-notify-*.ps1")
-	if err != nil {
-		return "", err
-	}
-	if _, err := f.Write(notifyScript); err != nil {
-		f.Close()
-		os.Remove(f.Name())
-		return "", err
-	}
-	return f.Name(), f.Close()
 }
 
 func toWindowsPath(ctx context.Context, linuxPath string) (string, error) {
@@ -68,4 +64,3 @@ func xmlEscape(s string) string {
 	s = strings.ReplaceAll(s, "'", "&apos;")
 	return s
 }
-
