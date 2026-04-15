@@ -273,7 +273,7 @@ func (d ClaudeDriver) handleUserPromptSubmit(cs ClaudeState, hp hookPayload, now
 	effs = append(effs, state.EffEventLogAppend{Line: "UserPromptSubmit"})
 
 	turns := appendHookPromptTurn(cs.RecentTurns, hp.Prompt)
-	prompt := formatSummaryPrompt(summaryPromptLanguage, cs.Summary, turns)
+	prompt := formatSummaryPrompt(cs.Summary, turns)
 	effs, cs.SummaryInFlight = enqueueSummaryJob(effs, cs.SummaryInFlight, prompt)
 
 	if !cs.TranscriptInFlight {

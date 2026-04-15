@@ -108,7 +108,7 @@ func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []s
 		cs.LastPrompt = strings.TrimSpace(hp.Prompt)
 		cs = applyHookStatus(cs, state.StatusRunning, e.Timestamp)
 		turns := recentUserTurns(appendHookPromptTurn(cs.RecentTurns, hp.Prompt), 2)
-		prompt := formatSummaryPrompt(summaryPromptLanguage, cs.Summary, turns)
+		prompt := formatSummaryPrompt(cs.Summary, turns)
 		effs, cs.SummaryInFlight = enqueueSummaryJob(effs, cs.SummaryInFlight, prompt)
 		effs = append(effs, d.startCodexTranscriptParse(&cs)...)
 	case "PreToolUse", "PostToolUse":

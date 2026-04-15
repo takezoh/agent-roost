@@ -15,8 +15,7 @@ import (
 
 var _ state.DriverState = GenericState{}
 
-func RegisterRunners(capturePaneFn func(string, int) (string, error), language, summarizeCmd string) {
-	setSummaryPromptLanguage(language)
+func RegisterRunners(capturePaneFn func(string, int) (string, error), summarizeCmd string) {
 	worker.RegisterRunner("capture_pane", newCapturePane(capturePaneFn))
 	tp, hs := newTranscriptSummaryRunners(summarizeCmd)
 	worker.RegisterRunner("transcript_parse", tp)
