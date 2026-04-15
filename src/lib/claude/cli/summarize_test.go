@@ -39,14 +39,14 @@ func TestSummarizeWithCommandError(t *testing.T) {
 	}
 }
 
-func TestFilteredClaudeEnvStripsRoostSessionID(t *testing.T) {
+func TestFilteredRoostEnvStripsRoostSessionID(t *testing.T) {
 	src := []string{
 		"PATH=/usr/bin",
 		"ROOST_SESSION_ID=should-be-dropped",
 		"HOME=/home/take",
 		"ANTHROPIC_API_KEY=keep-me",
 	}
-	out := filteredClaudeEnv(src)
+	out := filteredRoostEnv(src)
 
 	for _, kv := range out {
 		if kv == "ROOST_SESSION_ID=should-be-dropped" {
@@ -73,12 +73,12 @@ func TestFilteredClaudeEnvStripsRoostSessionID(t *testing.T) {
 	}
 }
 
-func TestFilteredClaudeEnvHandlesMalformedEntries(t *testing.T) {
+func TestFilteredRoostEnvHandlesMalformedEntries(t *testing.T) {
 	// An entry without `=` should be passed through unchanged (defensive
 	// — os.Environ() never produces these on real systems but the helper
 	// must not panic).
 	src := []string{"PATH=/usr/bin", "MALFORMED_NO_EQUALS"}
-	out := filteredClaudeEnv(src)
+	out := filteredRoostEnv(src)
 	if len(out) != 2 {
 		t.Errorf("expected both entries preserved, got %v", out)
 	}

@@ -16,6 +16,7 @@ import (
 func SummarizeWithCommand(ctx context.Context, prompt, command string) (string, error) {
 	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	cmd.Stdin = strings.NewReader(prompt)
+	cmd.Env = filteredRoostEnv(os.Environ())
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -46,7 +47,7 @@ func SummarizeWithHaiku(ctx context.Context, prompt string) (string, error) {
 	)
 	cmd.Stdin = strings.NewReader(prompt)
 	cmd.Dir = os.TempDir()
-	cmd.Env = filteredClaudeEnv(os.Environ())
+	cmd.Env = filteredRoostEnv(os.Environ())
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -56,13 +57,13 @@ func SummarizeWithHaiku(ctx context.Context, prompt string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// filteredClaudeEnv returns a copy of src with environment markers removed
+// filteredRoostEnv returns a copy of src with environment markers removed
 // that would otherwise let the inner Claude invocation recurse the roost
 // hook bridge (ROOST_SESSION_ID) back into another summarization. Auth
 // vars (ANTHROPIC_*) and CLAUDECODE are intentionally NOT stripped — the
 // inner CLI tolerates being run nested, and ANTHROPIC_API_KEY is required
 // for non-keychain auth paths.
-func filteredClaudeEnv(src []string) []string {
+func filteredRoostEnv(src []string) []string {
 	drop := map[string]struct{}{
 		"ROOST_SESSION_ID": {},
 	}

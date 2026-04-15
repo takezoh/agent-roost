@@ -160,7 +160,9 @@ project_roots = ["~/projects"]       # Subdirs of each root become projects
 project_paths = ["~/myproject"] # Explicit project paths
 
 [driver]
-# summarize_command = ""        # Shell command to summarize transcripts (default: disabled)
+# summarize_command = "claude -p --no-session-persistence --setting-sources user"
+# summarize_command = "codex exec --ephemeral -"
+# summarize_command = "gemini -p ''"
 
 [drivers.claude]
 show_thinking = false           # Show extended thinking blocks in MAIN pane

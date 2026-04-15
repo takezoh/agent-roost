@@ -52,9 +52,10 @@ func formatSummaryPrompt(language string, prev string, turns []SummaryTurn) stri
 	var b strings.Builder
 	b.WriteString("You are a session summarizer. From the conversation history and previous summary below, ")
 	b.WriteString("summarize what the user is currently trying to do in this AI coding session ")
-	b.WriteString("into a 2-3 line descriptive message in ")
-	b.WriteString(language)
-	b.WriteString(". ")
+	b.WriteString("into a 2-3 line descriptive message. ")
+	// b.WriteString("in ")
+	// b.WriteString(language)
+	// b.WriteString(". ")
 	b.WriteString("Each line covers a different perspective (goal / recent progress / next action) stated concisely, ")
 	b.WriteString("with ~30 characters per line. ")
 	b.WriteString("Return only the body text, no headings, decoration, preamble, or quotes.\n\n")
