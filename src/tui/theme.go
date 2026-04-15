@@ -140,6 +140,7 @@ func ApplyTheme(name string) {
 	rebuildPaletteStyles(t)
 	rebuildFilterStyles(t)
 	rebuildMinimalStyles(t)
+	rebuildSpinnerPalette(t)
 }
 
 func rebuildHeaderStyles(t Theme) {
