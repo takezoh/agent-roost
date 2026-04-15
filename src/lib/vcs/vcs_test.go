@@ -1,6 +1,7 @@
 package vcs
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"testing"
@@ -27,7 +28,7 @@ func TestDetectBranchGitRepo(t *testing.T) {
 	gitRun(t, dir, "config", "user.name", "Test")
 	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
 
-	r := DetectBranch(dir)
+	r := DetectBranch(context.Background(), dir)
 	if r.Branch != "test-branch" {
 		t.Errorf("Branch = %q, want %q", r.Branch, "test-branch")
 	}
@@ -51,7 +52,7 @@ func TestDetectBranchGitHubRemote(t *testing.T) {
 	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
 	gitRun(t, dir, "remote", "add", "origin", "git@github.com:user/repo.git")
 
-	r := DetectBranch(dir)
+	r := DetectBranch(context.Background(), dir)
 	if r.Background != hostColors["github.com"] {
 		t.Errorf("Background = %q, want %q", r.Background, hostColors["github.com"])
 	}
@@ -69,7 +70,7 @@ func TestDetectBranchGitLabRemote(t *testing.T) {
 	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
 	gitRun(t, dir, "remote", "add", "origin", "https://gitlab.com/user/repo.git")
 
-	r := DetectBranch(dir)
+	r := DetectBranch(context.Background(), dir)
 	if r.Background != hostColors["gitlab.com"] {
 		t.Errorf("Background = %q, want %q", r.Background, hostColors["gitlab.com"])
 	}
@@ -87,7 +88,7 @@ func TestDetectBranchUnknownRemote(t *testing.T) {
 	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
 	gitRun(t, dir, "remote", "add", "origin", "https://selfhosted.example.com/repo.git")
 
-	r := DetectBranch(dir)
+	r := DetectBranch(context.Background(), dir)
 	if r.Background != gitBG {
 		t.Errorf("Background = %q, want %q (fallback)", r.Background, gitBG)
 	}
@@ -104,7 +105,7 @@ func TestDetectBranchNoRemote(t *testing.T) {
 	gitRun(t, dir, "config", "user.name", "Test")
 	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
 
-	r := DetectBranch(dir)
+	r := DetectBranch(context.Background(), dir)
 	if r.Background != gitBG {
 		t.Errorf("Background = %q, want %q (fallback)", r.Background, gitBG)
 	}
@@ -124,7 +125,7 @@ func TestDetectBranch_Worktree(t *testing.T) {
 	wtDir := t.TempDir()
 	gitRun(t, dir, "worktree", "add", wtDir, "feature")
 
-	r := DetectBranch(wtDir)
+	r := DetectBranch(context.Background(), wtDir)
 	if r.Branch != "feature" {
 		t.Errorf("Branch = %q, want %q", r.Branch, "feature")
 	}
@@ -147,7 +148,7 @@ func TestDetectBranch_MainRepo_NotWorktree(t *testing.T) {
 	gitRun(t, dir, "config", "user.name", "Test")
 	gitRun(t, dir, "commit", "--allow-empty", "-m", "init")
 
-	r := DetectBranch(dir)
+	r := DetectBranch(context.Background(), dir)
 	if r.IsWorktree {
 		t.Error("IsWorktree = true, want false")
 	}
@@ -158,7 +159,7 @@ func TestDetectBranch_MainRepo_NotWorktree(t *testing.T) {
 
 func TestDetectBranchNoVCS(t *testing.T) {
 	dir := t.TempDir()
-	r := DetectBranch(dir)
+	r := DetectBranch(context.Background(), dir)
 	if r.Branch != "" {
 		t.Errorf("Branch = %q, want empty", r.Branch)
 	}

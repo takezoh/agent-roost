@@ -16,7 +16,7 @@ func reduceShutdown(s State, connID ConnID, reqID string, _ struct{}) (State, []
 func reduceDetach(s State, connID ConnID, reqID string, _ struct{}) (State, []Effect) {
 	return s, []Effect{
 		EffPersistSnapshot{},
-		okResp(connID, reqID, nil),
+		EffSendResponseSync{ConnID: connID, ReqID: reqID, Body: nil},
 		EffDetachClient{},
 	}
 }

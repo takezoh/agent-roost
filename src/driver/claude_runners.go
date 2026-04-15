@@ -10,13 +10,16 @@ import (
 )
 
 func newTranscriptSummaryRunners(summarizeCmd string) (
-	func(TranscriptParseInput) (TranscriptParseResult, error),
-	func(SummaryCommandInput) (SummaryCommandResult, error),
+	func(context.Context, TranscriptParseInput) (TranscriptParseResult, error),
+	func(context.Context, SummaryCommandInput) (SummaryCommandResult, error),
 ) {
 	tracker := transcript.NewTracker()
 	var mu sync.Mutex
 
-	tp := func(in TranscriptParseInput) (TranscriptParseResult, error) {
+	tp := func(ctx context.Context, in TranscriptParseInput) (TranscriptParseResult, error) {
+		if err := ctx.Err(); err != nil {
+			return TranscriptParseResult{}, err
+		}
 		mu.Lock()
 		defer mu.Unlock()
 		if _, err := tracker.Update(in.ClaudeUUID, in.Path); err != nil {
@@ -33,13 +36,15 @@ func newTranscriptSummaryRunners(summarizeCmd string) (
 		}, nil
 	}
 
-	hs := func(in SummaryCommandInput) (SummaryCommandResult, error) {
+	hs := func(ctx context.Context, in SummaryCommandInput) (SummaryCommandResult, error) {
 		if summarizeCmd == "" || strings.TrimSpace(in.Prompt) == "" {
 			return SummaryCommandResult{}, nil
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		// Derive a 30-second timeout from the pool ctx so that Stop()
+		// cancels any in-flight `claude -p` subprocess via SIGKILL.
+		jobCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		result, err := summarizeWithCommand(ctx, in.Prompt, summarizeCmd)
+		result, err := summarizeWithCommand(jobCtx, in.Prompt, summarizeCmd)
 		if err != nil {
 			return SummaryCommandResult{}, err
 		}

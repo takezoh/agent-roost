@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os/exec"
@@ -40,8 +41,8 @@ type Item struct {
 }
 
 type ghSearchItem struct {
-	Number     int       `json:"number"`
-	Title      string    `json:"title"`
+	Number     int    `json:"number"`
+	Title      string `json:"title"`
 	Repository struct {
 		NameWithOwner string `json:"nameWithOwner"`
 	} `json:"repository"`
@@ -49,26 +50,26 @@ type ghSearchItem struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-func FetchSummary() (Summary, error) {
+func FetchSummary(ctx context.Context) (Summary, error) {
 	ghOnce.Do(func() { _, err := exec.LookPath("gh"); ghFound = err == nil })
 	if !ghFound {
 		return Summary{}, ErrNotAvailable
 	}
 
-	prs, err := searchPRs()
+	prs, err := searchPRs(ctx)
 	if err != nil {
 		return Summary{}, err
 	}
-	issues, err := searchIssues()
+	issues, err := searchIssues(ctx)
 	if err != nil {
 		return Summary{}, err
 	}
-	runs, _ := fetchRuns()
+	runs, _ := fetchRuns(ctx)
 	return Summary{PRs: prs, Issues: issues, Runs: runs}, nil
 }
 
-func searchPRs() ([]Item, error) {
-	out, err := exec.Command("gh", "search", "prs",
+func searchPRs(ctx context.Context) ([]Item, error) {
+	out, err := exec.CommandContext(ctx, "gh", "search", "prs",
 		"--author=@me", "--state=open",
 		"--json", "number,title,repository,url,updatedAt",
 	).Output()
@@ -78,20 +79,20 @@ func searchPRs() ([]Item, error) {
 	return parseItems(out)
 }
 
-func searchIssues() ([]Item, error) {
-	owned, err := runIssueSearch("--owner=@me")
+func searchIssues(ctx context.Context) ([]Item, error) {
+	owned, err := runIssueSearch(ctx, "--owner=@me")
 	if err != nil {
 		return nil, err
 	}
-	assigned, err := runIssueSearch("--assignee=@me")
+	assigned, err := runIssueSearch(ctx, "--assignee=@me")
 	if err != nil {
 		return nil, err
 	}
 	return dedup(owned, assigned), nil
 }
 
-func runIssueSearch(filter string) ([]Item, error) {
-	out, err := exec.Command("gh", "search", "issues",
+func runIssueSearch(ctx context.Context, filter string) ([]Item, error) {
+	out, err := exec.CommandContext(ctx, "gh", "search", "issues",
 		filter, "--state=open",
 		"--json", "number,title,repository,url,updatedAt",
 	).Output()
@@ -129,8 +130,8 @@ type ghRunItem struct {
 	URL        string    `json:"url"`
 }
 
-func fetchRuns() ([]Run, error) {
-	repos, err := listMyRepos()
+func fetchRuns(ctx context.Context) ([]Run, error) {
+	repos, err := listMyRepos(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -145,7 +146,7 @@ func fetchRuns() ([]Run, error) {
 		go func(r string) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			runs, _ := listRepoRuns(r)
+			runs, _ := listRepoRuns(ctx, r)
 			ch <- result{runs: runs}
 		}(repo)
 	}
@@ -158,8 +159,8 @@ func fetchRuns() ([]Run, error) {
 	return all, nil
 }
 
-func listMyRepos() ([]string, error) {
-	out, err := exec.Command("gh", "repo", "list", "--json", "nameWithOwner", "--limit", "30").Output()
+func listMyRepos(ctx context.Context) ([]string, error) {
+	out, err := exec.CommandContext(ctx, "gh", "repo", "list", "--json", "nameWithOwner", "--limit", "30").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -174,8 +175,8 @@ func listMyRepos() ([]string, error) {
 	return names, nil
 }
 
-func listRepoRuns(repo string) ([]Run, error) {
-	out, err := exec.Command("gh", "run", "list",
+func listRepoRuns(ctx context.Context, repo string) ([]Run, error) {
+	out, err := exec.CommandContext(ctx, "gh", "run", "list",
 		"--repo", repo,
 		"--json", "name,status,conclusion,headBranch,updatedAt,url",
 		"--limit", "5",

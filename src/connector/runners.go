@@ -1,6 +1,8 @@
 package connector
 
 import (
+	"context"
+
 	"github.com/takezoh/agent-roost/lib/github"
 	"github.com/takezoh/agent-roost/runtime/worker"
 )
@@ -9,9 +11,9 @@ func RegisterRunners() {
 	worker.RegisterRunner("github_fetch", newGitHubFetch())
 }
 
-func newGitHubFetch() func(GitHubFetchInput) (GitHubFetchResult, error) {
-	return func(_ GitHubFetchInput) (GitHubFetchResult, error) {
-		summary, err := github.FetchSummary()
+func newGitHubFetch() func(context.Context, GitHubFetchInput) (GitHubFetchResult, error) {
+	return func(ctx context.Context, _ GitHubFetchInput) (GitHubFetchResult, error) {
+		summary, err := github.FetchSummary(ctx)
 		if err != nil {
 			return GitHubFetchResult{}, err
 		}

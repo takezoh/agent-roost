@@ -1,6 +1,7 @@
 package worker
 
 import (
+	"context"
 	"log/slog"
 
 	"github.com/takezoh/agent-roost/state"
@@ -11,7 +12,7 @@ var registry = map[string]func(*Pool, state.JobID, state.JobInput){}
 // RegisterRunner registers a typed runner closure for the given job
 // kind. Drivers call this at init time — the same pattern as
 // state.RegisterTabRenderer.
-func RegisterRunner[In state.JobInput, Out any](kind string, runner func(In) (Out, error)) {
+func RegisterRunner[In state.JobInput, Out any](kind string, runner func(context.Context, In) (Out, error)) {
 	registry[kind] = func(pool *Pool, jobID state.JobID, raw state.JobInput) {
 		Submit(pool, jobID, raw.(In), runner)
 	}

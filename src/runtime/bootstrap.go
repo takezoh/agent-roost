@@ -262,9 +262,11 @@ func (r *Runtime) bootstrapSessionEffect(sessID state.SessionID, frameID state.F
 	}
 }
 
-// DeactivateBeforeExit moves the active session back to its own window
+// deactivateBeforeExit moves the active session back to its own window
 // so pane 0.0 shows the main TUI when the coordinator re-attaches.
-func (r *Runtime) DeactivateBeforeExit() {
+// Called from the event loop's defer stack in Run — safe to access
+// runtime state here because the select loop has already exited.
+func (r *Runtime) deactivateBeforeExit() {
 	if r.activeSession == "" {
 		return
 	}

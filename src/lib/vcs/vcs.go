@@ -1,6 +1,8 @@
 package vcs
 
 import (
+	"context"
+
 	"github.com/takezoh/agent-roost/lib/git"
 	"github.com/takezoh/agent-roost/lib/plastic"
 )
@@ -30,8 +32,8 @@ var hostColors = map[string]string{
 	"sr.ht":         "#888888", // SourceHut grey
 }
 
-func resolveGitBackground(dir string) string {
-	if bg, ok := hostColors[git.DetectRemoteHost(dir)]; ok {
+func resolveGitBackground(ctx context.Context, dir string) string {
+	if bg, ok := hostColors[git.DetectRemoteHost(ctx, dir)]; ok {
 		return bg
 	}
 	return gitBG
@@ -39,12 +41,12 @@ func resolveGitBackground(dir string) string {
 
 // DetectBranch tries each supported VCS in order and returns the first
 // successful result. Order: git → Plastic SCM.
-func DetectBranch(dir string) Result {
-	if b := git.DetectBranch(dir); b != "" {
-		r := Result{Branch: b, Background: resolveGitBackground(dir), Foreground: defaultFG}
+func DetectBranch(ctx context.Context, dir string) Result {
+	if b := git.DetectBranch(ctx, dir); b != "" {
+		r := Result{Branch: b, Background: resolveGitBackground(ctx, dir), Foreground: defaultFG}
 		if git.IsWorktree(dir) {
 			r.IsWorktree = true
-			r.ParentBranch = git.DetectMainBranch(dir)
+			r.ParentBranch = git.DetectMainBranch(ctx, dir)
 		}
 		return r
 	}

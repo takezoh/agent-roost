@@ -14,6 +14,7 @@ import (
 	"errors"
 	"log/slog"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/takezoh/agent-roost/features"
@@ -71,6 +72,11 @@ type Runtime struct {
 	nextConn state.ConnID              // owned by event loop
 
 	done chan struct{}
+
+	// fastProbeInFlight guards against spawning multiple concurrent
+	// PaneAlive probes from the fastTicker. Written from any goroutine,
+	// read from the event loop.
+	fastProbeInFlight atomic.Bool
 }
 
 // New constructs a Runtime ready for Run. Backends must be set on the
@@ -117,7 +123,7 @@ func New(cfg Config) *Runtime {
 	if cfg.Pool != nil {
 		r.workers = cfg.Pool
 	} else {
-		r.workers = worker.NewPool(cfg.Workers)
+		r.workers = worker.NewPool(context.Background(), cfg.Workers)
 	}
 	return r
 }
@@ -151,6 +157,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 	defer r.workers.Stop()
 	defer r.shutdownIPC()
 	defer r.cfg.EventLog.CloseAll()
+	defer r.deactivateBeforeExit()
 
 	ticker := time.NewTicker(r.cfg.TickInterval)
 	defer ticker.Stop()
@@ -181,7 +188,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 			r.dispatch(state.EvTick{Now: t, PaneTargets: r.snapshotPaneTargets()})
 
 		case <-fastTicker.C:
-			r.checkActiveFramePane()
+			r.scheduleActiveFramePaneProbe()
 
 		case res := <-r.workers.Results():
 			r.dispatch(res)
@@ -195,23 +202,29 @@ func (r *Runtime) Run(ctx context.Context) error {
 	}
 }
 
-// checkActiveFramePane fast-detects death of the active frame (currently
-// swapped to pane 0.0). Does nothing if alive; enqueues EvPaneDied and
-// immediately pops the stack via reducePaneDied if dead.
-// Called at ~100ms intervals; issues only one tmux shell-out (display-message).
-func (r *Runtime) checkActiveFramePane() {
+// scheduleActiveFramePaneProbe は active frame (pane 0.0 にスワップ中) の
+// 死亡を高速検出する。PaneAlive の tmux shell-out をゴルーチンに委譲して
+// event loop をブロックしない。同時実行は atomic guard で 1 本に制限する。
+func (r *Runtime) scheduleActiveFramePaneProbe() {
 	if r.activeFrameID == "" {
 		return
 	}
-	target := substitutePlaceholdersString("{sessionName}:0.0", r.cfg.SessionName, r.cfg.RoostExe)
-	alive, err := r.cfg.Tmux.PaneAlive(target)
-	if err != nil || alive {
+	if !r.fastProbeInFlight.CompareAndSwap(false, true) {
 		return
 	}
-	r.Enqueue(state.EvPaneDied{
-		Pane:         "{sessionName}:0.0",
-		OwnerFrameID: r.activeFrameID,
-	})
+	target := substitutePlaceholdersString("{sessionName}:0.0", r.cfg.SessionName, r.cfg.RoostExe)
+	frameID := r.activeFrameID // snapshot owned by event loop goroutine
+	go func() {
+		defer r.fastProbeInFlight.Store(false)
+		alive, err := r.cfg.Tmux.PaneAlive(target)
+		if err != nil || alive {
+			return
+		}
+		r.Enqueue(state.EvPaneDied{
+			Pane:         "{sessionName}:0.0",
+			OwnerFrameID: frameID,
+		})
+	}()
 }
 
 // dispatch runs Reduce against the current state and executes every

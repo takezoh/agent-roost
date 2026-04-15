@@ -1,10 +1,12 @@
 package tmux
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // RoostWindow is a minimal snapshot of a roost-managed tmux window.
@@ -16,7 +18,8 @@ type RoostWindow struct {
 }
 
 type Client struct {
-	SessionName string
+	SessionName    string
+	defaultTimeout time.Duration // tmux shell-out timeout; 0 means use 2 seconds
 }
 
 type WindowInfo struct {
@@ -26,11 +29,15 @@ type WindowInfo struct {
 }
 
 func NewClient(sessionName string) *Client {
-	return &Client{SessionName: sessionName}
+	return &Client{
+		SessionName:    sessionName,
+		defaultTimeout: 2 * time.Second,
+	}
 }
 
-func (c *Client) Run(args ...string) (string, error) {
-	cmd := exec.Command("tmux", args...)
+// RunContext executes a tmux command with the provided context.
+func (c *Client) RunContext(ctx context.Context, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "tmux", args...)
 	var stdout, stderr strings.Builder
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -40,9 +47,22 @@ func (c *Client) Run(args ...string) (string, error) {
 	return strings.TrimSpace(stdout.String()), nil
 }
 
+// Run executes a tmux command with a default 2-second timeout.
+// tmux commands complete in milliseconds; a multi-second delay means the
+// server is dead and the call should fail fast rather than block forever.
+func (c *Client) Run(args ...string) (string, error) {
+	timeout := c.defaultTimeout
+	if timeout <= 0 {
+		timeout = 2 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return c.RunContext(ctx, args...)
+}
+
 func (c *Client) SessionExists() bool {
-	cmd := exec.Command("tmux", "has-session", "-t", c.SessionName)
-	return cmd.Run() == nil
+	_, err := c.Run("has-session", "-t", c.SessionName)
+	return err == nil
 }
 
 func (c *Client) KillSession() error {

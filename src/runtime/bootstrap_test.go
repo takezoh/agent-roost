@@ -103,7 +103,7 @@ func TestDeactivateBeforeExit_SwapsBack(t *testing.T) {
 	r.activeFrameID = "f1"
 	r.sessionPanes["_main"] = "%main"
 
-	r.DeactivateBeforeExit()
+	r.deactivateBeforeExit()
 
 	if r.activeSession != "" {
 		t.Errorf("activeSession = %q, want empty", r.activeSession)
@@ -123,7 +123,7 @@ func TestDeactivateBeforeExit_NoActive(t *testing.T) {
 		Tmux:         ftmux,
 	})
 
-	r.DeactivateBeforeExit()
+	r.deactivateBeforeExit()
 
 	ftmux.mu.Lock()
 	defer ftmux.mu.Unlock()

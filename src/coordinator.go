@@ -48,10 +48,13 @@ func runCoordinator() error {
 	fastPollInterval := time.Duration(cfg.Monitor.FastPollIntervalMs) * time.Millisecond
 	sockPath := filepath.Join(dataDir, "roost.sock")
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	statedriver.RegisterRunners(tmuxBackend.CapturePane, cfg.Driver.SummarizeCommand)
 	connector.RegisterDefaults()
 	connector.RegisterRunners()
-	pool := worker.NewPool(4)
+	pool := worker.NewPool(ctx, 4)
 
 	featureSet := features.FromConfig(cfg.Features.Enabled, features.All())
 	rt := runtime.New(runtime.Config{
@@ -102,9 +105,6 @@ func runCoordinator() error {
 		}
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	runErrCh := make(chan error, 1)
 	go func() {
 		if err := rt.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
@@ -134,7 +134,6 @@ func runCoordinator() error {
 		slog.Warn("attach exited", "err", err)
 	}
 
-	rt.DeactivateBeforeExit()
 	cancel()
 	<-rt.Done()
 	close(runErrCh)
