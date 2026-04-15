@@ -101,7 +101,7 @@ func DefaultConfig() *Config {
 			SessionName:         "roost",
 			Prefix:              "C-b",
 			PaneRatioHorizontal: 75,
-			PaneRatioVertical:   70,
+			PaneRatioVertical:   75,
 		},
 		Monitor: MonitorConfig{
 			PollIntervalMs:     1000,

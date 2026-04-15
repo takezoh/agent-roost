@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/takezoh/agent-roost/lib/claude/cli"
 	"github.com/takezoh/agent-roost/lib/claude/transcript"
 )
 
@@ -40,7 +39,7 @@ func newTranscriptSummaryRunners(summarizeCmd string) (
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		result, err := cli.SummarizeWithCommand(ctx, in.Prompt, summarizeCmd)
+		result, err := summarizeWithCommand(ctx, in.Prompt, summarizeCmd)
 		if err != nil {
 			return SummaryCommandResult{}, err
 		}

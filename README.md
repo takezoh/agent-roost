@@ -133,7 +133,7 @@ level = "info"                  # "debug" | "info" | "warn" | "error"
 session_name = "roost"
 prefix = "C-b"                  # Prefix key
 pane_ratio_horizontal = 75      # Main pane width % (1-99)
-pane_ratio_vertical = 70        # Main pane height % (1-99)
+pane_ratio_vertical = 75        # Main pane height % (1-99)
 
 [monitor]
 poll_interval_ms = 1000         # Background polling interval
@@ -160,9 +160,9 @@ project_roots = ["~/projects"]       # Subdirs of each root become projects
 project_paths = ["~/myproject"] # Explicit project paths
 
 [driver]
-# summarize_command = "claude -p --no-session-persistence --setting-sources user"
-# summarize_command = "codex exec --ephemeral -"
-# summarize_command = "gemini -p ''"
+# summarize_command = "claude -p --model=haiku --no-session-persistence --setting-sources user"
+# summarize_command = "codex exec --ephemeral --model gpt-4o-mini -"
+# summarize_command = "gemini -p '' -m gemini-2.5-flash"
 
 [drivers.claude]
 show_thinking = false           # Show extended thinking blocks in MAIN pane

@@ -1,4 +1,4 @@
-package cli
+package driver
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 func TestSummarizeWithCommand(t *testing.T) {
 	ctx := context.Background()
 
-	got, err := SummarizeWithCommand(ctx, "hello world", "cat")
+	got, err := summarizeWithCommand(ctx, "hello world", "cat")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -21,7 +21,7 @@ func TestSummarizeWithCommand(t *testing.T) {
 func TestSummarizeWithCommandTrimsOutput(t *testing.T) {
 	ctx := context.Background()
 
-	got, err := SummarizeWithCommand(ctx, "x", "echo '  trimmed  '")
+	got, err := summarizeWithCommand(ctx, "x", "echo '  trimmed  '")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -33,7 +33,7 @@ func TestSummarizeWithCommandTrimsOutput(t *testing.T) {
 func TestSummarizeWithCommandError(t *testing.T) {
 	ctx := context.Background()
 
-	_, err := SummarizeWithCommand(ctx, "x", "false")
+	_, err := summarizeWithCommand(ctx, "x", "false")
 	if err == nil {
 		t.Fatal("expected error from failing command, got nil")
 	}
@@ -74,9 +74,6 @@ func TestFilteredRoostEnvStripsRoostSessionID(t *testing.T) {
 }
 
 func TestFilteredRoostEnvHandlesMalformedEntries(t *testing.T) {
-	// An entry without `=` should be passed through unchanged (defensive
-	// — os.Environ() never produces these on real systems but the helper
-	// must not panic).
 	src := []string{"PATH=/usr/bin", "MALFORMED_NO_EQUALS"}
 	out := filteredRoostEnv(src)
 	if len(out) != 2 {
