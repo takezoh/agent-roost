@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -117,14 +118,17 @@ func TestCodexHandleCapturePaneResultError(t *testing.T) {
 
 	// Errored capture (zero-value result)
 	cs.CaptureInFlight = true
-	cs.HandleCapturePaneResult(CapturePaneResult{}, coreError("tmux failed"), now.Add(10*time.Second))
+	cs.HandleCapturePaneResult(CapturePaneResult{}, errors.New("tmux failed"), now.Add(10*time.Second))
 
-	// Expect: PaneHash still "abc", PaneHashAt unchanged
+	// Expect: PaneHash still "abc", PaneHashAt unchanged, CaptureInFlight cleared
 	if cs.PaneHash != "abc" {
 		t.Errorf("PaneHash = %q, want abc (should not be overwritten on error)", cs.PaneHash)
 	}
 	if !cs.PaneHashAt.Equal(at) {
 		t.Error("PaneHashAt was updated on error")
+	}
+	if cs.CaptureInFlight {
+		t.Error("CaptureInFlight should be cleared even on error")
 	}
 }
 

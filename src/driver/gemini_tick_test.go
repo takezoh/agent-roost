@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -117,7 +118,7 @@ func TestGeminiHandleCapturePaneResultError(t *testing.T) {
 
 	// Errored capture (zero-value result)
 	gs.CaptureInFlight = true
-	gs.HandleCapturePaneResult(CapturePaneResult{}, coreError("tmux failed"), now.Add(10*time.Second))
+	gs.HandleCapturePaneResult(CapturePaneResult{}, errors.New("tmux failed"), now.Add(10*time.Second))
 
 	// Expect: PaneHash still "abc", PaneHashAt unchanged
 	if gs.PaneHash != "abc" {
@@ -131,13 +132,6 @@ func TestGeminiHandleCapturePaneResultError(t *testing.T) {
 	}
 }
 
-func coreError(msg string) error {
-	return struct{ error }{error: &simpleError{msg}}
-}
-
-type simpleError struct{ msg string }
-
-func (e *simpleError) Error() string { return e.msg }
 
 func TestGeminiViewIncludesBranchTag(t *testing.T) {
 	d := NewGeminiDriver("/tmp/events")
