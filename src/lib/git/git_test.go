@@ -248,7 +248,7 @@ func TestDetectBranch_FromSubdirectory(t *testing.T) {
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := DetectBranch(sub); got != "main" {
+	if got := DetectBranch(context.Background(), sub); got != "main" {
 		t.Errorf("DetectBranch(subdir) = %q, want %q", got, "main")
 	}
 }
