@@ -37,7 +37,7 @@ func (pushDriverStub) Step(prev DriverState, ev DriverEvent) (DriverState, []Eff
 }
 
 func init() {
-	if _, exists := registry["pushstub"]; !exists {
+	if _, exists := driverRegistry["pushstub"]; !exists {
 		Register(pushDriverStub{})
 	}
 }
@@ -67,7 +67,7 @@ func (bogusSessionDriverStub) Step(prev DriverState, ev DriverEvent) (DriverStat
 }
 
 func init() {
-	if _, exists := registry["bogussessionstub"]; !exists {
+	if _, exists := driverRegistry["bogussessionstub"]; !exists {
 		Register(bogusSessionDriverStub{})
 	}
 }

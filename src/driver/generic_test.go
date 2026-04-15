@@ -12,7 +12,7 @@ import (
 func newGenericState(t *testing.T, threshold time.Duration) (GenericDriver, GenericState, time.Time) {
 	t.Helper()
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
-	d := NewGenericDriver("bash", threshold)
+	d := NewGenericDriver("bash", "bash", threshold)
 	s := d.NewState(now).(GenericState)
 	return d, s, now
 }
@@ -207,7 +207,7 @@ func TestGenericManagedWorktreePath(t *testing.T) {
 }
 
 func TestGenericRestoreEmptyBag(t *testing.T) {
-	d := NewGenericDriver("bash", 5*time.Second)
+	d := NewGenericDriver("bash", "bash", 5*time.Second)
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	restored := d.Restore(nil, now).(GenericState)
 	if restored.Status != state.StatusIdle {
@@ -351,7 +351,7 @@ func TestGenericViewUsesSummarySubtitle(t *testing.T) {
 }
 
 func TestGenericFallbackHasNoBorderTitle(t *testing.T) {
-	d := NewGenericDriver("", 0)
+	d := NewGenericDriver("", "", 0)
 	s := d.NewState(time.Now()).(GenericState)
 	v := d.view(s)
 	if v.Card.BorderTitle.Text != "" {
@@ -360,7 +360,7 @@ func TestGenericFallbackHasNoBorderTitle(t *testing.T) {
 }
 
 func TestGenericFallbackHasNoCommandTag(t *testing.T) {
-	d := NewGenericDriver("", 0)
+	d := NewGenericDriver("", "", 0)
 	s := d.NewState(time.Now()).(GenericState)
 	v := d.view(s)
 	if len(v.Card.Tags) != 0 {
@@ -372,24 +372,48 @@ func TestGenericFallbackHasNoCommandTag(t *testing.T) {
 }
 
 
-func TestWithDisplayName(t *testing.T) {
-	d := NewGenericDriver("shell", 0).WithDisplayName("zsh")
-	if d.Name() != "shell" {
-		t.Errorf("Name() = %q, want shell", d.Name())
+func TestGetDriverFallbackFactory(t *testing.T) {
+	state.ClearRegistry()
+	state.RegisterFallbackFactory(func(command string) state.Driver {
+		name := state.FirstToken(command)
+		return NewGenericDriver(name, name, 0)
+	})
+
+	// "tig status" のような未知のコマンドに対してフォールバックファクトリが呼ばれることを確認
+	d := state.GetDriver("tig status")
+	if d.Name() != "tig" {
+		t.Errorf("Driver Name = %q, want tig", d.Name())
 	}
-	if d.DisplayName() != "zsh" {
-		t.Errorf("DisplayName() = %q, want zsh", d.DisplayName())
+	if d.DisplayName() != "tig" {
+		t.Errorf("Driver DisplayName = %q, want tig", d.DisplayName())
 	}
-	s := d.NewState(time.Now()).(GenericState)
-	v := d.view(s)
-	if len(v.Card.Tags) != 0 {
-		t.Errorf("tags = %d, want 0", len(v.Card.Tags))
+
+	// 登録済みのドライバはフォールバックファクトリが呼ばれないことを確認
+	state.Register(NewGenericDriver("mycmd", "My Command", 0))
+	d2 := state.GetDriver("mycmd args")
+	if d2.Name() != "mycmd" {
+		t.Errorf("Registered Driver Name = %q, want mycmd", d2.Name())
 	}
-	if v.DisplayName != "zsh" {
-		t.Errorf("DisplayName = %q, want zsh", v.DisplayName)
+	if d2.DisplayName() != "My Command" {
+		t.Errorf("Registered Driver DisplayName = %q, want My Command", d2.DisplayName())
 	}
-	if v.Card.BorderTitle.Text != "zsh" {
-		t.Errorf("BorderTitle = %q, want zsh", v.Card.BorderTitle.Text)
+}
+
+func TestGenericViewFallbackChip(t *testing.T) {
+	state.ClearRegistry()
+	state.RegisterFallbackFactory(func(command string) state.Driver {
+		name := state.FirstToken(command)
+		return NewGenericDriver(name, name, 0)
+	})
+
+	d := state.GetDriver("tig status")
+	s := d.NewState(time.Now())
+	v := d.View(s) // View() メソッドは Driver インターフェースにある
+	if v.Card.BorderTitle.Text != "tig" {
+		t.Errorf("Fallback Driver View BorderTitle = %q, want tig", v.Card.BorderTitle.Text)
+	}
+	if v.DisplayName != "tig" {
+		t.Errorf("Fallback Driver View DisplayName = %q, want tig", v.DisplayName)
 	}
 }
 

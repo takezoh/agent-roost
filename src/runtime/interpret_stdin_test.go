@@ -40,12 +40,12 @@ func TestSnapshotSessionsStripsInitialInput(t *testing.T) {
 		ID:      sid,
 		Project: "/repo",
 		Command: "shell",
-		Driver:  driver.NewGenericDriver("shell", 0).NewState(time.Now()),
+		Driver:  driver.NewGenericDriver("shell", "shell", 0).NewState(time.Now()),
 		Frames: []state.SessionFrame{{
 			ID:      state.FrameID("f1"),
 			Project: "/repo",
 			Command: "shell",
-			Driver:  driver.NewGenericDriver("shell", 0).NewState(time.Now()),
+			Driver:  driver.NewGenericDriver("shell", "shell", 0).NewState(time.Now()),
 			LaunchOptions: state.LaunchOptions{
 				InitialInput: []byte("secret prompt"),
 			},

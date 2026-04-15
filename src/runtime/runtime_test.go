@@ -22,8 +22,8 @@ func TestMain(m *testing.M) {
 	// Register drivers so reducers can resolve commands. The runtime
 	// tests don't exercise driver-specific behaviour — they just need
 	// SOMETHING in the registry.
-	state.Register(driver.NewGenericDriver("", 0))
-	state.Register(driver.NewGenericDriver("shell", 0))
+	state.Register(driver.NewGenericDriver("", "", 0))
+	state.Register(driver.NewGenericDriver("shell", "shell", 0))
 	state.Register(driver.NewCodexDriver(""))
 	os.Exit(m.Run())
 }
@@ -495,8 +495,8 @@ func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
 	r.state.Sessions["sess-1"] = state.Session{
 		ID:      "sess-1",
 		Command: "shell",
-		Driver:  state.GetDriver("shell").NewState(time.Now()),
-		Frames:  []state.SessionFrame{{ID: "frame-1", Command: "shell", Driver: state.GetDriver("shell").NewState(time.Now())}},
+		Driver:  driver.NewGenericDriver("shell", "shell", 0).NewState(time.Now()),
+		Frames:  []state.SessionFrame{{ID: "frame-1", Command: "shell", Driver: driver.NewGenericDriver("shell", "shell", 0).NewState(time.Now())}},
 	}
 	r.sessionPanes["frame-1"] = "%3"
 
@@ -544,8 +544,8 @@ func TestActivateSessionInitializesMainPaneIDOnDemand(t *testing.T) {
 	r.state.Sessions["sess-1"] = state.Session{
 		ID:      "sess-1",
 		Command: "shell",
-		Driver:  state.GetDriver("shell").NewState(time.Now()),
-		Frames:  []state.SessionFrame{{ID: "frame-1", Command: "shell", Driver: state.GetDriver("shell").NewState(time.Now())}},
+		Driver:  driver.NewGenericDriver("shell", "shell", 0).NewState(time.Now()),
+		Frames:  []state.SessionFrame{{ID: "frame-1", Command: "shell", Driver: driver.NewGenericDriver("shell", "shell", 0).NewState(time.Now())}},
 	}
 	r.sessionPanes["frame-1"] = "%3"
 
@@ -578,9 +578,9 @@ func TestActivateSessionMissingPaneEnqueuesWindowVanished(t *testing.T) {
 	r.sessionPanes["_main"] = "%main"
 	r.state.Sessions["sess-1"] = state.Session{
 		ID:      "sess-1",
-		Frames:  []state.SessionFrame{{ID: "frame-1", Command: "shell", Driver: state.GetDriver("shell").NewState(time.Now())}},
+		Frames:  []state.SessionFrame{{ID: "frame-1", Command: "shell", Driver: driver.NewGenericDriver("shell", "shell", 0).NewState(time.Now())}},
 		Command: "shell",
-		Driver:  state.GetDriver("shell").NewState(time.Now()),
+		Driver:  driver.NewGenericDriver("shell", "shell", 0).NewState(time.Now()),
 	}
 	r.sessionPanes["frame-1"] = "%3"
 
@@ -665,8 +665,8 @@ func TestRuntimeStopSession(t *testing.T) {
 	r.state.Sessions["abc"] = state.Session{
 		ID:      "abc",
 		Command: "stub-x",
-		Driver:  state.GetDriver("").NewState(time.Now()),
-		Frames:  []state.SessionFrame{{ID: "abc-frame", Command: "stub-x", Driver: state.GetDriver("").NewState(time.Now())}},
+		Driver:  driver.NewGenericDriver("", "", 0).NewState(time.Now()),
+		Frames:  []state.SessionFrame{{ID: "abc-frame", Command: "stub-x", Driver: driver.NewGenericDriver("", "", 0).NewState(time.Now())}},
 	}
 	r.sessionPanes["abc-frame"] = "%5"
 	ctx, cancel := context.WithCancel(context.Background())

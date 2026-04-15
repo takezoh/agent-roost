@@ -20,39 +20,34 @@ type RegisterOptions struct {
 	SummarizeCommand string // from [driver] common config
 }
 
-// RegisterDefaults wires the built-in driver set into the global
-// state registry. Idempotent — repeated calls are no-ops so test
-// binaries that import multiple sub-packages don't double-register.
+// RegisterDefaults wires the built-in driver set into the global state
+// registry. Idempotent — repeated calls are no-ops so test binaries
+// that import multiple sub-packages don't double-register.
 //
 // The "shell" driver is intentionally NOT registered here because its
 // display name must reflect the shell tmux will actually spawn
-// (tmux default-shell option). Call RegisterShellDriver separately,
-// after tmux is running.
+// (tmux default-shell option). The coordinator registers it directly
+// with NewGenericDriver("shell", <resolved-name>, threshold) after
+// tmux is up.
+//
+// Unknown commands fall through to the registered fallback factory,
+// which builds a fresh GenericDriver using the command's first token
+// as both its registry name and display name.
 func RegisterDefaults(opts RegisterOptions) {
 	registerOnce.Do(func() {
 		claudeOpts := decodeConfig[ClaudeOptions](opts.DriverConfigs[ClaudeDriverName])
 		state.Register(NewClaudeDriver(opts.Home, opts.EventLogDir, claudeOpts))
 		state.Register(NewCodexDriver(opts.EventLogDir))
 		state.Register(NewGeminiDriver(opts.EventLogDir))
-		state.Register(NewGenericDriver("", opts.IdleThreshold))
+		state.Register(NewGenericDriver("", "", opts.IdleThreshold))
+		state.RegisterFallbackFactory(func(command string) state.Driver {
+			name := state.FirstToken(command)
+			return NewGenericDriver(name, name, opts.IdleThreshold)
+		})
 	})
 }
 
-// RegisterShellDriver registers the "shell" generic driver with the
-// given display name. Must be called after tmux is running so the
-// display name matches the shell tmux will actually spawn.
-// Idempotent — repeated calls (warm/cold paths) are no-ops.
 var registerOnce sync.Once
-var shellOnce sync.Once
-
-func RegisterShellDriver(threshold time.Duration, displayName string) {
-	if displayName == "" {
-		displayName = "shell"
-	}
-	shellOnce.Do(func() {
-		state.Register(NewGenericDriver("shell", threshold).WithDisplayName(displayName))
-	})
-}
 
 // ParseClaudeOptions decodes the [drivers.claude] config section into a
 // ClaudeOptions value.

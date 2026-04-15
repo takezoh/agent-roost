@@ -112,16 +112,16 @@ func (sdDriver) WithStartDir(s DriverState, dir string) DriverState {
 }
 
 func init() {
-	if _, exists := registry[""]; !exists {
+	if _, exists := driverRegistry[""]; !exists {
 		Register(fallbackDriver{})
 	}
-	if _, exists := registry["stub"]; !exists {
+	if _, exists := driverRegistry["stub"]; !exists {
 		Register(stubDriver{})
 	}
-	if _, exists := registry["planner"]; !exists {
+	if _, exists := driverRegistry["planner"]; !exists {
 		Register(plannerDriver{})
 	}
-	if _, exists := registry["sdstub"]; !exists {
+	if _, exists := driverRegistry["sdstub"]; !exists {
 		Register(sdDriver{})
 	}
 }
@@ -1227,7 +1227,7 @@ func (stdinDriver) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCo
 }
 
 func init() {
-	if _, exists := registry["stdinstub"]; !exists {
+	if _, exists := driverRegistry["stdinstub"]; !exists {
 		Register(stdinDriver{})
 	}
 }

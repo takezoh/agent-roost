@@ -16,6 +16,7 @@ import (
 	"github.com/takezoh/agent-roost/logger"
 	"github.com/takezoh/agent-roost/runtime"
 	"github.com/takezoh/agent-roost/runtime/worker"
+	"github.com/takezoh/agent-roost/state"
 )
 
 func runCoordinator() error {
@@ -77,7 +78,7 @@ func runCoordinator() error {
 	warmRestart := client.SessionExists()
 	if warmRestart {
 		slog.Info("session exists, restoring")
-		statedriver.RegisterShellDriver(idleThreshold, resolveShellDisplay(client))
+		state.Register(statedriver.NewGenericDriver("shell", resolveShellDisplay(client), idleThreshold))
 		if err := rt.LoadSnapshot(false); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
@@ -93,7 +94,7 @@ func runCoordinator() error {
 		if err := setupNewSession(client, cfg, sessionName); err != nil {
 			return err
 		}
-		statedriver.RegisterShellDriver(idleThreshold, resolveShellDisplay(client))
+		state.Register(statedriver.NewGenericDriver("shell", resolveShellDisplay(client), idleThreshold))
 		if err := rt.LoadSessionPanes(); err != nil {
 			slog.Warn("window map load failed", "err", err)
 		}

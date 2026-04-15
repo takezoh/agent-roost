@@ -2,10 +2,9 @@ package driver
 
 import "github.com/takezoh/agent-roost/state"
 
-// view returns the minimal View for a generic session.
-// Driver-specific UI elements are DisplayName and BorderTitle.
-// Everything else (state symbol, generic INFO header, project name,
-// elapsed time) is rendered by the TUI from proto.SessionInfo.
+// view returns the minimal View for a generic session. DisplayName and
+// BorderTitle are driven solely by d.displayName — for the built-in
+// fallback driver (displayName == "") no command tag is rendered.
 func (d GenericDriver) view(gs GenericState) state.View {
 	var borderTitle state.Tag
 	if d.displayName != "" {

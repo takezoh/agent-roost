@@ -16,8 +16,8 @@ func TestLoadSessionPanes_ParsesEnvVars(t *testing.T) {
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions[state.SessionID("session_abc")] = state.Session{ID: "session_abc", Frames: []state.SessionFrame{{ID: "frame_abc", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
-	r.state.Sessions[state.SessionID("session_def")] = state.Session{ID: "session_def", Frames: []state.SessionFrame{{ID: "frame_def", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.state.Sessions[state.SessionID("session_abc")] = state.Session{ID: "session_abc", Frames: []state.SessionFrame{{ID: "frame_abc", Command: "stub", Driver: driver.NewGenericDriver("", "", 0).NewState(time.Now())}}}
+	r.state.Sessions[state.SessionID("session_def")] = state.Session{ID: "session_def", Frames: []state.SessionFrame{{ID: "frame_def", Command: "stub", Driver: driver.NewGenericDriver("", "", 0).NewState(time.Now())}}}
 
 	if err := r.LoadSessionPanes(); err != nil {
 		t.Fatalf("LoadSessionPanes: %v", err)
@@ -53,8 +53,8 @@ func TestReconcileOrphans_DropsSessionWithoutPane(t *testing.T) {
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
-	r.state.Sessions["s2"] = state.Session{ID: "s2", Frames: []state.SessionFrame{{ID: "f2", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", "", 0).NewState(time.Now())}}}
+	r.state.Sessions["s2"] = state.Session{ID: "s2", Frames: []state.SessionFrame{{ID: "f2", Command: "stub", Driver: driver.NewGenericDriver("", "", 0).NewState(time.Now())}}}
 	r.sessionPanes["f1"] = "%1"
 
 	r.ReconcileOrphans()
@@ -74,7 +74,7 @@ func TestReconcileOrphans_RemovesStalePaneEntry(t *testing.T) {
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", "", 0).NewState(time.Now())}}}
 	r.sessionPanes["f1"] = "%1"
 	r.sessionPanes["ghost"] = "%2"
 
@@ -97,7 +97,7 @@ func TestDeactivateBeforeExit_SwapsBack(t *testing.T) {
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", "", 0).NewState(time.Now())}}}
 	r.sessionPanes["f1"] = "%1"
 	r.activeSession = "s1"
 	r.activeFrameID = "f1"
@@ -192,7 +192,7 @@ func TestRecoverActivePaneAtMain_RestoresMainTUIWhenSessionActive(t *testing.T) 
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1", Project: "/repo/project", Frames: []state.SessionFrame{{ID: "f1", Project: "/repo/project", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Project: "/repo/project", Frames: []state.SessionFrame{{ID: "f1", Project: "/repo/project", Command: "stub", Driver: driver.NewGenericDriver("", "", 0).NewState(time.Now())}}}
 	r.sessionPanes["f1"] = "%2"
 	r.sessionPanes["_main"] = "%1"
 
@@ -225,7 +225,7 @@ func TestRecoverActivePaneAtMain_IdentifiesMainTUIActive(t *testing.T) {
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", "", 0).NewState(time.Now())}}}
 	r.sessionPanes["f1"] = "%2"
 	r.sessionPanes["_main"] = "%1"
 
@@ -246,7 +246,7 @@ func TestRecoverActivePaneAtMain_LeavesSessionActiveWhenMainPaneUnknown(t *testi
 		TickInterval: 10 * time.Second,
 		Tmux:         ftmux,
 	})
-	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", 0).NewState(time.Now())}}}
+	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", "", 0).NewState(time.Now())}}}
 	r.sessionPanes["f1"] = "%2"
 
 	r.RecoverActivePaneAtMain()

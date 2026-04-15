@@ -2,6 +2,7 @@ package state
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -212,45 +213,59 @@ type StartDirAware interface {
 }
 
 // driver registry. set once at init time by each driver impl package.
-var registry = map[string]Driver{}
+var (
+	driverRegistry  = make(map[string]Driver)
+	fallbackFactory func(command string) Driver
+)
 
 // Register adds a Driver to the registry under its Name(). Called from
 // init() in each driver impl package. Panics on duplicate names so the
 // daemon fails fast at startup if two impls collide.
 func Register(d Driver) {
-	name := d.Name()
-	if _, exists := registry[name]; exists {
-		panic("state: duplicate driver registration: " + name)
+	if _, exists := driverRegistry[d.Name()]; exists {
+		panic("state: duplicate driver registration: " + d.Name())
 	}
-	registry[name] = d
+	driverRegistry[d.Name()] = d
 }
 
-// GetDriver returns the Driver for the given session command. Resolves
-// the command string (which may include flags) down to a driver name
-// via commandToDriverName. The fallback driver is registered under the
-// empty name; callers can rely on a non-nil return as long as a fallback
-// has been registered.
+// RegisterFallbackFactory installs a factory used by GetDriver when
+// the command does not match any registered driver. The factory
+// receives the raw command string and returns a fresh Driver instance.
+func RegisterFallbackFactory(factory func(command string) Driver) {
+	fallbackFactory = factory
+}
+
+// GetRegistry returns the current driver registry. Used for testing.
+func GetRegistry() map[string]Driver {
+	return driverRegistry
+}
+
+// ClearRegistry clears the driver registry and fallback factory. Used for testing.
+func ClearRegistry() {
+	driverRegistry = map[string]Driver{}
+	fallbackFactory = nil
+}
+
+// FirstToken extracts the first whitespace-delimited word from a command string.
+func FirstToken(command string) string {
+	if idx := strings.IndexAny(command, " \t"); idx != -1 {
+		return command[:idx]
+	}
+	return command
+}
+
+// GetDriver returns the Driver for the given session command. It first
+// tries to resolve the command's first token against the registry. If
+// no registered driver matches and a fallback factory is installed, the
+// factory is called to build a fresh driver. Otherwise the "" fallback
+// driver is returned as the last resort.
 func GetDriver(command string) Driver {
-	name := commandToDriverName(command)
-	if d, ok := registry[name]; ok {
+	name := FirstToken(command)
+	if d, ok := driverRegistry[name]; ok {
 		return d
 	}
-	return registry[""]
-}
-
-// commandToDriverName extracts the registry key from a session command
-// string. Currently a literal first-token match — "mydriver --flag X"
-// → "mydriver". Anything not registered maps to "" so the fallback
-// driver picks it up.
-func commandToDriverName(command string) string {
-	for i := 0; i < len(command); i++ {
-		if command[i] == ' ' || command[i] == '\t' {
-			command = command[:i]
-			break
-		}
+	if fallbackFactory != nil {
+		return fallbackFactory(command)
 	}
-	if _, ok := registry[command]; ok {
-		return command
-	}
-	return ""
+	return driverRegistry[""]
 }

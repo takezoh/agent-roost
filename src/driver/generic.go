@@ -54,18 +54,12 @@ type GenericDriver struct {
 // given name. Use "" for the fallback driver. The IdleThreshold is
 // captured at construction so each driver instance carries its own
 // configured value.
-func NewGenericDriver(name string, threshold time.Duration) GenericDriver {
+func NewGenericDriver(name, displayName string, threshold time.Duration) GenericDriver {
 	return GenericDriver{
 		name:        name,
-		displayName: name,
+		displayName: displayName,
 		threshold:   threshold,
 	}
-}
-
-// WithDisplayName returns a copy with an overridden display name.
-func (d GenericDriver) WithDisplayName(name string) GenericDriver {
-	d.displayName = name
-	return d
 }
 
 func (d GenericDriver) Name() string                          { return d.name }
