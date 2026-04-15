@@ -30,7 +30,7 @@ func main() {
 func runMain(args []string, stdout, stderr io.Writer) (code int) {
 	kind := classifyCommand(args)
 	cfg, cfgErr := loadBootstrapConfig()
-	loggerReady, loggerErr := initMainLogger(cfg)
+	loggerReady, loggerErr := initMainLogger(cfg, kind == commandKindRoost)
 	if loggerReady {
 		defer closeLogger()
 	}
@@ -76,12 +76,15 @@ func finishMain(kind commandKind, err error, loggerReady bool, loggerErr error, 
 	return 0
 }
 
-func initMainLogger(cfg *config.Config) (bool, error) {
+func initMainLogger(cfg *config.Config, rotate bool) (bool, error) {
 	level := "info"
 	dataDir := ""
 	if cfg != nil {
 		level = cfg.Log.Level
 		dataDir = cfg.ResolveDataDir()
+	}
+	if rotate {
+		logger.Rotate(dataDir)
 	}
 	if err := initLoggerWithDataDir(level, dataDir); err != nil {
 		return false, err

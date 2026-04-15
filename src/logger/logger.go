@@ -37,9 +37,24 @@ func Init(level string) error {
 	return InitWithDataDir(level, "")
 }
 
+// Rotate shifts existing log files under dir at process startup:
+// roost.log → roost.log.1, …, up to maxRotations. Must be called
+// before InitWithDataDir so that the file handle opened by Init always
+// points at the freshly-created roost.log inode. Only the coordinator
+// process should call this; subprocess calls to InitWithDataDir append
+// to the coordinator's log file without rotating.
+func Rotate(dir string) {
+	if dir == "" {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".roost")
+	}
+	rotateLogs(filepath.Join(dir, "roost.log"))
+}
+
 // InitWithDataDir opens the log file under the given data directory
 // (or the default if dataDir is empty) and installs a slog text handler.
 // The resolved path is returned by LogFilePath() after this call.
+// Call Rotate(dir) first if log rotation is desired (coordinator only).
 func InitWithDataDir(level, dir string) error {
 	if dir == "" {
 		home, _ := os.UserHomeDir()
@@ -49,7 +64,6 @@ func InitWithDataDir(level, dir string) error {
 		return err
 	}
 	logPath = filepath.Join(dir, "roost.log")
-	rotateLogs(logPath)
 
 	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
