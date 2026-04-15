@@ -164,10 +164,10 @@ func postProcessEffect(s State, sessID SessionID, frameID FrameID, eff Effect) (
 	}
 }
 
-// stepActiveSessions runs Step against sessions that need ticking.
-// Idle and Stopped sessions are skipped (hook events will wake them).
-// Returns whether any session emitted effects, so the caller can
-// decide whether to broadcast/persist.
+// stepActiveSessions runs Step against every live session's driver.
+// Each driver decides internally whether to react to a tick — return
+// a no-op Step result to skip. Returns whether any session emitted
+// effects, so the caller can decide whether to broadcast/persist.
 func stepActiveSessions(s State, makeEv func(sessID SessionID, sess Session, active bool) DriverEvent) (State, []Effect, bool) {
 	if len(s.Sessions) == 0 {
 		return s, nil, false
@@ -188,10 +188,6 @@ func stepActiveSessions(s State, makeEv func(sessID SessionID, sess Session, act
 		}
 		drv := GetDriver(frame.Command)
 		if drv == nil {
-			continue
-		}
-		status := drv.Status(frame.Driver)
-		if status == StatusIdle || status == StatusStopped {
 			continue
 		}
 		active := sessID == s.ActiveSession

@@ -102,3 +102,43 @@ func tailClip(s string, max int) string {
 	}
 	return "…" + string(r[len(r)-max:])
 }
+
+// formatGenericSummaryPrompt builds a summary prompt for non-agent terminal
+// sessions (generic shells, git diff, tig, build logs, etc.). Unlike the
+// agent-oriented formatSummaryPrompt which models the session as a
+// user/assistant conversation, this prompt treats the capture as raw
+// terminal screen contents, annotated with the session's command and
+// working directory so the LLM can ground its interpretation.
+func formatGenericSummaryPrompt(prev, command, workingDir, content string) string {
+	var b strings.Builder
+	b.WriteString("You are a terminal session summarizer. ")
+	b.WriteString("Describe in 2-3 lines (roughly 30 characters each) what is being worked on ")
+	b.WriteString("in this terminal session. ")
+	b.WriteString("Ground your description in all three signals: the <command> tag (what program is running), ")
+	b.WriteString("the <working_directory> tag (where it is running), ")
+	b.WriteString("and the <terminal_output> tag (what is currently visible on screen). ")
+	b.WriteString("Combine them into a task-oriented summary of the activity in progress — ")
+	b.WriteString("for example \"reviewing git log in the roost repo\" or \"running make build, tests in progress\" — ")
+	b.WriteString("not a verbatim quote of the screen. ")
+	b.WriteString("Return only the body text, no headings, decoration, preamble, or quotes.\n\n")
+	if prev != "" {
+		b.WriteString("<previous_summary>\n")
+		b.WriteString(prev)
+		b.WriteString("\n</previous_summary>\n\n")
+	}
+	if command != "" {
+		b.WriteString("<command>\n")
+		b.WriteString(command)
+		b.WriteString("\n</command>\n\n")
+	}
+	if workingDir != "" {
+		b.WriteString("<working_directory>\n")
+		b.WriteString(workingDir)
+		b.WriteString("\n</working_directory>\n\n")
+	}
+	clipped := tailClip(strings.TrimSpace(content), summaryTotalCap)
+	b.WriteString("<terminal_output>\n")
+	b.WriteString(clipped)
+	b.WriteString("\n</terminal_output>\n")
+	return b.String()
+}

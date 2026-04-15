@@ -472,6 +472,7 @@ func TestClaudeTickInactiveIdleDoesNothing(t *testing.T) {
 
 func TestClaudeTickActiveSchedulesBranchJob(t *testing.T) {
 	d, cs, now := newClaude(t)
+	cs.Status = state.StatusRunning
 	cs.StartDir = "/work"
 	next, effs := d.handleTick(cs, state.DEvTick{Now: now, Active: true})
 	if !next.BranchInFlight {
@@ -495,6 +496,7 @@ func TestClaudeTickActiveSchedulesBranchJob(t *testing.T) {
 
 func TestClaudeTickFreshCacheSkips(t *testing.T) {
 	d, cs, now := newClaude(t)
+	cs.Status = state.StatusRunning
 	cs.StartDir = "/work"
 	cs.BranchTarget = "/work"
 	cs.BranchAt = now // fresh
@@ -506,6 +508,7 @@ func TestClaudeTickFreshCacheSkips(t *testing.T) {
 
 func TestClaudeTickStaleCacheRefreshes(t *testing.T) {
 	d, cs, now := newClaude(t)
+	cs.Status = state.StatusRunning
 	cs.StartDir = "/work"
 	cs.BranchTarget = "/work"
 	cs.BranchAt = now.Add(-time.Hour)
@@ -517,6 +520,7 @@ func TestClaudeTickStaleCacheRefreshes(t *testing.T) {
 
 func TestClaudeTickInFlightSkips(t *testing.T) {
 	d, cs, now := newClaude(t)
+	cs.Status = state.StatusRunning
 	cs.StartDir = "/work"
 	cs.BranchInFlight = true
 	_, effs := d.handleTick(cs, state.DEvTick{Now: now, Active: true})

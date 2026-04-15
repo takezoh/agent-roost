@@ -2,7 +2,6 @@ package driver
 
 import (
 	"errors"
-	"regexp"
 	"strings"
 	"time"
 
@@ -11,19 +10,14 @@ import (
 
 // Generic driver: polling-driven status producer for non-event-driven
 // shells (bash, codex, gemini, fallback). Detects status by hashing
-// capture-pane content and watching for prompt indicators / idle
-// threshold.
+// capture-pane content; when the hash stays stable for IdleThreshold
+// the session transitions Running → Waiting.
 //
 // All state lives in GenericState, all I/O is delegated to the worker
 // pool via JobCapturePane. Step is a pure function — the same input
 // always produces the same output and effects.
 
-const (
-	genericPromptPattern = `(?m)(^>|[>$❯]\s*$)`
-)
-
-// genericPromptRegexp is compiled once per process.
-var genericPromptRegexp = regexp.MustCompile(genericPromptPattern)
+const genericBranchRefreshInterval = 30 * time.Second
 
 // GenericState is the per-session state for the generic driver. Plain
 // data — no goroutines, no I/O.
@@ -98,7 +92,10 @@ func (d GenericDriver) NewState(now time.Time) state.DriverState {
 	return GenericState{
 		Name: d.name,
 		CommonState: CommonState{
-			Status:          state.StatusIdle,
+			// GenericDriver is 2-state (Running/Waiting) — never Idle/Stopped.
+			// Start in Waiting so the first capture establishes the baseline
+			// before any stability-threshold logic can run.
+			Status:          state.StatusWaiting,
 			StatusChangedAt: now,
 		},
 		IdleThreshold: d.threshold,
@@ -139,7 +136,7 @@ func (d GenericDriver) Restore(bag map[string]string, now time.Time) state.Drive
 	gs := GenericState{
 		Name: d.name,
 		CommonState: CommonState{
-			Status:          state.StatusIdle,
+			Status:          state.StatusWaiting,
 			StatusChangedAt: now,
 		},
 		IdleThreshold: d.threshold,
@@ -161,23 +158,61 @@ func (d GenericDriver) Step(prev state.DriverState, ev state.DriverEvent) (state
 
 	switch e := ev.(type) {
 	case state.DEvTick:
-		// Schedule a capture-pane job for this session's pane.
-		// Reducer assigns the JobID; we just emit the request.
-		if e.PaneTarget == "" {
+		// Tick only when visible on the main pane OR actively running
+		// (hash still changing). Parked + waiting sessions skip to save CPU;
+		// the next tick after the user brings them back to active resumes.
+		if !e.Active && gs.Status != state.StatusRunning {
 			return gs, nil, d.view(gs)
 		}
-		eff := state.EffStartJob{
-			Input: CapturePaneInput{
-				PaneTarget: e.PaneTarget,
-				NLines:     5,
-			},
+
+		var effs []state.Effect
+
+		// Branch refresh: only when the session is active (swapped into 0.0)
+		// and the cache is stale or the working dir changed.
+		if e.Active && !gs.BranchInFlight {
+			target := gs.StartDir
+			if target == "" {
+				target = e.Project
+			}
+			if target != "" && (target != gs.BranchTarget || e.Now.Sub(gs.BranchAt) >= genericBranchRefreshInterval) {
+				gs.BranchInFlight = true
+				gs.BranchTarget = target
+				effs = append(effs, state.EffStartJob{
+					Input: BranchDetectInput{WorkingDir: target},
+				})
+			}
 		}
-		return gs, []state.Effect{eff}, d.view(gs)
+
+		// Schedule a capture-pane job for this session's pane.
+		if e.PaneTarget != "" {
+			effs = append(effs, state.EffStartJob{
+				Input: CapturePaneInput{
+					PaneTarget: e.PaneTarget,
+					NLines:     30,
+				},
+			})
+		}
+
+		return gs, effs, d.view(gs)
 
 	case state.DEvJobResult:
 		if summary, inFlight, ok := applySummaryJobResult(gs.Summary, gs.SummaryInFlight, e); ok {
 			gs.Summary = summary
 			gs.SummaryInFlight = inFlight
+			return gs, nil, d.view(gs)
+		}
+
+		if r, ok := e.Result.(BranchDetectResult); ok {
+			gs.BranchInFlight = false
+			if e.Err != nil || r.Branch == "" {
+				return gs, nil, d.view(gs) // preserve existing tag; retry on next tick
+			}
+			gs.BranchTag = r.Branch
+			gs.BranchBG = r.Background
+			gs.BranchFG = r.Foreground
+			gs.BranchAt = e.Now
+			gs.BranchIsWorktree = r.IsWorktree
+			gs.BranchParentBranch = r.ParentBranch
 			return gs, nil, d.view(gs)
 		}
 
@@ -250,6 +285,14 @@ func (d GenericDriver) ManagedWorktreePath(s state.DriverState) string {
 // applyCapture is the pure status transition logic. Extracted from
 // Step so the test suite can drive it directly without constructing
 // DriverEvent values.
+//
+// 2-state hash-stability model:
+//   - First capture (Primed=false): record baseline Hash/LastActivity only.
+//   - Hash changed: update Hash/LastActivity; if Waiting, resume Running.
+//     Running stays Running without touching StatusChangedAt (preserves
+//     elapsed-time display in the UI).
+//   - Hash stable: if Running and IdleThreshold > 0 and elapsed ≥ threshold,
+//     transition to Waiting. IdleThreshold=0 disables Waiting entirely.
 func (d GenericDriver) applyCapture(gs GenericState, now time.Time, result CapturePaneResult) GenericState {
 	if !gs.Primed {
 		gs.Primed = true
@@ -261,22 +304,20 @@ func (d GenericDriver) applyCapture(gs GenericState, now time.Time, result Captu
 	}
 
 	if result.Hash != gs.Hash {
-		next := state.StatusRunning
-		if hasPromptIndicator(result.Content, genericPromptRegexp) {
-			next = state.StatusWaiting
-		}
 		gs.Hash = result.Hash
 		gs.LastActivity = now
-		gs.Status = next
-		gs.StatusChangedAt = now
+		if gs.Status == state.StatusWaiting {
+			gs.Status = state.StatusRunning
+			gs.StatusChangedAt = now
+		}
+		// Already Running: do not update StatusChangedAt so elapsed time is preserved.
 		return gs
 	}
 
-	if gs.IdleThreshold > 0 && now.Sub(gs.LastActivity) > gs.IdleThreshold {
-		if gs.Status != state.StatusIdle {
-			gs.Status = state.StatusIdle
-			gs.StatusChangedAt = now
-		}
+	// Same hash — check stability threshold.
+	if gs.Status == state.StatusRunning && gs.IdleThreshold > 0 && now.Sub(gs.LastActivity) >= gs.IdleThreshold {
+		gs.Status = state.StatusWaiting
+		gs.StatusChangedAt = now
 	}
 	return gs
 }
@@ -285,8 +326,6 @@ func (d GenericDriver) summaryEffects(prev, next GenericState, result CapturePan
 	if next.Status != state.StatusWaiting || prev.Status == state.StatusWaiting {
 		return nil, next.SummaryInFlight
 	}
-	prompt := formatSummaryPrompt(next.Summary, []SummaryTurn{
-		{Role: "user", Text: strings.TrimSpace(result.Content)},
-	})
+	prompt := formatGenericSummaryPrompt(next.Summary, d.displayName, next.StartDir, result.Content)
 	return enqueueSummaryJob(nil, next.SummaryInFlight, prompt)
 }

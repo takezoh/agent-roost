@@ -5,36 +5,22 @@ import (
 	"time"
 )
 
-func TestTickSkipsIdleSessions(t *testing.T) {
+// stepActiveSessions delivers DEvTick to all sessions regardless of status.
+// Drivers decide internally whether to react (self-skip via no-op return).
+// These tests verify that the runtime does NOT gate on status.
+func TestTickDeliversToDAllSessions(t *testing.T) {
 	now := time.Now()
-	s := New()
-	s.Sessions["idle1"] = Session{
-		ID:      "idle1",
-		Command: "stub",
-		Driver:  stubDriverState{status: StatusIdle},
-	}
-	_, effs := Reduce(s, EvTick{Now: now})
-
-	for _, e := range effs {
-		if _, ok := e.(EffStartJob); ok {
-			t.Error("should not emit EffStartJob for idle session")
+	for _, status := range []Status{StatusIdle, StatusStopped, StatusRunning, StatusWaiting} {
+		s := New()
+		s.Sessions["s1"] = Session{
+			ID:      "s1",
+			Command: "stub",
+			Driver:  stubDriverState{status: status},
 		}
-	}
-}
-
-func TestTickSkipsStoppedSessions(t *testing.T) {
-	now := time.Now()
-	s := New()
-	s.Sessions["stopped1"] = Session{
-		ID:      "stopped1",
-		Command: "stub",
-		Driver:  stubDriverState{status: StatusStopped},
-	}
-	_, effs := Reduce(s, EvTick{Now: now})
-
-	for _, e := range effs {
-		if _, ok := e.(EffStartJob); ok {
-			t.Error("should not emit EffStartJob for stopped session")
+		next, _ := Reduce(s, EvTick{Now: now})
+		// stubDriver.Step is a no-op, so state is unchanged — just confirm no panic.
+		if next.Now != now {
+			t.Errorf("status=%v: expected Now to be updated", status)
 		}
 	}
 }

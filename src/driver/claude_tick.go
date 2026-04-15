@@ -9,6 +9,12 @@ import "github.com/takezoh/agent-roost/state"
 //   - branch tag refresh (active sessions only)
 //   - pane capture for hang detection (background Running sessions only)
 func (d ClaudeDriver) handleTick(cs ClaudeState, e state.DEvTick) (ClaudeState, []state.Effect) {
+	// Idle and Stopped sessions self-skip: no branch refresh, no hang
+	// detection. Hook events (not ticks) will wake them if needed.
+	if cs.Status == state.StatusIdle || cs.Status == state.StatusStopped {
+		return cs, nil
+	}
+
 	var effs []state.Effect
 
 	// Branch refresh: only when the session is active (swapped into 0.0)
