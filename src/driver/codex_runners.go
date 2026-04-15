@@ -1,13 +1,17 @@
 package driver
 
 import (
+	"context"
 	"os"
 
 	codextranscript "github.com/takezoh/agent-roost/lib/codex/transcript"
 )
 
-func newCodexTranscriptParse() func(CodexTranscriptParseInput) (CodexTranscriptParseResult, error) {
-	return func(in CodexTranscriptParseInput) (CodexTranscriptParseResult, error) {
+func newCodexTranscriptParse() func(context.Context, CodexTranscriptParseInput) (CodexTranscriptParseResult, error) {
+	return func(ctx context.Context, in CodexTranscriptParseInput) (CodexTranscriptParseResult, error) {
+		if err := ctx.Err(); err != nil {
+			return CodexTranscriptParseResult{}, err
+		}
 		data, err := os.ReadFile(in.Path)
 		if err != nil {
 			return CodexTranscriptParseResult{}, err

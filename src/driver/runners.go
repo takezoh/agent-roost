@@ -1,6 +1,7 @@
 package driver
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -26,8 +27,12 @@ func RegisterRunners(capturePaneFn func(string, int) (string, error), language, 
 	worker.RegisterRunner("worktree_setup", newWorktreeSetup())
 }
 
-func newCapturePane(captureFunc func(string, int) (string, error)) func(CapturePaneInput) (CapturePaneResult, error) {
-	return func(in CapturePaneInput) (CapturePaneResult, error) {
+func newCapturePane(captureFunc func(string, int) (string, error)) func(context.Context, CapturePaneInput) (CapturePaneResult, error) {
+	return func(ctx context.Context, in CapturePaneInput) (CapturePaneResult, error) {
+		if err := ctx.Err(); err != nil {
+			return CapturePaneResult{}, err
+		}
+		// tmux layer is bounded via lib/tmux.Client.Run default timeout.
 		content, err := captureFunc(in.PaneTarget, in.NLines)
 		if err != nil {
 			return CapturePaneResult{}, err
@@ -40,9 +45,9 @@ func newCapturePane(captureFunc func(string, int) (string, error)) func(CaptureP
 	}
 }
 
-func newBranchDetect() func(BranchDetectInput) (BranchDetectResult, error) {
-	return func(in BranchDetectInput) (BranchDetectResult, error) {
-		r := vcs.DetectBranch(in.WorkingDir)
+func newBranchDetect() func(context.Context, BranchDetectInput) (BranchDetectResult, error) {
+	return func(ctx context.Context, in BranchDetectInput) (BranchDetectResult, error) {
+		r := vcs.DetectBranch(ctx, in.WorkingDir)
 		return BranchDetectResult{
 			Branch: r.Branch, Background: r.Background, Foreground: r.Foreground,
 			IsWorktree: r.IsWorktree, ParentBranch: r.ParentBranch,
@@ -50,9 +55,9 @@ func newBranchDetect() func(BranchDetectInput) (BranchDetectResult, error) {
 	}
 }
 
-func newWorktreeSetup() func(WorktreeSetupInput) (WorktreeSetupResult, error) {
-	return func(in WorktreeSetupInput) (WorktreeSetupResult, error) {
-		root, err := roostgit.RepoRoot(in.RepoDir)
+func newWorktreeSetup() func(context.Context, WorktreeSetupInput) (WorktreeSetupResult, error) {
+	return func(ctx context.Context, in WorktreeSetupInput) (WorktreeSetupResult, error) {
+		root, err := roostgit.RepoRoot(ctx, in.RepoDir)
 		if err != nil {
 			return WorktreeSetupResult{}, err
 		}
@@ -64,7 +69,7 @@ func newWorktreeSetup() func(WorktreeSetupInput) (WorktreeSetupResult, error) {
 			if _, err := os.Stat(path); err == nil {
 				continue
 			}
-			dir, err := roostgit.CreateWorktree(in.RepoDir, name)
+			dir, err := roostgit.CreateWorktree(ctx, in.RepoDir, name)
 			if err == nil {
 				return WorktreeSetupResult{StartDir: dir, Name: name}, nil
 			}

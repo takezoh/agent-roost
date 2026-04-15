@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"fmt"
 	"net/url"
 	"os"
@@ -17,7 +18,7 @@ var (
 
 // DetectBranch returns the current git branch name for the given directory.
 // Returns an empty string if the directory is not a git repository.
-func DetectBranch(dir string) string {
+func DetectBranch(ctx context.Context, dir string) string {
 	cmdOnce.Do(func() { _, err := exec.LookPath("git"); cmdFound = err == nil })
 	if !cmdFound {
 		return ""
@@ -25,7 +26,7 @@ func DetectBranch(dir string) string {
 	if !hasGitDir(dir) {
 		return ""
 	}
-	out, err := exec.Command("git", "-C", dir, "branch", "--show-current").Output()
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "branch", "--show-current").Output()
 	if err != nil {
 		return ""
 	}
@@ -34,12 +35,12 @@ func DetectBranch(dir string) string {
 
 // DetectRemoteHost returns the hostname of the "origin" remote
 // (e.g. "github.com"). Returns "" if the remote cannot be determined.
-func DetectRemoteHost(dir string) string {
+func DetectRemoteHost(ctx context.Context, dir string) string {
 	cmdOnce.Do(func() { _, err := exec.LookPath("git"); cmdFound = err == nil })
 	if !cmdFound || !hasGitDir(dir) {
 		return ""
 	}
-	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "remote", "get-url", "origin").Output()
 	if err != nil {
 		return ""
 	}
@@ -80,12 +81,12 @@ func IsWorktree(dir string) bool {
 // DetectMainBranch returns the branch checked out in the main working
 // tree. This is useful when called from a linked worktree to show
 // which branch the parent repo is on. Returns "" on any failure.
-func DetectMainBranch(dir string) string {
+func DetectMainBranch(ctx context.Context, dir string) string {
 	cmdOnce.Do(func() { _, err := exec.LookPath("git"); cmdFound = err == nil })
 	if !cmdFound || !hasGitDir(dir) {
 		return ""
 	}
-	out, err := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "worktree", "list", "--porcelain").Output()
 	if err != nil {
 		return ""
 	}
@@ -116,24 +117,24 @@ func hasGitDir(dir string) bool {
 }
 
 // RepoRoot returns the canonical git top-level directory for dir.
-func RepoRoot(dir string) (string, error) {
+func RepoRoot(ctx context.Context, dir string) (string, error) {
 	cmdOnce.Do(func() { _, err := exec.LookPath("git"); cmdFound = err == nil })
 	if !cmdFound || !hasGitDir(dir) {
 		return "", fmt.Errorf("%s is not a git repository", dir)
 	}
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return "", fmt.Errorf("resolve git root: %w", err)
 	}
 	return strings.TrimSpace(string(out)), nil
 }
 
-func commonGitRoot(dir string) (string, error) {
+func commonGitRoot(ctx context.Context, dir string) (string, error) {
 	cmdOnce.Do(func() { _, err := exec.LookPath("git"); cmdFound = err == nil })
 	if !cmdFound || !hasGitDir(dir) {
 		return "", fmt.Errorf("%s is not a git repository", dir)
 	}
-	out, err := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
 	if err != nil {
 		return "", fmt.Errorf("resolve git common dir: %w", err)
 	}
@@ -142,8 +143,8 @@ func commonGitRoot(dir string) (string, error) {
 
 // CreateWorktree creates a new linked git worktree under
 // <repo>/.roost/worktrees/<name> and returns that path.
-func CreateWorktree(dir, name string) (string, error) {
-	root, err := RepoRoot(dir)
+func CreateWorktree(ctx context.Context, dir, name string) (string, error) {
+	root, err := RepoRoot(ctx, dir)
 	if err != nil {
 		return "", err
 	}
@@ -157,7 +158,7 @@ func CreateWorktree(dir, name string) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(worktreeDir), 0o755); err != nil {
 		return "", err
 	}
-	out, err := exec.Command("git", "-C", root, "worktree", "add", "-b", name, worktreeDir).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "git", "-C", root, "worktree", "add", "-b", name, worktreeDir).CombinedOutput()
 	if err != nil {
 		return "", fmt.Errorf("git worktree add failed: %s", strings.TrimSpace(string(out)))
 	}
@@ -166,16 +167,16 @@ func CreateWorktree(dir, name string) (string, error) {
 
 // RemoveWorktree removes a roost-managed git worktree created under
 // <repo>/.roost/worktrees/<name>.
-func RemoveWorktree(path string) error {
+func RemoveWorktree(ctx context.Context, path string) error {
 	clean := filepath.Clean(path)
-	root, err := commonGitRoot(clean)
+	root, err := commonGitRoot(ctx, clean)
 	if err != nil {
 		return err
 	}
 	if filepath.Dir(clean) != filepath.Join(root, ".roost", "worktrees") {
 		return fmt.Errorf("not a managed worktree path: %s", clean)
 	}
-	out, err := exec.Command("git", "-C", root, "worktree", "remove", "--force", clean).CombinedOutput()
+	out, err := exec.CommandContext(ctx, "git", "-C", root, "worktree", "remove", "--force", clean).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git worktree remove failed: %s", strings.TrimSpace(string(out)))
 	}

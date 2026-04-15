@@ -704,7 +704,7 @@ func TestFastTickDetectsActivePaneDeath(t *testing.T) {
 	})
 	r.activeFrameID = "frame-1"
 
-	r.checkActiveFramePane()
+	r.scheduleActiveFramePaneProbe()
 
 	select {
 	case ev := <-r.eventCh:
@@ -715,8 +715,8 @@ func TestFastTickDetectsActivePaneDeath(t *testing.T) {
 		if pd.OwnerFrameID != "frame-1" {
 			t.Errorf("OwnerFrameID = %q, want frame-1", pd.OwnerFrameID)
 		}
-	default:
-		t.Fatal("expected EvPaneDied to be enqueued")
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("expected EvPaneDied to be enqueued within 500ms")
 	}
 }
 
@@ -730,12 +730,12 @@ func TestFastTickSkipsWhenNoActiveFrame(t *testing.T) {
 	})
 	// activeFrameID は空のまま
 
-	r.checkActiveFramePane()
+	r.scheduleActiveFramePaneProbe()
 
 	select {
 	case ev := <-r.eventCh:
 		t.Fatalf("expected no event, got %T", ev)
-	default:
+	case <-time.After(50 * time.Millisecond):
 		// OK: no-op
 	}
 }
@@ -751,12 +751,12 @@ func TestFastTickIgnoresAliveActivePane(t *testing.T) {
 	})
 	r.activeFrameID = "frame-1"
 
-	r.checkActiveFramePane()
+	r.scheduleActiveFramePaneProbe()
 
 	select {
 	case ev := <-r.eventCh:
 		t.Fatalf("expected no event for alive pane, got %T", ev)
-	default:
+	case <-time.After(100 * time.Millisecond):
 		// OK: no-op
 	}
 }

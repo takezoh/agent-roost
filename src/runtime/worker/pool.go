@@ -1,32 +1,37 @@
 package worker
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"sync"
+	"time"
 
 	"github.com/takezoh/agent-roost/state"
 )
 
 type job struct {
 	id  state.JobID
-	run func() (any, error)
+	run func(ctx context.Context) (any, error)
 }
 
 type Pool struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
 	jobs    chan job
 	results chan state.Event
-	stop    chan struct{}
 	stopped chan struct{}
 	closed  bool
 	mu      sync.Mutex
 }
 
-func NewPool(size int) *Pool {
+func NewPool(parent context.Context, size int) *Pool {
+	ctx, cancel := context.WithCancel(parent)
 	p := &Pool{
+		ctx:     ctx,
+		cancel:  cancel,
 		jobs:    make(chan job, 64),
 		results: make(chan state.Event, 64),
-		stop:    make(chan struct{}),
 		stopped: make(chan struct{}),
 	}
 	var wg sync.WaitGroup
@@ -44,9 +49,9 @@ func NewPool(size int) *Pool {
 	return p
 }
 
-// Submit enqueues a typed job. The runner closure is bound at the call
-// site with concrete In/Out types, so no reflect dispatch is needed.
-func Submit[In, Out any](p *Pool, id state.JobID, input In, runner func(In) (Out, error)) {
+// Submit enqueues a typed job. The runner receives the pool's shutdown
+// context so it can cancel in-flight I/O when Stop is called.
+func Submit[In, Out any](p *Pool, id state.JobID, input In, runner func(context.Context, In) (Out, error)) {
 	p.mu.Lock()
 	closed := p.closed
 	p.mu.Unlock()
@@ -55,7 +60,7 @@ func Submit[In, Out any](p *Pool, id state.JobID, input In, runner func(In) (Out
 	}
 	j := job{
 		id:  id,
-		run: func() (any, error) { return runner(input) },
+		run: func(ctx context.Context) (any, error) { return runner(ctx, input) },
 	}
 	select {
 	case p.jobs <- j:
@@ -67,6 +72,9 @@ func Submit[In, Out any](p *Pool, id state.JobID, input In, runner func(In) (Out
 
 func (p *Pool) Results() <-chan state.Event { return p.results }
 
+// Stop cancels the pool context (signalling all runners) and waits up
+// to 500 ms for workers to drain. Queued jobs that haven't started are
+// discarded. Idempotent.
 func (p *Pool) Stop() {
 	p.mu.Lock()
 	if p.closed {
@@ -74,23 +82,20 @@ func (p *Pool) Stop() {
 		return
 	}
 	p.closed = true
-	close(p.stop)
 	p.mu.Unlock()
-	<-p.stopped
+	p.cancel()
+	select {
+	case <-p.stopped:
+	case <-time.After(500 * time.Millisecond):
+		slog.Warn("worker: stop deadline exceeded, leaking goroutines")
+	}
 }
 
 func (p *Pool) run() {
 	for {
 		select {
-		case <-p.stop:
-			for {
-				select {
-				case j := <-p.jobs:
-					p.runJob(j)
-				default:
-					return
-				}
-			}
+		case <-p.ctx.Done():
+			return
 		case j := <-p.jobs:
 			p.runJob(j)
 		}
@@ -98,7 +103,15 @@ func (p *Pool) run() {
 }
 
 func (p *Pool) runJob(j job) {
-	result, err := j.run()
+	// Drop jobs that were dequeued after the pool was stopped.
+	// This is distinct from the Submit guard (p.closed): a job can sit in
+	// the queue and be dequeued by a worker goroutine after Stop has
+	// cancelled p.ctx. Checking here ensures such jobs are silently
+	// discarded rather than run.
+	if p.ctx.Err() != nil {
+		return
+	}
+	result, err := j.run(p.ctx)
 	ev := state.EvJobResult{
 		JobID:  j.id,
 		Result: result,
@@ -106,6 +119,6 @@ func (p *Pool) runJob(j job) {
 	}
 	select {
 	case p.results <- ev:
-	case <-p.stop:
+	case <-p.ctx.Done():
 	}
 }

@@ -1,6 +1,7 @@
 package git
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,7 +35,7 @@ func TestDetectRemoteHost_SSH(t *testing.T) {
 	dir := initRepo(t)
 	gitRun(t, dir, "remote", "add", "origin", "git@github.com:user/repo.git")
 
-	got := DetectRemoteHost(dir)
+	got := DetectRemoteHost(context.Background(), dir)
 	if got != "github.com" {
 		t.Errorf("DetectRemoteHost = %q, want %q", got, "github.com")
 	}
@@ -44,7 +45,7 @@ func TestDetectRemoteHost_HTTPS(t *testing.T) {
 	dir := initRepo(t)
 	gitRun(t, dir, "remote", "add", "origin", "https://gitlab.com/user/repo.git")
 
-	got := DetectRemoteHost(dir)
+	got := DetectRemoteHost(context.Background(), dir)
 	if got != "gitlab.com" {
 		t.Errorf("DetectRemoteHost = %q, want %q", got, "gitlab.com")
 	}
@@ -53,7 +54,7 @@ func TestDetectRemoteHost_HTTPS(t *testing.T) {
 func TestDetectRemoteHost_NoRemote(t *testing.T) {
 	dir := initRepo(t)
 
-	got := DetectRemoteHost(dir)
+	got := DetectRemoteHost(context.Background(), dir)
 	if got != "" {
 		t.Errorf("DetectRemoteHost = %q, want empty", got)
 	}
@@ -62,7 +63,7 @@ func TestDetectRemoteHost_NoRemote(t *testing.T) {
 func TestDetectRemoteHost_NotGitDir(t *testing.T) {
 	dir := t.TempDir()
 
-	got := DetectRemoteHost(dir)
+	got := DetectRemoteHost(context.Background(), dir)
 	if got != "" {
 		t.Errorf("DetectRemoteHost = %q, want empty", got)
 	}
@@ -92,7 +93,7 @@ func TestDetectMainBranch_LinkedWorktree(t *testing.T) {
 	wtDir := t.TempDir()
 	gitRun(t, dir, "worktree", "add", wtDir, "feature")
 
-	got := DetectMainBranch(wtDir)
+	got := DetectMainBranch(context.Background(), wtDir)
 	if got != "main" {
 		t.Errorf("DetectMainBranch = %q, want %q", got, "main")
 	}
@@ -100,7 +101,7 @@ func TestDetectMainBranch_LinkedWorktree(t *testing.T) {
 
 func TestDetectMainBranch_NoGit(t *testing.T) {
 	dir := t.TempDir()
-	got := DetectMainBranch(dir)
+	got := DetectMainBranch(context.Background(), dir)
 	if got != "" {
 		t.Errorf("DetectMainBranch = %q, want empty", got)
 	}
@@ -159,7 +160,7 @@ func TestParseHost(t *testing.T) {
 
 func TestRepoRoot(t *testing.T) {
 	dir := initRepo(t)
-	root, err := RepoRoot(dir)
+	root, err := RepoRoot(context.Background(), dir)
 	if err != nil {
 		t.Fatalf("RepoRoot error: %v", err)
 	}
@@ -170,7 +171,8 @@ func TestRepoRoot(t *testing.T) {
 
 func TestCreateWorktree(t *testing.T) {
 	dir := initRepo(t)
-	wtDir, err := CreateWorktree(dir, "feature-test")
+	ctx := context.Background()
+	wtDir, err := CreateWorktree(ctx, dir, "feature-test")
 	if err != nil {
 		t.Fatalf("CreateWorktree error: %v", err)
 	}
@@ -181,24 +183,25 @@ func TestCreateWorktree(t *testing.T) {
 	if !IsWorktree(wtDir) {
 		t.Fatal("created path is not a linked worktree")
 	}
-	if got := DetectBranch(wtDir); got != "feature-test" {
+	if got := DetectBranch(ctx, wtDir); got != "feature-test" {
 		t.Fatalf("branch = %q, want %q", got, "feature-test")
 	}
 }
 
 func TestCreateWorktreeRejectsNonGitDir(t *testing.T) {
-	if _, err := CreateWorktree(t.TempDir(), "feature-test"); err == nil {
+	if _, err := CreateWorktree(context.Background(), t.TempDir(), "feature-test"); err == nil {
 		t.Fatal("expected error for non-git directory")
 	}
 }
 
 func TestRemoveWorktree(t *testing.T) {
 	dir := initRepo(t)
-	wtDir, err := CreateWorktree(dir, "feature-test")
+	ctx := context.Background()
+	wtDir, err := CreateWorktree(ctx, dir, "feature-test")
 	if err != nil {
 		t.Fatalf("CreateWorktree error: %v", err)
 	}
-	if err := RemoveWorktree(wtDir); err != nil {
+	if err := RemoveWorktree(ctx, wtDir); err != nil {
 		t.Fatalf("RemoveWorktree error: %v", err)
 	}
 	if _, err := os.Stat(wtDir); !os.IsNotExist(err) {
@@ -208,7 +211,7 @@ func TestRemoveWorktree(t *testing.T) {
 
 func TestRemoveWorktreeRejectsUnmanagedPath(t *testing.T) {
 	dir := initRepo(t)
-	if err := RemoveWorktree(dir); err == nil {
+	if err := RemoveWorktree(context.Background(), dir); err == nil {
 		t.Fatal("expected error for unmanaged path")
 	}
 }

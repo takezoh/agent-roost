@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
@@ -46,9 +47,14 @@ func (r *Runtime) execute(eff state.Effect) {
 		}
 
 	case state.EffRemoveManagedWorktree:
-		if err := roostgit.RemoveWorktree(e.Path); err != nil {
-			slog.Warn("runtime: remove managed worktree failed", "path", e.Path, "err", err)
-		}
+		path := e.Path
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := roostgit.RemoveWorktree(ctx, path); err != nil {
+				slog.Warn("runtime: remove managed worktree failed", "path", path, "err", err)
+			}
+		}()
 
 	case state.EffStartJob:
 		r.submitJob(e)
@@ -121,7 +127,6 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 		r.cfg.Tmux.RespawnPane(target, cmd)
 
 	case state.EffDetachClient:
-		time.Sleep(50 * time.Millisecond)
 		r.cfg.Tmux.DetachClient()
 
 	case state.EffDisplayPopup:
