@@ -212,3 +212,54 @@ func TestRemoveWorktreeRejectsUnmanagedPath(t *testing.T) {
 		t.Fatal("expected error for unmanaged path")
 	}
 }
+
+func TestFindGitRoot(t *testing.T) {
+	dir := initRepo(t)
+	sub := filepath.Join(dir, "sub")
+	subsub := filepath.Join(sub, "subsub")
+	if err := os.MkdirAll(subsub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		dir  string
+		want string
+	}{
+		{"repo root itself", dir, dir},
+		{"direct child", sub, dir},
+		{"grandchild", subsub, dir},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := findGitRoot(tt.dir); got != tt.want {
+				t.Errorf("findGitRoot(%q) = %q, want %q", tt.dir, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDetectBranch_FromSubdirectory(t *testing.T) {
+	dir := initRepo(t)
+	sub := filepath.Join(dir, "src", "pkg")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := DetectBranch(sub); got != "main" {
+		t.Errorf("DetectBranch(subdir) = %q, want %q", got, "main")
+	}
+}
+
+func TestIsWorktree_SubdirectoryOfLinkedWorktree(t *testing.T) {
+	dir := initRepo(t)
+	gitRun(t, dir, "branch", "feature")
+	wtDir := t.TempDir()
+	gitRun(t, dir, "worktree", "add", wtDir, "feature")
+	sub := filepath.Join(wtDir, "deep", "nested")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !IsWorktree(sub) {
+		t.Error("IsWorktree(subdir-of-worktree) = false, want true")
+	}
+}

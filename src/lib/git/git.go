@@ -22,7 +22,7 @@ func DetectBranch(dir string) string {
 	if !cmdFound {
 		return ""
 	}
-	if !hasGitDir(dir) {
+	if findGitRoot(dir) == "" {
 		return ""
 	}
 	out, err := exec.Command("git", "-C", dir, "branch", "--show-current").Output()
@@ -36,7 +36,7 @@ func DetectBranch(dir string) string {
 // (e.g. "github.com"). Returns "" if the remote cannot be determined.
 func DetectRemoteHost(dir string) string {
 	cmdOnce.Do(func() { _, err := exec.LookPath("git"); cmdFound = err == nil })
-	if !cmdFound || !hasGitDir(dir) {
+	if !cmdFound || findGitRoot(dir) == "" {
 		return ""
 	}
 	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
@@ -66,11 +66,15 @@ func parseHost(raw string) string {
 	return ""
 }
 
-// IsWorktree reports whether dir is a linked git worktree (not the
-// main working tree). In a linked worktree .git is a regular file
+// IsWorktree reports whether dir is inside a linked git worktree (not
+// the main working tree). In a linked worktree .git is a regular file
 // containing a gitdir pointer; in the main tree it is a directory.
 func IsWorktree(dir string) bool {
-	fi, err := os.Lstat(filepath.Join(dir, ".git"))
+	root := findGitRoot(dir)
+	if root == "" {
+		return false
+	}
+	fi, err := os.Lstat(filepath.Join(root, ".git"))
 	if err != nil {
 		return false
 	}
@@ -82,7 +86,7 @@ func IsWorktree(dir string) bool {
 // which branch the parent repo is on. Returns "" on any failure.
 func DetectMainBranch(dir string) string {
 	cmdOnce.Do(func() { _, err := exec.LookPath("git"); cmdFound = err == nil })
-	if !cmdFound || !hasGitDir(dir) {
+	if !cmdFound || findGitRoot(dir) == "" {
 		return ""
 	}
 	out, err := exec.Command("git", "-C", dir, "worktree", "list", "--porcelain").Output()
@@ -109,16 +113,27 @@ func parseMainBranch(output string) string {
 	return ""
 }
 
-// hasGitDir checks for .git (directory or file for worktrees).
-func hasGitDir(dir string) bool {
-	_, err := os.Lstat(filepath.Join(dir, ".git"))
-	return err == nil
+// findGitRoot walks up the directory tree from dir looking for a .git
+// entry (directory for main trees, regular file for linked worktrees).
+// Returns the directory containing .git, or "" if not found.
+func findGitRoot(dir string) string {
+	d := dir
+	for {
+		if _, err := os.Lstat(filepath.Join(d, ".git")); err == nil {
+			return d
+		}
+		parent := filepath.Dir(d)
+		if parent == d {
+			return ""
+		}
+		d = parent
+	}
 }
 
 // RepoRoot returns the canonical git top-level directory for dir.
 func RepoRoot(dir string) (string, error) {
 	cmdOnce.Do(func() { _, err := exec.LookPath("git"); cmdFound = err == nil })
-	if !cmdFound || !hasGitDir(dir) {
+	if !cmdFound || findGitRoot(dir) == "" {
 		return "", fmt.Errorf("%s is not a git repository", dir)
 	}
 	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").Output()
@@ -130,7 +145,7 @@ func RepoRoot(dir string) (string, error) {
 
 func commonGitRoot(dir string) (string, error) {
 	cmdOnce.Do(func() { _, err := exec.LookPath("git"); cmdFound = err == nil })
-	if !cmdFound || !hasGitDir(dir) {
+	if !cmdFound || findGitRoot(dir) == "" {
 		return "", fmt.Errorf("%s is not a git repository", dir)
 	}
 	out, err := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute", "--git-common-dir").Output()
