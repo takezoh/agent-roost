@@ -2,6 +2,7 @@ package tui
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/spinner"
 
 	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/features"
@@ -15,6 +16,7 @@ type Model struct {
 	registry *tools.Registry
 	keys     KeyMap
 	features features.Set
+	spinner  spinner.Model
 
 	sessions   []proto.SessionInfo
 	connectors []proto.ConnectorInfo
@@ -42,6 +44,7 @@ func NewModel(client *proto.Client, cfg *config.Config) Model {
 		folded:   make(map[string]bool),
 		filter:   allOnFilter(),
 		cursor:   -1,
+		spinner:  spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 	}
 }
 
@@ -49,6 +52,7 @@ func (m Model) Init() tea.Cmd {
 	return tea.Batch(
 		m.requestSessions(),
 		m.listenEvents(),
+		m.spinner.Tick,
 	)
 }
 
@@ -84,6 +88,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.anchored = ""
 		}
 		return m, m.focusCmd(mainPane)
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		animFrame++
+		return m, cmd
 
 	case mouseLeaveMsg:
 		return m.handleMouseLeave(msg)

@@ -207,7 +207,13 @@ func renderSessionSeparator(innerWidth int) string {
 }
 
 func sessionCardLines(s *proto.SessionInfo, textWidth int) []string {
-	stateStr := stateStyle(s.State).Render(s.State.Symbol() + " " + s.State.String())
+	var iconGlyph string
+	if s.State == state.StatusRunning {
+		iconGlyph = runningSpinnerGlyph()
+	} else {
+		iconGlyph = stateStyle(s.State).Render(s.State.Symbol())
+	}
+	stateStr := iconGlyph + " " + stateStyle(s.State).Render(s.State.String())
 	elapsed := mutedStyle.Render(formatElapsed(time.Since(s.StateChangedAtTime())))
 
 	title := s.View.Card.Title
