@@ -17,8 +17,14 @@ type Config struct {
 	Monitor    MonitorConfig    `toml:"monitor"`
 	Session    SessionConfig    `toml:"session"`
 	Projects   ProjectsConfig   `toml:"projects"`
+	Driver     CommonDriverConfig        `toml:"driver"`
 	Drivers    map[string]map[string]any `toml:"drivers"`
 	Features   FeaturesConfig   `toml:"features"`
+}
+
+// CommonDriverConfig holds settings that apply to all drivers.
+type CommonDriverConfig struct {
+	SummarizeCommand string `toml:"summarize_command"`
 }
 
 // FeaturesConfig holds the runtime feature-flag table from the TOML config.

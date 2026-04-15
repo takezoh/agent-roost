@@ -13,10 +13,11 @@ import (
 // DriverConfigs is the raw [drivers.*] map from settings.toml — each
 // driver decodes its own section via decodeConfig.
 type RegisterOptions struct {
-	Home          string
-	EventLogDir   string
-	IdleThreshold time.Duration
-	DriverConfigs map[string]map[string]any
+	Home             string
+	EventLogDir      string
+	IdleThreshold    time.Duration
+	DriverConfigs    map[string]map[string]any
+	SummarizeCommand string // from [driver] common config
 }
 
 // RegisterDefaults wires the built-in driver set into the global
@@ -53,9 +54,8 @@ func RegisterShellDriver(threshold time.Duration, displayName string) {
 	})
 }
 
-// ParseClaudeOptions decodes the driver config section keyed by
-// ClaudeDriverName into a ClaudeOptions value. Exported so the runtime coordinator can read
-// it without duplicating the JSON round-trip logic.
+// ParseClaudeOptions decodes the [drivers.claude] config section into a
+// ClaudeOptions value.
 func ParseClaudeOptions(raw map[string]any) ClaudeOptions {
 	return decodeConfig[ClaudeOptions](raw)
 }

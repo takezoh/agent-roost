@@ -159,8 +159,11 @@ push_commands = [               # Commands available via push-driver palette
 project_roots = ["~/projects"]       # Subdirs of each root become projects
 project_paths = ["~/myproject"] # Explicit project paths
 
-[drivers.claude]
+[driver]
 # summarize_command = ""        # Shell command to summarize transcripts (default: disabled)
+
+[drivers.claude]
+show_thinking = false           # Show extended thinking blocks in MAIN pane
 
 ```
 

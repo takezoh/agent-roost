@@ -36,10 +36,11 @@ func runCoordinator() error {
 	idleThreshold := time.Duration(cfg.Monitor.IdleThresholdSec) * time.Second
 	eventLogDir := filepath.Join(dataDir, "events")
 	statedriver.RegisterDefaults(statedriver.RegisterOptions{
-		Home:          home,
-		EventLogDir:   eventLogDir,
-		IdleThreshold: idleThreshold,
-		DriverConfigs: cfg.Drivers,
+		Home:             home,
+		EventLogDir:      eventLogDir,
+		IdleThreshold:    idleThreshold,
+		DriverConfigs:    cfg.Drivers,
+		SummarizeCommand: cfg.Driver.SummarizeCommand,
 	})
 
 	tmuxBackend := runtime.NewRealTmuxBackend(client)
@@ -47,8 +48,7 @@ func runCoordinator() error {
 	fastPollInterval := time.Duration(cfg.Monitor.FastPollIntervalMs) * time.Millisecond
 	sockPath := filepath.Join(dataDir, "roost.sock")
 
-	claudeOpts := statedriver.ParseClaudeOptions(cfg.Drivers[statedriver.ClaudeDriverName])
-	statedriver.RegisterRunners(tmuxBackend.CapturePane, cfg.Language, claudeOpts.SummarizeCommand)
+	statedriver.RegisterRunners(tmuxBackend.CapturePane, cfg.Language, cfg.Driver.SummarizeCommand)
 	connector.RegisterDefaults()
 	connector.RegisterRunners()
 	pool := worker.NewPool(4)

@@ -71,8 +71,7 @@ type ClaudeState struct {
 // transcript_path yet.
 // ClaudeOptions holds driver-specific config decoded from [drivers.claude].
 type ClaudeOptions struct {
-	ShowThinking     bool   `json:"show_thinking"`
-	SummarizeCommand string `json:"summarize_command"`
+	ShowThinking bool `json:"show_thinking"`
 }
 
 type ClaudeDriver struct {
