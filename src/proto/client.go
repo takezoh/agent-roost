@@ -176,7 +176,7 @@ func (c *Client) read() {
 		if err := dec.Decode(&env); err != nil {
 			select {
 			case <-c.closed:
-				// 意図的なクローズ。ログ不要。
+				// intentional close; no logging needed.
 			default:
 				slog.Debug("proto: read loop ended", "err", err)
 			}

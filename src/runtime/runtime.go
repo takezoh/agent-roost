@@ -28,7 +28,7 @@ type Config struct {
 	RoostExe          string
 	DataDir           string
 	TickInterval      time.Duration
-	FastTickInterval  time.Duration // 既定 100ms。active frame の pane 死亡を高速検出する。
+	FastTickInterval  time.Duration // default 100ms; fast-detects active-frame pane death.
 	Workers           int
 	MainPaneHeightPct int
 
@@ -195,10 +195,10 @@ func (r *Runtime) Run(ctx context.Context) error {
 	}
 }
 
-// checkActiveFramePane は active frame (pane 0.0 にスワップ中) の
-// 死亡を高速検出する。alive なら何もしない。dead なら EvPaneDied を
-// enqueue して reducePaneDied 経由でスタック pop を即時実行する。
-// 100ms 間隔で呼ばれるため、tmux shell-out は 1 回のみ (display-message)。
+// checkActiveFramePane fast-detects death of the active frame (currently
+// swapped to pane 0.0). Does nothing if alive; enqueues EvPaneDied and
+// immediately pops the stack via reducePaneDied if dead.
+// Called at ~100ms intervals; issues only one tmux shell-out (display-message).
 func (r *Runtime) checkActiveFramePane() {
 	if r.activeFrameID == "" {
 		return

@@ -10,7 +10,7 @@ import (
 // Standard tag colors. Drivers reference these via the helper
 // constructors below so that color decisions live in one place inside
 // the driver package (not in tui/) — Tag colors are driver-owned per
-// ARCHITECTURE.md §描画責務の所在.
+// ARCHITECTURE.md §Rendering Ownership.
 const (
 	commandTagBg = "#D97757" // default command tag background
 	commandTagFg = "#FFFFFF" // white text

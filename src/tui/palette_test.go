@@ -249,7 +249,7 @@ func TestRenderPaletteParamWorktreeChipOnCursorOnly(t *testing.T) {
 
 	out := renderPaletteParam(m, 56)
 
-	// カーソル行 (cmd-b) にチップが含まれる
+	// cursor row (cmd-b) must contain the chip
 	lines := strings.Split(out, "\n")
 	cursorLine := ""
 	for _, l := range lines {
@@ -261,7 +261,7 @@ func TestRenderPaletteParamWorktreeChipOnCursorOnly(t *testing.T) {
 		t.Errorf("cursor line should contain 'wt on', got: %q", cursorLine)
 	}
 
-	// 非カーソル行にチップが含まれない
+	// non-cursor rows must not contain the chip
 	for _, l := range lines {
 		if strings.Contains(l, "cmd-a") || strings.Contains(l, "cmd-c") {
 			if strings.Contains(l, "wt ") {
@@ -270,7 +270,7 @@ func TestRenderPaletteParamWorktreeChipOnCursorOnly(t *testing.T) {
 		}
 	}
 
-	// worktreeOn=false のとき "wt off" になる
+	// when worktreeOn=false the chip shows "wt off"
 	m.worktreeOn = false
 	out2 := renderPaletteParam(m, 56)
 	for _, l := range strings.Split(out2, "\n") {

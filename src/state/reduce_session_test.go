@@ -480,7 +480,7 @@ func TestStopSessionMultiFrameKillsAllWindows(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	sess := stubSession(id)
-	// 2 フレーム目を追加
+	// add a second frame
 	sess.Frames = append(sess.Frames, SessionFrame{
 		ID:      "abc-frame-2",
 		Command: "shell",
@@ -496,7 +496,7 @@ func TestStopSessionMultiFrameKillsAllWindows(t *testing.T) {
 	if _, ok := next.Sessions[id]; ok {
 		t.Error("session must be evicted immediately")
 	}
-	// 全 frame 分 EffKillSessionWindow が出る
+	// EffKillSessionWindow must appear for every frame
 	killCount := 0
 	for _, e := range effs {
 		if _, ok := e.(EffKillSessionWindow); ok {
@@ -506,7 +506,7 @@ func TestStopSessionMultiFrameKillsAllWindows(t *testing.T) {
 	if killCount != 2 {
 		t.Errorf("EffKillSessionWindow count = %d, want 2", killCount)
 	}
-	// EffDeactivateSession は 1 回だけ
+	// EffDeactivateSession must appear exactly once
 	deactivateCount := 0
 	for _, e := range effs {
 		if _, ok := e.(EffDeactivateSession); ok {

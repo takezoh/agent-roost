@@ -680,24 +680,24 @@ func TestClaudeHaikuResultMerges(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.SummaryInFlight = true
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
-		Result: SummaryCommandResult{Summary: "短い要約"},
+		Result: SummaryCommandResult{Summary: "short summary"},
 	})
 	if next.SummaryInFlight {
 		t.Error("SummaryInFlight should be false")
 	}
-	if next.Summary != "短い要約" {
+	if next.Summary != "short summary" {
 		t.Errorf("Summary = %q", next.Summary)
 	}
 }
 
 func TestClaudeHaikuEmptyResultKeepsPrev(t *testing.T) {
 	d, cs, _ := newClaude(t)
-	cs.Summary = "前の要約"
+	cs.Summary = "previous summary"
 	cs.SummaryInFlight = true
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
 		Result: SummaryCommandResult{Summary: ""},
 	})
-	if next.Summary != "前の要約" {
+	if next.Summary != "previous summary" {
 		t.Errorf("empty haiku erased prev: %q", next.Summary)
 	}
 }

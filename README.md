@@ -61,8 +61,8 @@ Without hooks, roost still launches sessions but status detection degrades to po
 
 ### Key Bindings
 
-**Prefix bindings** work regardless of which pane is focused (ペイン移動・detach・palette 起動)。  
-**SESSIONS pane bindings** are active only when the SESSIONS pane is focused (セッション操作)。
+**Prefix bindings** work regardless of which pane is focused (pane navigation, detach, palette open).
+**SESSIONS pane bindings** are active only when the SESSIONS pane is focused (session operations).
 
 #### Prefix Keys
 

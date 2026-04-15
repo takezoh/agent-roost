@@ -695,7 +695,7 @@ func TestRuntimeStopSession(t *testing.T) {
 
 func TestFastTickDetectsActivePaneDeath(t *testing.T) {
 	tmux := newFakeTmux()
-	tmux.alive["roost-test:0.0"] = false // pane 0.0 を dead に設定
+	tmux.alive["roost-test:0.0"] = false // mark pane 0.0 as dead
 	r := New(Config{
 		SessionName:      "roost-test",
 		TickInterval:     10 * time.Second,
@@ -728,7 +728,7 @@ func TestFastTickSkipsWhenNoActiveFrame(t *testing.T) {
 		FastTickInterval: 10 * time.Millisecond,
 		Tmux:             tmux,
 	})
-	// activeFrameID は空のまま
+	// activeFrameID remains empty
 
 	r.checkActiveFramePane()
 
