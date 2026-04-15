@@ -9,7 +9,6 @@ import (
 )
 
 type Config struct {
-	Language   string           `toml:"language"`
 	DataDir    string           `toml:"data_dir"`
 	Theme      string           `toml:"theme"`
 	Log        LogConfig        `toml:"log"`
@@ -94,7 +93,6 @@ func Load() (*Config, error) {
 
 func DefaultConfig() *Config {
 	return &Config{
-		Language: "english",
 		Theme:    "default",
 		Log:   LogConfig{Level: "info"},
 		Tmux: TmuxConfig{

@@ -48,7 +48,7 @@ func runCoordinator() error {
 	fastPollInterval := time.Duration(cfg.Monitor.FastPollIntervalMs) * time.Millisecond
 	sockPath := filepath.Join(dataDir, "roost.sock")
 
-	statedriver.RegisterRunners(tmuxBackend.CapturePane, cfg.Language, cfg.Driver.SummarizeCommand)
+	statedriver.RegisterRunners(tmuxBackend.CapturePane, cfg.Driver.SummarizeCommand)
 	connector.RegisterDefaults()
 	connector.RegisterRunners()
 	pool := worker.NewPool(4)

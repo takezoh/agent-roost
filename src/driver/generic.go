@@ -291,7 +291,7 @@ func (d GenericDriver) summaryEffects(prev, next GenericState, result CapturePan
 	if next.Status != state.StatusWaiting || prev.Status == state.StatusWaiting {
 		return nil, next.SummaryInFlight
 	}
-	prompt := formatSummaryPrompt(summaryPromptLanguage, next.Summary, []SummaryTurn{
+	prompt := formatSummaryPrompt(next.Summary, []SummaryTurn{
 		{Role: "user", Text: strings.TrimSpace(result.Content)},
 	})
 	return enqueueSummaryJob(nil, next.SummaryInFlight, prompt)
