@@ -42,6 +42,100 @@ type CommonState struct {
 	Summary         string
 	SummaryInFlight bool
 	Title           string
+
+	// Hang detection: pane-capture hash comparison for background sessions.
+	CaptureInFlight bool
+	PaneHash        string    // SHA256 of last captured pane content
+	PaneHashAt      time.Time // when PaneHash last changed (or first set)
+	HangDetected    bool      // set when hang threshold fires; cleared on next hook
+}
+
+const (
+	// commonBranchRefreshInterval is the minimum time between VCS branch
+	// detections for an active session.
+	commonBranchRefreshInterval = 30 * time.Second
+
+	// commonHangThreshold is the time without pane changes or hooks
+	// before an agent is considered stale and transitioned to Idle.
+	commonHangThreshold = 120 * time.Second
+)
+
+// HandleTick common implementation for drivers. Completes StartDir,
+// skips heavy work for Idle/Stopped sessions, refreshes branch info
+// when active, and checks for hang conditions when running in the background.
+func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []state.Effect {
+	if c.StartDir == "" {
+		c.StartDir = e.Project
+	}
+
+	if c.Status == state.StatusIdle || c.Status == state.StatusStopped {
+		return nil
+	}
+
+	var effs []state.Effect
+
+	// Branch refresh: only when the session is active (swapped into 0.0)
+	// and the cache is stale or the working dir changed.
+	if e.Active {
+		target := c.StartDir
+		if target == "" {
+			target = e.Project
+		}
+		if target != "" && !c.BranchInFlight {
+			if target != c.BranchTarget || e.Now.Sub(c.BranchAt) >= commonBranchRefreshInterval {
+				c.BranchInFlight = true
+				c.BranchTarget = target
+				effs = append(effs, state.EffStartJob{
+					Input: BranchDetectInput{WorkingDir: target},
+				})
+			}
+		}
+	}
+
+	// Pane capture for hang detection: background Running sessions only.
+	if !e.Active && c.Status == state.StatusRunning && e.PaneTarget != "" && !c.CaptureInFlight {
+		c.CaptureInFlight = true
+		effs = append(effs, state.EffStartJob{
+			Input: CapturePaneInput{PaneTarget: e.PaneTarget, NLines: 5},
+		})
+	}
+
+	// Hang threshold check: if Running, pane is primed, no subagents
+	// are active, and neither pane content nor hook events have changed.
+	if c.Status == state.StatusRunning && c.PaneHash != "" && !hasActiveSubagents {
+		lastActivity := c.PaneHashAt
+		if c.StatusChangedAt.After(lastActivity) {
+			lastActivity = c.StatusChangedAt
+		}
+		if e.Now.Sub(lastActivity) > commonHangThreshold {
+			c.Status = state.StatusIdle
+			c.StatusChangedAt = e.Now
+			c.HangDetected = true
+			effs = append(effs, state.EffEventLogAppend{
+				Line: "HangDetected (pane unchanged)",
+			})
+		}
+	}
+
+	return effs
+}
+
+// HandleCapturePaneResult updates the pane hash baseline.
+func (c *CommonState) HandleCapturePaneResult(r CapturePaneResult, now time.Time) {
+	c.CaptureInFlight = false
+	if c.PaneHash == "" {
+		c.PaneHash = r.Hash
+		c.PaneHashAt = now
+	} else if r.Hash != c.PaneHash {
+		c.PaneHash = r.Hash
+		c.PaneHashAt = now
+	}
+}
+
+// ResetHangDetection clears hang state, restarting the timer from scratch.
+func (c *CommonState) ResetHangDetection() {
+	c.HangDetected = false
+	c.PaneHash = ""
 }
 
 // Common persistence keys shared across drivers.

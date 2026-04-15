@@ -1365,7 +1365,7 @@ func TestClaudeHangDetectionTriggersIdle(t *testing.T) {
 	cs.PaneHashAt = cs.StatusChangedAt
 
 	// Tick at threshold+1s
-	now := cs.StatusChangedAt.Add(claudeHangThreshold + time.Second)
+	now := cs.StatusChangedAt.Add(commonHangThreshold + time.Second)
 	next, effs := d.handleTick(cs, state.DEvTick{
 		Now: now, Active: false, PaneTarget: "42",
 	})
@@ -1391,7 +1391,7 @@ func TestClaudeHangDetectionSuppressedBySubagents(t *testing.T) {
 	cs.PaneHashAt = cs.StatusChangedAt
 	cs.SubagentCounts = map[string]int{"Task": 2}
 
-	now := cs.StatusChangedAt.Add(claudeHangThreshold + time.Minute)
+	now := cs.StatusChangedAt.Add(commonHangThreshold + time.Minute)
 	next, _ := d.handleTick(cs, state.DEvTick{
 		Now: now, Active: false, PaneTarget: "42",
 	})

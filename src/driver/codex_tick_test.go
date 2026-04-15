@@ -1,0 +1,89 @@
+package driver
+
+import (
+	"testing"
+	"time"
+
+	"github.com/takezoh/agent-roost/state"
+)
+
+func TestCodexHandleTickCompletesStartDir(t *testing.T) {
+	d := NewCodexDriver("/tmp/events")
+	now := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	cs := d.NewState(now).(CodexState)
+
+	// Before: StartDir is empty
+	if cs.StartDir != "" {
+		t.Errorf("cs.StartDir = %q, want empty", cs.StartDir)
+	}
+
+	// After one tick: StartDir should be filled from e.Project,
+	// but BranchDetect should NOT start because status is Idle (Claude-aligned).
+	e := state.DEvTick{
+		Now:     now.Add(time.Second),
+		Active:  true,
+		Project: "/repo/project",
+	}
+	next, effs, _ := d.Step(cs, e)
+	cs = next.(CodexState)
+
+	if cs.StartDir != "/repo/project" {
+		t.Errorf("cs.StartDir = %q, want /repo/project", cs.StartDir)
+	}
+
+	for _, eff := range effs {
+		if ej, ok := eff.(state.EffStartJob); ok {
+			if _, ok := ej.Input.(BranchDetectInput); ok {
+				t.Fatal("BranchDetectInput job started on Idle, want skip")
+			}
+		}
+	}
+
+	// Transition to Running
+	cs.Status = state.StatusRunning
+
+	// Next tick should now fire BranchDetect
+	next, effs, _ = d.Step(cs, e)
+	cs = next.(CodexState)
+
+	found := false
+	for _, eff := range effs {
+		if ej, ok := eff.(state.EffStartJob); ok {
+			if bdi, ok := ej.Input.(BranchDetectInput); ok {
+				if bdi.WorkingDir == "/repo/project" {
+					found = true
+					break
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("expected BranchDetectInput job in effects after transition to Running")
+	}
+}
+
+func TestCodexViewIncludesBranchTag(t *testing.T) {
+	d := NewCodexDriver("/tmp/events")
+	now := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	cs := d.NewState(now).(CodexState)
+
+	cs.BranchTag = "feat-branch"
+	cs.BranchBG = "#abcdef"
+	cs.BranchFG = "#000000"
+
+	v := d.View(cs)
+	if len(v.Card.Tags) == 0 {
+		t.Fatal("expected branch tag in view, but got none")
+	}
+
+	found := false
+	for _, tag := range v.Card.Tags {
+		if tag.Text == "feat-branch" && tag.Background == "#abcdef" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("branch tag not found or mismatched: %+v", v.Card.Tags)
+	}
+}

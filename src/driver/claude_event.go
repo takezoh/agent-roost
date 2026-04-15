@@ -128,8 +128,7 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 
 	if hp.HookEventName == "SessionStart" {
 		cs.LastBridgeTS = ts
-		cs.HangDetected = false
-		cs.PaneHash = ""
+		cs.ResetHangDetection()
 		return d.handleSessionStart(cs, hp, ts)
 	}
 
@@ -144,8 +143,7 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 
 	// A hook arriving (non-stale) means the agent is alive — clear
 	// hang detection state so the timer restarts from scratch.
-	cs.HangDetected = false
-	cs.PaneHash = ""
+	cs.ResetHangDetection()
 
 	if hp.HookEventName == "UserPromptSubmit" {
 		return d.handleUserPromptSubmit(cs, hp, e.Timestamp)

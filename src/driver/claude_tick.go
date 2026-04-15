@@ -4,67 +4,9 @@ import "github.com/takezoh/agent-roost/state"
 
 // Tick / fsnotify / job-result handling for the Claude driver.
 
-// handleTick is fired by the global ticker. The Claude driver is
-// event-driven so periodic work is limited to:
-//   - branch tag refresh (active sessions only)
-//   - pane capture for hang detection (background Running sessions only)
+// handleTick is fired by the global ticker.
 func (d ClaudeDriver) handleTick(cs ClaudeState, e state.DEvTick) (ClaudeState, []state.Effect) {
-	// Idle and Stopped sessions self-skip: no branch refresh, no hang
-	// detection. Hook events (not ticks) will wake them if needed.
-	if cs.Status == state.StatusIdle || cs.Status == state.StatusStopped {
-		return cs, nil
-	}
-
-	var effs []state.Effect
-
-	// Branch refresh: only when the session is active (swapped into 0.0)
-	// and the cache is stale or the working dir changed. The job is async;
-	// the in-flight flag prevents pile-up.
-	if e.Active {
-		target := cs.StartDir
-		if target == "" {
-			target = e.Project
-		}
-		if target != "" && !cs.BranchInFlight {
-			if target != cs.BranchTarget || e.Now.Sub(cs.BranchAt) >= claudeBranchRefreshInterval {
-				cs.BranchInFlight = true
-				cs.BranchTarget = target
-				effs = append(effs, state.EffStartJob{
-					Input: BranchDetectInput{WorkingDir: target},
-				})
-			}
-		}
-	}
-
-	// Pane capture for hang detection: background Running sessions only.
-	// When active, the agent pane is swapped into 0.0 and the window's .0
-	// holds the main TUI — capturing it would be meaningless. The user
-	// can see the active session directly; hang detection adds no value.
-	if !e.Active && cs.Status == state.StatusRunning && e.PaneTarget != "" && !cs.CaptureInFlight {
-		cs.CaptureInFlight = true
-		effs = append(effs, state.EffStartJob{
-			Input: CapturePaneInput{PaneTarget: e.PaneTarget, NLines: 5},
-		})
-	}
-
-	// Hang threshold check: if Running, pane is primed, no subagents
-	// are active, and neither pane content nor hook events have changed
-	// for claudeHangThreshold, transition to Idle.
-	if cs.Status == state.StatusRunning && cs.PaneHash != "" && !hasActiveSubagents(cs) {
-		lastActivity := cs.PaneHashAt
-		if cs.StatusChangedAt.After(lastActivity) {
-			lastActivity = cs.StatusChangedAt
-		}
-		if e.Now.Sub(lastActivity) > claudeHangThreshold {
-			cs.Status = state.StatusIdle
-			cs.StatusChangedAt = e.Now
-			cs.HangDetected = true
-			effs = append(effs, state.EffEventLogAppend{
-				Line: "HangDetected (pane unchanged)",
-			})
-		}
-	}
-
+	effs := cs.HandleTick(e, hasActiveSubagents(cs))
 	return cs, effs
 }
 
@@ -147,20 +89,7 @@ func (d ClaudeDriver) handleJobResult(cs ClaudeState, e state.DEvJobResult) (Cla
 		return cs, nil
 
 	case CapturePaneResult:
-		cs.CaptureInFlight = false
-		if e.Err != nil {
-			return cs, nil
-		}
-		if cs.PaneHash == "" {
-			// First capture: prime the baseline, no status change.
-			cs.PaneHash = r.Hash
-			cs.PaneHashAt = e.Now
-			return cs, nil
-		}
-		if r.Hash != cs.PaneHash {
-			cs.PaneHash = r.Hash
-			cs.PaneHashAt = e.Now
-		}
+		cs.HandleCapturePaneResult(r, e.Now)
 		return cs, nil
 	}
 	return cs, nil

@@ -96,6 +96,7 @@ func (d GeminiDriver) handleHook(gs GeminiState, e state.DEvHook) (GeminiState, 
 		return gs, nil
 	}
 
+	gs.ResetHangDetection()
 	gs.LastHookEvent = hp.HookEventName
 	if !e.Timestamp.IsZero() {
 		gs.LastHookAt = e.Timestamp
@@ -161,6 +162,8 @@ func (d GeminiDriver) handleJobResult(gs GeminiState, e state.DEvJobResult) (Gem
 		gs.BranchAt = e.Now
 		gs.BranchIsWorktree = r.IsWorktree
 		gs.BranchParentBranch = r.ParentBranch
+	case CapturePaneResult:
+		gs.HandleCapturePaneResult(r, e.Now)
 	}
 	return gs, nil
 }

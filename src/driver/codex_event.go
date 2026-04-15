@@ -74,6 +74,7 @@ func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []s
 		return cs, nil
 	}
 
+	cs.ResetHangDetection()
 	cs.LastHookEvent = hp.HookEventName
 	if !e.Timestamp.IsZero() {
 		cs.LastHookAt = e.Timestamp
@@ -171,6 +172,8 @@ func (d CodexDriver) handleJobResult(cs CodexState, e state.DEvJobResult) (Codex
 		cs.BranchAt = e.Now
 		cs.BranchIsWorktree = r.IsWorktree
 		cs.BranchParentBranch = r.ParentBranch
+	case CapturePaneResult:
+		cs.HandleCapturePaneResult(r, e.Now)
 	}
 	return cs, nil
 }
