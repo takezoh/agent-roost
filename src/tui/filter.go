@@ -5,6 +5,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"github.com/takezoh/agent-roost/state"
+	"github.com/takezoh/agent-roost/tui/glyphs"
 )
 
 // statusFilter tracks which session statuses are currently visible in the
@@ -98,10 +99,11 @@ func filterBarLayout(f statusFilter) (string, []chipHitbox) {
 	x := 0
 	for i, st := range filterStates {
 		var rendered string
+		sym := glyphs.Get(st.SymbolKey())
 		if f[i] {
-			rendered = filterChipOnStyle.Foreground(stateColor(st)).Render(st.Symbol())
+			rendered = filterChipOnStyle.Foreground(stateColor(st)).Render(sym)
 		} else {
-			rendered = filterChipOffStyle.Render(st.Symbol())
+			rendered = filterChipOffStyle.Render(sym)
 		}
 		w := lipgloss.Width(rendered)
 		boxes = append(boxes, chipHitbox{state: st, x0: x, x1: x + w})

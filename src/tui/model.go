@@ -2,6 +2,7 @@ package tui
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/spinner"
 
 	"github.com/takezoh/agent-roost/config"
@@ -17,6 +18,7 @@ type Model struct {
 	keys     KeyMap
 	features features.Set
 	spinner  spinner.Model
+	help     help.Model
 
 	sessions          []proto.SessionInfo
 	connectors        []proto.ConnectorInfo
@@ -47,6 +49,7 @@ func NewModel(client *proto.Client, cfg *config.Config) Model {
 		filter:   allOnFilter(),
 		cursor:   -1,
 		spinner:  spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		help:     help.New(),
 	}
 }
 
@@ -63,6 +66,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.help.SetWidth(msg.Width)
 		return m, nil
 
 	case disconnectMsg:

@@ -34,20 +34,23 @@ func (s Status) String() string {
 	}
 }
 
-func (s Status) Symbol() string {
+// SymbolKey returns a semantic key for the status icon, resolved to a
+// glyph by the tui/glyphs package. Keeping glyph data out of state/
+// preserves the dependency direction (tui → state, not state → tui).
+func (s Status) SymbolKey() string {
 	switch s {
 	case StatusRunning:
-		return "●"
+		return "status.running"
 	case StatusWaiting:
-		return "⋯"
+		return "status.waiting"
 	case StatusIdle:
-		return "\uf04c" // nf-fa-pause (requires Nerd Font)
+		return "status.idle"
 	case StatusStopped:
-		return "\uf04d" // nf-fa-stop (requires Nerd Font)
+		return "status.stopped"
 	case StatusPending:
-		return "⚡"
+		return "status.pending"
 	default:
-		return "?"
+		return ""
 	}
 }
 

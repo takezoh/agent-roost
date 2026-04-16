@@ -6,6 +6,22 @@ import (
 	"github.com/takezoh/agent-roost/state"
 )
 
+// ShortHelp implements help.KeyMap with a curated one-line set of bindings.
+func (k KeyMap) ShortHelp() []key.Binding {
+	filter := key.NewBinding(key.WithKeys("1", "2", "3", "4", "5"), key.WithHelp("1-5", "filter"))
+	return []key.Binding{k.Up, k.Down, k.Enter, k.Toggle, k.New, k.Stop, filter, k.WorkspacePrev}
+}
+
+// FullHelp implements help.KeyMap with the complete binding table.
+func (k KeyMap) FullHelp() [][]key.Binding {
+	return [][]key.Binding{
+		{k.Up, k.Down, k.Enter, k.Toggle},
+		{k.New, k.NewCmd, k.Stop},
+		{k.Filter1, k.Filter2, k.Filter3, k.Filter4, k.Filter5, k.FilterReset},
+		{k.WorkspacePrev, k.WorkspaceNext, k.WorkspaceReset},
+	}
+}
+
 type KeyMap struct {
 	Up             key.Binding
 	Down           key.Binding

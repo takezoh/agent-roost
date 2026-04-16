@@ -7,6 +7,7 @@ import (
 
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/state"
+	"github.com/takezoh/agent-roost/tui/glyphs"
 )
 
 type MainModel struct {
@@ -131,5 +132,5 @@ func (m MainModel) selectedProjectName() string {
 }
 
 func stateSymbol(s state.Status) string {
-	return stateStyle(s).Render(s.Symbol())
+	return stateStyle(s).Render(glyphs.Get(s.SymbolKey()))
 }

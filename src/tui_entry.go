@@ -16,7 +16,22 @@ import (
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/tools"
 	"github.com/takezoh/agent-roost/tui"
+	"github.com/takezoh/agent-roost/tui/glyphs"
 )
+
+// initGlyphs loads the optional user glyph override and applies the
+// ROOST_GLYPHS environment variable (default: "nerd").
+func initGlyphs() {
+	home, err := os.UserHomeDir()
+	if err == nil {
+		if err := glyphs.Load(filepath.Join(home, ".roost", "glyphs.json")); err != nil {
+			slog.Warn("glyphs: load error", "err", err)
+		}
+	}
+	if name := os.Getenv("ROOST_GLYPHS"); name != "" {
+		glyphs.Use(name)
+	}
+}
 
 func runMainTUI() error {
 	cfg, err := loadConfig()
@@ -24,6 +39,7 @@ func runMainTUI() error {
 		return err
 	}
 	tui.ApplyTheme(cfg.Theme)
+	initGlyphs()
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
 	client, err := proto.Dial(sockPath)
@@ -50,6 +66,7 @@ func runLogViewer() error {
 		return err
 	}
 	tui.ApplyTheme(cfg.Theme)
+	initGlyphs()
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
 	client, err := proto.Dial(sockPath)
@@ -76,6 +93,7 @@ func runSessionList() error {
 		return err
 	}
 	tui.ApplyTheme(cfg.Theme)
+	initGlyphs()
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
 	client, err := proto.Dial(sockPath)
@@ -99,6 +117,7 @@ func runPalette(args []string) error {
 		return err
 	}
 	tui.ApplyTheme(cfg.Theme)
+	initGlyphs()
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	slog.Info("palette dial", "sock", sockPath)
 
