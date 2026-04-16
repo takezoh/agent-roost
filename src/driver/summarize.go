@@ -26,21 +26,16 @@ func summarizeWithCommand(ctx context.Context, prompt, command string) (string, 
 	return strings.TrimSpace(stdout.String()), nil
 }
 
-// filteredRoostEnv returns a copy of src with ROOST_SESSION_ID removed to
-// prevent recursive roost hook events when the summarize command itself
-// triggers a Claude/Codex/Gemini session.
+// filteredRoostEnv returns a copy of src with every ROOST_* env var
+// removed, so a summarizer subprocess cannot impersonate a
+// roost-tracked session. If a hook registered by `roost <agent> setup`
+// still fires inside the summarizer and spawns `roost event <agent>`,
+// that subprocess will see empty ROOST_FRAME_ID and the event is
+// dropped at src/cli/event.go:32-36 without reaching the daemon.
 func filteredRoostEnv(src []string) []string {
-	drop := map[string]struct{}{
-		"ROOST_SESSION_ID": {},
-	}
 	out := make([]string, 0, len(src))
 	for _, kv := range src {
-		i := strings.IndexByte(kv, '=')
-		if i < 0 {
-			out = append(out, kv)
-			continue
-		}
-		if _, skip := drop[kv[:i]]; skip {
+		if strings.HasPrefix(kv, "ROOST_") {
 			continue
 		}
 		out = append(out, kv)
