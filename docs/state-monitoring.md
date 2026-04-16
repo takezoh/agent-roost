@@ -50,7 +50,8 @@ Hook event → driver.Status mapping:
 | Hook event | Status |
 |--------------|--------|
 | UserPromptSubmit, PreToolUse, PostToolUse, SubagentStart | Running |
-| Stop, StopFailure, Notification(idle_prompt) | Waiting |
+| Stop, Notification(idle_prompt) | Waiting |
+| StopFailure, SessionEnd | Stopped |
 | Notification(permission_prompt) | Pending |
 | SessionStart | Idle |
 | SessionEnd | Stopped |

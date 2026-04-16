@@ -44,8 +44,10 @@ func (hp hookPayload) deriveState() string {
 	switch hp.HookEventName {
 	case "UserPromptSubmit", "PreToolUse", "PostToolUse":
 		return "running"
-	case "Stop", "StopFailure":
+	case "Stop":
 		return "waiting"
+	case "StopFailure":
+		return "stopped"
 	case "SessionEnd":
 		return "stopped"
 	case "SessionStart":

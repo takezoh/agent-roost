@@ -172,6 +172,32 @@ func TestClaudeStateChangeStopSetsWaiting(t *testing.T) {
 	}
 }
 
+func TestClaudeStateChangeStopFailureSetsStopped(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	cs.TranscriptPath = "/tmp/t.jsonl"
+	next, effs := d.handleHook(cs, hookEvent("StopFailure", map[string]string{
+		"session_id":      "uuid",
+		"hook_event_name": "StopFailure",
+	}, now.Add(time.Second)))
+	if next.Status != state.StatusStopped {
+		t.Errorf("Status = %v, want Stopped (StopFailure → stopped)", next.Status)
+	}
+	if !next.StatusChangedAt.Equal(now.Add(time.Second)) {
+		t.Errorf("StatusChangedAt not updated")
+	}
+	logEff, ok := findEffect[state.EffEventLogAppend](effs)
+	if !ok {
+		t.Fatal("expected EffEventLogAppend")
+	}
+	if logEff.Line != "StopFailure" {
+		t.Errorf("log line = %q, want StopFailure", logEff.Line)
+	}
+	if !next.TranscriptInFlight {
+		t.Error("TranscriptInFlight should be true after state-change")
+	}
+}
+
 func TestClaudeUnknownHookEventIsNoop(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.Status = state.StatusWaiting
