@@ -16,9 +16,9 @@ import (
 
 var _ state.DriverState = GenericState{}
 
-func RegisterRunners(capturePaneFn func(string, int) (string, error), summarizeCmd string) {
+func RegisterRunners(capturePaneFn func(string, int) (string, error), summarizeCmd, dataDir string) {
 	worker.RegisterRunner("capture_pane", newCapturePane(capturePaneFn))
-	tp, hs := newTranscriptSummaryRunners(summarizeCmd)
+	tp, hs := newTranscriptSummaryRunners(summarizeCmd, dataDir)
 	worker.RegisterRunner("transcript_parse", tp)
 	worker.RegisterRunner("codex_transcript_parse", newCodexTranscriptParse())
 	worker.RegisterRunner("summary_command", hs)

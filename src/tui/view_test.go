@@ -179,6 +179,84 @@ func TestTotalItemRowsEmpty(t *testing.T) {
 	}
 }
 
+func TestMaxOffset(t *testing.T) {
+	tests := []struct {
+		name       string
+		rows       []int
+		bodyHeight int
+		wantMax    int
+	}{
+		{"all fit", []int{2, 2, 2}, 10, 0},
+		{"empty", []int{}, 10, 0},
+		{"bodyHeight zero", []int{2, 2, 2}, 0, 0},
+		// Items: rows=[3,3,3], total=9. bodyHeight=5.
+		// At off=2: itemHeight=5-1(↑more)=4, rows[2..]=3 ≤ 4 → fits → continue.
+		// At off=1: itemHeight=5-1=4, rows[1..]=6 > 4 → return off+1=2.
+		{"overflow two items tail fits", []int{3, 3, 3}, 5, 2},
+		// Items: rows=[2,2,2,2], bodyHeight=3.
+		// At off=3: itemHeight=3-1=2, rows[3..]=2 ≤ 2 → fits → continue.
+		// At off=2: itemHeight=3-1=2, rows[2..]=4 > 2 → return 3.
+		{"large list small viewport", []int{2, 2, 2, 2}, 3, 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := Model{items: makeItems(tt.rows...)}
+			got := m.maxOffset(tt.bodyHeight)
+			if got != tt.wantMax {
+				t.Errorf("maxOffset(%d) = %d, want %d", tt.bodyHeight, got, tt.wantMax)
+			}
+		})
+	}
+}
+
+func TestMaxOffsetStickyHeader(t *testing.T) {
+	// Layout: project "alpha" (1 row) at idx=0, session (2 rows) at idx=1.
+	// bodyHeight=4, offset=1 causes sticky header → itemHeight=4-1(↑more)-1(sticky)=2.
+	// rows[1..]=2 ≤ 2 → fits. Continue to off=0 (loop skips 0). → return 0.
+	items := []listItem{
+		{isProject: true, project: "alpha", rows: 1},
+		{project: "alpha", rows: 2},
+	}
+	m := Model{items: items}
+	got := m.maxOffset(4)
+	if got != 0 {
+		t.Errorf("maxOffset with sticky = %d, want 0", got)
+	}
+
+	// Same layout but taller session that doesn't fit when sticky header takes a row.
+	// At off=1: itemHeight=4-1-1=2, rows[1..]=3 > 2 → return 2.
+	items[1].rows = 3
+	m.items = items
+	got = m.maxOffset(4)
+	if got != 2 {
+		t.Errorf("maxOffset with sticky overflow = %d, want 2", got)
+	}
+}
+
+func TestHandleMouseWheelStopsAtMaxOffset(t *testing.T) {
+	// 4 items × 3 rows each = 12 total; bodyHeight=5
+	// maxOffset(5): at off=3: itemHeight=5-1=4, rows[3..]=3 ≤ 4 → fits.
+	//               at off=2: itemHeight=4, rows[2..]=6 > 4 → return 3.
+	m := Model{
+		items:  makeItems(3, 3, 3, 3),
+		height: baseHeaderRows + 5,
+		offset: 0,
+		cursor: 0,
+	}
+	bodyHeight := m.height - m.headerRowCount()
+	want := m.maxOffset(bodyHeight)
+
+	msg := tea.MouseWheelMsg{Button: tea.MouseWheelDown}
+	// Wheel down many times — offset must stop at want.
+	for i := 0; i < 10; i++ {
+		result, _ := m.handleMouseWheel(msg)
+		m = result.(Model)
+	}
+	if m.offset != want {
+		t.Errorf("offset after many WheelDown = %d, want %d (maxOffset)", m.offset, want)
+	}
+}
+
 func TestHandleMouseWheelNoScrollWhenFits(t *testing.T) {
 	m := Model{
 		items:  makeItems(2, 2, 2), // total 6 rows
