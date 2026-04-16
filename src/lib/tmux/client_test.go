@@ -30,6 +30,19 @@ func TestRunContextTimeout(t *testing.T) {
 	}
 }
 
+// TestUnbindKeyWithCancelledContext verifies that UnbindKey propagates a
+// pre-cancelled context error and does not panic.
+func TestUnbindKeyWithCancelledContext(t *testing.T) {
+	c := NewClient("nonexistent")
+	// Drive Run through the cancelled-context path used by RunContext.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := c.RunContext(ctx, "unbind-key", "-q", "-T", "root", "MouseDown3Pane")
+	if err == nil {
+		t.Fatal("expected error from cancelled context, got nil")
+	}
+}
+
 // TestRunContextCancelled verifies that RunContext respects a pre-cancelled
 // context and returns immediately.
 func TestRunContextCancelled(t *testing.T) {

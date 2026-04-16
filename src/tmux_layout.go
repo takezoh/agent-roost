@@ -130,6 +130,19 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 	client.BindKey("prefix", "C-p",
 		"display-popup", "-E", "-w", "60%", "-h", "50%",
 		exePath+" --tui palette --tool=push-driver")
+	// Disable right-click context menus (Horizontal/Vertical Split etc.)
+	// without wiping the entire root table, which would break C-b prefix
+	// forwarding and mouse drag selection.
+	for _, key := range []string{
+		"MouseDown3Pane",
+		"M-MouseDown3Pane",
+		"MouseDown3Status",
+		"MouseDown3StatusDefault",
+		"MouseDown3StatusLeft",
+		"MouseDown3StatusRight",
+	} {
+		client.UnbindKey("root", key)
+	}
 }
 
 func respawnMainPane(client *tmux.Client, sn string) {

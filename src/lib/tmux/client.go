@@ -188,6 +188,13 @@ func (c *Client) UnbindAllKeys(table string) error {
 	return err
 }
 
+// UnbindKey removes a single key binding from the given table.
+// Uses -q to silently ignore keys that are not bound.
+func (c *Client) UnbindKey(table, key string) error {
+	_, err := c.Run("unbind-key", "-q", "-T", table, key)
+	return err
+}
+
 // ShowOption returns the value of a tmux server-global option.
 // Wraps `tmux show-option -gv <key>`. Returns empty string if the
 // option is unset or if the server is not running.
