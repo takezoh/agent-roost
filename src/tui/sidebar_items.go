@@ -138,6 +138,32 @@ func (m *Model) ensureCursorVisible(bodyHeight int) {
 	}
 }
 
+// maxOffset returns the largest offset for which all remaining items
+// still fit in the viewport (i.e. the "↓ N more" indicator would not
+// appear). It accounts for the view chrome that renderSessionsBody
+// subtracts: one row for "↑ N more" when offset > 0, and one row for
+// a sticky project header when applicable.
+func (m Model) maxOffset(bodyHeight int) int {
+	if len(m.items) == 0 || bodyHeight <= 0 {
+		return 0
+	}
+	for off := len(m.items) - 1; off > 0; off-- {
+		itemHeight := bodyHeight
+		itemHeight-- // "↑ N more" is always shown when off > 0
+		if stickyProject(m.items, off) != "" {
+			itemHeight--
+		}
+		rows := 0
+		for i := off; i < len(m.items); i++ {
+			rows += m.items[i].rows
+		}
+		if rows > itemHeight {
+			return off + 1
+		}
+	}
+	return 0
+}
+
 func (m Model) visibleEnd(bodyHeight int) int {
 	rows := 0
 	for i := m.offset; i < len(m.items); i++ {

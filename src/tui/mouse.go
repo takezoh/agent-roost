@@ -125,7 +125,7 @@ func (m Model) handleMouseWheel(msg tea.MouseWheelMsg) (tea.Model, tea.Cmd) {
 		}
 	case tea.MouseWheelDown:
 		m.offset += scrollStep
-		last := len(m.items) - 1
+		last := m.maxOffset(bodyHeight)
 		if m.offset > last {
 			m.offset = last
 		}
