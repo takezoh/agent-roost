@@ -18,15 +18,17 @@ type Model struct {
 	features features.Set
 	spinner  spinner.Model
 
-	sessions   []proto.SessionInfo
-	connectors []proto.ConnectorInfo
-	items      []listItem
-	cursor     int
-	offset     int // first visible item index for scrolling
-	folded     map[string]bool
-	filter     statusFilter
-	active     string
-	anchored   string
+	sessions          []proto.SessionInfo
+	connectors        []proto.ConnectorInfo
+	items             []listItem
+	cursor            int
+	offset            int // first visible item index for scrolling
+	folded            map[string]bool
+	filter            statusFilter
+	selectedWorkspace string   // "" = All workspaces
+	workspaces        []string // sorted distinct workspace names (always includes "default")
+	active            string
+	anchored          string
 	mouseSeq   int
 	hovering   bool
 	lastMouseX int

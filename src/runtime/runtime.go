@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/features"
 	"github.com/takezoh/agent-roost/runtime/worker"
 	"github.com/takezoh/agent-roost/state"
@@ -78,6 +79,10 @@ type Runtime struct {
 	// PaneAlive probes from the fastTicker. Written from any goroutine,
 	// read from the event loop.
 	fastProbeInFlight atomic.Bool
+
+	// workspaceResolver resolves the workspace name for each session's
+	// project directory, with mtime-based caching of .roost/settings.toml.
+	workspaceResolver *config.WorkspaceResolver
 }
 
 // New constructs a Runtime ready for Run. Backends must be set on the
@@ -123,6 +128,7 @@ func New(cfg Config) *Runtime {
 		internalCh:         make(chan internalEvent, 64),
 		conns:              map[state.ConnID]*ipcConn{},
 		done:               make(chan struct{}),
+		workspaceResolver:  config.NewWorkspaceResolver(),
 	}
 	if cfg.Pool != nil {
 		r.workers = cfg.Pool

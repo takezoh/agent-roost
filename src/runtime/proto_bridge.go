@@ -221,6 +221,7 @@ func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
 		info := proto.SessionInfo{
 			ID:        string(sess.ID),
 			Project:   sess.Project,
+			Workspace: r.workspaceResolver.Resolve(sess.Project),
 			Command:   frame.Command,
 			CreatedAt: sess.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
 			State:     view.Status,

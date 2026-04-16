@@ -61,6 +61,15 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.focusCmd(mainPane)
 	}
+	if name, isAll, hit := m.hitTestWorkspaceChip(mouse.X, mouse.Y); hit {
+		if isAll {
+			m.selectedWorkspace = ""
+		} else {
+			m.selectedWorkspace = name
+		}
+		m.rebuildItems()
+		return m, nil
+	}
 	if state, isAll, hit := m.hitTestFilterChip(mouse.X, mouse.Y); hit {
 		if isAll {
 			m.filter.toggleAll()

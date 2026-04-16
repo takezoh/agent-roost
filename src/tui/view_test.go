@@ -9,8 +9,9 @@ import (
 	"github.com/takezoh/agent-roost/state"
 )
 
-// baseHeaderRows is the header row count when no connectors are present
-// (header + filter bar + blank = 3). Test models have no connectors.
+// baseHeaderRows is the header row count when no connectors and no workspace bar
+// are present (title + filter bar + blank = 3). Test models have no connectors and
+// fewer than 2 workspaces, so the workspace bar is hidden.
 const baseHeaderRows = 3
 
 func makeItems(rowCounts ...int) []listItem {
@@ -121,8 +122,8 @@ func TestRowToItemIndexWithStickyHeader(t *testing.T) {
 		items:  items,
 		offset: 1, // project header scrolled out → sticky header shown
 	}
-	// Row layout (baseHeaderRows=3):
-	//   row 0-2: header area
+	// Row layout (baseHeaderRows=3, workspace bar hidden — fewer than 2 workspaces):
+	//   row 0-2: header area (title + filter bar + blank)
 	//   row 3:   "↑ N more"
 	//   row 4:   sticky "alpha" header
 	//   row 5-7: session idx=1 (3 rows)

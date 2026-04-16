@@ -25,11 +25,33 @@ func (m *Model) rebuildItems() {
 		prev = m.items[m.cursor]
 	}
 
+	// Rebuild the workspace list from the full (unfiltered) session set so
+	// that switching away from a workspace doesn't make its chip disappear.
+	m.workspaces = collectWorkspaces(m.sessions)
+
+	// If the currently selected workspace no longer exists in the session
+	// list, reset to All so the user is never left with an empty view.
+	if m.selectedWorkspace != "" {
+		found := false
+		for _, ws := range m.workspaces {
+			if ws == m.selectedWorkspace {
+				found = true
+				break
+			}
+		}
+		if !found {
+			m.selectedWorkspace = ""
+		}
+	}
+
 	byProject := make(map[string][]proto.SessionInfo)
 	allProjects := make(map[string]string)
 	for i := range m.sessions {
 		s := &m.sessions[i]
 		if !m.filter.matches(s.State) {
+			continue
+		}
+		if m.selectedWorkspace != "" && workspaceOf(s) != m.selectedWorkspace {
 			continue
 		}
 		name := s.Name()
@@ -192,7 +214,10 @@ func (m Model) findSessionCursorByID(id string) int {
 }
 
 func (m Model) headerRowCount() int {
-	n := 3
+	n := 3 // title + filter bar + blank separator
+	if m.workspaceBarVisible() {
+		n++ // workspace switcher bar
+	}
 	if m.hasConnectorSummary() {
 		n++
 	}
