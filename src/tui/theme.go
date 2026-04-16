@@ -116,6 +116,12 @@ var (
 	filterAllOnStyle   lipgloss.Style
 	filterAllOffStyle  lipgloss.Style
 
+	// Workspace switcher chips
+	workspaceChipOnStyle  lipgloss.Style
+	workspaceChipOffStyle lipgloss.Style
+	workspaceAllOnStyle   lipgloss.Style
+	workspaceAllOffStyle  lipgloss.Style
+
 	// Minimal mode
 	minimalProjectSelStyle      lipgloss.Style // Primary + Bold
 	minimalTagTextStyle         lipgloss.Style // Fg
@@ -139,6 +145,7 @@ func ApplyTheme(name string) {
 	rebuildCardStyles(t)
 	rebuildPaletteStyles(t)
 	rebuildFilterStyles(t)
+	rebuildWorkspaceStyles(t)
 	rebuildMinimalStyles(t)
 	rebuildSpinnerPalette(t)
 }
@@ -212,6 +219,24 @@ func rebuildFilterStyles(t Theme) {
 		Foreground(t.Primary).
 		Padding(0, 1)
 	filterAllOffStyle = lipgloss.NewStyle().
+		Foreground(t.Dim).
+		Padding(0, 1)
+}
+
+func rebuildWorkspaceStyles(t Theme) {
+	workspaceChipOnStyle = lipgloss.NewStyle().
+		Background(t.Primary).
+		Foreground(t.TagFg).
+		Bold(true).
+		Padding(0, 1)
+	workspaceChipOffStyle = lipgloss.NewStyle().
+		Foreground(t.Muted).
+		Padding(0, 1)
+	workspaceAllOnStyle = lipgloss.NewStyle().
+		Bold(true).
+		Foreground(t.Primary).
+		Padding(0, 1)
+	workspaceAllOffStyle = lipgloss.NewStyle().
 		Foreground(t.Dim).
 		Padding(0, 1)
 }

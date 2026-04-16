@@ -122,12 +122,21 @@ func filterBarLayout(f statusFilter) (string, []chipHitbox) {
 	return strings.Join(parts, " "), boxes
 }
 
+// filterBarRow returns the y coordinate of the filter bar. When the workspace
+// bar is visible it sits at row 2 (below title and workspace bar); otherwise
+// it moves up to row 1 (below title only).
+func (m Model) filterBarRow() int {
+	if m.workspaceBarVisible() {
+		return 2
+	}
+	return 1
+}
+
 // hitTestFilterChip maps a mouse coordinate to a filter chip. The filter bar
-// is rendered as the second row of the sessions screen (header=0, filter=1).
+// row depends on whether the workspace bar is currently shown (see filterBarRow).
 // Returns hit=false when the click is not on a chip.
 func (m Model) hitTestFilterChip(x, y int) (status state.Status, isAll bool, hit bool) {
-	const filterRow = 1
-	if y != filterRow {
+	if y != m.filterBarRow() {
 		return 0, false, false
 	}
 	_, boxes := filterBarLayout(m.filter)

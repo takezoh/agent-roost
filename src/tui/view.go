@@ -27,7 +27,12 @@ func (m Model) View() tea.View {
 	filterBar, _ := filterBarLayout(m.filter)
 	body := renderSessionsBody(&m, width)
 
-	parts := []string{header, filterBar, ""}
+	parts := []string{header}
+	if m.workspaceBarVisible() {
+		workspaceBar, _ := workspaceBarLayout(m.workspaces, m.selectedWorkspace)
+		parts = append(parts, workspaceBar)
+	}
+	parts = append(parts, filterBar, "")
 	if summary := m.connectorSummaryLine(); summary != "" {
 		parts = append(parts, "  "+mutedStyle.Render(summary))
 	}

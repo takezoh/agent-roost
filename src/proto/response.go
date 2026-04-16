@@ -58,6 +58,7 @@ func (RespActiveSession) isResponse() {}
 type SessionInfo struct {
 	ID             string       `json:"id"`
 	Project        string       `json:"project"`
+	Workspace      string       `json:"workspace,omitempty"`
 	Command        string       `json:"command"`
 	CreatedAt      string       `json:"created_at"`
 	State          state.Status `json:"state,omitempty"`
