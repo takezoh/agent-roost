@@ -16,6 +16,7 @@ import (
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/tools"
 	"github.com/takezoh/agent-roost/tui"
+	"github.com/takezoh/agent-roost/tui/glyphs"
 )
 
 type tuiBootstrapOpts struct {
@@ -23,7 +24,7 @@ type tuiBootstrapOpts struct {
 	AllowOffline bool
 }
 
-// tuiBootstrap loads config, applies theme, and dials the IPC socket.
+// tuiBootstrap loads config, applies theme, initialises glyphs, and dials the IPC socket.
 // If AllowOffline is true and Dial fails, returns (cfg, nil, nil).
 // If Subscribe is true and Dial succeeds, calls client.Subscribe().
 // Caller must defer client.Close() when client is non-nil.
@@ -33,6 +34,7 @@ func tuiBootstrap(opts tuiBootstrapOpts) (*config.Config, *proto.Client, error) 
 		return nil, nil, err
 	}
 	tui.ApplyTheme(cfg.Theme)
+	initGlyphs()
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
 	client, err := proto.Dial(sockPath)
@@ -47,6 +49,20 @@ func tuiBootstrap(opts tuiBootstrapOpts) (*config.Config, *proto.Client, error) 
 		client.Subscribe()
 	}
 	return cfg, client, nil
+}
+
+// initGlyphs loads the optional user glyph override and applies the
+// ROOST_GLYPHS environment variable (default: "nerd").
+func initGlyphs() {
+	home, err := os.UserHomeDir()
+	if err == nil {
+		if err := glyphs.Load(filepath.Join(home, ".roost", "glyphs.json")); err != nil {
+			slog.Warn("glyphs: load error", "err", err)
+		}
+	}
+	if name := os.Getenv("ROOST_GLYPHS"); name != "" {
+		glyphs.Use(name)
+	}
 }
 
 func runMainTUI() error {

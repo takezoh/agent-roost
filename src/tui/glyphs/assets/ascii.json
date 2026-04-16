@@ -1,0 +1,19 @@
+{
+  "name": "ascii",
+  "glyphs": {
+    "status.running": "*",
+    "status.waiting": "...",
+    "status.idle": "||",
+    "status.stopped": "[]",
+    "status.pending": "!",
+    "tag.branch": "@",
+    "workspace": "~",
+    "filter": "/",
+    "palette": "?",
+    "fold.open": "v",
+    "fold.closed": "+",
+    "tab.info": "I",
+    "tab.log": "L",
+    "link": "^"
+  }
+}

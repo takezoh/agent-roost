@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/state"
+	"github.com/takezoh/agent-roost/tui/glyphs"
 )
 
 // maxSubtitleLines caps the number of non-empty subtitle lines rendered
@@ -26,6 +27,7 @@ func (m Model) View() tea.View {
 	header := titleStyle.Render("SESSIONS") + "  " + badgeStyle.Render(fmt.Sprintf("%d/%d sessions", visible, total))
 	filterBar, _ := filterBarLayout(m.filter)
 	body := renderSessionsBody(&m, width)
+	hintBar := mutedStyle.Render(m.help.ShortHelpView(m.keys.ShortHelp()))
 
 	parts := []string{header}
 	if m.workspaceBarVisible() {
@@ -36,13 +38,19 @@ func (m Model) View() tea.View {
 	if summary := m.connectorSummaryLine(); summary != "" {
 		parts = append(parts, "  "+mutedStyle.Render(summary))
 	}
-	parts = append(parts, body)
+	parts = append(parts, body, hintBar)
 	screen := lipgloss.JoinVertical(lipgloss.Left, parts...)
 
 	v := tea.NewView(screen)
 	v.AltScreen = true
 	v.MouseMode = tea.MouseModeAllMotion
 	return v
+}
+
+// footerRowCount returns the number of rows reserved at the bottom of the
+// sidebar for the hint bar.
+func (m Model) footerRowCount() int {
+	return 1
 }
 
 func renderSessionsBody(m *Model, innerWidth int) string {
@@ -63,8 +71,8 @@ func renderSessionsBody(m *Model, innerWidth int) string {
 	}
 
 	// Compute available body height and adjust scroll offset.
-	// Reserve rows for the chrome: header area.
-	bodyHeight := m.height - m.headerRowCount()
+	// Reserve rows for the chrome: header area and hint bar footer.
+	bodyHeight := m.height - m.headerRowCount() - m.footerRowCount()
 	if bodyHeight < 3 {
 		bodyHeight = 3
 	}
@@ -95,7 +103,7 @@ func renderSessionsBody(m *Model, innerWidth int) string {
 		b.WriteString("\n")
 	}
 	if sticky != "" {
-		b.WriteString(renderProject(sticky, false, false))
+		b.WriteString(renderProject(sticky, "", false, false))
 		b.WriteString("\n")
 	}
 	for i := m.offset; i < end; i++ {
@@ -143,17 +151,18 @@ func stickyProject(items []listItem, offset int) string {
 
 func renderItem(item listItem, selected bool, width int, folded bool) string {
 	if item.isProject {
-		return renderProject(item.project, folded, selected)
+		return renderProject(item.project, item.projectPath, folded, selected)
 	}
 	return renderSession(item.session, selected, width)
 }
 
-func renderProject(name string, folded, selected bool) string {
-	arrow := "▼"
+func renderProject(name, path string, folded, selected bool) string {
+	arrow := glyphs.Get("fold.open")
 	if folded {
-		arrow = "▶"
+		arrow = glyphs.Get("fold.closed")
 	}
-	line := fmt.Sprintf("%s %s", arrow, name)
+	label := Link(fileLink(path), name)
+	line := fmt.Sprintf("%s %s", arrow, label)
 	if Active.Minimal {
 		if selected {
 			return minimalProjectSelStyle.Render("▌ " + line)
@@ -216,7 +225,7 @@ func sessionCardLines(s *proto.SessionInfo, textWidth int) []string {
 	if s.State == state.StatusRunning {
 		iconGlyph = runningSpinnerGlyph()
 	} else {
-		iconGlyph = stateStyle(s.State).Render(s.State.Symbol())
+		iconGlyph = stateStyle(s.State).Render(glyphs.Get(s.State.SymbolKey()))
 	}
 	stateStr := iconGlyph + " " + stateStyle(s.State).Render(s.State.String())
 	elapsed := mutedStyle.Render(formatElapsed(time.Since(s.StateChangedAtTime())))

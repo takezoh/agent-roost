@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/takezoh/agent-roost/proto"
+	"github.com/takezoh/agent-roost/tui/glyphs"
 )
 
 // renderInfoContent builds the INFO tab body. The TUI prepends a generic
@@ -14,7 +15,7 @@ import (
 // chips for at-a-glance debugging. Driver-side rendering is
 // intentionally minimal: the TUI controls layout and ordering of the
 // generic block so every session shows the same header in the same order.
-func renderInfoContent(s *proto.SessionInfo) string {
+func renderInfoContent(s *proto.SessionInfo, width int) string {
 	if s == nil {
 		return ""
 	}
@@ -27,9 +28,9 @@ func renderInfoContent(s *proto.SessionInfo) string {
 	}
 
 	writeField("ID", s.ID)
-	writeField("Project", s.Project)
+	writeField("Project", Link(fileLink(s.Project), s.Project))
 	writeField("Command", s.DisplayCommand())
-	writeField("State", s.State.Symbol()+" "+s.State.String())
+	writeField("State", glyphs.Get(s.State.SymbolKey())+" "+s.State.String())
 	if t := s.CreatedAtTime(); !t.IsZero() {
 		writeField("Created", t.Format("2006-01-02 15:04:05"))
 	}
@@ -39,6 +40,12 @@ func renderInfoContent(s *proto.SessionInfo) string {
 
 	for _, line := range s.View.InfoExtras {
 		writeField(line.Label, line.Value)
+	}
+
+	if bar := renderRunningProgress(s, width); bar != "" {
+		b.WriteString("\n")
+		b.WriteString(bar)
+		b.WriteString("\n")
 	}
 
 	if len(s.View.Card.Indicators) > 0 {

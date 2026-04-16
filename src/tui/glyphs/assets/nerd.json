@@ -1,0 +1,19 @@
+{
+  "name": "nerd",
+  "glyphs": {
+    "status.running": "●",
+    "status.waiting": "⋯",
+    "status.idle": "\uf04c",
+    "status.stopped": "\uf04d",
+    "status.pending": "⚡",
+    "tag.branch": "\ue725",
+    "workspace": "\uf07b",
+    "filter": "\uf0b0",
+    "palette": "\uf002",
+    "fold.open": "▼",
+    "fold.closed": "▶",
+    "tab.info": "\uf05a",
+    "tab.log": "\uf120",
+    "link": "\uf0c1"
+  }
+}
