@@ -87,6 +87,37 @@ func TestIsWorktree_LinkedWorktree(t *testing.T) {
 	}
 }
 
+func TestIsRepo_GitDir(t *testing.T) {
+	dir := initRepo(t)
+	if !IsRepo(dir) {
+		t.Error("IsRepo = false for git repo, want true")
+	}
+}
+
+func TestIsRepo_NonGitDir(t *testing.T) {
+	dir := t.TempDir()
+	if IsRepo(dir) {
+		t.Error("IsRepo = true for non-git dir, want false")
+	}
+}
+
+func TestIsRepo_NonExistent(t *testing.T) {
+	if IsRepo("/no/such/path/xyz") {
+		t.Error("IsRepo = true for nonexistent path, want false")
+	}
+}
+
+func TestIsRepo_SubdirOfGitRepo(t *testing.T) {
+	dir := initRepo(t)
+	sub := filepath.Join(dir, "subdir")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !IsRepo(sub) {
+		t.Error("IsRepo = false for subdir inside git repo, want true")
+	}
+}
+
 func TestDetectMainBranch_LinkedWorktree(t *testing.T) {
 	dir := initRepo(t)
 	gitRun(t, dir, "branch", "feature")

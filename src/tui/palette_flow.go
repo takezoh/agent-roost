@@ -75,7 +75,12 @@ func (m PaletteModel) advanceParam() (tea.Model, tea.Cmd) {
 		m.paramCursor = 0
 		m.input = ""
 		if m.selectedTool != nil && m.selectedTool.Name == "new-session" && p.Name == "command" {
-			if m.worktreeOn {
+			m.projectIsGit = m.ctx != nil && m.ctx.IsGitProject != nil &&
+				m.ctx.IsGitProject(m.paramArgs["project"])
+			if !m.projectIsGit {
+				m.worktreeOn = false
+				delete(m.paramArgs, "worktree")
+			} else if m.worktreeOn {
 				m.paramArgs["worktree"] = "on"
 			} else {
 				delete(m.paramArgs, "worktree")
@@ -140,7 +145,8 @@ func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	case key.Matches(msg, tabBinding):
 		if m.selectedTool != nil && m.selectedTool.Name == "new-session" &&
 			m.paramIndex < len(m.selectedTool.Params) &&
-			m.selectedTool.Params[m.paramIndex].Name == "command" {
+			m.selectedTool.Params[m.paramIndex].Name == "command" &&
+			m.projectIsGit {
 			m.worktreeOn = !m.worktreeOn
 			if m.worktreeOn {
 				m.paramArgs["worktree"] = "on"

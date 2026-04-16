@@ -41,9 +41,10 @@ type ToolInvocation struct {
 // call. Client is the daemon connection; Config carries static
 // palette config (commands, projects).
 type ToolContext struct {
-	Client *proto.Client
-	Config ToolConfig
-	Args   map[string]string
+	Client       *proto.Client
+	Config       ToolConfig
+	Args         map[string]string
+	IsGitProject func(path string) bool // nil-safe; injected by main
 }
 
 type ToolConfig struct {

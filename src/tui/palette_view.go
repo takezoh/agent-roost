@@ -97,7 +97,8 @@ func renderPaletteParam(m PaletteModel, innerWidth int) string {
 
 	showWorktreeChip := m.selectedTool != nil && m.selectedTool.Name == "new-session" &&
 		m.paramIndex < len(m.selectedTool.Params) &&
-		m.selectedTool.Params[m.paramIndex].Name == "command"
+		m.selectedTool.Params[m.paramIndex].Name == "command" &&
+		m.projectIsGit
 
 	if len(m.paramOptions) == 0 {
 		b.WriteString(descStyle.Render("(type value, enter to confirm)"))

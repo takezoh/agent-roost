@@ -29,6 +29,7 @@ type PaletteModel struct {
 	paramOptions []string
 	paramCursor  int
 	worktreeOn   bool
+	projectIsGit bool // cached on entering command param phase; false = hide wt chip
 
 	width  int
 	height int

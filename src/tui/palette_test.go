@@ -245,6 +245,7 @@ func TestRenderPaletteParamWorktreeChipOnCursorOnly(t *testing.T) {
 	m.paramIndex = 0
 	m.paramOptions = []string{"cmd-a", "cmd-b", "cmd-c"}
 	m.worktreeOn = true
+	m.projectIsGit = true
 	m.paramCursor = 1
 
 	out := renderPaletteParam(m, 56)
@@ -308,6 +309,75 @@ func TestRenderPaletteParamNoChipForOtherTools(t *testing.T) {
 	out := renderPaletteParam(m, 56)
 	if strings.Contains(out, "wt ") {
 		t.Error("worktree chip should not appear for non-new-session tools")
+	}
+}
+
+func TestRenderPaletteParamNoChipForNonGitProject(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.Register(tools.Tool{
+		Name: "new-session",
+		Params: []tools.Param{
+			{Name: "command", Options: func(ctx *tools.ToolContext) []string {
+				return []string{"opt-a", "opt-b"}
+			}},
+		},
+		Run: func(ctx *tools.ToolContext, args map[string]string) (*tools.ToolInvocation, error) {
+			return nil, nil
+		},
+	})
+
+	m := NewPaletteModel(registry, &tools.ToolContext{}, "")
+	m.width = 60
+	m.height = 20
+	m.phase = phaseParamSelect
+	m.selectedTool = registry.Get("new-session")
+	m.paramIndex = 0
+	m.paramOptions = []string{"opt-a", "opt-b"}
+	m.worktreeOn = true   // pre-set to on; should be suppressed by projectIsGit=false
+	m.projectIsGit = false
+	m.paramCursor = 0
+
+	out := renderPaletteParam(m, 56)
+	if strings.Contains(out, "wt ") {
+		t.Error("worktree chip should not appear when projectIsGit is false")
+	}
+}
+
+func TestAdvanceParamDisablesWorktreeForNonGitProject(t *testing.T) {
+	registry := tools.NewRegistry()
+	registry.Register(tools.Tool{
+		Name: "new-session",
+		Params: []tools.Param{
+			{Name: "project", Options: func(ctx *tools.ToolContext) []string { return nil }},
+			{Name: "command", Options: func(ctx *tools.ToolContext) []string { return []string{"sh"} }},
+		},
+		Run: func(ctx *tools.ToolContext, args map[string]string) (*tools.ToolInvocation, error) {
+			return nil, nil
+		},
+	})
+
+	nonGitDir := t.TempDir() // plain dir, not a git repo
+	ctx := &tools.ToolContext{
+		Args: map[string]string{
+			"project":  nonGitDir,
+			"worktree": "on", // stale pre-fill
+		},
+		IsGitProject: func(path string) bool { return false },
+	}
+
+	m := NewPaletteModel(registry, ctx, "new-session")
+	m.worktreeOn = true // simulate pre-fill via ctx.Args
+	model, _ := m.startTool(registry.Get("new-session"))
+	pm := model.(PaletteModel)
+
+	if pm.worktreeOn {
+		t.Error("worktreeOn should be false for non-git project")
+	}
+	if _, ok := pm.paramArgs["worktree"]; ok {
+		t.Error("paramArgs[worktree] should be cleared for non-git project")
+	}
+	if pm.projectIsGit {
+		t.Error("projectIsGit should be false for non-git project")
 	}
 }
 

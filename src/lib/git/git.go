@@ -114,6 +114,12 @@ func parseMainBranch(output string) string {
 	return ""
 }
 
+// IsRepo reports whether dir is inside a git repository (main or linked worktree).
+// Filesystem-only check; does not invoke the git binary.
+func IsRepo(dir string) bool {
+	return findGitRoot(dir) != ""
+}
+
 // findGitRoot walks up the directory tree from dir looking for a .git
 // entry (directory for main trees, regular file for linked worktrees).
 // Returns the directory containing .git, or "" if not found.
