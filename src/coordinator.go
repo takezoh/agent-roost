@@ -53,7 +53,7 @@ func runCoordinator() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	statedriver.RegisterRunners(tmuxBackend.CapturePane, cfg.Driver.SummarizeCommand, dataDir)
+	statedriver.RegisterRunners(tmuxBackend.CapturePane, cfg.Driver.SummarizeCommand)
 	connector.RegisterDefaults()
 	connector.RegisterRunners()
 	pool := worker.NewPool(ctx, 4)
