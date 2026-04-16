@@ -32,11 +32,9 @@ func TestRenderIconPreviewBody(t *testing.T) {
 		}
 	}
 
-	// Unicode 案の静的 glyph
-	for _, g := range []string{"⋯", "⏺", "⏹"} {
-		if !strings.Contains(got, g) {
-			t.Errorf("expected Unicode glyph %q in output", g)
-		}
+	// Unicode 案の静的 glyph (Idle/Stopped は NerdFont と共通の PUA glyph)
+	if !strings.Contains(got, "⋯") {
+		t.Error("expected Unicode Waiting glyph '⋯' in output")
 	}
 
 	// Emoji 案のモダン絵文字
@@ -56,12 +54,6 @@ func TestRenderIconPreviewBody(t *testing.T) {
 	// Pending blink の ⚡ が含まれる (Unicode / Emoji / NerdFont 案)
 	if !strings.Contains(got, "⚡") {
 		t.Error("expected Pending blink glyph '⚡' in output")
-	}
-
-	// Emoji Pending blink の ✨ が含まれる (animFrame=1 で表示されるが frame[0]=⚡ を使うため
-	// animFrame=0 では ⚡ が表示される。✨ はフレーム一覧に含まれるはず)
-	if !strings.Contains(got, "✨") {
-		t.Error("expected Emoji Pending blink frame '✨' in SPINNER FRAMES")
 	}
 
 	// Running spinner の frame[0] が含まれる

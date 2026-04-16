@@ -153,9 +153,9 @@ func renderIconPreviewBody() string {
 			states: [5]stateAnim{
 				anim(spinner.Pulse.Frames...), // Running: █▓▒░
 				static("⋯"),                   // Waiting
-				static("⏺"),                   // Idle
-				static("⏹"),                   // Stopped
-				anim("⚡", "∙"),                // Pending: blink
+				static("\uf04c"),               // Idle: same as NerdFont pause
+				static("\uf04d"),               // Stopped: same as NerdFont stop
+				static("⚡"),                   // Pending
 			},
 		},
 		{
@@ -165,7 +165,7 @@ func renderIconPreviewBody() string {
 				static("💬"),                  // Waiting
 				static("💤"),                  // Idle
 				static("⛔"),                  // Stopped
-				anim("⚡", "✨"),               // Pending: blink
+				static("⚡"),                  // Pending
 			},
 		},
 		{
@@ -175,7 +175,7 @@ func renderIconPreviewBody() string {
 				static("\uf141"),         // Waiting: ellipsis-h
 				static("\uf04c"),         // Idle: pause
 				static("\uf04d"),         // Stopped: stop
-				anim("\uf0e7", "∙"),      // Pending: bolt blink
+				static("\uf0e7"),         // Pending: bolt
 			},
 		},
 		{
