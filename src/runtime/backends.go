@@ -121,6 +121,14 @@ type EventLogBackend interface {
 	CloseAll()
 }
 
+// ToolLogBackend writes per-project tool-use JSONL lines. Namespace
+// identifies the driver (opaque to the runtime). Project is the
+// projectDir() slug (e.g. "-workspace-agent-roost"). The file is opened
+// and closed on every append to avoid fd accumulation.
+type ToolLogBackend interface {
+	Append(namespace, project, line string) error
+}
+
 // FSWatcher is the fsnotify wrapper. It watches per-session
 // files and emits FSEvent values on Events() when they change.
 type FSWatcher interface {

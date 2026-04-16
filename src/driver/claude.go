@@ -27,6 +27,19 @@ const (
 	claudeKeyClaudeSessionID = "claude_session_id"
 )
 
+// pendingTool tracks an in-flight tool call from PreToolUse until
+// its corresponding PostToolUse or PostToolUseFailure arrives.
+// Keyed by tool_use_id in ClaudeState.PendingTools.
+// Not persisted — orphaned entries are handled gracefully.
+type pendingTool struct {
+	Name      string
+	Input     map[string]any
+	StartedAt time.Time
+	SawPrompt bool   // true if a permission_prompt Notification was observed
+	PermMode  string // permission_mode from the PreToolUse payload
+	Cwd       string // cwd at PreToolUse time (frozen so Post can use it even if changed)
+}
+
 // ClaudeState is the per-session private state for the Claude driver.
 // Plain data — no goroutines, no I/O. Embeds CommonState to
 // satisfy the sealed state.DriverState interface.
@@ -49,6 +62,12 @@ type ClaudeState struct {
 	// duplicate jobs from being scheduled while one is still pending.
 	TranscriptInFlight bool
 	WatchedFile        string // currently fsnotify-watched path; empty = not watched
+
+	// PendingTools tracks tool calls between PreToolUse and their
+	// matching Post* event, keyed by tool_use_id. Ephemeral — cleared
+	// on SessionStart/SessionEnd; entries that never receive a Post are
+	// abandoned silently (e.g. daemon restart mid-tool).
+	PendingTools map[string]pendingTool
 }
 
 // ClaudeDriver is the stateless plugin value. The home directory is

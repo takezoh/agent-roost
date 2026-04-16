@@ -74,6 +74,7 @@ func runCoordinator() error {
 		Tmux:              tmuxBackend,
 		Persist:           runtime.NewFilePersist(dataDir),
 		EventLog:          runtime.NewFileEventLog(dataDir),
+		ToolLog:           runtime.NewFileToolLog(dataDir),
 		Pool:              pool,
 		Notifier:          runtime.NewNotifier(&cfg.Notifications, ln),
 		Features:          featureSet,
