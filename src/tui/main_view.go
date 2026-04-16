@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/lipgloss/v2"
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/state"
@@ -22,6 +23,8 @@ func (m MainModel) renderContent() string {
 	parts := []string{
 		"",
 		renderKeybindingsBody(),
+		"",
+		renderIconPreviewBody(),
 	}
 
 	for _, c := range m.connectors {
@@ -99,4 +102,62 @@ func renderProjectSessionsBody(sessions []proto.SessionInfo) string {
 		))
 	}
 	return b.String()
+}
+
+// nerdSandFrames is a 4-frame timer-sand animation using Nerd Font PUA
+// codepoints (nf-md-timer-sand-empty through nf-md-timer-sand-full).
+// Renders as hourglass stages when a Nerd Font is installed; falls back to
+// replacement characters otherwise.
+var nerdSandFrames = []string{"\uf251", "\uf252", "\uf253", "\uf254"}
+
+// renderIconPreviewBody renders a comparison table of status icon schemes
+// so the user can evaluate all options in-context before committing to one.
+// Running cells animate using per-scheme spinner presets.
+func renderIconPreviewBody() string {
+	statuses := []state.Status{
+		state.StatusRunning, state.StatusWaiting, state.StatusIdle,
+		state.StatusStopped, state.StatusPending,
+	}
+
+	makeAnim := func(frames []string) func() string {
+		return func() string {
+			return stateStyle(state.StatusRunning).Render(frames[int(animFrame)%len(frames)])
+		}
+	}
+
+	type scheme struct {
+		label   string
+		running func() string
+		glyphs  [4]string // Waiting, Idle, Stopped, Pending
+	}
+	schemes := []scheme{
+		{"Current", runningSpinnerGlyph, [4]string{"◆", "○", "■", "◇"}},
+		{"Unicode⁺", makeAnim(spinner.Pulse.Frames), [4]string{"⏸", "⏺", "⏹", "⊘"}},
+		{"Emoji", makeAnim(spinner.Moon.Frames), [4]string{"🟡", "⚪", "🔴", "🟠"}},
+		{"NerdFont", makeAnim(nerdSandFrames), [4]string{"\uf04c", "\uf111", "\uf04d", "\uf017"}},
+	}
+
+	labelW := lipgloss.NewStyle().Width(10)
+	cellW := lipgloss.NewStyle().Width(9).Align(lipgloss.Center)
+
+	// Header row
+	header := []string{labelW.Render("")}
+	for _, st := range statuses {
+		header = append(header, cellW.Render(mutedStyle.Render(st.String())))
+	}
+
+	rows := []string{
+		sectionStyle.Render("STATUS ICON PREVIEW"),
+		lipgloss.JoinHorizontal(lipgloss.Left, header...),
+	}
+	for _, sc := range schemes {
+		cells := []string{labelW.Render(mutedStyle.Render(sc.label))}
+		cells = append(cells, cellW.Render(sc.running()))
+		for i, g := range sc.glyphs {
+			cells = append(cells, cellW.Render(stateStyle(statuses[i+1]).Render(g)))
+		}
+		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, cells...))
+	}
+	rows = append(rows, mutedStyle.Render("  NerdFont row requires a Nerd Font"))
+	return strings.Join(rows, "\n")
 }

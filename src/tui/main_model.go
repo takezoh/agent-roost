@@ -2,6 +2,7 @@ package tui
 
 import (
 	tea "charm.land/bubbletea/v2"
+	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
 
 	"github.com/takezoh/agent-roost/proto"
@@ -11,6 +12,7 @@ import (
 type MainModel struct {
 	client          *proto.Client
 	viewport        viewport.Model
+	spinner         spinner.Model
 	sessions        []proto.SessionInfo
 	connectors      []proto.ConnectorInfo
 	selectedProject string
@@ -23,7 +25,8 @@ type mainDisconnectMsg struct{}
 
 func NewMainModel(client *proto.Client) MainModel {
 	return MainModel{
-		client: client,
+		client:  client,
+		spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 	}
 }
 
@@ -31,7 +34,7 @@ func (m MainModel) Init() tea.Cmd {
 	if m.client == nil {
 		return nil
 	}
-	return tea.Batch(m.requestSessions(), m.listenEvents())
+	return tea.Batch(m.requestSessions(), m.listenEvents(), m.spinner.Tick)
 }
 
 func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -49,6 +52,13 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case mainEventMsg:
 		return m.handleEvent(msg.event)
+
+	case spinner.TickMsg:
+		var cmd tea.Cmd
+		m.spinner, cmd = m.spinner.Update(msg)
+		animFrame++
+		m.viewport.SetContent(m.renderContent())
+		return m, cmd
 
 	case tea.KeyPressMsg:
 		var cmd tea.Cmd
