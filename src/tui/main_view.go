@@ -159,5 +159,27 @@ func renderIconPreviewBody() string {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Left, cells...))
 	}
 	rows = append(rows, mutedStyle.Render("  NerdFont row requires a Nerd Font"))
+
+	// Spinner frames preview: show all frames of each Running animation inline.
+	type spinnerDef struct {
+		label  string
+		frames []string
+	}
+	spinners := []spinnerDef{
+		{"Current", spinner.MiniDot.Frames},
+		{"Unicode⁺", spinner.Pulse.Frames},
+		{"Emoji", spinner.Moon.Frames},
+		{"NerdFont", nerdSandFrames},
+	}
+	rows = append(rows, "", sectionStyle.Render("SPINNER FRAMES"))
+	runStyle := stateStyle(state.StatusRunning)
+	for _, sp := range spinners {
+		var parts []string
+		for _, f := range sp.frames {
+			parts = append(parts, runStyle.Render(f))
+		}
+		rows = append(rows, labelW.Render(mutedStyle.Render(sp.label))+strings.Join(parts, " "))
+	}
+
 	return strings.Join(rows, "\n")
 }
