@@ -1,5 +1,7 @@
 package state
 
+import "github.com/takezoh/agent-roost/uiproc"
+
 // Tick reducer. Fans the tick out to every session's driver and
 // emits periodic reconciliation + health-check effects.
 
@@ -71,16 +73,16 @@ func stepConnectors(s State) (State, []Effect) {
 //     parked window, clear ActiveSession, then deactivate back to main
 func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 	// Control pane respawn
-	if cmd := paneRespawnCommand(e.Pane); cmd != "" {
+	if proc, ok := uiproc.RespawnTarget(e.Pane); ok {
 		return s, []Effect{
-			EffRespawnPane{Pane: e.Pane, Cmd: cmd},
+			EffRespawnPane{Pane: e.Pane, Proc: proc},
 		}
 	}
 
 	// Pane 0.0 dead with no active session: main TUI crashed.
 	if e.Pane == "{sessionName}:0.0" && s.ActiveSession == "" {
 		return s, []Effect{
-			EffRespawnPane{Pane: e.Pane, Cmd: "{roostExe} --tui main"},
+			EffRespawnPane{Pane: e.Pane, Proc: uiproc.Main()},
 		}
 	}
 
@@ -105,15 +107,6 @@ func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 	return s, effs
 }
 
-func paneRespawnCommand(pane string) string {
-	switch pane {
-	case "{sessionName}:0.1":
-		return "{roostExe} --tui log"
-	case "{sessionName}:0.2":
-		return "{roostExe} --tui sessions"
-	}
-	return ""
-}
 
 // reduceTmuxWindowVanished evicts a session whose tmux window has
 // disappeared (agent process exited) and broadcasts the new list.

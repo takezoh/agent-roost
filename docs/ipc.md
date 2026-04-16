@@ -256,6 +256,17 @@ sequenceDiagram
     EL->>EL: execute(effects...)
 ```
 
+### IPC Type Design Invariants
+
+`Cmd*`, `Resp*`, and `Evt*` types in `src/proto/` follow these invariants:
+
+- **Optional fields use `omitempty`; zero value means absent.** A zero value with distinct semantics belongs in a separate type.
+- **Names are client-agnostic.** No TUI- or GUI-specific terms in field or type names; both clients consume the same types.
+- **Every concrete type carries its marker methods** (`isCommand()` / `CommandName()`, `isEvent()` / `EventName()`, `isResponse()`).
+- **`state.View` is written by the driver only.** TUI and future GUI clients read state; neither branches on driver or connector name (see Driver/Connector isolation in `ARCHITECTURE.md`).
+
+The flat `Cmd*`/`Evt*` naming is transitional; a future JSON-RPC migration will introduce `system.*` / `workspace.*` / `surface.*` / `notification.*` / `driver.*` namespaces.
+
 ## Tool System
 
 High-level user operations are abstracted as `Tool`s. Executable from the same interface via both TUI and palette.

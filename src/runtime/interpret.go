@@ -11,6 +11,7 @@ import (
 	roostgit "github.com/takezoh/agent-roost/lib/git"
 	"github.com/takezoh/agent-roost/runtime/worker"
 	"github.com/takezoh/agent-roost/state"
+	"github.com/takezoh/agent-roost/uiproc"
 )
 
 // execute is the side-effect interpreter. Each Effect type has a
@@ -132,15 +133,13 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 
 	case state.EffRespawnPane:
 		target := substitutePlaceholdersString(e.Pane, r.cfg.SessionName, r.cfg.RoostExe)
-		cmd := substitutePlaceholdersString(e.Cmd, r.cfg.SessionName, r.cfg.RoostExe)
-		r.cfg.Tmux.RespawnPane(target, cmd)
+		r.cfg.Tmux.RespawnPane(target, e.Proc.Command(r.cfg.RoostExe))
 
 	case state.EffDetachClient:
 		r.cfg.Tmux.DetachClient()
 
 	case state.EffDisplayPopup:
-		cmd := buildPaletteCmd(r.cfg.RoostExe, e.Tool, e.Args)
-		r.cfg.Tmux.DisplayPopup(e.Width, e.Height, cmd)
+		r.cfg.Tmux.DisplayPopup(e.Width, e.Height, uiproc.Palette(e.Tool, e.Args).Command(r.cfg.RoostExe))
 
 	case state.EffKillSession:
 		r.cfg.Tmux.KillSession()
@@ -252,21 +251,6 @@ func substitutePlaceholdersString(s, sessionName, roostExe string) string {
 	s = strings.ReplaceAll(s, "{sessionName}", sessionName)
 	s = strings.ReplaceAll(s, "{roostExe}", roostExe)
 	return s
-}
-
-// buildPaletteCmd constructs the display-popup command string for a
-// palette tool invocation. Tool name and arg values are single-quoted
-// to prevent shell injection — the only way user input reaches a
-// shell is through this function.
-func buildPaletteCmd(roostExe, tool string, args map[string]string) string {
-	cmd := shellQuote(roostExe) + " --tui palette --tool=" + shellQuote(tool)
-	for k, v := range args {
-		if v == "" {
-			continue
-		}
-		cmd += " --arg=" + shellQuote(k+"="+v)
-	}
-	return cmd
 }
 
 // isShellCommand returns true if the command should be spawned as a

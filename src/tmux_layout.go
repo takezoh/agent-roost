@@ -9,6 +9,7 @@ import (
 
 	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/lib/tmux"
+	"github.com/takezoh/agent-roost/uiproc"
 )
 
 const paneLabel = `#{?#{==:#{window_index},0},` +
@@ -37,9 +38,9 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) error {
 
 	exePath := resolveExe()
 	envPrefix := "ROOST_SESSION_ID=" + sn + " "
-	client.SendKeys(sn+":0.2", envPrefix+exePath+" --tui sessions")
-	client.SendKeys(sn+":0.1", envPrefix+exePath+" --tui log")
-	client.SendKeys(sn+":0.0", envPrefix+exePath+" --tui main")
+	client.SendKeys(sn+":0.2", envPrefix+uiproc.Sessions().Command(exePath))
+	client.SendKeys(sn+":0.1", envPrefix+uiproc.Log().Command(exePath))
+	client.SendKeys(sn+":0.0", envPrefix+uiproc.Main().Command(exePath))
 
 	paneMain, _ := client.DisplayMessage(sn+":0.0", "#{pane_id}")
 	client.SetEnv("ROOST_SESSION__main", paneMain)
@@ -123,13 +124,13 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 	client.BindKey("prefix", "d", "detach-client")
 	client.BindKey("prefix", "q",
 		"display-popup", "-E", "-w", "40%", "-h", "20%",
-		"echo 'Shutting down...' && "+exePath+" --tui palette --tool=shutdown")
+		"echo 'Shutting down...' && "+uiproc.Palette("shutdown", nil).Command(exePath))
 	client.BindKey("prefix", "p",
 		"display-popup", "-E", "-w", "60%", "-h", "50%",
-		exePath+" --tui palette")
+		uiproc.Palette("", nil).Command(exePath))
 	client.BindKey("prefix", "C-p",
 		"display-popup", "-E", "-w", "60%", "-h", "50%",
-		exePath+" --tui palette --tool=push-driver")
+		uiproc.Palette("push-driver", nil).Command(exePath))
 	// Disable right-click context menus (Horizontal/Vertical Split etc.)
 	// without wiping the entire root table, which would break C-b prefix
 	// forwarding and mouse drag selection.
@@ -146,13 +147,13 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 }
 
 func respawnMainPane(client *tmux.Client, sn string) {
-	client.RespawnPane(sn+":0.0", resolveExe()+" --tui main")
+	client.RespawnPane(sn+":0.0", uiproc.Main().Command(resolveExe()))
 }
 
 func respawnSessionsPane(client *tmux.Client, sn string) {
-	client.RespawnPane(sn+":0.2", resolveExe()+" --tui sessions")
+	client.RespawnPane(sn+":0.2", uiproc.Sessions().Command(resolveExe()))
 }
 
 func respawnLogPane(client *tmux.Client, sn string) {
-	client.RespawnPane(sn+":0.1", resolveExe()+" --tui log")
+	client.RespawnPane(sn+":0.1", uiproc.Log().Command(resolveExe()))
 }

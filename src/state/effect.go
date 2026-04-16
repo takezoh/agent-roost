@@ -1,5 +1,7 @@
 package state
 
+import "github.com/takezoh/agent-roost/uiproc"
+
 // Effect is the closed sum type of every side effect the reducer can
 // request. The runtime's effect interpreter (runtime.execute) is the
 // only place that turns these into actual I/O. Adding a new effect =
@@ -87,9 +89,11 @@ type EffCheckPaneAlive struct {
 }
 
 // EffRespawnPane respawns a tmux pane (used by health monitor).
+// Proc identifies which UI process to launch; the runtime calls
+// Proc.Command(roostExe) to build the shell command string.
 type EffRespawnPane struct {
 	Pane string
-	Cmd  string
+	Proc uiproc.UIProcess
 }
 
 // EffDetachClient asks tmux to detach the current client.

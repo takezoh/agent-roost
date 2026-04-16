@@ -18,25 +18,45 @@ import (
 	"github.com/takezoh/agent-roost/tui"
 )
 
-func runMainTUI() error {
+type tuiBootstrapOpts struct {
+	Subscribe    bool
+	AllowOffline bool
+}
+
+// tuiBootstrap loads config, applies theme, and dials the IPC socket.
+// If AllowOffline is true and Dial fails, returns (cfg, nil, nil).
+// If Subscribe is true and Dial succeeds, calls client.Subscribe().
+// Caller must defer client.Close() when client is non-nil.
+func tuiBootstrap(opts tuiBootstrapOpts) (*config.Config, *proto.Client, error) {
 	cfg, err := loadConfig()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	tui.ApplyTheme(cfg.Theme)
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
 	client, err := proto.Dial(sockPath)
 	if err != nil {
-		model := tui.NewMainModel(nil)
-		if _, err := tea.NewProgram(model).Run(); err != nil {
-			return fmt.Errorf("main: %w", err)
+		if opts.AllowOffline {
+			return cfg, nil, nil
 		}
-		return nil
+		return nil, nil, fmt.Errorf("connect: %w", err)
 	}
-	defer client.Close()
-	client.Subscribe()
 
+	if opts.Subscribe {
+		client.Subscribe()
+	}
+	return cfg, client, nil
+}
+
+func runMainTUI() error {
+	_, client, err := tuiBootstrap(tuiBootstrapOpts{Subscribe: true, AllowOffline: true})
+	if err != nil {
+		return err
+	}
+	if client != nil {
+		defer client.Close()
+	}
 	model := tui.NewMainModel(client)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		return fmt.Errorf("main: %w", err)
@@ -45,24 +65,13 @@ func runMainTUI() error {
 }
 
 func runLogViewer() error {
-	cfg, err := loadConfig()
+	_, client, err := tuiBootstrap(tuiBootstrapOpts{Subscribe: true, AllowOffline: true})
 	if err != nil {
 		return err
 	}
-	tui.ApplyTheme(cfg.Theme)
-	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
-
-	client, err := proto.Dial(sockPath)
-	if err != nil {
-		model := tui.NewLogModel(logger.LogFilePath(), nil)
-		if _, err := tea.NewProgram(model).Run(); err != nil {
-			return fmt.Errorf("log: %w", err)
-		}
-		return nil
+	if client != nil {
+		defer client.Close()
 	}
-	defer client.Close()
-	client.Subscribe()
-
 	model := tui.NewLogModel(logger.LogFilePath(), client)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		return fmt.Errorf("log: %w", err)
@@ -71,20 +80,11 @@ func runLogViewer() error {
 }
 
 func runSessionList() error {
-	cfg, err := loadConfig()
+	cfg, client, err := tuiBootstrap(tuiBootstrapOpts{Subscribe: true, AllowOffline: false})
 	if err != nil {
 		return err
 	}
-	tui.ApplyTheme(cfg.Theme)
-	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
-
-	client, err := proto.Dial(sockPath)
-	if err != nil {
-		return fmt.Errorf("connect: %w", err)
-	}
 	defer client.Close()
-	client.Subscribe()
-
 	model := tui.NewModel(client, cfg)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		return fmt.Errorf("tui: %w", err)
@@ -94,18 +94,10 @@ func runSessionList() error {
 
 func runPalette(args []string) error {
 	slog.Info("palette start", "args", args)
-	cfg, err := loadConfig()
+	cfg, client, err := tuiBootstrap(tuiBootstrapOpts{Subscribe: false, AllowOffline: false})
 	if err != nil {
+		slog.Error("palette bootstrap failed", "err", err)
 		return err
-	}
-	tui.ApplyTheme(cfg.Theme)
-	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
-	slog.Info("palette dial", "sock", sockPath)
-
-	client, err := proto.Dial(sockPath)
-	if err != nil {
-		slog.Error("palette connect failed", "err", err)
-		return fmt.Errorf("connect: %w", err)
 	}
 	slog.Info("palette connected")
 	defer client.Close()

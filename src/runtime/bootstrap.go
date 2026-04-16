@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/takezoh/agent-roost/state"
+	"github.com/takezoh/agent-roost/uiproc"
 )
 
 // Bootstrap helpers used at startup before the event loop starts.
@@ -357,7 +358,7 @@ func (r *Runtime) RespawnMainPane() {
 	}
 
 	slog.Info("bootstrap: respawning main TUI", "target", target)
-	_ = r.cfg.Tmux.RespawnPane(target, r.cfg.RoostExe+" --tui main")
+	_ = r.cfg.Tmux.RespawnPane(target, uiproc.Main().Command(r.cfg.RoostExe))
 }
 
 // decodePersistedState parses the JSON-encoded persisted state blob.

@@ -479,7 +479,7 @@ func TestRuntimeRespawnsDeadPane(t *testing.T) {
 	if len(tmux.respawnCmds) == 0 {
 		t.Fatal("expected respawn for dead pane")
 	}
-	if tmux.respawnCmds[0] != "/usr/bin/roost --tui log" {
+	if tmux.respawnCmds[0] != "'/usr/bin/roost' --tui log" {
 		t.Errorf("respawn cmd = %q", tmux.respawnCmds[0])
 	}
 }

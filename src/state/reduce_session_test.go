@@ -3,8 +3,11 @@ package state
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 	"time"
+
+	"github.com/takezoh/agent-roost/uiproc"
 )
 
 // === Test driver registration ===
@@ -861,8 +864,8 @@ func TestPaneDiedNoActiveRespawnsMainTUI(t *testing.T) {
 	if respawn.Pane != "{sessionName}:0.0" {
 		t.Errorf("pane = %q, want {sessionName}:0.0", respawn.Pane)
 	}
-	if respawn.Cmd != "{roostExe} --tui main" {
-		t.Errorf("cmd = %q, want main TUI command", respawn.Cmd)
+	if !reflect.DeepEqual(respawn.Proc, uiproc.Main()) {
+		t.Errorf("proc = %+v, want Main()", respawn.Proc)
 	}
 }
 
