@@ -37,6 +37,7 @@ type Config struct {
 	Tmux     TmuxBackend
 	Persist  PersistBackend
 	EventLog EventLogBackend
+	ToolLog  ToolLogBackend
 	Watcher  FSWatcher
 	Pool     *worker.Pool
 	Notifier Notifier

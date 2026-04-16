@@ -28,6 +28,13 @@ type hookPayload struct {
 	ToolName         string         `json:"tool_name"`
 	ToolInput        map[string]any `json:"tool_input"`
 	Source           string         `json:"source"`
+
+	// Tool correlation and permission fields (PreToolUse / PostToolUse /
+	// PostToolUseFailure). tool_use_id links Pre to its matching Post.
+	ToolUseID      string `json:"tool_use_id"`
+	PermissionMode string `json:"permission_mode"`
+	Error          string `json:"error"`
+	IsInterrupt    bool   `json:"is_interrupt"`
 }
 
 func (hp hookPayload) toolInputString(key string) string {
@@ -129,6 +136,7 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 	if hp.HookEventName == "SessionStart" {
 		cs.LastBridgeTS = ts
 		cs.ResetHangDetection()
+		cs.PendingTools = nil // discard any stale pending tools from prior session
 		return d.handleSessionStart(cs, hp, ts)
 	}
 
@@ -160,14 +168,25 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 		return cs, hp.logEffects()
 	}
 
+	// Tool log side-channel: update PendingTools and emit EffToolLogAppend
+	// for Pre/Post/Notification. Must run before handleStateChange so that
+	// any PendingTools mutations carry forward.
+	cs, toolLogEffs := d.handleToolLog(cs, hp, ts)
+
+	// SessionEnd: discard pending tools — no Post will arrive for them.
+	if hp.HookEventName == "SessionEnd" {
+		cs.PendingTools = nil
+	}
+
 	// All other hook events (PreToolUse, PostToolUse, Stop, etc.)
 	// go through the state-change path if they map to a status.
 	status := hp.deriveState()
 	if status == "" {
-		return cs, hp.logEffects()
+		return cs, append(hp.logEffects(), toolLogEffs...)
 	}
 
-	return d.handleStateChange(cs, hp, status, e.Timestamp)
+	next, effs := d.handleStateChange(cs, hp, status, e.Timestamp)
+	return next, append(effs, toolLogEffs...)
 }
 
 // handleSessionStart absorbs identity and kicks initial transcript

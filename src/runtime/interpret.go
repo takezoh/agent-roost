@@ -46,6 +46,12 @@ func (r *Runtime) execute(eff state.Effect) {
 			slog.Debug("runtime: event log append failed", "frame", e.FrameID, "err", err)
 		}
 
+	case state.EffToolLogAppend:
+		if err := r.cfg.ToolLog.Append(e.Namespace, e.Project, e.Line); err != nil {
+			slog.Debug("runtime: tool log append failed",
+				"namespace", e.Namespace, "project", e.Project, "err", err)
+		}
+
 	case state.EffRemoveManagedWorktree:
 		path := e.Path
 		go func() {
