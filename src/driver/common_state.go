@@ -56,7 +56,7 @@ const (
 	commonBranchRefreshInterval = 30 * time.Second
 
 	// commonHangThreshold is the time without pane changes or hooks
-	// before an agent is considered stale and transitioned to Idle.
+	// before an agent is considered stale and transitioned to Stopped.
 	commonHangThreshold = 120 * time.Second
 )
 
@@ -111,7 +111,7 @@ func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []sta
 			lastActivity = c.StatusChangedAt
 		}
 		if e.Now.Sub(lastActivity) > commonHangThreshold {
-			c.Status = state.StatusIdle
+			c.Status = state.StatusStopped
 			c.StatusChangedAt = e.Now
 			c.HangDetected = true
 			effs = append(effs, state.EffEventLogAppend{

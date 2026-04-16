@@ -99,8 +99,8 @@ func TestCodexHangDetection(t *testing.T) {
 	next, effs, _ = d.Step(cs, e)
 	cs = next.(CodexState)
 
-	if cs.Status != state.StatusIdle {
-		t.Errorf("Status = %v, want Idle after hang", cs.Status)
+	if cs.Status != state.StatusStopped {
+		t.Errorf("Status = %v, want Stopped after hang", cs.Status)
 	}
 	if !cs.HangDetected {
 		t.Error("HangDetected should be true")

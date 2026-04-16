@@ -99,8 +99,8 @@ func TestGeminiHangDetection(t *testing.T) {
 	next, effs, _ = d.Step(gs, e)
 	gs = next.(GeminiState)
 
-	if gs.Status != state.StatusIdle {
-		t.Errorf("Status = %v, want Idle after hang", gs.Status)
+	if gs.Status != state.StatusStopped {
+		t.Errorf("Status = %v, want Stopped after hang", gs.Status)
 	}
 	if !gs.HangDetected {
 		t.Error("HangDetected should be true")
