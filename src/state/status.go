@@ -39,13 +39,13 @@ func (s Status) Symbol() string {
 	case StatusRunning:
 		return "●"
 	case StatusWaiting:
-		return "◆"
+		return "⋯"
 	case StatusIdle:
-		return "○"
+		return "\uf04c" // nf-fa-pause (requires Nerd Font)
 	case StatusStopped:
-		return "■"
+		return "\uf04d" // nf-fa-stop (requires Nerd Font)
 	case StatusPending:
-		return "◇"
+		return "⚡"
 	default:
 		return "?"
 	}
