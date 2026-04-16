@@ -1369,8 +1369,8 @@ func TestClaudeHangDetectionTriggersIdle(t *testing.T) {
 	next, effs := d.handleTick(cs, state.DEvTick{
 		Now: now, Active: false, PaneTarget: "42",
 	})
-	if next.Status != state.StatusIdle {
-		t.Errorf("Status = %v, want Idle", next.Status)
+	if next.Status != state.StatusStopped {
+		t.Errorf("Status = %v, want Stopped", next.Status)
 	}
 	if !next.HangDetected {
 		t.Error("HangDetected should be true")
