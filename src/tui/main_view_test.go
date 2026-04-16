@@ -12,12 +12,14 @@ func TestRenderIconPreviewBody(t *testing.T) {
 	got := renderIconPreviewBody()
 
 	// セクションタイトルが含まれる
-	if !strings.Contains(got, "STATUS ICON PREVIEW") {
-		t.Error("expected STATUS ICON PREVIEW header")
+	for _, title := range []string{"STATUS ICON PREVIEW", "SPINNER FRAMES"} {
+		if !strings.Contains(got, title) {
+			t.Errorf("expected section title %q in output", title)
+		}
 	}
 
-	// 全 4 案のラベルが含まれる
-	for _, label := range []string{"Current", "Unicode", "Emoji", "NerdFont"} {
+	// 4 案のラベルが含まれる (Current はベースラインとして非表示)
+	for _, label := range []string{"Unicode", "Emoji", "NerdFont", "Spinner"} {
 		if !strings.Contains(got, label) {
 			t.Errorf("expected scheme label %q in output", label)
 		}
@@ -30,39 +32,43 @@ func TestRenderIconPreviewBody(t *testing.T) {
 		}
 	}
 
-	// Current 案の静的 glyph が含まれる
-	for _, g := range []string{"◆", "○", "■", "◇"} {
-		if !strings.Contains(got, g) {
-			t.Errorf("expected Current glyph %q in output", g)
-		}
-	}
-
-	// Unicode⁺ 案の静的 glyph が含まれる
+	// Unicode 案の静的 glyph (Waiting〜Pending)
 	for _, g := range []string{"⏸", "⏺", "⏹", "⊘"} {
 		if !strings.Contains(got, g) {
-			t.Errorf("expected Unicode+ glyph %q in output", g)
+			t.Errorf("expected Unicode glyph %q in output", g)
 		}
 	}
 
-	// Emoji 案の静的 glyph が含まれる
+	// Emoji 案の静的 glyph
 	for _, g := range []string{"🟡", "⚪", "🔴", "🟠"} {
 		if !strings.Contains(got, g) {
 			t.Errorf("expected Emoji glyph %q in output", g)
 		}
 	}
 
-	// frame=0 の Running spinner フレームが含まれる
-	// spinner.Pulse frame[0] = "█"
-	if !strings.Contains(got, "█") {
-		t.Error("expected Pulse spinner frame '█' (Unicode+ Running) in output")
+	// Spinner 案は現行の幾何アイコンを維持
+	for _, g := range []string{"◆", "○", "■", "◇"} {
+		if !strings.Contains(got, g) {
+			t.Errorf("expected Spinner scheme glyph %q in output", g)
+		}
 	}
-	// spinner.Moon frame[0] = "🌑"
+
+	// frame=0 の spinner フレームが SPINNER FRAMES に含まれる
+	// Pulse frame[0] = "█"
+	if !strings.Contains(got, "█") {
+		t.Error("expected Pulse frame '█' (Unicode Running) in output")
+	}
+	// Moon frame[0] = "🌑"
 	if !strings.Contains(got, "🌑") {
-		t.Error("expected Moon spinner frame '🌑' (Emoji Running) in output")
+		t.Error("expected Moon frame '🌑' (Emoji Running) in output")
+	}
+	// Hamburger frame[0] = "☱"
+	if !strings.Contains(got, "☱") {
+		t.Error("expected Hamburger frame '☱' (Spinner Running) in output")
 	}
 
 	// NerdFont 注釈が含まれる
-	if !strings.Contains(got, "NerdFont") || !strings.Contains(got, "Nerd Font") {
+	if !strings.Contains(got, "Nerd Font") {
 		t.Error("expected NerdFont note in output")
 	}
 }

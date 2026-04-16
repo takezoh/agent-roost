@@ -129,23 +129,46 @@ func renderIconPreviewBody() string {
 		label   string
 		running func() string
 		glyphs  [4]string // Waiting, Idle, Stopped, Pending
+		frames  []string  // all spinner frames for inline preview
 	}
+	// 4 proposed options — "Current" is the implicit baseline, not listed.
+	// "Spinner" keeps the current geometric icons but replaces the running
+	// animation with spinner.Dot (a more traditional dots preset).
 	schemes := []scheme{
-		{"Current", runningSpinnerGlyph, [4]string{"◆", "○", "■", "◇"}},
-		{"Unicode⁺", makeAnim(spinner.Pulse.Frames), [4]string{"⏸", "⏺", "⏹", "⊘"}},
-		{"Emoji", makeAnim(spinner.Moon.Frames), [4]string{"🟡", "⚪", "🔴", "🟠"}},
-		{"NerdFont", makeAnim(nerdSandFrames), [4]string{"\uf04c", "\uf111", "\uf04d", "\uf017"}},
+		{
+			label:   "Unicode",
+			running: makeAnim(spinner.Pulse.Frames),
+			glyphs:  [4]string{"⏸", "⏺", "⏹", "⊘"},
+			frames:  spinner.Pulse.Frames,
+		},
+		{
+			label:   "Emoji",
+			running: makeAnim(spinner.Moon.Frames),
+			glyphs:  [4]string{"🟡", "⚪", "🔴", "🟠"},
+			frames:  spinner.Moon.Frames,
+		},
+		{
+			label:   "NerdFont",
+			running: makeAnim(nerdSandFrames),
+			glyphs:  [4]string{"\uf04c", "\uf111", "\uf04d", "\uf017"},
+			frames:  nerdSandFrames,
+		},
+		{
+			label:   "Spinner",
+			running: makeAnim(spinner.Hamburger.Frames),
+			glyphs:  [4]string{"◆", "○", "■", "◇"}, // keep current icons
+			frames:  spinner.Hamburger.Frames,
+		},
 	}
 
 	labelW := lipgloss.NewStyle().Width(10)
 	cellW := lipgloss.NewStyle().Width(9).Align(lipgloss.Center)
 
-	// Header row
+	// Icon comparison table
 	header := []string{labelW.Render("")}
 	for _, st := range statuses {
 		header = append(header, cellW.Render(mutedStyle.Render(st.String())))
 	}
-
 	rows := []string{
 		sectionStyle.Render("STATUS ICON PREVIEW"),
 		lipgloss.JoinHorizontal(lipgloss.Left, header...),
@@ -160,25 +183,15 @@ func renderIconPreviewBody() string {
 	}
 	rows = append(rows, mutedStyle.Render("  NerdFont row requires a Nerd Font"))
 
-	// Spinner frames preview: show all frames of each Running animation inline.
-	type spinnerDef struct {
-		label  string
-		frames []string
-	}
-	spinners := []spinnerDef{
-		{"Current", spinner.MiniDot.Frames},
-		{"Unicode⁺", spinner.Pulse.Frames},
-		{"Emoji", spinner.Moon.Frames},
-		{"NerdFont", nerdSandFrames},
-	}
+	// Spinner frames: show all frames inline for each scheme's Running animation.
 	rows = append(rows, "", sectionStyle.Render("SPINNER FRAMES"))
 	runStyle := stateStyle(state.StatusRunning)
-	for _, sp := range spinners {
+	for _, sc := range schemes {
 		var parts []string
-		for _, f := range sp.frames {
+		for _, f := range sc.frames {
 			parts = append(parts, runStyle.Render(f))
 		}
-		rows = append(rows, labelW.Render(mutedStyle.Render(sp.label))+strings.Join(parts, " "))
+		rows = append(rows, labelW.Render(mutedStyle.Render(sc.label))+strings.Join(parts, " "))
 	}
 
 	return strings.Join(rows, "\n")
