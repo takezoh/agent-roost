@@ -18,7 +18,7 @@ func TestRenderIconPreviewBody(t *testing.T) {
 		}
 	}
 
-	// 4 案のラベルが含まれる (Current はベースラインとして非表示)
+	// 4 案のラベルが含まれる
 	for _, label := range []string{"Unicode", "Emoji", "NerdFont", "Spinner"} {
 		if !strings.Contains(got, label) {
 			t.Errorf("expected scheme label %q in output", label)
@@ -32,15 +32,15 @@ func TestRenderIconPreviewBody(t *testing.T) {
 		}
 	}
 
-	// Unicode 案の静的 glyph (Waiting〜Pending)
-	for _, g := range []string{"⏸", "⏺", "⏹", "⊘"} {
+	// Unicode 案の静的 glyph
+	for _, g := range []string{"⋯", "⏺", "⏹"} {
 		if !strings.Contains(got, g) {
 			t.Errorf("expected Unicode glyph %q in output", g)
 		}
 	}
 
-	// Emoji 案の静的 glyph
-	for _, g := range []string{"🟡", "⚪", "🔴", "🟠"} {
+	// Emoji 案のモダン絵文字
+	for _, g := range []string{"💬", "💤", "⛔"} {
 		if !strings.Contains(got, g) {
 			t.Errorf("expected Emoji glyph %q in output", g)
 		}
@@ -53,7 +53,18 @@ func TestRenderIconPreviewBody(t *testing.T) {
 		}
 	}
 
-	// frame=0 の spinner フレームが SPINNER FRAMES に含まれる
+	// Pending blink の ⚡ が含まれる (Unicode / Emoji / NerdFont 案)
+	if !strings.Contains(got, "⚡") {
+		t.Error("expected Pending blink glyph '⚡' in output")
+	}
+
+	// Emoji Pending blink の ✨ が含まれる (animFrame=1 で表示されるが frame[0]=⚡ を使うため
+	// animFrame=0 では ⚡ が表示される。✨ はフレーム一覧に含まれるはず)
+	if !strings.Contains(got, "✨") {
+		t.Error("expected Emoji Pending blink frame '✨' in SPINNER FRAMES")
+	}
+
+	// Running spinner の frame[0] が含まれる
 	// Pulse frame[0] = "█"
 	if !strings.Contains(got, "█") {
 		t.Error("expected Pulse frame '█' (Unicode Running) in output")
@@ -70,5 +81,29 @@ func TestRenderIconPreviewBody(t *testing.T) {
 	// NerdFont 注釈が含まれる
 	if !strings.Contains(got, "Nerd Font") {
 		t.Error("expected NerdFont note in output")
+	}
+}
+
+func TestStateAnim(t *testing.T) {
+	// static: glyph を返す
+	animFrame = 0
+	s := static("◆")
+	if got := s.current(); got != "◆" {
+		t.Errorf("static.current() = %q, want %q", got, "◆")
+	}
+
+	// anim: frame を animFrame でサイクル
+	a := anim("⚡", "∙")
+	animFrame = 0
+	if got := a.current(); got != "⚡" {
+		t.Errorf("anim.current() at frame 0 = %q, want %q", got, "⚡")
+	}
+	animFrame = 1
+	if got := a.current(); got != "∙" {
+		t.Errorf("anim.current() at frame 1 = %q, want %q", got, "∙")
+	}
+	animFrame = 2
+	if got := a.current(); got != "⚡" { // wraps around
+		t.Errorf("anim.current() at frame 2 = %q, want %q (wrap)", got, "⚡")
 	}
 }
