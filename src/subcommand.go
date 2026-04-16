@@ -54,22 +54,22 @@ func runCommand(args []string, stdout io.Writer) error {
 	return runCoordinatorFn()
 }
 
+var tuiHandlers = map[string]func([]string) error{
+	"main":     func(_ []string) error { return runMainTUIFn() },
+	"sessions": func(_ []string) error { return runSessionListFn() },
+	"log":      func(_ []string) error { return runLogViewerFn() },
+	"palette":  func(args []string) error { return runPaletteFn(args) },
+}
+
 func runTUI(args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("unknown tui: missing subcommand")
 	}
-	switch args[0] {
-	case "main":
-		return runMainTUIFn()
-	case "sessions":
-		return runSessionListFn()
-	case "log":
-		return runLogViewerFn()
-	case "palette":
-		return runPaletteFn(args[1:])
-	default:
+	h, ok := tuiHandlers[args[0]]
+	if !ok {
 		return fmt.Errorf("unknown tui: %s", args[0])
 	}
+	return h(args[1:])
 }
 
 func printUsage(w io.Writer) {

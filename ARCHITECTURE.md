@@ -17,7 +17,7 @@ roost is a session lifecycle manager — not an agent orchestrator. It does not 
 ## Documentation
 
 - [Process Model, tmux Layout, Rendering Responsibilities](docs/process-model.md) — Daemon/TUI process structure, pane layout, rendering boundary between Driver and TUI
-- [Inter-Process Communication and Tool System](docs/ipc.md) — IPC message format, command list, concurrency model (event loop + worker pool), Tool abstraction
+- [Inter-Process Communication and Tool System](docs/ipc.md) — IPC message format, command list, concurrency model (event loop + worker pool), Tool abstraction, proto type extension guidelines
 - [State Monitoring](docs/state-monitoring.md) — State detection via Driver plugins, Claude/Generic driver, persistence/restoration
 - [Interface and File Reference](docs/interfaces.md) — Go type definitions, data files, source tree
 
