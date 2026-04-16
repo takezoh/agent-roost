@@ -108,6 +108,8 @@ Displayed as a popup. Filter tools by typing, press Enter to execute.
 | `Tab` | Collapse/expand project |
 | `1`-`5` | Toggle status filter (Running / Waiting / Idle / Stopped / Pending) |
 | `0` | Reset filter |
+| `[` / `]` | Cycle workspace (shown only when 2+ workspaces exist) |
+| `` ` `` | Reset workspace filter to All |
 
 ### Session States
 
@@ -186,3 +188,18 @@ kind = "done"
 ```
 
 Works with default values even without a config file.
+
+### Per-Project Configuration
+
+Each project directory can have its own `.roost/settings.toml`:
+
+```toml
+# <project-dir>/.roost/settings.toml
+
+[workspace]
+name = "work"    # Group this project under a named workspace
+```
+
+The workspace switcher chip bar appears in the SESSIONS pane automatically when
+two or more distinct workspaces exist, and is hidden for single-workspace setups.
+Projects without a settings file fall back to the `default` workspace.
