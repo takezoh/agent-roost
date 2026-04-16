@@ -70,11 +70,8 @@ func (m LogModel) handleLogEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 		if e.IsPreview {
 			if idx, ok := m.tabIndexByLabel("INFO"); ok {
 				m.activeTab = idx
-				m.renderInfoTab()
 				m.following = true
 			}
-		} else if m.activeTabIs("INFO") {
-			m.renderInfoTab()
 		}
 		if sessionChanged {
 			var cmds []tea.Cmd

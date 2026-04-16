@@ -10,17 +10,24 @@ import (
 
 func (m LogModel) View() tea.View {
 	var status string
-	if m.following {
+	switch {
+	case m.activeTabIs("INFO"):
+		// INFO is rendered directly (not via viewport), so scroll % is meaningless.
+	case m.following:
 		status = followStyle.Render("↓")
-	} else {
+	default:
 		status = mutedStyle.Render(fmt.Sprintf("%.0f%%", m.viewport.ScrollPercent()*100))
 	}
 	header := m.renderTabHeader() + "  " + status
 
 	var body string
-	if len(m.tabs) == 0 {
+	switch {
+	case len(m.tabs) == 0:
 		body = mutedStyle.Render("No sessions")
-	} else {
+	case m.activeTabIs("INFO"):
+		// Bypass viewport so OSC 8 hyperlink sequences reach the terminal intact.
+		body = clipLines(renderInfoContent(m.currentSession, m.width), m.height-1)
+	default:
 		body = m.viewport.View()
 	}
 
@@ -43,6 +50,17 @@ func (m LogModel) renderTabHeader() string {
 		}
 	}
 	return b.String()
+}
+
+func clipLines(s string, n int) string {
+	if n <= 0 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[:n], "\n")
 }
 
 func colorizeLines(text string) string {

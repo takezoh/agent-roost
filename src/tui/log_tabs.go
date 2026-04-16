@@ -126,7 +126,8 @@ func (m *LogModel) tabIndexByLabel(label string) (logTab, bool) {
 }
 
 func (m *LogModel) renderInfoTab() {
-	m.viewport.SetContent(renderInfoContent(m.currentSession, m.width))
+	// INFO is now rendered directly in View(), bypassing viewport for OSC 8 support.
+	// This method is a no-op kept for call-site compatibility.
 }
 
 func (m *LogModel) activeTabState() *tabState {
@@ -155,7 +156,6 @@ func (m *LogModel) switchToTab(tab logTab) bool {
 		return false
 	}
 	if t.kind == tabKindInfo {
-		m.renderInfoTab()
 		m.following = true
 		return true
 	}
