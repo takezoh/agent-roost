@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/takezoh/agent-roost/driver/vt"
 	"github.com/takezoh/agent-roost/state"
 )
 
@@ -89,7 +90,7 @@ func TestCodexHangDetection(t *testing.T) {
 	}
 
 	// 2. Job result primes the baseline
-	cs.HandleCapturePaneResult(CapturePaneResult{Hash: "abc"}, nil, now.Add(2*time.Second))
+	cs.HandleCapturePaneResult(CapturePaneResult{Snapshot: vt.Snapshot{Stable: "abc"}}, nil, now.Add(2*time.Second))
 	if cs.PaneHash != "abc" {
 		t.Errorf("PaneHash = %q, want abc", cs.PaneHash)
 	}
@@ -113,7 +114,7 @@ func TestCodexHandleCapturePaneResultError(t *testing.T) {
 	cs := d.NewState(now).(CodexState)
 
 	// Prime baseline
-	cs.HandleCapturePaneResult(CapturePaneResult{Hash: "abc"}, nil, now)
+	cs.HandleCapturePaneResult(CapturePaneResult{Snapshot: vt.Snapshot{Stable: "abc"}}, nil, now)
 	at := cs.PaneHashAt
 
 	// Errored capture (zero-value result)

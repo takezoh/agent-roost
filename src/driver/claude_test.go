@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/takezoh/agent-roost/driver/vt"
 	"github.com/takezoh/agent-roost/lib/claude/transcript"
 	"github.com/takezoh/agent-roost/state"
 )
@@ -1333,7 +1334,7 @@ func TestClaudeCapturePrimesBaseline(t *testing.T) {
 	now := time.Date(2026, 4, 10, 12, 1, 0, 0, time.UTC)
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
 		Now:    now,
-		Result: CapturePaneResult{Content: "hello", Hash: "abc123"},
+		Result: CapturePaneResult{Content: "hello", Snapshot: vt.Snapshot{Stable: "abc123"}},
 	})
 	if next.CaptureInFlight {
 		t.Error("CaptureInFlight should be cleared")
@@ -1357,7 +1358,7 @@ func TestClaudeCaptureResetsTimer(t *testing.T) {
 	now := time.Date(2026, 4, 10, 12, 1, 0, 0, time.UTC)
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
 		Now:    now,
-		Result: CapturePaneResult{Content: "changed", Hash: "new-hash"},
+		Result: CapturePaneResult{Content: "changed", Snapshot: vt.Snapshot{Stable: "new-hash"}},
 	})
 	if next.PaneHash != "new-hash" {
 		t.Errorf("PaneHash = %q, want new-hash", next.PaneHash)
@@ -1376,7 +1377,7 @@ func TestClaudeCaptureUnchangedKeepsTimer(t *testing.T) {
 	now := time.Date(2026, 4, 10, 12, 1, 0, 0, time.UTC)
 	next, _ := d.handleJobResult(cs, state.DEvJobResult{
 		Now:    now,
-		Result: CapturePaneResult{Content: "same", Hash: "same-hash"},
+		Result: CapturePaneResult{Content: "same", Snapshot: vt.Snapshot{Stable: "same-hash"}},
 	})
 	if !next.PaneHashAt.Equal(orig) {
 		t.Error("PaneHashAt should not change when hash is same")

@@ -135,7 +135,7 @@ func TestGenericTickRunsBranchRefreshOnlyWhenActive(t *testing.T) {
 
 func TestGenericFirstCaptureEstablishesBaseline(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
-	result := CapturePaneResult{Content: "$ ", Hash: "h1", Snapshot: vt.Snapshot{Stable: "h1"}}
+	result := CapturePaneResult{Content: "$ ", Snapshot: vt.Snapshot{Stable: "h1"}}
 	next, _, _ := d.Step(s, state.DEvJobResult{
 		Result: result, Now: now,
 	})
@@ -398,7 +398,6 @@ func TestGenericWaitingTransitionStartsSummaryJob(t *testing.T) {
 		Now: t2,
 		Result: CapturePaneResult{
 			Content:  "build done",
-			Hash:     "h1",
 			Snapshot: vt.Snapshot{Stable: "h1"},
 		},
 	})
@@ -442,7 +441,6 @@ func TestGenericWaitingTransitionSkipsSummaryWhileInFlight(t *testing.T) {
 		Now: t2,
 		Result: CapturePaneResult{
 			Content:  "y",
-			Hash:     "h1",
 			Snapshot: vt.Snapshot{Stable: "h1"},
 		},
 	})
@@ -466,7 +464,6 @@ func TestGenericSummaryPromptIsGenericFormat(t *testing.T) {
 		Now: t2,
 		Result: CapturePaneResult{
 			Content:  "diff content changed",
-			Hash:     "h1",
 			Snapshot: vt.Snapshot{Stable: "h1"},
 		},
 	})

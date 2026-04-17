@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/takezoh/agent-roost/driver/vt"
 	"github.com/takezoh/agent-roost/state"
 )
 
@@ -89,7 +90,7 @@ func TestGeminiHangDetection(t *testing.T) {
 	}
 
 	// 2. Job result primes the baseline
-	gs.HandleCapturePaneResult(CapturePaneResult{Hash: "abc"}, nil, now.Add(2*time.Second))
+	gs.HandleCapturePaneResult(CapturePaneResult{Snapshot: vt.Snapshot{Stable: "abc"}}, nil, now.Add(2*time.Second))
 	if gs.PaneHash != "abc" {
 		t.Errorf("PaneHash = %q, want abc", gs.PaneHash)
 	}
@@ -113,7 +114,7 @@ func TestGeminiHandleCapturePaneResultError(t *testing.T) {
 	gs := d.NewState(now).(GeminiState)
 
 	// Prime baseline
-	gs.HandleCapturePaneResult(CapturePaneResult{Hash: "abc"}, nil, now)
+	gs.HandleCapturePaneResult(CapturePaneResult{Snapshot: vt.Snapshot{Stable: "abc"}}, nil, now)
 	at := gs.PaneHashAt
 
 	// Errored capture (zero-value result)

@@ -76,7 +76,6 @@ func (s *terminalStore) newRunner(captureEscapedFn func(string, int) (string, er
 		snap := s.feedAndSnapshot(in.PaneTarget, []byte(ansiContent))
 		return CapturePaneResult{
 			Content:  ansiContent,
-			Hash:     snap.Stable,
 			Snapshot: snap,
 		}, nil
 	}

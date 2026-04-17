@@ -21,12 +21,11 @@ type CapturePaneInput struct {
 	NLines     int
 }
 
-// CapturePaneResult carries the captured content. Hash equals
-// Snapshot.Stable (the FNV-64a structural hash of the VT screen).
-// Content is kept for building summary prompts.
+// CapturePaneResult carries the captured content. Snapshot.Stable is the
+// FNV-64a structural hash of the VT screen; Content is kept for building
+// summary prompts.
 type CapturePaneResult struct {
 	Content  string
-	Hash     string     // same as Snapshot.Stable; kept for backward compat
 	Snapshot vt.Snapshot
 }
 
