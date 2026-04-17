@@ -315,7 +315,7 @@ func TestSessionCardLinesSubtitleClamp(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			lines := sessionCardLines(mk(tt.subtitle), 80)
+			lines := sessionCardLines(mk(tt.subtitle), 80, "")
 			// First line is always the title row.
 			subtitleLines := lines[1:]
 			// Filter to only subtitle lines (muted style rendered).

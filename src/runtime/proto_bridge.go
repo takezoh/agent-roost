@@ -137,6 +137,23 @@ func (r *Runtime) broadcastGenericEvent(e state.EffBroadcastEvent) {
 	r.broadcastWire(wire, e.Name)
 }
 
+// broadcastAgentNotification encodes and broadcasts an OSC notification
+// captured from an agent pane.
+func (r *Runtime) broadcastAgentNotification(e state.EffRecordNotification) {
+	ev := proto.EvtAgentNotification{
+		SessionID: string(e.SessionID),
+		Cmd:       e.Cmd,
+		Title:     e.Title,
+		Body:      e.Body,
+	}
+	wire, err := proto.EncodeEvent(ev)
+	if err != nil {
+		slog.Error("runtime: encode agent notification failed", "err", err)
+		return
+	}
+	r.broadcastWire(wire, proto.EvtNameAgentNotification)
+}
+
 // broadcastWire fan-outs raw wire bytes to every subscribed
 // connection. Filter is the event name; subscribers with non-empty
 // Filters lists must include this name to receive the message.

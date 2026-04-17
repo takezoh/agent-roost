@@ -210,6 +210,9 @@ func (f *fakeTmuxBackend) RespawnPane(target, cmd string) error {
 func (f *fakeTmuxBackend) CapturePane(string, int) (string, error) {
 	return f.captured, nil
 }
+func (f *fakeTmuxBackend) CapturePaneEscaped(string, int) (string, error) {
+	return f.captured, nil
+}
 func (f *fakeTmuxBackend) InspectPane(target string, _ int) (PaneSnapshot, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

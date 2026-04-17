@@ -219,6 +219,16 @@ type JobInput interface {
 	JobKind() string
 }
 
+// EffRecordNotification broadcasts an OSC-sourced in-pane notification
+// to TUI subscribers. SessionID is filled by postProcessEffect when
+// the driver leaves it blank.
+type EffRecordNotification struct {
+	SessionID SessionID
+	Cmd       int    // 9 / 99 / 777
+	Title     string
+	Body      string
+}
+
 // EffPushDriver asks the reducer to push a new driver frame onto the
 // given session. Drivers return this from Step to request a frame
 // push without knowing the session ID directly. The reducer fills in
@@ -269,3 +279,4 @@ func (EffToolLogAppend) isEffect()            {}
 func (EffRemoveManagedWorktree) isEffect()    {}
 func (EffReconcileWindows) isEffect()         {}
 func (EffStartJob) isEffect()                 {}
+func (EffRecordNotification) isEffect()       {}

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/takezoh/agent-roost/driver/vt"
 	"github.com/takezoh/agent-roost/state"
 )
 
@@ -97,8 +98,8 @@ func TestGenericTickRunsWhenActive(t *testing.T) {
 func TestGenericTickRunsWhenParkedAndRunning(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
 	// Bring to Running via hash change (prime → hash change)
-	primed := d.applyCapture(s, now, CapturePaneResult{Content: "x", Hash: "h0"})
-	running := d.applyCapture(primed, now.Add(time.Second), CapturePaneResult{Content: "y", Hash: "h1"})
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
+	running := d.applyCapture(primed, now.Add(time.Second), vt.Snapshot{Stable: "h1"})
 	if running.Status != state.StatusRunning {
 		t.Fatalf("setup: status = %v, want Running", running.Status)
 	}
@@ -120,8 +121,8 @@ func TestGenericTickRunsWhenParkedAndRunning(t *testing.T) {
 func TestGenericTickRunsBranchRefreshOnlyWhenActive(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
 	// Parked but Running → capture fires but branch detect does NOT
-	primed := d.applyCapture(s, now, CapturePaneResult{Content: "x", Hash: "h0"})
-	running := d.applyCapture(primed, now.Add(time.Second), CapturePaneResult{Content: "y", Hash: "h1"})
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
+	running := d.applyCapture(primed, now.Add(time.Second), vt.Snapshot{Stable: "h1"})
 	_, effs, _ := d.Step(running, state.DEvTick{Now: now.Add(2 * time.Second), Active: false, PaneTarget: "5", Project: "/repo"})
 	for _, eff := range effs {
 		if job, ok := eff.(state.EffStartJob); ok {
@@ -134,7 +135,7 @@ func TestGenericTickRunsBranchRefreshOnlyWhenActive(t *testing.T) {
 
 func TestGenericFirstCaptureEstablishesBaseline(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
-	result := CapturePaneResult{Content: "$ ", Hash: "h1"}
+	result := CapturePaneResult{Content: "$ ", Hash: "h1", Snapshot: vt.Snapshot{Stable: "h1"}}
 	next, _, _ := d.Step(s, state.DEvJobResult{
 		Result: result, Now: now,
 	})
@@ -154,14 +155,14 @@ func TestGenericFirstCaptureEstablishesBaseline(t *testing.T) {
 func TestGenericHashChangeEntersRunning(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
 	// Prime first (Status stays Waiting)
-	primed := d.applyCapture(s, now, CapturePaneResult{Content: "old", Hash: "h0"})
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
 	if primed.Status != state.StatusWaiting {
 		t.Fatalf("setup: status = %v, want Waiting after baseline", primed.Status)
 	}
 
 	later := now.Add(2 * time.Second)
 	// Hash change from Waiting → Running; StatusChangedAt must be updated
-	next := d.applyCapture(primed, later, CapturePaneResult{Content: "new content", Hash: "h1"})
+	next := d.applyCapture(primed, later, vt.Snapshot{Stable: "h1"})
 	if next.Status != state.StatusRunning {
 		t.Errorf("Status = %v, want Running on hash change from Waiting", next.Status)
 	}
@@ -179,16 +180,16 @@ func TestGenericHashChangeEntersRunning(t *testing.T) {
 func TestGenericStabilityThresholdEntersWaiting(t *testing.T) {
 	d, s, now := newGenericState(t, 5*time.Second)
 	// Prime baseline
-	primed := d.applyCapture(s, now, CapturePaneResult{Content: "x", Hash: "h0"})
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
 	t1 := now.Add(time.Second)
 	// Hash change → Running, LastActivity = t1
-	running := d.applyCapture(primed, t1, CapturePaneResult{Content: "y", Hash: "h1"})
+	running := d.applyCapture(primed, t1, vt.Snapshot{Stable: "h1"})
 	if running.Status != state.StatusRunning {
 		t.Fatalf("setup failed: status = %v, want Running", running.Status)
 	}
 	// Same hash, beyond threshold → Waiting
 	t2 := t1.Add(6 * time.Second)
-	waiting := d.applyCapture(running, t2, CapturePaneResult{Content: "y", Hash: "h1"})
+	waiting := d.applyCapture(running, t2, vt.Snapshot{Stable: "h1"})
 	if waiting.Status != state.StatusWaiting {
 		t.Errorf("Status = %v, want Waiting after stability threshold", waiting.Status)
 	}
@@ -199,12 +200,12 @@ func TestGenericStabilityThresholdEntersWaiting(t *testing.T) {
 
 func TestGenericStabilityThresholdPreservesRunningWhenBelow(t *testing.T) {
 	d, s, now := newGenericState(t, 5*time.Second)
-	primed := d.applyCapture(s, now, CapturePaneResult{Content: "x", Hash: "h0"})
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
 	t1 := now.Add(time.Second)
-	running := d.applyCapture(primed, t1, CapturePaneResult{Content: "y", Hash: "h1"})
+	running := d.applyCapture(primed, t1, vt.Snapshot{Stable: "h1"})
 	// Same hash, below threshold → still Running
 	t2 := t1.Add(3 * time.Second)
-	still := d.applyCapture(running, t2, CapturePaneResult{Content: "y", Hash: "h1"})
+	still := d.applyCapture(running, t2, vt.Snapshot{Stable: "h1"})
 	if still.Status != state.StatusRunning {
 		t.Errorf("Status = %v, want Running (below threshold)", still.Status)
 	}
@@ -212,11 +213,11 @@ func TestGenericStabilityThresholdPreservesRunningWhenBelow(t *testing.T) {
 
 func TestGenericStabilityThresholdZeroDisabled(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
-	primed := d.applyCapture(s, now, CapturePaneResult{Content: "x", Hash: "h0"})
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
 	t1 := now.Add(time.Second)
-	running := d.applyCapture(primed, t1, CapturePaneResult{Content: "y", Hash: "h1"})
+	running := d.applyCapture(primed, t1, vt.Snapshot{Stable: "h1"})
 	t2 := t1.Add(1 * time.Hour)
-	stillRunning := d.applyCapture(running, t2, CapturePaneResult{Content: "y", Hash: "h1"})
+	stillRunning := d.applyCapture(running, t2, vt.Snapshot{Stable: "h1"})
 	if stillRunning.Status != state.StatusRunning {
 		t.Errorf("Status = %v, want Running (threshold disabled)", stillRunning.Status)
 	}
@@ -225,17 +226,17 @@ func TestGenericStabilityThresholdZeroDisabled(t *testing.T) {
 func TestGenericWaitingToRunningOnHashChange(t *testing.T) {
 	d, s, now := newGenericState(t, 5*time.Second)
 	// Bring to Waiting via stability threshold
-	primed := d.applyCapture(s, now, CapturePaneResult{Content: "x", Hash: "h0"})
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
 	t1 := now.Add(time.Second)
-	running := d.applyCapture(primed, t1, CapturePaneResult{Content: "y", Hash: "h1"})
+	running := d.applyCapture(primed, t1, vt.Snapshot{Stable: "h1"})
 	t2 := t1.Add(10 * time.Second)
-	waiting := d.applyCapture(running, t2, CapturePaneResult{Content: "y", Hash: "h1"})
+	waiting := d.applyCapture(running, t2, vt.Snapshot{Stable: "h1"})
 	if waiting.Status != state.StatusWaiting {
 		t.Fatalf("setup failed: status = %v, want Waiting", waiting.Status)
 	}
 	// Hash change from Waiting → Running, StatusChangedAt updated
 	t3 := t2.Add(2 * time.Second)
-	resumed := d.applyCapture(waiting, t3, CapturePaneResult{Content: "z", Hash: "h2"})
+	resumed := d.applyCapture(waiting, t3, vt.Snapshot{Stable: "h2"})
 	if resumed.Status != state.StatusRunning {
 		t.Errorf("Status = %v, want Running after hash change from Waiting", resumed.Status)
 	}
@@ -247,22 +248,43 @@ func TestGenericWaitingToRunningOnHashChange(t *testing.T) {
 func TestGenericRunningConsecutiveDoesNotResetChangedAt(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
 	// Prime baseline (Waiting)
-	primed := d.applyCapture(s, now, CapturePaneResult{Content: "a", Hash: "h0"})
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
 	t1 := now.Add(time.Second)
 	// First hash change: Waiting → Running; StatusChangedAt = t1
-	r1 := d.applyCapture(primed, t1, CapturePaneResult{Content: "b", Hash: "h1"})
+	r1 := d.applyCapture(primed, t1, vt.Snapshot{Stable: "h1"})
 	if r1.Status != state.StatusRunning {
 		t.Fatalf("setup: status = %v, want Running after first hash change", r1.Status)
 	}
 	origChangedAt := r1.StatusChangedAt
 	// Second hash change while already Running: StatusChangedAt must NOT be updated
 	t2 := t1.Add(time.Second)
-	r2 := d.applyCapture(r1, t2, CapturePaneResult{Content: "c", Hash: "h2"})
+	r2 := d.applyCapture(r1, t2, vt.Snapshot{Stable: "h2"})
 	if r2.Status != state.StatusRunning {
 		t.Errorf("Status = %v, want Running", r2.Status)
 	}
 	if !r2.StatusChangedAt.Equal(origChangedAt) {
 		t.Errorf("StatusChangedAt reset on consecutive Running: got %v, want %v", r2.StatusChangedAt, origChangedAt)
+	}
+}
+
+func TestGenericPromptEntersWaiting(t *testing.T) {
+	d, s, now := newGenericState(t, 5*time.Second)
+	// Prime baseline
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
+	t1 := now.Add(time.Second)
+	// Hash change → Running
+	running := d.applyCapture(primed, t1, vt.Snapshot{Stable: "h1"})
+	if running.Status != state.StatusRunning {
+		t.Fatalf("setup failed: status = %v, want Running", running.Status)
+	}
+	// Same hash but LastLine ends with shell prompt → Waiting immediately (before threshold)
+	t2 := t1.Add(time.Second) // only 1s elapsed, well below 5s threshold
+	waiting := d.applyCapture(running, t2, vt.Snapshot{Stable: "h1", LastLine: "user@host:~$ "})
+	if waiting.Status != state.StatusWaiting {
+		t.Errorf("Status = %v, want Waiting when prompt detected (before threshold)", waiting.Status)
+	}
+	if !waiting.StatusChangedAt.Equal(t2) {
+		t.Errorf("StatusChangedAt = %v, want %v", waiting.StatusChangedAt, t2)
 	}
 }
 
@@ -380,10 +402,10 @@ func TestGenericWaitingTransitionStartsSummaryJob(t *testing.T) {
 	const threshold = 5 * time.Second
 	d, s, now := newGenericState(t, threshold)
 	// 1st capture: prime baseline
-	primed := d.applyCapture(s, now, CapturePaneResult{Content: "build output", Hash: "h0"})
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
 	// 2nd capture: hash changes → still Running
 	t1 := now.Add(time.Second)
-	running := d.applyCapture(primed, t1, CapturePaneResult{Content: "build done", Hash: "h1"})
+	running := d.applyCapture(primed, t1, vt.Snapshot{Stable: "h1"})
 	if running.Status != state.StatusRunning {
 		t.Fatalf("setup: status = %v, want Running", running.Status)
 	}
@@ -392,8 +414,9 @@ func TestGenericWaitingTransitionStartsSummaryJob(t *testing.T) {
 	next, effs, _ := d.Step(running, state.DEvJobResult{
 		Now: t2,
 		Result: CapturePaneResult{
-			Content: "build done",
-			Hash:    "h1",
+			Content:  "build done",
+			Hash:     "h1",
+			Snapshot: vt.Snapshot{Stable: "h1"},
 		},
 	})
 	gs := next.(GenericState)
@@ -427,16 +450,17 @@ func TestGenericWaitingTransitionSkipsSummaryWhileInFlight(t *testing.T) {
 	d, s, now := newGenericState(t, threshold)
 	s.SummaryInFlight = true
 	// Prime, then move to Running
-	primed := d.applyCapture(s, now, CapturePaneResult{Content: "x", Hash: "h0"})
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
 	t1 := now.Add(time.Second)
-	running := d.applyCapture(primed, t1, CapturePaneResult{Content: "y", Hash: "h1"})
+	running := d.applyCapture(primed, t1, vt.Snapshot{Stable: "h1"})
 	// Stability threshold exceeded via Step → Waiting, but SummaryInFlight already true
 	t2 := t1.Add(threshold + time.Second)
 	next, effs, _ := d.Step(running, state.DEvJobResult{
 		Now: t2,
 		Result: CapturePaneResult{
-			Content: "y",
-			Hash:    "h1",
+			Content:  "y",
+			Hash:     "h1",
+			Snapshot: vt.Snapshot{Stable: "h1"},
 		},
 	})
 	gs := next.(GenericState)
@@ -451,15 +475,16 @@ func TestGenericWaitingTransitionSkipsSummaryWhileInFlight(t *testing.T) {
 func TestGenericSummaryPromptIsGenericFormat(t *testing.T) {
 	const threshold = 5 * time.Second
 	d, s, now := newGenericState(t, threshold)
-	primed := d.applyCapture(s, now, CapturePaneResult{Content: "diff content", Hash: "h0"})
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
 	t1 := now.Add(time.Second)
-	running := d.applyCapture(primed, t1, CapturePaneResult{Content: "diff content changed", Hash: "h1"})
+	running := d.applyCapture(primed, t1, vt.Snapshot{Stable: "h1"})
 	t2 := t1.Add(threshold + time.Second)
 	_, effs, _ := d.Step(running, state.DEvJobResult{
 		Now: t2,
 		Result: CapturePaneResult{
-			Content: "diff content changed",
-			Hash:    "h1",
+			Content:  "diff content changed",
+			Hash:     "h1",
+			Snapshot: vt.Snapshot{Stable: "h1"},
 		},
 	})
 	if len(effs) != 1 {
@@ -725,10 +750,10 @@ func TestGenericBranchDetectResultUpdatesTag(t *testing.T) {
 	ev := state.DEvJobResult{
 		Now: now,
 		Result: BranchDetectResult{
-			Branch:      "feature/x",
-			Background:  "#aaa",
-			Foreground:  "#fff",
-			IsWorktree:  true,
+			Branch:       "feature/x",
+			Background:   "#aaa",
+			Foreground:   "#fff",
+			IsWorktree:   true,
 			ParentBranch: "main",
 		},
 	}
@@ -812,3 +837,32 @@ func TestGenericViewIncludesBranchTag(t *testing.T) {
 	}
 }
 
+func TestParseOscNotif(t *testing.T) {
+	tests := []struct {
+		name      string
+		n         vt.OscNotification
+		wantTitle string
+		wantBody  string
+	}{
+		{"osc9 plain", vt.OscNotification{Cmd: 9, Payload: "Hello agent"}, "Hello agent", ""},
+		{"osc9 trimmed", vt.OscNotification{Cmd: 9, Payload: "  Hello  "}, "Hello", ""},
+		{"osc9 empty", vt.OscNotification{Cmd: 9, Payload: ""}, "", ""},
+		{"osc777 title+body", vt.OscNotification{Cmd: 777, Payload: "notify;MyTitle;MyBody"}, "MyTitle", "MyBody"},
+		{"osc777 title only", vt.OscNotification{Cmd: 777, Payload: "notify;OnlyTitle"}, "OnlyTitle", ""},
+		{"osc777 empty payload", vt.OscNotification{Cmd: 777, Payload: ""}, "", ""},
+		{"osc99 body verbatim", vt.OscNotification{Cmd: 99, Payload: "i=1;test message"}, "", "i=1;test message"},
+		{"osc99 empty", vt.OscNotification{Cmd: 99, Payload: ""}, "", ""},
+		{"unknown cmd", vt.OscNotification{Cmd: 42, Payload: "data"}, "", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotTitle, gotBody := parseOscNotif(tt.n)
+			if gotTitle != tt.wantTitle {
+				t.Errorf("title = %q, want %q", gotTitle, tt.wantTitle)
+			}
+			if gotBody != tt.wantBody {
+				t.Errorf("body = %q, want %q", gotBody, tt.wantBody)
+			}
+		})
+	}
+}

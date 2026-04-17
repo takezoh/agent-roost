@@ -63,9 +63,13 @@ type TmuxBackend interface {
 	// RespawnPane runs respawn-pane against a dead pane.
 	RespawnPane(target, command string) error
 
-	// CapturePane returns the trailing nLines of a pane's content.
+	// CapturePane returns the trailing nLines of a pane's content (no SGR).
 	// Used by polling drivers via the worker pool.
 	CapturePane(paneTarget string, nLines int) (string, error)
+
+	// CapturePaneEscaped returns the trailing nLines with ANSI escape sequences
+	// preserved (-e flag). Used by the VT-parser-based state detection.
+	CapturePaneEscaped(paneTarget string, nLines int) (string, error)
 
 	// InspectPane snapshots a pane's visible state for diagnostics.
 	InspectPane(target string, nLines int) (PaneSnapshot, error)
@@ -180,7 +184,8 @@ func (noopTmux) SetEnv(string, string) error              { return nil }
 func (noopTmux) UnsetEnv(string) error                    { return nil }
 func (noopTmux) PaneAlive(string) (bool, error)           { return true, nil }
 func (noopTmux) RespawnPane(string, string) error         { return nil }
-func (noopTmux) CapturePane(string, int) (string, error)  { return "", nil }
+func (noopTmux) CapturePane(string, int) (string, error)         { return "", nil }
+func (noopTmux) CapturePaneEscaped(string, int) (string, error)  { return "", nil }
 func (noopTmux) InspectPane(string, int) (PaneSnapshot, error) {
 	return PaneSnapshot{}, nil
 }

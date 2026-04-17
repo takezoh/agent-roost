@@ -69,6 +69,16 @@ func (r *Runtime) execute(eff state.Effect) {
 	case state.EffNotify:
 		r.cfg.Notifier.Dispatch(e)
 
+	case state.EffRecordNotification:
+		r.broadcastAgentNotification(e)
+		if r.cfg.NotifySend != nil && (e.Title != "" || e.Body != "") {
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				r.cfg.NotifySend(ctx, e.Title, e.Body) //nolint:errcheck
+			}()
+		}
+
 	default:
 		slog.Warn("runtime: unhandled effect type", "type", fmt.Sprintf("%T", eff))
 	}
@@ -97,11 +107,14 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 		r.cfg.Tmux.SetEnv(sessionPaneEnvKey(e.FrameID), e.PaneTarget)
 
 	case state.EffUnregisterPane:
-		if _, ok := r.sessionPanes[e.FrameID]; ok {
+		if target, ok := r.sessionPanes[e.FrameID]; ok {
 			delete(r.sessionPanes, e.FrameID)
 			delete(r.parkedPaneSnapshot, e.FrameID)
 			r.cfg.Tmux.UnsetEnv(sessionPaneEnvKey(e.FrameID))
 			r.cfg.EventLog.Close(e.FrameID)
+			if r.cfg.TerminalEvict != nil {
+				r.cfg.TerminalEvict(target)
+			}
 		}
 
 	case state.EffSelectPane:

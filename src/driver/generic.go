@@ -2,11 +2,19 @@ package driver
 
 import (
 	"errors"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/takezoh/agent-roost/driver/vt"
 	"github.com/takezoh/agent-roost/state"
 )
+
+// promptRe matches common shell prompt endings.
+// A stable screen whose last non-empty line ends with one of these is
+// treated as "at a prompt" → transition to Waiting immediately rather
+// than waiting for the full IdleThreshold to expire.
+var promptRe = regexp.MustCompile(`[>$❯%#]\s*$`)
 
 // Generic driver: polling-driven status producer for non-event-driven
 // shells (bash, codex, gemini, fallback). Detects status by hashing
@@ -223,9 +231,20 @@ func (d GenericDriver) Step(prev state.DriverState, ev state.DriverEvent) (state
 		if e.Err != nil {
 			return gs, nil, d.view(gs)
 		}
-		next := d.applyCapture(gs, e.Now, result)
+		next := d.applyCapture(gs, e.Now, result.Snapshot)
 		effs, inFlight := d.summaryEffects(gs, next, result)
 		next.SummaryInFlight = inFlight
+		for _, notif := range result.Snapshot.Notifications {
+			title, body := parseOscNotif(notif)
+			if title == "" && body == "" {
+				continue
+			}
+			effs = append(effs, state.EffRecordNotification{
+				Cmd:   notif.Cmd,
+				Title: title,
+				Body:  body,
+			})
+		}
 		return next, effs, d.view(next)
 
 	case state.DEvHook:
@@ -286,25 +305,27 @@ func (d GenericDriver) ManagedWorktreePath(s state.DriverState) string {
 // Step so the test suite can drive it directly without constructing
 // DriverEvent values.
 //
-// 2-state hash-stability model:
-//   - First capture (Primed=false): record baseline Hash/LastActivity only.
-//   - Hash changed: update Hash/LastActivity; if Waiting, resume Running.
-//     Running stays Running without touching StatusChangedAt (preserves
-//     elapsed-time display in the UI).
-//   - Hash stable: if Running and IdleThreshold > 0 and elapsed ≥ threshold,
-//     transition to Waiting. IdleThreshold=0 disables Waiting entirely.
-func (d GenericDriver) applyCapture(gs GenericState, now time.Time, result CapturePaneResult) GenericState {
+// VT-snapshot model:
+//   - First capture (Primed=false): record baseline Stable/LastActivity.
+//   - Screen changed (Stable differs or DirtyCount>0): update baseline; if
+//     Waiting, resume Running. Running stays Running without touching
+//     StatusChangedAt (preserves elapsed-time display in the UI).
+//   - Screen stable: if Running and IdleThreshold>0:
+//     • Prompt heuristic: LastLine matches a shell prompt → Waiting immediately.
+//     • Idle threshold fallback: elapsed ≥ threshold → Waiting.
+//     IdleThreshold=0 disables Waiting entirely.
+func (d GenericDriver) applyCapture(gs GenericState, now time.Time, snap vt.Snapshot) GenericState {
 	if !gs.Primed {
 		gs.Primed = true
-		gs.Hash = result.Hash
+		gs.Hash = snap.Stable
 		if gs.LastActivity.IsZero() {
 			gs.LastActivity = now
 		}
 		return gs
 	}
 
-	if result.Hash != gs.Hash {
-		gs.Hash = result.Hash
+	if snap.Stable != gs.Hash || snap.DirtyCount > 0 {
+		gs.Hash = snap.Stable
 		gs.LastActivity = now
 		if gs.Status == state.StatusWaiting {
 			gs.Status = state.StatusRunning
@@ -314,12 +335,41 @@ func (d GenericDriver) applyCapture(gs GenericState, now time.Time, result Captu
 		return gs
 	}
 
-	// Same hash — check stability threshold.
-	if gs.Status == state.StatusRunning && gs.IdleThreshold > 0 && now.Sub(gs.LastActivity) >= gs.IdleThreshold {
-		gs.Status = state.StatusWaiting
-		gs.StatusChangedAt = now
+	// Stable screen — check Waiting conditions.
+	if gs.Status == state.StatusRunning && gs.IdleThreshold > 0 {
+		if promptRe.MatchString(snap.LastLine) {
+			gs.Status = state.StatusWaiting
+			gs.StatusChangedAt = now
+			return gs
+		}
+		if now.Sub(gs.LastActivity) >= gs.IdleThreshold {
+			gs.Status = state.StatusWaiting
+			gs.StatusChangedAt = now
+		}
 	}
 	return gs
+}
+
+// parseOscNotif extracts title and body from an OSC notification payload.
+// OSC 9 (iTerm2): payload is the title text.
+// OSC 777 (urxvt): payload is "notify;<title>;<body>".
+// OSC 99 (Kitty): payload is key-value; use as body verbatim.
+func parseOscNotif(n vt.OscNotification) (title, body string) {
+	switch n.Cmd {
+	case 9:
+		return strings.TrimSpace(n.Payload), ""
+	case 777:
+		parts := strings.SplitN(n.Payload, ";", 3)
+		if len(parts) >= 3 {
+			return parts[1], parts[2]
+		}
+		if len(parts) == 2 {
+			return parts[1], ""
+		}
+	case 99:
+		return "", n.Payload
+	}
+	return "", ""
 }
 
 func (d GenericDriver) summaryEffects(prev, next GenericState, result CapturePaneResult) ([]state.Effect, bool) {

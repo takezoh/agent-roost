@@ -266,9 +266,14 @@ func parseRoostWindows(out string) []RoostWindow {
 	return windows
 }
 
-// CapturePaneLines captures the last n lines of the given pane. Used by
-// genericDriver.Tick for capture-pane based status detection — Claude
-// sessions are event-driven and never hit this.
+// CapturePaneLines captures the last n lines of the given pane (no SGR).
 func (c *Client) CapturePaneLines(paneTarget string, n int) (string, error) {
 	return c.Run("capture-pane", "-p", "-t", paneTarget, "-S", fmt.Sprintf("-%d", n))
+}
+
+// CapturePaneEscaped captures the last n lines of the given pane with ANSI
+// escape sequences preserved (-e flag). Used by the VT-parser-based state
+// detection in driver/vt.
+func (c *Client) CapturePaneEscaped(paneTarget string, n int) (string, error) {
+	return c.Run("capture-pane", "-p", "-e", "-t", paneTarget, "-S", fmt.Sprintf("-%d", n))
 }

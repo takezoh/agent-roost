@@ -31,6 +31,7 @@ type Model struct {
 	workspaces        []string // sorted distinct workspace names (always includes "default")
 	active            string
 	anchored          string
+	notifications     map[string][]notifEntry // sessionID → ring buffer (latest 3)
 	mouseSeq   int
 	hovering   bool
 	lastMouseX int

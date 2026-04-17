@@ -183,6 +183,10 @@ func (b *RealTmuxBackend) CapturePane(paneTarget string, nLines int) (string, er
 	return b.client.CapturePaneLines(paneTarget, nLines)
 }
 
+func (b *RealTmuxBackend) CapturePaneEscaped(paneTarget string, nLines int) (string, error) {
+	return b.client.CapturePaneEscaped(paneTarget, nLines)
+}
+
 func (b *RealTmuxBackend) InspectPane(target string, nLines int) (PaneSnapshot, error) {
 	meta, err := b.client.DisplayMessage(target, "#{pane_dead}\t#{pane_in_mode}\t#{pane_current_command}\t#{cursor_x}\t#{cursor_y}")
 	if err != nil {

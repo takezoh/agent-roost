@@ -183,6 +183,9 @@ func DecodeEvent(env Envelope) (ServerEvent, error) {
 	case EvtNameSessionFileLine:
 		var e EvtSessionFileLine
 		return decodeIntoEvent(env.Data, &e)
+	case EvtNameAgentNotification:
+		var e EvtAgentNotification
+		return decodeIntoEvent(env.Data, &e)
 	}
 	return nil, fmt.Errorf("proto: unknown event: %q", env.Name)
 }

@@ -124,13 +124,18 @@ func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []sta
 }
 
 // HandleCapturePaneResult updates the pane hash baseline.
+// Uses Snapshot.Stable when available (VT-parser path), otherwise Hash.
 func (c *CommonState) HandleCapturePaneResult(r CapturePaneResult, err error, now time.Time) {
 	c.CaptureInFlight = false
 	if err != nil {
 		return
 	}
-	if c.PaneHash == "" || r.Hash != c.PaneHash {
-		c.PaneHash = r.Hash
+	hash := r.Snapshot.Stable
+	if hash == "" {
+		hash = r.Hash
+	}
+	if c.PaneHash == "" || hash != c.PaneHash {
+		c.PaneHash = hash
 		c.PaneHashAt = now
 	}
 }

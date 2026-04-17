@@ -62,7 +62,11 @@ func renderSessionsBody(m *Model, innerWidth int) string {
 	rendered := make([]string, len(m.items))
 	for i := range m.items {
 		selected := i == m.cursor
-		r := renderItem(m.items[i], selected, innerWidth, m.folded[m.items[i].project])
+		notif := ""
+		if item := m.items[i]; item.session != nil {
+			notif = m.latestNotifLine(item.session.ID)
+		}
+		r := renderItem(m.items[i], selected, innerWidth, m.folded[m.items[i].project], notif)
 		if Active.Minimal && i > 0 && !m.items[i].isProject && !m.items[i-1].isProject {
 			r = renderSessionSeparator(innerWidth) + "\n" + r
 		}
@@ -149,11 +153,11 @@ func stickyProject(items []listItem, offset int) string {
 	return proj
 }
 
-func renderItem(item listItem, selected bool, width int, folded bool) string {
+func renderItem(item listItem, selected bool, width int, folded bool, notifLine string) string {
 	if item.isProject {
 		return renderProject(item.project, item.projectPath, folded, selected)
 	}
-	return renderSession(item.session, selected, width)
+	return renderSession(item.session, selected, width, notifLine)
 }
 
 func renderProject(name, path string, folded, selected bool) string {
@@ -175,13 +179,13 @@ func renderProject(name, path string, folded, selected bool) string {
 	return projectStyle.Render(line)
 }
 
-func renderSession(s *proto.SessionInfo, selected bool, width int) string {
+func renderSession(s *proto.SessionInfo, selected bool, width int, notifLine string) string {
 	if Active.Minimal {
-		return renderSessionMinimal(s, selected, width)
+		return renderSessionMinimal(s, selected, width, notifLine)
 	}
 	cardOuter := width - 2     // leave room for the 2-space indent
 	textWidth := cardOuter - 4 // subtract Card border + padding
-	body := strings.Join(sessionCardLines(s, textWidth), "\n")
+	body := strings.Join(sessionCardLines(s, textWidth, notifLine), "\n")
 	return indent(Card(body, selected, cardOuter, s.View.Card.BorderTitle, s.View.Card.BorderTitleSecondary, s.View.Card.BorderBadge), "  ")
 }
 
@@ -190,10 +194,10 @@ func renderSession(s *proto.SessionInfo, selected bool, width int) string {
 // is selected and a blank cell otherwise (to keep alignment across all
 // cards). No background fill — adjacent sessions are separated by a
 // horizontal rule drawn in renderSessionsBody.
-func renderSessionMinimal(s *proto.SessionInfo, selected bool, width int) string {
+func renderSessionMinimal(s *proto.SessionInfo, selected bool, width int, notifLine string) string {
 	cardOuter := width - 2     // 2-cell outer indent
 	textWidth := cardOuter - 3 // 1 border + 1 left padding + 1 right padding
-	lines := sessionCardLines(s, textWidth)
+	lines := sessionCardLines(s, textWidth, notifLine)
 	body := strings.Join(lines, "\n")
 
 	barChar := " "
@@ -220,7 +224,7 @@ func renderSessionSeparator(innerWidth int) string {
 	return "  " + minimalSeparatorStyle.Render(strings.Repeat("─", n))
 }
 
-func sessionCardLines(s *proto.SessionInfo, textWidth int) []string {
+func sessionCardLines(s *proto.SessionInfo, textWidth int, notifLine string) []string {
 	var iconGlyph string
 	if s.State == state.StatusRunning {
 		iconGlyph = runningSpinnerGlyph()
@@ -266,6 +270,10 @@ func sessionCardLines(s *proto.SessionInfo, textWidth int) []string {
 	}
 	if tagsLine := renderTags(s); tagsLine != "" {
 		lines = append(lines, tagsLine)
+	}
+	if notifLine != "" {
+		bell := glyphs.Get("notif.bell")
+		lines = append(lines, mutedStyle.Render(bell+" "+truncate(notifLine, textWidth-3)))
 	}
 	return lines
 }

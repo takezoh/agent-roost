@@ -14,6 +14,7 @@
     "fold.closed": "+",
     "tab.info": "I",
     "tab.log": "L",
-    "link": "^"
+    "link": "^",
+    "notif.bell": "!"
   }
 }

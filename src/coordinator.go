@@ -53,7 +53,7 @@ func runCoordinator() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	statedriver.RegisterRunners(tmuxBackend.CapturePane, cfg.Driver.SummarizeCommand, dataDir)
+	terminalEvict := statedriver.RegisterRunners(tmuxBackend.CapturePaneEscaped, cfg.Driver.SummarizeCommand, dataDir)
 	connector.RegisterDefaults()
 	connector.RegisterRunners()
 	pool := worker.NewPool(ctx, 4)
@@ -77,6 +77,8 @@ func runCoordinator() error {
 		ToolLog:           runtime.NewFileToolLog(dataDir),
 		Pool:              pool,
 		Notifier:          runtime.NewNotifier(&cfg.Notifications, ln),
+		TerminalEvict:     terminalEvict,
+		NotifySend:        ln.Send,
 		Features:          featureSet,
 	})
 

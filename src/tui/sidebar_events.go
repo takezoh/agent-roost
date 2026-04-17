@@ -10,6 +10,13 @@ import (
 type serverEventMsg struct{ event proto.ServerEvent }
 type disconnectMsg struct{}
 
+// notifEntry holds one OSC in-pane notification for a session.
+type notifEntry struct {
+	Cmd   int
+	Title string
+	Body  string
+}
+
 type previewDoneMsg struct {
 	sessionID string
 	err       error
@@ -54,8 +61,35 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 			m.cursor = -1
 			m.anchored = ""
 		}
+	case proto.EvtAgentNotification:
+		if m.notifications == nil {
+			m.notifications = make(map[string][]notifEntry)
+		}
+		nb := append(m.notifications[e.SessionID], notifEntry{Cmd: e.Cmd, Title: e.Title, Body: e.Body})
+		const maxNotif = 3
+		if len(nb) > maxNotif {
+			nb = nb[len(nb)-maxNotif:]
+		}
+		m.notifications[e.SessionID] = nb
 	}
 	return m, m.listenEvents()
+}
+
+// latestNotifLine returns a single display string for the most recent
+// notification for the given session, or "" if none.
+func (m Model) latestNotifLine(sessionID string) string {
+	nb := m.notifications[sessionID]
+	if len(nb) == 0 {
+		return ""
+	}
+	n := nb[len(nb)-1]
+	if n.Title != "" && n.Body != "" {
+		return n.Title + ": " + n.Body
+	}
+	if n.Title != "" {
+		return n.Title
+	}
+	return n.Body
 }
 
 // stringSliceToMap converts a list of enabled flag names into the map form

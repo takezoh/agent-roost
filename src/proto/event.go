@@ -9,11 +9,12 @@ type ServerEvent interface {
 }
 
 const (
-	EvtNameSessionsChanged = "sessions-changed"
-	EvtNameProjectSelected = "project-selected"
-	EvtNamePaneFocused     = "pane-focused"
-	EvtNameLogLine         = "log-line"
-	EvtNameSessionFileLine = "session-file-line"
+	EvtNameSessionsChanged   = "sessions-changed"
+	EvtNameProjectSelected   = "project-selected"
+	EvtNamePaneFocused       = "pane-focused"
+	EvtNameLogLine           = "log-line"
+	EvtNameSessionFileLine   = "session-file-line"
+	EvtNameAgentNotification = "agent-notification"
 )
 
 // EvtSessionsChanged carries the current session table. Sent on
@@ -67,3 +68,15 @@ type EvtSessionFileLine struct {
 
 func (EvtSessionFileLine) isEvent()          {}
 func (EvtSessionFileLine) EventName() string { return EvtNameSessionFileLine }
+
+// EvtAgentNotification is emitted when an OSC 9/99/777 notification
+// escape is captured from an agent pane.
+type EvtAgentNotification struct {
+	SessionID string `json:"session_id"`
+	Cmd       int    `json:"cmd"`
+	Title     string `json:"title,omitempty"`
+	Body      string `json:"body,omitempty"`
+}
+
+func (EvtAgentNotification) isEvent()          {}
+func (EvtAgentNotification) EventName() string { return EvtNameAgentNotification }

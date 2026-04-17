@@ -172,6 +172,11 @@ func postProcessEffect(s State, sessID SessionID, frameID FrameID, eff Effect) (
 			e.SessionID = sessID
 		}
 		return e, s
+	case EffRecordNotification:
+		if e.SessionID == "" {
+			e.SessionID = sessID
+		}
+		return e, s
 	default:
 		return eff, s
 	}

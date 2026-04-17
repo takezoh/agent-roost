@@ -1,6 +1,9 @@
 package driver
 
-import "github.com/takezoh/agent-roost/state"
+import (
+	"github.com/takezoh/agent-roost/driver/vt"
+	"github.com/takezoh/agent-roost/state"
+)
 
 // Job input/output types passed through state.EffStartJob.Input and
 // state.EvJobResult.Result. Defined here (driver pkg) because both
@@ -18,12 +21,13 @@ type CapturePaneInput struct {
 	NLines     int
 }
 
-// CapturePaneResult carries the captured content. Hash is the SHA256
-// of Content (computed by the worker so the reducer doesn't have to
-// hash inside Step).
+// CapturePaneResult carries the captured content. Hash equals
+// Snapshot.Stable (the FNV-64a structural hash of the VT screen).
+// Content is kept for building summary prompts.
 type CapturePaneResult struct {
-	Content string
-	Hash    string
+	Content  string
+	Hash     string     // same as Snapshot.Stable; kept for backward compat
+	Snapshot vt.Snapshot
 }
 
 // SummaryCommandInput is the fully assembled prompt text. Prompt

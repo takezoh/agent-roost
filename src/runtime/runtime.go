@@ -42,6 +42,16 @@ type Config struct {
 	Pool     *worker.Pool
 	Notifier Notifier
 
+	// TerminalEvict is called with the pane target string whenever a session
+	// pane is unregistered. It should release the VT emulator held for that
+	// pane to prevent unbounded memory growth. May be nil.
+	TerminalEvict func(pane string)
+
+	// NotifySend delivers an OS desktop notification for OSC 9/99/777
+	// payloads captured from agent panes. Called in a goroutine with a 5s
+	// timeout. May be nil (OSC notifications are TUI-only in that case).
+	NotifySend func(ctx context.Context, title, body string) error
+
 	// Features is the set of runtime flags built from the config file.
 	// Injected into state.State once at construction; never mutated.
 	Features features.Set
