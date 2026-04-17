@@ -28,7 +28,9 @@ func renderInfoContent(s *proto.SessionInfo, width int) string {
 	}
 
 	writeField("ID", s.ID)
-	writeField("Project", Link(fileLink(s.Project), s.Project))
+	const labelCols = 14 // "%-13s " prefix width
+	displayProject := truncate(s.Project, width-labelCols)
+	writeField("Project", Link(fileLink(s.Project), displayProject))
 	writeField("Command", s.DisplayCommand())
 	writeField("State", glyphs.Get(s.State.SymbolKey())+" "+s.State.String())
 	if t := s.CreatedAtTime(); !t.IsZero() {
@@ -40,12 +42,6 @@ func renderInfoContent(s *proto.SessionInfo, width int) string {
 
 	for _, line := range s.View.InfoExtras {
 		writeField(line.Label, line.Value)
-	}
-
-	if bar := renderRunningProgress(s, width); bar != "" {
-		b.WriteString("\n")
-		b.WriteString(bar)
-		b.WriteString("\n")
 	}
 
 	if len(s.View.Card.Indicators) > 0 {
