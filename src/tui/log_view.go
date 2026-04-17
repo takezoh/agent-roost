@@ -12,7 +12,7 @@ func (m LogModel) View() tea.View {
 	var status string
 	switch {
 	case m.activeTabIs("INFO"):
-		// INFO is rendered directly (not via viewport), so scroll % is meaningless.
+		// INFO has a fixed-size body; a scroll % is not meaningful.
 	case m.following:
 		status = followStyle.Render("↓")
 	default:
@@ -21,25 +21,15 @@ func (m LogModel) View() tea.View {
 	header := m.renderTabHeader() + "  " + status
 
 	var body string
-	switch {
-	case len(m.tabs) == 0:
+	if len(m.tabs) == 0 {
 		body = mutedStyle.Render("No sessions")
-	case m.activeTabIs("INFO"):
-		// Bypass viewport so OSC 8 hyperlink sequences reach the terminal intact.
-		body = clipLines(renderInfoContent(m.currentSession, m.width), m.height-1)
-	default:
+	} else {
 		body = m.viewport.View()
 	}
 
 	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, body))
 	v.AltScreen = true
-	// INFO tab: release mouse capture so the terminal emulator can handle
-	// OSC 8 hyperlink clicks natively (Ctrl+Click in WezTerm etc.).
-	if m.activeTabIs("INFO") {
-		v.MouseMode = tea.MouseModeNone
-	} else {
-		v.MouseMode = tea.MouseModeCellMotion
-	}
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
@@ -56,17 +46,6 @@ func (m LogModel) renderTabHeader() string {
 		}
 	}
 	return b.String()
-}
-
-func clipLines(s string, n int) string {
-	if n <= 0 {
-		return s
-	}
-	lines := strings.Split(s, "\n")
-	if len(lines) <= n {
-		return s
-	}
-	return strings.Join(lines[:n], "\n")
 }
 
 func colorizeLines(text string) string {

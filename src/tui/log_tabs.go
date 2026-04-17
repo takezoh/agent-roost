@@ -125,9 +125,14 @@ func (m *LogModel) tabIndexByLabel(label string) (logTab, bool) {
 	return 0, false
 }
 
+// renderInfoTab writes the generic INFO body (see renderInfoContent)
+// into the viewport and refreshes the projectLine cache. It is safe to
+// call when the active tab is not INFO; callers use it to keep the
+// INFO rendering in sync with the current session.
 func (m *LogModel) renderInfoTab() {
-	// INFO is now rendered directly in View(), bypassing viewport for OSC 8 support.
-	// This method is a no-op kept for call-site compatibility.
+	content, line := renderInfoContent(m.currentSession, m.width)
+	m.projectLine = line
+	m.viewport.SetContent(content)
 }
 
 func (m *LogModel) activeTabState() *tabState {
@@ -157,6 +162,7 @@ func (m *LogModel) switchToTab(tab logTab) bool {
 	}
 	if t.kind == tabKindInfo {
 		m.following = true
+		m.renderInfoTab()
 		return true
 	}
 

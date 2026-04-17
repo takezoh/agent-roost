@@ -26,6 +26,7 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) error {
 	client.SetOption(sn+":0", "remain-on-exit", "on")
 	client.SetOption(sn, "prefix", cfg.Tmux.Prefix)
 	client.SetOption(sn, "mouse", "on")
+	enableHyperlinkForward(client)
 
 	tuiWidth := 100 - cfg.Tmux.PaneRatioHorizontal
 	logHeight := 100 - cfg.Tmux.PaneRatioVertical
@@ -60,6 +61,7 @@ func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {
 	client.SetOption(sn+":0", "remain-on-exit", "on")
 	client.SetOption(sn, "prefix", cfg.Tmux.Prefix)
 	client.SetOption(sn, "mouse", "on")
+	enableHyperlinkForward(client)
 
 	tuiWidth := 100 - cfg.Tmux.PaneRatioHorizontal
 	logHeight := 100 - cfg.Tmux.PaneRatioVertical
@@ -156,4 +158,16 @@ func respawnSessionsPane(client *tmux.Client, sn string) {
 
 func respawnLogPane(client *tmux.Client, sn string) {
 	client.RespawnPane(sn+":0.1", uiproc.Log().Command(resolveExe()))
+}
+
+// enableHyperlinkForward appends "hyperlinks" to the server-wide
+// terminal-features array so tmux re-emits OSC 8 sequences to the
+// outer terminal (WezTerm, Ghostty, Windows Terminal, ...). Without
+// this flag tmux 3.4+ consumes OSC 8 as a cell attribute and never
+// forwards it. The call is best-effort: older tmux that does not
+// recognise the option still continues to start.
+func enableHyperlinkForward(client *tmux.Client) {
+	if _, err := client.Run("set-option", "-as", "terminal-features", ",*:hyperlinks"); err != nil {
+		slog.Warn("tmux terminal-features hyperlinks not applied", "err", err)
+	}
 }

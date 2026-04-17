@@ -52,6 +52,11 @@ type LogModel struct {
 	client         *proto.Client
 	renderer       state.TabRenderer
 	currentSession *proto.SessionInfo
+
+	// projectLine is the 0-indexed row of the Project field inside the
+	// INFO tab body (ignoring the tab header). -1 when the current
+	// session has no project path. Click hit-testing uses it.
+	projectLine int
 }
 
 func NewLogModel(appLogPath string, client *proto.Client) LogModel {
@@ -60,9 +65,10 @@ func NewLogModel(appLogPath string, client *proto.Client) LogModel {
 		tabs: []*tabState{
 			{label: "LOG", logPath: appLogPath, kind: tabKindLog},
 		},
-		client:    client,
-		activeTab: 0,
-		following: true,
+		client:      client,
+		activeTab:   0,
+		following:   true,
+		projectLine: -1,
 	}
 }
 

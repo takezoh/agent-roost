@@ -1,12 +1,18 @@
 package tui
 
 import (
+	"log/slog"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/takezoh/agent-roost/lib/openurl"
 	"github.com/takezoh/agent-roost/proto"
 )
+
+// openProject dispatches a file path or URL to the host handler. It is
+// a package variable so tests can substitute a fake.
+var openProject = openurl.Open
 
 type logEventMsg struct{ event proto.ServerEvent }
 type logDisconnectMsg struct{}
@@ -30,6 +36,9 @@ func (m LogModel) handleResize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
 	m.height = msg.Height
 	m.viewport.SetWidth(m.width)
 	m.viewport.SetHeight(m.height - 1)
+	if m.activeTabIs("INFO") {
+		m.renderInfoTab()
+	}
 	return m, nil
 }
 
@@ -55,6 +64,10 @@ func (m LogModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		m.following = false
 		m.viewport.GotoTop()
 		return m, nil
+	case "enter":
+		if cmd := m.openProjectCmd(); cmd != nil {
+			return m, cmd
+		}
 	}
 	var cmd tea.Cmd
 	m.viewport, cmd = m.viewport.Update(msg)
@@ -72,6 +85,9 @@ func (m LogModel) handleLogEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 				m.activeTab = idx
 				m.following = true
 			}
+		}
+		if m.activeTabIs("INFO") {
+			m.renderInfoTab()
 		}
 		if sessionChanged {
 			var cmds []tea.Cmd
@@ -130,8 +146,39 @@ func pickActiveSession(sessions []proto.SessionInfo, activeID string) *proto.Ses
 
 func (m LogModel) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 	mouse := msg.Mouse()
-	if mouse.Y == 0 && mouse.Button == tea.MouseLeft {
+	if mouse.Button != tea.MouseLeft {
+		return m, nil
+	}
+	if mouse.Y == 0 {
 		return m, m.switchToTabCmd(m.tabIndexAtX(mouse.X))
 	}
+	if m.activeTabIs("INFO") && m.projectLine >= 0 {
+		bodyRow := mouse.Y - 1 + m.viewport.YOffset()
+		if bodyRow == m.projectLine {
+			if cmd := m.openProjectCmd(); cmd != nil {
+				return m, cmd
+			}
+		}
+	}
 	return m, nil
+}
+
+// openProjectCmd returns a tea.Cmd that opens the current session's
+// project path via the host handler. It returns nil when there is no
+// project to open (INFO tab not active, no current session, or empty
+// project path).
+func (m LogModel) openProjectCmd() tea.Cmd {
+	if !m.activeTabIs("INFO") || m.currentSession == nil {
+		return nil
+	}
+	target := m.currentSession.Project
+	if target == "" {
+		return nil
+	}
+	return func() tea.Msg {
+		if err := openProject(target); err != nil {
+			slog.Warn("openurl failed", "target", target, "err", err)
+		}
+		return nil
+	}
 }
