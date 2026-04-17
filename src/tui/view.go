@@ -226,9 +226,12 @@ func renderSessionSeparator(innerWidth int) string {
 
 func sessionCardLines(s *proto.SessionInfo, textWidth int, notifLine string) []string {
 	var iconGlyph string
-	if s.State == state.StatusRunning {
+	switch s.State {
+	case state.StatusRunning:
 		iconGlyph = runningSpinnerGlyph()
-	} else {
+	case state.StatusWaiting:
+		iconGlyph = waitingSpinnerGlyph()
+	default:
 		iconGlyph = stateStyle(s.State).Render(glyphs.Get(s.State.SymbolKey()))
 	}
 	stateStr := iconGlyph + " " + stateStyle(s.State).Render(s.State.String())
@@ -274,6 +277,11 @@ func sessionCardLines(s *proto.SessionInfo, textWidth int, notifLine string) []s
 	if notifLine != "" {
 		bell := glyphs.Get("notif.bell")
 		lines = append(lines, mutedStyle.Render(bell+" "+truncate(notifLine, textWidth-3)))
+	}
+	if s.State == state.StatusRunning && textWidth >= 8 {
+		if bar := renderRunningProgress(s, textWidth); bar != "" {
+			lines = append(lines, bar)
+		}
 	}
 	return lines
 }

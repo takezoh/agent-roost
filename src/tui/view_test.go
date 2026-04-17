@@ -289,8 +289,9 @@ func TestHandleMouseWheelScrollsWhenOverflows(t *testing.T) {
 
 func TestSessionCardLinesSubtitleClamp(t *testing.T) {
 	mk := func(subtitle string) *proto.SessionInfo {
+		// Use Waiting state so the running progress bar does not add an extra line.
 		return &proto.SessionInfo{
-			State: state.StatusRunning,
+			State: state.StatusWaiting,
 			View: state.View{
 				Card: state.Card{
 					Title:    "title",

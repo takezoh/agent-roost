@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/progress"
+	"charm.land/lipgloss/v2"
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/state"
 )
@@ -37,18 +39,19 @@ func runningFraction(s *proto.SessionInfo) float64 {
 }
 
 // renderRunningProgress returns a single-line progress bar for a Running
-// session, showing elapsed time relative to the hang threshold. Returns ""
-// when the session is not Running or StateChangedAt is unknown.
+// session. When StateChangedAt is known, shows elapsed vs hang threshold as
+// a gradient fill. When unknown, shows an indeterminate shimmer animation.
+// Returns "" when the session is not Running.
 func renderRunningProgress(s *proto.SessionInfo, width int) string {
 	if s == nil || s.State != state.StatusRunning {
 		return ""
 	}
-	f := runningFraction(s)
-	if f == 0 {
-		return "" // StateChangedAt unknown or elapsed rounds to zero
-	}
 	if width <= 0 {
 		width = 40
+	}
+	f := runningFraction(s)
+	if f == 0 {
+		return renderIndeterminateProgress(width)
 	}
 	bar := progress.New(
 		progress.WithColors(runningPalette...),
@@ -56,4 +59,30 @@ func renderRunningProgress(s *proto.SessionInfo, width int) string {
 		progress.WithWidth(width),
 	)
 	return bar.ViewAs(f)
+}
+
+// renderIndeterminateProgress renders a shimmer bar: a 1/4-width highlight
+// block that slides left→right→left using the global animFrame counter.
+func renderIndeterminateProgress(width int) string {
+	if width < 4 {
+		return ""
+	}
+	blockW := width / 4
+	if blockW < 2 {
+		blockW = 2
+	}
+	travelW := width - blockW
+	// slow down: advance 1 position every 3 frames
+	step := int(animFrame) / 3
+	pos := step % (travelW * 2)
+	if pos > travelW {
+		pos = travelW*2 - pos
+	}
+	hlColor := runningPalette[int(animFrame)%len(runningPalette)]
+	bgStyle := lipgloss.NewStyle().Background(lipgloss.Color("#282828"))
+	hlStyle := lipgloss.NewStyle().Background(hlColor)
+	before := bgStyle.Render(strings.Repeat(" ", pos))
+	hl := hlStyle.Render(strings.Repeat(" ", blockW))
+	after := bgStyle.Render(strings.Repeat(" ", width-pos-blockW))
+	return before + hl + after
 }

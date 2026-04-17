@@ -58,3 +58,35 @@ func TestRenderRunningProgressNonEmptyWhenRunning(t *testing.T) {
 		t.Fatal("expected non-empty progress bar for Running session")
 	}
 }
+
+func TestRenderIndeterminateProgressNonEmpty(t *testing.T) {
+	got := renderIndeterminateProgress(40)
+	if got == "" {
+		t.Fatal("indeterminate progress bar should be non-empty for width 40")
+	}
+}
+
+func TestRenderIndeterminateProgressEmptyWhenTooNarrow(t *testing.T) {
+	if got := renderIndeterminateProgress(3); got != "" {
+		t.Fatalf("expected empty for width < 4, got %q", got)
+	}
+}
+
+func TestRenderIndeterminateProgressAdvancesWithFrame(t *testing.T) {
+	animFrame = 0
+	a := renderIndeterminateProgress(40)
+	animFrame = 30 // advance enough to move the highlight
+	b := renderIndeterminateProgress(40)
+	animFrame = 0
+	if a == b {
+		t.Error("shimmer should differ across frames")
+	}
+}
+
+func TestRunningProgressUsesShimmerWhenStateChangedAtUnknown(t *testing.T) {
+	s := &proto.SessionInfo{State: state.StatusRunning, StateChangedAt: ""}
+	got := renderRunningProgress(s, 40)
+	if got == "" {
+		t.Fatal("Running session with no StateChangedAt should show shimmer, not empty")
+	}
+}
