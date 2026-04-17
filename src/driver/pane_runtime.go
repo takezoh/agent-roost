@@ -104,7 +104,9 @@ func extractOscNotificationEffects(notifs []vt.OscNotification) []state.Effect {
 // parseOscNotif extracts title and body from an OSC notification payload.
 // OSC 9 (iTerm2): payload is the title text.
 // OSC 777 (urxvt): payload is "notify;<title>;<body>".
-// OSC 99 (Kitty): payload is key-value; use as body verbatim.
+// OSC 99 (Kitty): colon-separated key=value pairs; d= is title, p= is body.
+//
+//	Example: "i=1:d=My Title:p=Some body text:f=false:o=always"
 func parseOscNotif(n vt.OscNotification) (title, body string) {
 	switch n.Cmd {
 	case 9:
@@ -118,7 +120,28 @@ func parseOscNotif(n vt.OscNotification) (title, body string) {
 			return parts[1], ""
 		}
 	case 99:
-		return "", n.Payload
+		title, body = parseKittyPayload(n.Payload)
+		if title == "" && body == "" {
+			body = n.Payload
+		}
 	}
-	return "", ""
+	return title, body
+}
+
+// parseKittyPayload decodes Kitty's OSC 99 key=value payload.
+// Keys: d (title/description), p (body). Unknown keys are ignored.
+func parseKittyPayload(payload string) (title, body string) {
+	for _, part := range strings.Split(payload, ":") {
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		switch k {
+		case "d":
+			title = v
+		case "p":
+			body = v
+		}
+	}
+	return title, body
 }
