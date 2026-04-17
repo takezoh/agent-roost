@@ -6,9 +6,15 @@ import (
 
 	"charm.land/bubbles/v2/key"
 	tea "charm.land/bubbletea/v2"
+	"github.com/sahilm/fuzzy"
 
 	"github.com/takezoh/agent-roost/tools"
 )
+
+type matchedOption struct {
+	Value   string
+	Indexes []int // rune offsets in tools.ProjectDisplayName(Value)
+}
 
 var (
 	escapeBinding = key.NewBinding(key.WithKeys("esc", "escape"))
@@ -25,7 +31,7 @@ func (m PaletteModel) handleToolSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 		return m, tea.Quit
 	case key.Matches(msg, enterBinding):
 		if len(m.filtered) > 0 && m.cursor < len(m.filtered) {
-			tool := m.filtered[m.cursor]
+			tool := m.filtered[m.cursor].Tool
 			return m.startTool(&tool)
 		}
 	case key.Matches(msg, upBinding):
@@ -137,7 +143,7 @@ func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			if len(filtered) == 0 || m.paramCursor >= len(filtered) {
 				return m, nil
 			}
-			value = filtered[m.paramCursor]
+			value = filtered[m.paramCursor].Value
 		}
 		m.paramArgs[p.Name] = value
 		m.paramIndex++
@@ -159,8 +165,7 @@ func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			m.paramCursor--
 		}
 	case key.Matches(msg, downBinding):
-		filtered := m.filterParamOptions()
-		if m.paramCursor < len(filtered)-1 {
+		if m.paramCursor < len(m.filterParamOptions())-1 {
 			m.paramCursor++
 		}
 	case key.Matches(msg, bsBinding):
@@ -178,19 +183,24 @@ func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	return m, nil
 }
 
-func (m PaletteModel) filterParamOptions() []string {
+func (m PaletteModel) filterParamOptions() []matchedOption {
+	displays := make([]string, len(m.paramOptions))
+	for i, o := range m.paramOptions {
+		displays[i] = tools.ProjectDisplayName(o)
+	}
 	if m.input == "" {
-		return m.paramOptions
-	}
-	q := strings.ToLower(m.input)
-	var matched []string
-	for _, o := range m.paramOptions {
-		if strings.Contains(strings.ToLower(o), q) ||
-			strings.Contains(strings.ToLower(tools.ProjectDisplayName(o)), q) {
-			matched = append(matched, o)
+		out := make([]matchedOption, len(m.paramOptions))
+		for i, o := range m.paramOptions {
+			out[i] = matchedOption{Value: o}
 		}
+		return out
 	}
-	return matched
+	matches := fuzzy.Find(strings.ToLower(m.input), displays)
+	out := make([]matchedOption, len(matches))
+	for i, match := range matches {
+		out[i] = matchedOption{Value: m.paramOptions[match.Index], Indexes: match.MatchedIndexes}
+	}
+	return out
 }
 
 func (m *PaletteModel) refilter() {

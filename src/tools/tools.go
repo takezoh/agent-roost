@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/sahilm/fuzzy"
 	"github.com/takezoh/agent-roost/proto"
 )
 
@@ -82,19 +83,40 @@ func (r *Registry) All() []Tool {
 	return visible
 }
 
-func (r *Registry) Match(query string) []Tool {
-	q := strings.ToLower(query)
-	var matched []Tool
+// MatchedTool pairs a Tool with the rune-offsets within Tool.Name that
+// matched the query, for use by callers that want to highlight matches.
+type MatchedTool struct {
+	Tool    Tool
+	Indexes []int // rune offsets in Tool.Name; nil when query is empty
+}
+
+// Match returns visible tools whose Name fuzzy-matches query, ordered by
+// descending score. Empty query returns all visible tools in registration
+// order with no indexes.
+func (r *Registry) Match(query string) []MatchedTool {
+	var visible []Tool
 	for _, t := range r.tools {
-		if t.Hidden {
-			continue
-		}
-		if q == "" || strings.Contains(strings.ToLower(t.Name), q) ||
-			strings.Contains(strings.ToLower(t.Description), q) {
-			matched = append(matched, t)
+		if !t.Hidden {
+			visible = append(visible, t)
 		}
 	}
-	return matched
+	if query == "" {
+		out := make([]MatchedTool, len(visible))
+		for i, t := range visible {
+			out[i] = MatchedTool{Tool: t}
+		}
+		return out
+	}
+	names := make([]string, len(visible))
+	for i, t := range visible {
+		names[i] = t.Name
+	}
+	matches := fuzzy.Find(strings.ToLower(query), names)
+	out := make([]MatchedTool, len(matches))
+	for i, m := range matches {
+		out[i] = MatchedTool{Tool: visible[m.Index], Indexes: m.MatchedIndexes}
+	}
+	return out
 }
 
 // ProjectDisplayName returns the human-readable label for a project

@@ -27,7 +27,7 @@ func TestHiddenToolExcludedFromMatch(t *testing.T) {
 
 	matched := r.Match("")
 	for _, t2 := range matched {
-		if t2.Name == "hidden" {
+		if t2.Tool.Name == "hidden" {
 			t.Error("hidden tool should not appear in Match()")
 		}
 	}
@@ -64,6 +64,58 @@ func TestPushDriverToolIsHidden(t *testing.T) {
 		if tool.Name == "push-driver" {
 			t.Error("push-driver should not appear in All()")
 		}
+	}
+}
+
+func TestMatchEmptyQueryReturnsAll(t *testing.T) {
+	r := NewRegistry()
+	r.Register(Tool{Name: "alpha"})
+	r.Register(Tool{Name: "beta"})
+	r.Register(Tool{Name: "hidden-tool", Hidden: true})
+
+	got := r.Match("")
+	if len(got) != 2 {
+		t.Fatalf("Match('') len = %d, want 2", len(got))
+	}
+	if got[0].Tool.Name != "alpha" || got[1].Tool.Name != "beta" {
+		t.Errorf("Match('') order = %v/%v, want alpha/beta", got[0].Tool.Name, got[1].Tool.Name)
+	}
+	for _, m := range got {
+		if len(m.Indexes) != 0 {
+			t.Error("empty query should produce no match indexes")
+		}
+	}
+}
+
+func TestMatchFuzzySubsequence(t *testing.T) {
+	r := NewRegistry()
+	r.Register(Tool{Name: "new-session"})
+	r.Register(Tool{Name: "stop-session"})
+	r.Register(Tool{Name: "detach"})
+
+	got := r.Match("sess")
+	names := make([]string, len(got))
+	for i, m := range got {
+		names[i] = m.Tool.Name
+	}
+	// Both session tools match "sess" as subsequence; detach does not
+	if len(got) != 2 {
+		t.Fatalf("Match('sess') = %v, want 2 results", names)
+	}
+	for _, m := range got {
+		if len(m.Indexes) == 0 {
+			t.Errorf("Match('sess') %q: expected non-empty indexes", m.Tool.Name)
+		}
+	}
+}
+
+func TestMatchNoResults(t *testing.T) {
+	r := NewRegistry()
+	r.Register(Tool{Name: "new-session"})
+
+	got := r.Match("zzz")
+	if len(got) != 0 {
+		t.Errorf("Match('zzz') = %v, want empty", got)
 	}
 }
 

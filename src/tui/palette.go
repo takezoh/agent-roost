@@ -19,7 +19,7 @@ type PaletteModel struct {
 	initialTool string
 	phase       palettePhase
 	input       string
-	filtered    []tools.Tool
+	filtered    []tools.MatchedTool
 	cursor      int
 
 	// parameter input
@@ -40,7 +40,7 @@ func NewPaletteModel(registry *tools.Registry, ctx *tools.ToolContext, initialTo
 	m := PaletteModel{
 		registry:    registry,
 		ctx:         ctx,
-		filtered:    registry.All(),
+		filtered:    registry.Match(""),
 		paramArgs:   make(map[string]string),
 		initialTool: initialTool,
 	}

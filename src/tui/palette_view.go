@@ -12,6 +12,28 @@ import (
 	"github.com/takezoh/agent-roost/tools"
 )
 
+// highlightMatches renders s with rune-positions in indexes styled with hit,
+// all other runes styled with base. Returns the plain string when indexes is empty.
+func highlightMatches(s string, indexes []int, base, hit lipgloss.Style) string {
+	if len(indexes) == 0 {
+		return base.Render(s)
+	}
+	set := make(map[int]struct{}, len(indexes))
+	for _, i := range indexes {
+		set[i] = struct{}{}
+	}
+	var b strings.Builder
+	for i, r := range s {
+		ch := string(r)
+		if _, ok := set[i]; ok {
+			b.WriteString(hit.Render(ch))
+		} else {
+			b.WriteString(base.Render(ch))
+		}
+	}
+	return b.String()
+}
+
 func (m PaletteModel) View() tea.View {
 	outerWidth := m.width
 	if outerWidth <= 0 || outerWidth > 80 {
@@ -39,6 +61,9 @@ func (m PaletteModel) View() tea.View {
 }
 
 func renderPaletteTool(m PaletteModel, innerWidth int) string {
+	hitStyle := lipgloss.NewStyle().Bold(true).Foreground(Active.Primary)
+	plain := lipgloss.NewStyle()
+
 	var b strings.Builder
 	b.WriteString(promptStyle.Render("> "))
 	b.WriteString(inputStyle.Render(m.input))
@@ -56,13 +81,14 @@ func renderPaletteTool(m PaletteModel, innerWidth int) string {
 		b.WriteString("\n")
 	}
 	for i := start; i < end; i++ {
-		t := m.filtered[i]
-		desc := descStyle.Render("  " + t.Description)
-		line := fmt.Sprintf("  %s", t.Name) + desc
+		mt := m.filtered[i]
+		name := highlightMatches(mt.Tool.Name, mt.Indexes, plain, hitStyle)
+		desc := descStyle.Render("  " + mt.Tool.Description)
 		if i == m.cursor {
-			line = fmt.Sprintf("▸ %s", t.Name) + desc
+			line := "▸ " + name + desc
 			b.WriteString(selItemStyle.Width(innerWidth).MaxHeight(1).Render(line))
 		} else {
+			line := "  " + name + desc
 			b.WriteString(itemStyle.Width(innerWidth).MaxHeight(1).Render(line))
 		}
 		if i < end-1 || end < total {
@@ -90,6 +116,9 @@ func paramOptionSuffix(raw string) string {
 }
 
 func renderPaletteParam(m PaletteModel, innerWidth int) string {
+	hitStyle := lipgloss.NewStyle().Bold(true).Foreground(Active.Primary)
+	plain := lipgloss.NewStyle()
+
 	var b strings.Builder
 	b.WriteString(promptStyle.Render("> "))
 	b.WriteString(inputStyle.Render(m.input))
@@ -117,10 +146,12 @@ func renderPaletteParam(m PaletteModel, innerWidth int) string {
 		b.WriteString("\n")
 	}
 	for i := start; i < end; i++ {
-		display := tools.ProjectDisplayName(filtered[i])
-		suffix := paramOptionSuffix(filtered[i])
+		mo := filtered[i]
+		display := tools.ProjectDisplayName(mo.Value)
+		suffix := paramOptionSuffix(mo.Value)
+		highlighted := highlightMatches(display, mo.Indexes, plain, hitStyle)
 		if i == m.paramCursor {
-			left := fmt.Sprintf("▸ %s", display) + suffix
+			left := "▸ " + highlighted + suffix
 			var rendered string
 			if showWorktreeChip {
 				stateText := "off"
@@ -129,7 +160,7 @@ func renderPaletteParam(m PaletteModel, innerWidth int) string {
 				}
 				chip := worktreeChipStyle.Render(" wt " + stateText + " ⇥")
 				chipW := lipgloss.Width(chip)
-				leftW := lipgloss.Width(left)
+				leftW := lipgloss.Width("▸ " + display + suffix)
 				gap := innerWidth - leftW - chipW
 				if gap < 1 {
 					gap = 1
@@ -140,7 +171,7 @@ func renderPaletteParam(m PaletteModel, innerWidth int) string {
 			}
 			b.WriteString(rendered)
 		} else {
-			line := fmt.Sprintf("  %s", display) + suffix
+			line := "  " + highlighted + suffix
 			b.WriteString(itemStyle.Width(innerWidth).MaxHeight(1).Render(line))
 		}
 		if i < end-1 || end < total {
