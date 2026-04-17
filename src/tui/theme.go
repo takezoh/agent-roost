@@ -65,16 +65,15 @@ func newBaseTheme() Theme {
 	}
 }
 
-// Themes is the registry of selectable themes. "default" matches the
-// historical Gruvbox-ish palette; "minimal" keeps the same colors but
-// switches tag rendering to a prefix-symbol style.
-var Themes = map[string]Theme{
-	"default": func() Theme { t := newBaseTheme(); t.Minimal = false; return t }(),
-	"minimal": func() Theme { t := newBaseTheme(); t.Minimal = true; return t }(),
-}
+// Themes is the registry of selectable themes. Populated at init time by
+// theme_loader.go from embedded JSON; users can extend it via
+// ~/.roost/themes/*.json or RegisterTheme.
+var Themes = map[string]Theme{}
 
-// Active is the currently applied theme. Mutated by ApplyTheme.
-var Active = Themes["default"]
+// Active is the currently applied theme. Set by ApplyTheme; theme_loader's
+// init() populates Themes and calls ApplyTheme("default") before any view
+// code runs.
+var Active Theme
 
 // Pre-built styles. Reassigned by ApplyTheme so views can keep referencing
 // these package-level vars without rebuilding per frame.

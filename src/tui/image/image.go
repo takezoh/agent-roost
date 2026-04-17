@@ -13,9 +13,8 @@ package image
 
 import (
 	"bytes"
-	"fmt"
 	"image"
-	"image/color"
+	"image/color/palette"
 	"image/draw"
 	"os"
 
@@ -105,20 +104,12 @@ func Render(img image.Image, cap Capability) string {
 	return buf.String()
 }
 
-// toPaletted converts any image.Image to a 256-color paletted image required
-// by SixelWriteImage.
+// toPaletted converts any image.Image to a paletted image required by
+// SixelWriteImage. Uses the standard Plan9 256-color palette so that pixel
+// colors are faithfully approximated rather than all collapsing to black.
 func toPaletted(src image.Image) *image.Paletted {
 	bounds := src.Bounds()
-	palette := make([]color.Color, 256)
-	for i := range palette {
-		palette[i] = color.Black
-	}
-	dst := image.NewPaletted(bounds, palette)
+	dst := image.NewPaletted(bounds, palette.Plan9)
 	draw.Draw(dst, bounds, src, bounds.Min, draw.Src)
 	return dst
-}
-
-// CapabilityLabel returns a short human-readable label for logging.
-func CapabilityLabel(c Capability) string {
-	return fmt.Sprintf("ROOST_IMAGES capability=%s", c)
 }

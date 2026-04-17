@@ -79,7 +79,7 @@ func renderIndeterminateProgress(width int) string {
 		pos = travelW*2 - pos
 	}
 	hlColor := runningPalette[int(animFrame)%len(runningPalette)]
-	bgStyle := lipgloss.NewStyle().Background(lipgloss.Color("#282828"))
+	bgStyle := lipgloss.NewStyle().Background(Active.Dim)
 	hlStyle := lipgloss.NewStyle().Background(hlColor)
 	before := bgStyle.Render(strings.Repeat(" ", pos))
 	hl := hlStyle.Render(strings.Repeat(" ", blockW))
