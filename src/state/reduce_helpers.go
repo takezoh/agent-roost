@@ -176,6 +176,9 @@ func postProcessEffect(s State, sessID SessionID, frameID FrameID, eff Effect) (
 		if e.SessionID == "" {
 			e.SessionID = sessID
 		}
+		if e.FrameID == "" {
+			e.FrameID = frameID
+		}
 		return e, s
 	default:
 		return eff, s

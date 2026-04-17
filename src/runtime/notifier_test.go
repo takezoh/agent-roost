@@ -99,6 +99,71 @@ func TestConfigNotifierDispatch(t *testing.T) {
 	}
 }
 
+func TestConfigNotifierDispatchOSC(t *testing.T) {
+	tests := []struct {
+		name      string
+		rules     []config.NotifyRule
+		source    string
+		wantCalls int
+	}{
+		{
+			name:      "no rules: OSC not toasted",
+			rules:     nil,
+			source:    "osc9",
+			wantCalls: 0,
+		},
+		{
+			name:      "source matches osc9",
+			rules:     []config.NotifyRule{{Source: "osc9"}},
+			source:    "osc9",
+			wantCalls: 1,
+		},
+		{
+			name:      "source mismatch: osc9 rule vs osc99 event",
+			rules:     []config.NotifyRule{{Source: "osc9"}},
+			source:    "osc99",
+			wantCalls: 0,
+		},
+		{
+			name:      "wildcard source matches all",
+			rules:     []config.NotifyRule{{Source: "*"}},
+			source:    "osc777",
+			wantCalls: 1,
+		},
+		{
+			name:      "empty source rule matches osc event",
+			rules:     []config.NotifyRule{{}},
+			source:    "osc9",
+			wantCalls: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var callCount atomic.Int32
+			cfg := &config.NotificationsConfig{Rules: tt.rules}
+			n := &configNotifier{
+				cfg: cfg,
+				send: func(_ context.Context, _, _ string) error {
+					callCount.Add(1)
+					return nil
+				},
+			}
+			n.DispatchOSC("title", "body", tt.source)
+			deadline := time.Now().Add(500 * time.Millisecond)
+			for time.Now().Before(deadline) {
+				if int(callCount.Load()) >= tt.wantCalls {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if got := int(callCount.Load()); got != tt.wantCalls {
+				t.Errorf("send called %d times, want %d", got, tt.wantCalls)
+			}
+		})
+	}
+}
+
 func TestNotifyTitleBody(t *testing.T) {
 	eff := state.EffNotify{
 		Driver:  "claude",

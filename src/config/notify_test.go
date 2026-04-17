@@ -134,7 +134,7 @@ func TestNotifyRuleMatches(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := tt.rule.Matches(tt.driver, tt.command, tt.project, tt.kind)
+			got := tt.rule.Matches(tt.driver, tt.command, tt.project, tt.kind, "")
 			if got != tt.want {
 				t.Errorf("Matches() = %v, want %v", got, tt.want)
 			}
@@ -144,7 +144,7 @@ func TestNotifyRuleMatches(t *testing.T) {
 
 func TestNotificationsConfigAnyMatch(t *testing.T) {
 	empty := &NotificationsConfig{}
-	if empty.AnyMatch("claude", "claude", "/p", "done") {
+	if empty.AnyMatch("claude", "claude", "/p", "done", "") {
 		t.Error("empty rules should never match")
 	}
 
@@ -154,14 +154,39 @@ func TestNotificationsConfigAnyMatch(t *testing.T) {
 			{Command: "npm", Kind: "done"},
 		},
 	}
-	if !cfg.AnyMatch("claude", "claude", "/p", "pending_approval") {
+	if !cfg.AnyMatch("claude", "claude", "/p", "pending_approval", "") {
 		t.Error("expected first rule to match")
 	}
-	if !cfg.AnyMatch("generic", "npm", "/p", "done") {
+	if !cfg.AnyMatch("generic", "npm", "/p", "done", "") {
 		t.Error("expected second rule to match")
 	}
-	if cfg.AnyMatch("codex", "codex", "/p", "done") {
+	if cfg.AnyMatch("codex", "codex", "/p", "done", "") {
 		t.Error("no rule should match codex+done")
+	}
+
+	// source axis: explicit match and non-match
+	oscCfg := &NotificationsConfig{
+		Rules: []NotifyRule{{Source: "osc9"}},
+	}
+	if !oscCfg.AnyMatch("", "", "", "", "osc9") {
+		t.Error("expected osc9 source rule to match")
+	}
+	if oscCfg.AnyMatch("", "", "", "", "osc99") {
+		t.Error("osc9 rule should not match osc99 source")
+	}
+	if oscCfg.AnyMatch("", "", "", "", "hook") {
+		t.Error("osc9 rule should not match hook source")
+	}
+
+	// empty source pattern matches any source (backward compat)
+	anyCfg := &NotificationsConfig{
+		Rules: []NotifyRule{{Kind: "done"}},
+	}
+	if !anyCfg.AnyMatch("", "", "", "done", "osc9") {
+		t.Error("rule with no source should match osc9 source")
+	}
+	if !anyCfg.AnyMatch("", "", "", "done", "hook") {
+		t.Error("rule with no source should match hook source")
 	}
 }
 

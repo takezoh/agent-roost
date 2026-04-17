@@ -28,9 +28,9 @@ type NotificationsConfig struct {
 	Rules []NotifyRule `toml:"rules"`
 }
 
-// NotifyRule describes a single notification trigger. All four fields
-// are AND-combined: a notification fires only if every non-empty field
-// matches. Empty string or "*" means "match any value" for that axis.
+// NotifyRule describes a single notification trigger. All fields are
+// AND-combined: a notification fires only if every non-empty field matches.
+// Empty string or "*" means "match any value" for that axis.
 //
 // Driver, Command, and Project patterns are evaluated with path.Match
 // (glob syntax). The Project pattern is tilde-expanded before matching,
@@ -40,11 +40,12 @@ type NotifyRule struct {
 	Command string `toml:"command"` // glob; "" or "*" = any
 	Project string `toml:"project"` // glob; "" or "*" = any; "~" is expanded
 	Kind    string `toml:"kind"`    // "pending_approval" | "done" | "" = any
+	Source  string `toml:"source"`  // "hook" | "osc9" | "osc99" | "osc777" | "" = any
 }
 
 // Matches reports whether this rule applies to the given event values.
-// All four axes are AND-combined. Unknown kind values never match.
-func (r NotifyRule) Matches(driver, command, project, kind string) bool {
+// All axes are AND-combined. Unknown kind values never match.
+func (r NotifyRule) Matches(driver, command, project, kind, source string) bool {
 	if !matchGlob(r.Driver, driver) {
 		return false
 	}
@@ -57,14 +58,17 @@ func (r NotifyRule) Matches(driver, command, project, kind string) bool {
 	if !matchKind(r.Kind, kind) {
 		return false
 	}
+	if !matchGlob(r.Source, source) {
+		return false
+	}
 	return true
 }
 
 // AnyMatch reports whether at least one rule in the config matches.
 // Returns false if Rules is empty (notifications disabled).
-func (c *NotificationsConfig) AnyMatch(driver, command, project, kind string) bool {
+func (c *NotificationsConfig) AnyMatch(driver, command, project, kind, source string) bool {
 	for _, rule := range c.Rules {
-		if rule.Matches(driver, command, project, kind) {
+		if rule.Matches(driver, command, project, kind, source) {
 			return true
 		}
 	}

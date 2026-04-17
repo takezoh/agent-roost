@@ -220,10 +220,11 @@ type JobInput interface {
 }
 
 // EffRecordNotification broadcasts an OSC-sourced in-pane notification
-// to TUI subscribers. SessionID is filled by postProcessEffect when
-// the driver leaves it blank.
+// to TUI subscribers and logs it to the session event log.
+// SessionID and FrameID are filled by postProcessEffect when blank.
 type EffRecordNotification struct {
 	SessionID SessionID
+	FrameID   FrameID
 	Cmd       int    // 9 / 99 / 777
 	Title     string
 	Body      string

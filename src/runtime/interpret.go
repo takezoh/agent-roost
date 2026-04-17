@@ -71,13 +71,11 @@ func (r *Runtime) execute(eff state.Effect) {
 
 	case state.EffRecordNotification:
 		r.broadcastAgentNotification(e)
-		if r.cfg.NotifySend != nil && (e.Title != "" || e.Body != "") {
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				r.cfg.NotifySend(ctx, e.Title, e.Body) //nolint:errcheck
-			}()
+		source := fmt.Sprintf("osc%d", e.Cmd)
+		if err := r.cfg.EventLog.Append(e.FrameID, oscEventLogLine(source, e.Title, e.Body)); err != nil {
+			slog.Debug("runtime: osc event log failed", "frame", e.FrameID, "err", err)
 		}
+		r.cfg.Notifier.DispatchOSC(e.Title, e.Body, source)
 
 	default:
 		slog.Warn("runtime: unhandled effect type", "type", fmt.Sprintf("%T", eff))
@@ -303,6 +301,18 @@ func shellQuote(s string) string {
 // global runner registry.
 func (r *Runtime) submitJob(e state.EffStartJob) {
 	worker.Dispatch(r.workers, e.JobID, e.Input)
+}
+
+// oscEventLogLine formats a single EVENTS log line for an OSC notification.
+// Format: "[osc9] title" / "[osc99] title | body" / "[osc777] title | body"
+func oscEventLogLine(source, title, body string) string {
+	if body == "" {
+		return fmt.Sprintf("[%s] %s", source, title)
+	}
+	if title == "" {
+		return fmt.Sprintf("[%s] %s", source, body)
+	}
+	return fmt.Sprintf("[%s] %s | %s", source, title, body)
 }
 
 // snapshotSessions converts the current state.Sessions map into the

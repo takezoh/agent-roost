@@ -78,7 +78,6 @@ func runCoordinator() error {
 		Pool:              pool,
 		Notifier:          runtime.NewNotifier(&cfg.Notifications, ln),
 		TerminalEvict:     terminalEvict,
-		NotifySend:        ln.Send,
 		Features:          featureSet,
 	})
 
