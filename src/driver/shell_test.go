@@ -190,6 +190,94 @@ func TestShellOsc133InputPhaseNoStatusChange(t *testing.T) {
 	}
 }
 
+func TestShellExitCodeSavedOnComplete(t *testing.T) {
+	d, s, now := newShellState(t, 5*time.Second)
+	code := 42
+	next := d.applyCapture(s, now, vt.Snapshot{
+		PromptEvents: []vt.PromptEvent{{Phase: vt.PromptPhaseComplete, ExitCode: &code}},
+	})
+	if next.LastExitCode == nil {
+		t.Fatal("LastExitCode should be set after PromptPhaseComplete")
+	}
+	if *next.LastExitCode != 42 {
+		t.Errorf("LastExitCode = %d, want 42", *next.LastExitCode)
+	}
+}
+
+func TestShellExitCodeZeroSaved(t *testing.T) {
+	d, s, now := newShellState(t, 0)
+	code := 0
+	next := d.applyCapture(s, now, vt.Snapshot{
+		PromptEvents: []vt.PromptEvent{{Phase: vt.PromptPhaseComplete, ExitCode: &code}},
+	})
+	if next.LastExitCode == nil || *next.LastExitCode != 0 {
+		t.Errorf("LastExitCode = %v, want 0", next.LastExitCode)
+	}
+}
+
+func TestShellNoExitCodeNilWhenUnobserved(t *testing.T) {
+	d, s, now := newShellState(t, 0)
+	next := d.applyCapture(s, now, vt.Snapshot{})
+	if next.LastExitCode != nil {
+		t.Errorf("LastExitCode should be nil when no PromptPhaseComplete seen, got %d", *next.LastExitCode)
+	}
+}
+
+func TestShellViewNonZeroExitShowsIndicatorTag(t *testing.T) {
+	d, s, now := newShellState(t, 0)
+	code := 127
+	s.LastExitCode = &code
+	_ = now
+	v := d.View(s)
+	found := false
+	for _, tag := range v.Card.Tags {
+		if tag.Background == "#cc3333" && tag.Text == "✘ 127" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected exit indicator tag for exit 127, got %v", v.Card.Tags)
+	}
+}
+
+func TestShellViewZeroExitNoIndicatorTag(t *testing.T) {
+	d, s, now := newShellState(t, 0)
+	code := 0
+	s.LastExitCode = &code
+	_ = now
+	v := d.View(s)
+	for _, tag := range v.Card.Tags {
+		if tag.Background == "#cc3333" {
+			t.Error("should not show exit indicator tag for exit 0")
+		}
+	}
+}
+
+func TestShellViewNilExitNoIndicatorTag(t *testing.T) {
+	d, s, now := newShellState(t, 0)
+	_ = now
+	v := d.View(s)
+	for _, tag := range v.Card.Tags {
+		if tag.Background == "#cc3333" {
+			t.Error("should not show exit indicator tag when LastExitCode is nil")
+		}
+	}
+}
+
+func TestShellPersistRestoreLastExitCode(t *testing.T) {
+	d, s, now := newShellState(t, 0)
+	code := 2
+	s.LastExitCode = &code
+	bag := d.Persist(s)
+	restored := d.Restore(bag, now).(ShellState)
+	if restored.LastExitCode == nil {
+		t.Fatal("LastExitCode not restored from bag")
+	}
+	if *restored.LastExitCode != 2 {
+		t.Errorf("restored LastExitCode = %d, want 2", *restored.LastExitCode)
+	}
+}
+
 func TestShellOsc133LastEventWins(t *testing.T) {
 	// Multiple OSC 133 events in one snapshot: last event takes precedence.
 	d, s, now := newShellState(t, 5*time.Second)

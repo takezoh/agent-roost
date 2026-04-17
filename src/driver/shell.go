@@ -2,7 +2,9 @@ package driver
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -23,6 +25,10 @@ type ShellState struct {
 	// SawPromptEvent is set on the first OSC 133 event. Once true, promptRe
 	// fallback is disabled and only OSC 133 events drive status transitions.
 	SawPromptEvent bool
+
+	// LastExitCode is the exit code from the most recent OSC 133;D event.
+	// nil means no command has completed yet in this session.
+	LastExitCode *int
 }
 
 // ShellDriver is the stateless plugin value for "shell"-keyed sessions.
@@ -115,6 +121,9 @@ func (d ShellDriver) Persist(s state.DriverState) map[string]string {
 	if ss.SawPromptEvent {
 		out[keyShellSawPromptEvent] = "1"
 	}
+	if ss.LastExitCode != nil {
+		out[keyShellLastExitCode] = fmt.Sprintf("%d", *ss.LastExitCode)
+	}
 	return out
 }
 
@@ -134,10 +143,18 @@ func (d ShellDriver) Restore(bag map[string]string, now time.Time) state.DriverS
 	}
 	ss.RestoreCommon(bag)
 	ss.SawPromptEvent = bag[keyShellSawPromptEvent] == "1"
+	if v := bag[keyShellLastExitCode]; v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			ss.LastExitCode = &n
+		}
+	}
 	return ss
 }
 
-const keyShellSawPromptEvent = "shell_saw_prompt_event"
+const (
+	keyShellSawPromptEvent = "shell_saw_prompt_event"
+	keyShellLastExitCode   = "shell_last_exit_code"
+)
 
 func (d ShellDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {
 	ss, ok := prev.(ShellState)
@@ -259,6 +276,10 @@ func (d ShellDriver) applyCapture(ss ShellState, now time.Time, snap vt.Snapshot
 				ss.StatusChangedAt = now
 			}
 		case vt.PromptPhaseComplete:
+			if last.ExitCode != nil {
+				code := *last.ExitCode
+				ss.LastExitCode = &code
+			}
 			if ss.Status != state.StatusWaiting {
 				ss.Status = state.StatusWaiting
 				ss.StatusChangedAt = now
