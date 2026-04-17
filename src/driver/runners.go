@@ -20,10 +20,10 @@ var _ state.DriverState = GenericState{}
 // It returns an evict function that removes the VT terminal for a given pane
 // target; callers should invoke it when a pane is unregistered to prevent
 // unbounded terminal accumulation.
-func RegisterRunners(capturePaneFn func(string, int) (string, error), summarizeCmd, dataDir string) (evict func(pane string)) {
+func RegisterRunners(capturePaneFn func(string, int) (string, error), summarizeCmd string) (evict func(pane string)) {
 	store := &terminalStore{entries: map[string]*vt.Terminal{}}
 	worker.RegisterRunner("capture_pane", store.newRunner(capturePaneFn))
-	tp, hs := newTranscriptSummaryRunners(summarizeCmd, dataDir)
+	tp, hs := newTranscriptSummaryRunners(summarizeCmd)
 	worker.RegisterRunner("transcript_parse", tp)
 	worker.RegisterRunner("codex_transcript_parse", newCodexTranscriptParse())
 	worker.RegisterRunner("summary_command", hs)

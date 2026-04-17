@@ -9,7 +9,7 @@ import (
 	"github.com/takezoh/agent-roost/lib/claude/transcript"
 )
 
-func newTranscriptSummaryRunners(summarizeCmd, dataDir string) (
+func newTranscriptSummaryRunners(summarizeCmd string) (
 	func(context.Context, TranscriptParseInput) (TranscriptParseResult, error),
 	func(context.Context, SummaryCommandInput) (SummaryCommandResult, error),
 ) {
@@ -44,7 +44,7 @@ func newTranscriptSummaryRunners(summarizeCmd, dataDir string) (
 		// cancels any in-flight `claude -p` subprocess via SIGKILL.
 		jobCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
-		result, err := summarizeWithCommand(jobCtx, in.Prompt, summarizeCmd, dataDir)
+		result, err := summarizeWithCommand(jobCtx, in.Prompt, summarizeCmd)
 		if err != nil {
 			return SummaryCommandResult{}, err
 		}

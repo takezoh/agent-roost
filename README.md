@@ -162,10 +162,9 @@ project_roots = ["~/projects"]       # Subdirs of each root become projects
 project_paths = ["~/myproject"] # Explicit project paths
 
 [driver]
-# summarize_command = "claude --bare -p --model=haiku"
-# summarize_command = "codex exec --disable codex_hooks --ephemeral --model gpt-4o-mini -"
-# summarize_command = "GEMINI_CLI_SYSTEM_SETTINGS_PATH=~/.roost/gemini-nohooks.json gemini -p '' -m gemini-2.5-flash"
-# ~/.roost/gemini-nohooks.json: {"hooksConfig":{"enabled":false}}
+# summarize_command = "claude -p --model=haiku --no-session-persistence --setting-sources user"
+# summarize_command = "codex exec --ephemeral --model gpt-4o-mini -"
+# summarize_command = "gemini -p '' -m gemini-2.5-flash-lite"
 
 [drivers.claude]
 show_thinking = false           # Show extended thinking blocks in MAIN pane

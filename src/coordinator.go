@@ -53,7 +53,7 @@ func runCoordinator() error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	terminalEvict := statedriver.RegisterRunners(tmuxBackend.CapturePaneEscaped, cfg.Driver.SummarizeCommand, dataDir)
+	terminalEvict := statedriver.RegisterRunners(tmuxBackend.CapturePaneEscaped, cfg.Driver.SummarizeCommand)
 	connector.RegisterDefaults()
 	connector.RegisterRunners()
 	pool := worker.NewPool(ctx, 4)
