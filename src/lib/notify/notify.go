@@ -58,9 +58,20 @@ func (n *Notifier) HasBackend() bool {
 	return n.psPath != "" || n.nativeSend != nil
 }
 
+func notifySendArgs(title, body string) []string {
+	return []string{
+		"--urgency=normal",
+		"--app-name=roost",
+		"--icon=agent-roost",
+		"--category=im.received",
+		title,
+		body,
+	}
+}
+
 func notifySendBackend(path string) func(context.Context, string, string) error {
 	return func(ctx context.Context, title, body string) error {
-		out, err := exec.CommandContext(ctx, path, "--urgency=normal", title, body).CombinedOutput()
+		out, err := exec.CommandContext(ctx, path, notifySendArgs(title, body)...).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("notify-send: %w: %s", err, out)
 		}

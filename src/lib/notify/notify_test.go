@@ -129,6 +129,29 @@ func TestNotifier_Send_NoPowerShell(t *testing.T) {
 	}
 }
 
+func TestNotifySendArgs(t *testing.T) {
+	args := notifySendArgs("My Title", "Some body")
+	wants := map[string]bool{
+		"--app-name=roost":      false,
+		"--icon=agent-roost":    false,
+		"--category=im.received": false,
+	}
+	for _, a := range args {
+		if _, ok := wants[a]; ok {
+			wants[a] = true
+		}
+	}
+	for flag, found := range wants {
+		if !found {
+			t.Errorf("notify-send args missing %q", flag)
+		}
+	}
+	last2 := args[len(args)-2:]
+	if last2[0] != "My Title" || last2[1] != "Some body" {
+		t.Errorf("title/body not at end of args: %v", args)
+	}
+}
+
 func TestEscapeAppleScript(t *testing.T) {
 	tests := []struct {
 		in, want string
