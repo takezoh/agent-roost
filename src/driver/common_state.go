@@ -45,8 +45,10 @@ type CommonState struct {
 
 	// Hang detection: pane-capture hash comparison for background sessions.
 	CaptureInFlight bool
-	PaneHash        string    // SHA256 of last captured pane content
+	PaneHash        string    // FNV-64a structural hash of last captured pane
 	PaneHashAt      time.Time // when PaneHash last changed (or first set)
+	PaneLastLine    string    // last non-empty line of captured pane
+	PaneLastLineAt  time.Time // when PaneLastLine last changed (or first set)
 	HangDetected    bool      // set when hang threshold fires; cleared on next hook
 }
 
@@ -104,9 +106,13 @@ func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []sta
 	}
 
 	// Hang threshold check: if Running, pane is primed, no subagents
-	// are active, and neither pane content nor hook events have changed.
+	// are active, and neither pane content (hash nor last line) nor
+	// hook events have changed.
 	if c.Status == state.StatusRunning && c.PaneHash != "" && !hasActiveSubagents {
 		lastActivity := c.PaneHashAt
+		if c.PaneLastLineAt.After(lastActivity) {
+			lastActivity = c.PaneLastLineAt
+		}
 		if c.StatusChangedAt.After(lastActivity) {
 			lastActivity = c.StatusChangedAt
 		}
@@ -123,7 +129,7 @@ func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []sta
 	return effs
 }
 
-// HandleCapturePaneResult updates the pane hash baseline from Snapshot.Stable.
+// HandleCapturePaneResult updates the pane hash and last-line baselines.
 func (c *CommonState) HandleCapturePaneResult(r CapturePaneResult, err error, now time.Time) {
 	c.CaptureInFlight = false
 	if err != nil {
@@ -133,6 +139,11 @@ func (c *CommonState) HandleCapturePaneResult(r CapturePaneResult, err error, no
 	if c.PaneHash == "" || hash != c.PaneHash {
 		c.PaneHash = hash
 		c.PaneHashAt = now
+	}
+	line := r.Snapshot.LastLine
+	if c.PaneLastLine == "" || line != c.PaneLastLine {
+		c.PaneLastLine = line
+		c.PaneLastLineAt = now
 	}
 }
 
@@ -165,6 +176,8 @@ const (
 	keyLastAssistantMessage = "last_assistant_message"
 	keyLastHookEvent        = "last_hook_event"
 	keyLastHookAt           = "last_hook_at"
+	keyPaneLastLine         = "pane_last_line"
+	keyPaneLastLineAt       = "pane_last_line_at"
 )
 
 // PersistCommon writes the shared fields of CommonState into the persistence bag.
@@ -224,6 +237,12 @@ func (c *CommonState) PersistCommon(out map[string]string) {
 	if !c.LastHookAt.IsZero() {
 		out[keyLastHookAt] = c.LastHookAt.UTC().Format(time.RFC3339)
 	}
+	if c.PaneLastLine != "" {
+		out[keyPaneLastLine] = c.PaneLastLine
+	}
+	if !c.PaneLastLineAt.IsZero() {
+		out[keyPaneLastLineAt] = c.PaneLastLineAt.UTC().Format(time.RFC3339)
+	}
 }
 
 // RestoreCommon rehydrates the shared fields of CommonState from the persistence bag.
@@ -264,6 +283,12 @@ func (c *CommonState) RestoreCommon(bag map[string]string) {
 	if v := bag[keyLastHookAt]; v != "" {
 		if t, err := time.Parse(time.RFC3339, v); err == nil {
 			c.LastHookAt = t
+		}
+	}
+	c.PaneLastLine = bag[keyPaneLastLine]
+	if v := bag[keyPaneLastLineAt]; v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			c.PaneLastLineAt = t
 		}
 	}
 }
