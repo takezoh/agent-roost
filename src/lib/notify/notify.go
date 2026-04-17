@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 )
 
 // Notifier sends desktop toast notifications.
@@ -69,11 +70,20 @@ func notifySendBackend(path string) func(context.Context, string, string) error 
 
 func osascriptBackend(path string) func(context.Context, string, string) error {
 	return func(ctx context.Context, title, body string) error {
-		script := fmt.Sprintf("display notification %q with title %q", body, title)
+		script := fmt.Sprintf(`display notification "%s" with title "%s"`,
+			escapeAppleScript(body), escapeAppleScript(title))
 		out, err := exec.CommandContext(ctx, path, "-e", script).CombinedOutput()
 		if err != nil {
 			return fmt.Errorf("osascript: %w: %s", err, out)
 		}
 		return nil
 	}
+}
+
+// escapeAppleScript escapes backslashes and double-quotes for use inside
+// an AppleScript double-quoted string literal.
+func escapeAppleScript(s string) string {
+	s = strings.ReplaceAll(s, `\`, `\\`)
+	s = strings.ReplaceAll(s, `"`, `\"`)
+	return s
 }

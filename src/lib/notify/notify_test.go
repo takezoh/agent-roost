@@ -128,3 +128,20 @@ func TestNotifier_Send_NoPowerShell(t *testing.T) {
 		t.Errorf("no-op Notifier.Send should return nil, got: %v", err)
 	}
 }
+
+func TestEscapeAppleScript(t *testing.T) {
+	tests := []struct {
+		in, want string
+	}{
+		{`hello`, `hello`},
+		{`say "hi"`, `say \"hi\"`},
+		{`back\slash`, `back\\slash`},
+		{`a "b" \c`, `a \"b\" \\c`},
+	}
+	for _, tc := range tests {
+		got := escapeAppleScript(tc.in)
+		if got != tc.want {
+			t.Errorf("escapeAppleScript(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
