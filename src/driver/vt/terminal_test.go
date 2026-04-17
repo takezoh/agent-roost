@@ -141,6 +141,96 @@ func TestResize(t *testing.T) {
 	}
 }
 
+func TestOsc133PromptPhases(t *testing.T) {
+	tests := []struct {
+		name      string
+		seq       string
+		wantPhase PromptPhase
+		wantCode  *int
+	}{
+		{"133;A start", "\x1b]133;A\x07", PromptPhaseStart, nil},
+		{"133;B input", "\x1b]133;B\x07", PromptPhaseInput, nil},
+		{"133;C command", "\x1b]133;C\x07", PromptPhaseCommand, nil},
+		{"133;D complete no code", "\x1b]133;D\x07", PromptPhaseComplete, nil},
+		{"133;D;0 exit 0", "\x1b]133;D;0\x07", PromptPhaseComplete, intPtr(0)},
+		{"133;D;42 exit 42", "\x1b]133;D;42\x07", PromptPhaseComplete, intPtr(42)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			term := New(40, 10)
+			if err := term.Feed([]byte(tt.seq)); err != nil {
+				t.Fatalf("Feed: %v", err)
+			}
+			snap := term.Snapshot()
+			if len(snap.PromptEvents) != 1 {
+				t.Fatalf("PromptEvents len = %d, want 1", len(snap.PromptEvents))
+			}
+			ev := snap.PromptEvents[0]
+			if ev.Phase != tt.wantPhase {
+				t.Errorf("Phase = %v, want %v", ev.Phase, tt.wantPhase)
+			}
+			if tt.wantCode == nil {
+				if ev.ExitCode != nil {
+					t.Errorf("ExitCode = %v, want nil", *ev.ExitCode)
+				}
+			} else {
+				if ev.ExitCode == nil {
+					t.Errorf("ExitCode = nil, want %d", *tt.wantCode)
+				} else if *ev.ExitCode != *tt.wantCode {
+					t.Errorf("ExitCode = %d, want %d", *ev.ExitCode, *tt.wantCode)
+				}
+			}
+		})
+	}
+}
+
+func TestOsc133MultipleEventsOrdered(t *testing.T) {
+	term := New(40, 10)
+	seq := "\x1b]133;C\x07" + "\x1b]133;D;0\x07"
+	if err := term.Feed([]byte(seq)); err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	snap := term.Snapshot()
+	if len(snap.PromptEvents) != 2 {
+		t.Fatalf("PromptEvents len = %d, want 2", len(snap.PromptEvents))
+	}
+	if snap.PromptEvents[0].Phase != PromptPhaseCommand {
+		t.Errorf("events[0].Phase = %v, want Command", snap.PromptEvents[0].Phase)
+	}
+	if snap.PromptEvents[1].Phase != PromptPhaseComplete {
+		t.Errorf("events[1].Phase = %v, want Complete", snap.PromptEvents[1].Phase)
+	}
+}
+
+func TestOsc133UnknownPhaseSilentlyDropped(t *testing.T) {
+	term := New(40, 10)
+	// Z is not a valid phase.
+	if err := term.Feed([]byte("\x1b]133;Z\x07")); err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	snap := term.Snapshot()
+	if len(snap.PromptEvents) != 0 {
+		t.Errorf("PromptEvents len = %d, want 0 for unknown phase", len(snap.PromptEvents))
+	}
+}
+
+func TestOsc133PromptEventsFlushOnSnapshot(t *testing.T) {
+	term := New(40, 10)
+	if err := term.Feed([]byte("\x1b]133;C\x07")); err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	snap1 := term.Snapshot()
+	if len(snap1.PromptEvents) != 1 {
+		t.Fatalf("first snapshot: expected 1 event, got %d", len(snap1.PromptEvents))
+	}
+	snap2 := term.Snapshot()
+	if len(snap2.PromptEvents) != 0 {
+		t.Errorf("second snapshot: expected 0 events after flush, got %d", len(snap2.PromptEvents))
+	}
+}
+
+func intPtr(v int) *int { return &v }
+
 func TestReset(t *testing.T) {
 	term := New(40, 10)
 	if err := term.Feed([]byte("some content")); err != nil {

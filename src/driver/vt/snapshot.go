@@ -8,6 +8,24 @@ import (
 	xvt "github.com/charmbracelet/x/vt"
 )
 
+// PromptPhase classifies an OSC 133 semantic-prompt event.
+type PromptPhase int
+
+const (
+	PromptPhaseNone    PromptPhase = iota
+	PromptPhaseStart               // 133;A — prompt rendering started
+	PromptPhaseInput               // 133;B — prompt done, awaiting input
+	PromptPhaseCommand             // 133;C — command execution started
+	PromptPhaseComplete            // 133;D — command finished
+)
+
+// PromptEvent is a single OSC 133 semantic-prompt event captured from the
+// terminal stream.
+type PromptEvent struct {
+	Phase    PromptPhase
+	ExitCode *int // non-nil only for PromptPhaseComplete (133;D;<exit-code>)
+}
+
 // Snapshot is the parsed state of a terminal emulator at a point in time.
 type Snapshot struct {
 	Cols, Rows    int
@@ -21,6 +39,9 @@ type Snapshot struct {
 	// DirtyCount is 0 when Stable matches the previous snapshot, 1 otherwise.
 	DirtyCount  int
 	Notifications []OscNotification
+	// PromptEvents holds OSC 133 semantic-prompt events captured since the
+	// previous Snapshot. Flushed (set to nil) on each Snapshot() call.
+	PromptEvents []PromptEvent
 }
 
 // OscNotification is a desktop-notification request captured from an OSC
@@ -32,7 +53,7 @@ type OscNotification struct {
 
 // computeSnapshot builds a Snapshot from the current emulator state.
 // prevStable is the Stable hash of the previous call (used for DirtyCount).
-func computeSnapshot(em xvt.Terminal, prevStable string, notifs []OscNotification) Snapshot {
+func computeSnapshot(em xvt.Terminal, prevStable string, notifs []OscNotification, promptEvents []PromptEvent) Snapshot {
 	w := em.Width()
 	h := em.Height()
 	pos := em.CursorPosition()
@@ -66,6 +87,7 @@ func computeSnapshot(em xvt.Terminal, prevStable string, notifs []OscNotificatio
 		LastLine:      lastNonEmptyLine(em),
 		DirtyCount:    dirty,
 		Notifications: notifs,
+		PromptEvents:  promptEvents,
 	}
 }
 

@@ -88,7 +88,7 @@ func runCoordinator() error {
 	warmRestart := client.SessionExists()
 	if warmRestart {
 		slog.Info("session exists, restoring")
-		state.Register(statedriver.NewGenericDriver("shell", resolveShellDisplay(client), idleThreshold))
+		state.Register(statedriver.NewShellDriver("shell", resolveShellDisplay(client), idleThreshold))
 		if err := rt.LoadSnapshot(false); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
@@ -104,7 +104,7 @@ func runCoordinator() error {
 		if err := setupNewSession(client, cfg, sessionName); err != nil {
 			return err
 		}
-		state.Register(statedriver.NewGenericDriver("shell", resolveShellDisplay(client), idleThreshold))
+		state.Register(statedriver.NewShellDriver("shell", resolveShellDisplay(client), idleThreshold))
 		if err := rt.LoadSessionPanes(); err != nil {
 			slog.Warn("window map load failed", "err", err)
 		}
@@ -160,8 +160,8 @@ func runCoordinator() error {
 	return nil
 }
 
-// resolveShellDisplayFromValues picks the display name for the shell
-// driver from the two sources. Pure function — used directly by tests.
+// resolveShellDisplayFromValues picks the display name (basename) for the
+// shell driver. Pure function — used directly by tests.
 func resolveShellDisplayFromValues(tmuxDefault, envSHELL string) string {
 	for _, raw := range []string{tmuxDefault, envSHELL} {
 		if name := filepath.Base(raw); name != "" && name != "." && name != "/" {
@@ -171,9 +171,8 @@ func resolveShellDisplayFromValues(tmuxDefault, envSHELL string) string {
 	return "shell"
 }
 
-// resolveShellDisplay queries tmux's default-shell option (the shell
-// tmux will actually spawn for login-shell panes) and falls back to
-// $SHELL if the query fails or returns empty.
+// resolveShellDisplay queries tmux's default-shell option (the shell tmux
+// will actually spawn for login-shell panes) and falls back to $SHELL.
 func resolveShellDisplay(client *tmux.Client) string {
 	tmuxDefault, _ := client.ShowOption("default-shell")
 	return resolveShellDisplayFromValues(tmuxDefault, os.Getenv("SHELL"))

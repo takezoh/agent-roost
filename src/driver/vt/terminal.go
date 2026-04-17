@@ -2,6 +2,8 @@ package vt
 
 import (
 	"bytes"
+	"strconv"
+	"strings"
 
 	xvt "github.com/charmbracelet/x/vt"
 )
@@ -13,9 +15,10 @@ import (
 // job goroutine). No internal locking is added because the driver
 // reducer and its worker each own a single logical execution thread.
 type Terminal struct {
-	em         *xvt.Emulator
-	pending    []OscNotification
-	prevStable string
+	em                  *xvt.Emulator
+	pending             []OscNotification
+	pendingPromptEvents []PromptEvent
+	prevStable          string
 }
 
 // New creates a Terminal sized cols×rows. Defaults to 80×24 for zero values.
@@ -44,11 +47,14 @@ func (t *Terminal) Feed(data []byte) error {
 }
 
 // Snapshot captures the current screen state and flushes pending OSC
-// notifications. It updates internal prevStable for DirtyCount tracking.
+// notifications and prompt events. It updates internal prevStable for
+// DirtyCount tracking.
 func (t *Terminal) Snapshot() Snapshot {
 	notifs := t.pending
 	t.pending = nil
-	snap := computeSnapshot(t.em, t.prevStable, notifs)
+	promptEvents := t.pendingPromptEvents
+	t.pendingPromptEvents = nil
+	snap := computeSnapshot(t.em, t.prevStable, notifs, promptEvents)
 	t.prevStable = snap.Stable
 	return snap
 }
@@ -61,6 +67,7 @@ func (t *Terminal) Reset() {
 	t.registerOscHandlers()
 	t.prevStable = ""
 	t.pending = nil
+	t.pendingPromptEvents = nil
 }
 
 func (t *Terminal) registerOscHandlers() {
@@ -77,4 +84,38 @@ func (t *Terminal) registerOscHandlers() {
 			return false
 		})
 	}
+
+	// OSC 133: semantic shell prompts (FinalTerm / shell integration protocol).
+	// Payload format after stripping "133;": A | B | C | D[;<exit-code>]
+	t.em.RegisterOscHandler(133, func(data []byte) bool {
+		// Strip "133;" prefix.
+		payload := string(data)
+		if i := bytes.IndexByte(data, ';'); i >= 0 {
+			payload = string(data[i+1:])
+		}
+		parts := strings.SplitN(payload, ";", 2)
+		if len(parts) == 0 {
+			return false
+		}
+		var ev PromptEvent
+		switch parts[0] {
+		case "A":
+			ev.Phase = PromptPhaseStart
+		case "B":
+			ev.Phase = PromptPhaseInput
+		case "C":
+			ev.Phase = PromptPhaseCommand
+		case "D":
+			ev.Phase = PromptPhaseComplete
+			if len(parts) == 2 {
+				if code, err := strconv.Atoi(parts[1]); err == nil {
+					ev.ExitCode = &code
+				}
+			}
+		default:
+			return false // unknown phase — drop silently
+		}
+		t.pendingPromptEvents = append(t.pendingPromptEvents, ev)
+		return false
+	})
 }

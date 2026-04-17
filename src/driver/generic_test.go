@@ -267,26 +267,9 @@ func TestGenericRunningConsecutiveDoesNotResetChangedAt(t *testing.T) {
 	}
 }
 
-func TestGenericPromptEntersWaiting(t *testing.T) {
-	d, s, now := newGenericState(t, 5*time.Second)
-	// Prime baseline
-	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
-	t1 := now.Add(time.Second)
-	// Hash change → Running
-	running := d.applyCapture(primed, t1, vt.Snapshot{Stable: "h1"})
-	if running.Status != state.StatusRunning {
-		t.Fatalf("setup failed: status = %v, want Running", running.Status)
-	}
-	// Same hash but LastLine ends with shell prompt → Waiting immediately (before threshold)
-	t2 := t1.Add(time.Second) // only 1s elapsed, well below 5s threshold
-	waiting := d.applyCapture(running, t2, vt.Snapshot{Stable: "h1", LastLine: "user@host:~$ "})
-	if waiting.Status != state.StatusWaiting {
-		t.Errorf("Status = %v, want Waiting when prompt detected (before threshold)", waiting.Status)
-	}
-	if !waiting.StatusChangedAt.Equal(t2) {
-		t.Errorf("StatusChangedAt = %v, want %v", waiting.StatusChangedAt, t2)
-	}
-}
+// TestGenericPromptEntersWaiting was removed: GenericDriver no longer applies
+// the promptRe heuristic. Shell-prompt detection now lives in ShellDriver
+// (see shell_test.go).
 
 func TestGenericPersistRoundTrip(t *testing.T) {
 	d, s, now := newGenericState(t, 5*time.Second)
