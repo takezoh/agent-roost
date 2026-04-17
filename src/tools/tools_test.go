@@ -119,6 +119,39 @@ func TestMatchNoResults(t *testing.T) {
 	}
 }
 
+func TestMatchMultiToken(t *testing.T) {
+	r := NewRegistry()
+	r.Register(Tool{Name: "new-session"})
+	r.Register(Tool{Name: "stop-session"})
+	r.Register(Tool{Name: "detach"})
+
+	// both session tools match "new" OR "session" independently, but both must match
+	got := r.Match("new session")
+	if len(got) != 1 || got[0].Tool.Name != "new-session" {
+		t.Errorf("Match('new session') = %v, want [new-session]", got)
+	}
+	if len(got[0].Indexes) == 0 {
+		t.Error("Match('new session') should have non-empty indexes")
+	}
+
+	// one token that matches nothing → zero results
+	got2 := r.Match("zzz sess")
+	if len(got2) != 0 {
+		t.Errorf("Match('zzz sess') = %v, want empty", got2)
+	}
+
+	// all-whitespace input → all visible tools, no indexes
+	got3 := r.Match("   ")
+	if len(got3) != 3 {
+		t.Errorf("Match('   ') len = %d, want 3", len(got3))
+	}
+	for _, m := range got3 {
+		if len(m.Indexes) != 0 {
+			t.Error("all-whitespace query should produce no match indexes")
+		}
+	}
+}
+
 func TestPushDriverToolRequiresSessionID(t *testing.T) {
 	r := DefaultRegistry()
 	tool := r.Get("push-driver")

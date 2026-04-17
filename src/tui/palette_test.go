@@ -381,6 +381,59 @@ func TestAdvanceParamDisablesWorktreeForNonGitProject(t *testing.T) {
 	}
 }
 
+func TestFilterParamOptionsMultiToken(t *testing.T) {
+	registry := tools.NewRegistry()
+	ctx := &tools.ToolContext{}
+	m := NewPaletteModel(registry, ctx, "")
+	m.paramOptions = []string{"/workspace/agent-roost", "/home/x/other-project"}
+
+	// single token in basename
+	m.input = "agent"
+	got := m.filterParamOptions()
+	if len(got) != 1 || got[0].Value != "/workspace/agent-roost" {
+		t.Errorf("input='agent': got %v, want [/workspace/agent-roost]", got)
+	}
+
+	// two tokens: one matches basename, one matches dir
+	m.input = "roost work"
+	got = m.filterParamOptions()
+	if len(got) != 1 || got[0].Value != "/workspace/agent-roost" {
+		t.Errorf("input='roost work': got %v, want [/workspace/agent-roost]", got)
+	}
+	if len(got[0].DisplayIndexes) == 0 {
+		t.Error("input='roost work': DisplayIndexes should be non-empty")
+	}
+	if len(got[0].SuffixIndexes) == 0 {
+		t.Error("input='roost work': SuffixIndexes should be non-empty (work matches /workspace dir)")
+	}
+
+	// space-separated tokens that are both in basename
+	m.input = "agent roost"
+	got = m.filterParamOptions()
+	if len(got) != 1 || got[0].Value != "/workspace/agent-roost" {
+		t.Errorf("input='agent roost': got %v, want [/workspace/agent-roost]", got)
+	}
+
+	// one token matches nothing → zero results
+	m.input = "agent zzz"
+	got = m.filterParamOptions()
+	if len(got) != 0 {
+		t.Errorf("input='agent zzz': got %v, want empty", got)
+	}
+
+	// all-whitespace → all options, no indexes
+	m.input = "   "
+	got = m.filterParamOptions()
+	if len(got) != 2 {
+		t.Errorf("input='   ': len = %d, want 2", len(got))
+	}
+	for _, mo := range got {
+		if len(mo.DisplayIndexes) != 0 || len(mo.SuffixIndexes) != 0 {
+			t.Error("all-whitespace input should produce no indexes")
+		}
+	}
+}
+
 func TestPaletteIgnoresUnknownChainTarget(t *testing.T) {
 	registry := tools.NewRegistry()
 	registry.Register(tools.Tool{

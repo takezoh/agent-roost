@@ -7,6 +7,7 @@ package tools
 
 import (
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/sahilm/fuzzy"
@@ -91,8 +92,9 @@ type MatchedTool struct {
 }
 
 // Match returns visible tools whose Name fuzzy-matches query, ordered by
-// descending score. Empty query returns all visible tools in registration
-// order with no indexes.
+// descending score. Empty query (or all-whitespace) returns all visible tools
+// in registration order with no indexes. Space-separated tokens are matched
+// independently — all tokens must match for a tool to be included.
 func (r *Registry) Match(query string) []MatchedTool {
 	var visible []Tool
 	for _, t := range r.tools {
@@ -100,21 +102,56 @@ func (r *Registry) Match(query string) []MatchedTool {
 			visible = append(visible, t)
 		}
 	}
-	if query == "" {
+	tokens := strings.Fields(query)
+	if len(tokens) == 0 {
 		out := make([]MatchedTool, len(visible))
 		for i, t := range visible {
 			out[i] = MatchedTool{Tool: t}
 		}
 		return out
 	}
-	names := make([]string, len(visible))
-	for i, t := range visible {
-		names[i] = t.Name
+	type scored struct {
+		tool  Tool
+		score int
+		idx   []int
 	}
-	matches := fuzzy.Find(strings.ToLower(query), names)
-	out := make([]MatchedTool, len(matches))
-	for i, m := range matches {
-		out[i] = MatchedTool{Tool: visible[m.Index], Indexes: m.MatchedIndexes}
+	var results []scored
+	for _, t := range visible {
+		totalScore := 0
+		var merged []int
+		ok := true
+		for _, tok := range tokens {
+			res := fuzzy.Find(tok, []string{t.Name})
+			if len(res) == 0 {
+				ok = false
+				break
+			}
+			totalScore += res[0].Score
+			merged = append(merged, res[0].MatchedIndexes...)
+		}
+		if ok {
+			results = append(results, scored{tool: t, score: totalScore, idx: dedupeInts(merged)})
+		}
+	}
+	sort.Slice(results, func(i, j int) bool { return results[i].score > results[j].score })
+	out := make([]MatchedTool, len(results))
+	for i, s := range results {
+		out[i] = MatchedTool{Tool: s.tool, Indexes: s.idx}
+	}
+	return out
+}
+
+func dedupeInts(s []int) []int {
+	if len(s) == 0 {
+		return nil
+	}
+	seen := make(map[int]struct{}, len(s))
+	out := s[:0]
+	for _, v := range s {
+		if _, ok := seen[v]; !ok {
+			seen[v] = struct{}{}
+			out = append(out, v)
+		}
 	}
 	return out
 }

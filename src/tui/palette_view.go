@@ -104,7 +104,9 @@ func renderPaletteTool(m PaletteModel, innerWidth int) string {
 	return b.String()
 }
 
-func paramOptionSuffix(raw string) string {
+// normalizedDir returns the parent directory of raw with home abbreviated to ~.
+// Returns "" when raw has no meaningful parent (filepath.Dir == ".").
+func normalizedDir(raw string) string {
 	dir := filepath.Dir(raw)
 	if dir == "." {
 		return ""
@@ -112,7 +114,14 @@ func paramOptionSuffix(raw string) string {
 	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(dir, home) {
 		dir = "~" + dir[len(home):]
 	}
-	return descStyle.Render("  " + dir)
+	return dir
+}
+
+func renderDirSuffix(dir string, indexes []int) string {
+	if dir == "" {
+		return ""
+	}
+	return descStyle.Render("  ") + highlightMatches(dir, indexes, descStyle, lipgloss.NewStyle().Bold(true).Foreground(Active.Primary))
 }
 
 func renderPaletteParam(m PaletteModel, innerWidth int) string {
@@ -148,8 +157,9 @@ func renderPaletteParam(m PaletteModel, innerWidth int) string {
 	for i := start; i < end; i++ {
 		mo := filtered[i]
 		display := tools.ProjectDisplayName(mo.Value)
-		suffix := paramOptionSuffix(mo.Value)
-		highlighted := highlightMatches(display, mo.Indexes, plain, hitStyle)
+		dir := normalizedDir(mo.Value)
+		highlighted := highlightMatches(display, mo.DisplayIndexes, plain, hitStyle)
+		suffix := renderDirSuffix(dir, mo.SuffixIndexes)
 		if i == m.paramCursor {
 			left := "▸ " + highlighted + suffix
 			var rendered string
@@ -160,7 +170,7 @@ func renderPaletteParam(m PaletteModel, innerWidth int) string {
 				}
 				chip := worktreeChipStyle.Render(" wt " + stateText + " ⇥")
 				chipW := lipgloss.Width(chip)
-				leftW := lipgloss.Width("▸ " + display + suffix)
+				leftW := lipgloss.Width("▸ " + display + "  " + dir)
 				gap := innerWidth - leftW - chipW
 				if gap < 1 {
 					gap = 1

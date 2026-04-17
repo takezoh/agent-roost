@@ -2,6 +2,7 @@ package tui
 
 import (
 	"log/slog"
+	"sort"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -12,8 +13,9 @@ import (
 )
 
 type matchedOption struct {
-	Value   string
-	Indexes []int // rune offsets in tools.ProjectDisplayName(Value)
+	Value          string
+	DisplayIndexes []int // byte offsets in tools.ProjectDisplayName(Value)
+	SuffixIndexes  []int // byte offsets in normalizedDir(Value)
 }
 
 var (
@@ -48,9 +50,8 @@ func (m PaletteModel) handleToolSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd)
 			m.refilter()
 		}
 	default:
-		s := msg.String()
-		if len(s) == 1 && s[0] >= 0x20 && s[0] < 0x7f {
-			m.input += s
+		if text := msg.Key().Text; text != "" {
+			m.input += text
 			m.refilter()
 		}
 	}
@@ -174,9 +175,8 @@ func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 			m.paramCursor = 0
 		}
 	default:
-		s := msg.String()
-		if len(s) == 1 && s[0] >= 0x20 && s[0] < 0x7f {
-			m.input += s
+		if text := msg.Key().Text; text != "" {
+			m.input += text
 			m.paramCursor = 0
 		}
 	}
@@ -184,21 +184,73 @@ func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 }
 
 func (m PaletteModel) filterParamOptions() []matchedOption {
-	displays := make([]string, len(m.paramOptions))
-	for i, o := range m.paramOptions {
-		displays[i] = tools.ProjectDisplayName(o)
-	}
-	if m.input == "" {
+	tokens := strings.Fields(m.input)
+	if len(tokens) == 0 {
 		out := make([]matchedOption, len(m.paramOptions))
 		for i, o := range m.paramOptions {
 			out[i] = matchedOption{Value: o}
 		}
 		return out
 	}
-	matches := fuzzy.Find(strings.ToLower(m.input), displays)
-	out := make([]matchedOption, len(matches))
-	for i, match := range matches {
-		out[i] = matchedOption{Value: m.paramOptions[match.Index], Indexes: match.MatchedIndexes}
+	type scored struct {
+		opt   matchedOption
+		score int
+	}
+	var results []scored
+	for _, o := range m.paramOptions {
+		display := tools.ProjectDisplayName(o)
+		dir := normalizedDir(o)
+		var searchable string
+		if dir != "" {
+			searchable = display + "\t" + dir
+		} else {
+			searchable = display
+		}
+		tabPos := len(display) // byte offset of the tab separator
+		totalScore := 0
+		var dispIdx, suffIdx []int
+		ok := true
+		for _, tok := range tokens {
+			res := fuzzy.Find(tok, []string{searchable})
+			if len(res) == 0 {
+				ok = false
+				break
+			}
+			totalScore += res[0].Score
+			for _, idx := range res[0].MatchedIndexes {
+				if idx < tabPos {
+					dispIdx = append(dispIdx, idx)
+				} else if idx > tabPos {
+					suffIdx = append(suffIdx, idx-tabPos-1)
+				}
+			}
+		}
+		if ok {
+			results = append(results, scored{
+				opt:   matchedOption{Value: o, DisplayIndexes: dedupeInts(dispIdx), SuffixIndexes: dedupeInts(suffIdx)},
+				score: totalScore,
+			})
+		}
+	}
+	sort.Slice(results, func(i, j int) bool { return results[i].score > results[j].score })
+	out := make([]matchedOption, len(results))
+	for i, s := range results {
+		out[i] = s.opt
+	}
+	return out
+}
+
+func dedupeInts(s []int) []int {
+	if len(s) == 0 {
+		return nil
+	}
+	seen := make(map[int]struct{}, len(s))
+	out := s[:0]
+	for _, v := range s {
+		if _, ok := seen[v]; !ok {
+			seen[v] = struct{}{}
+			out = append(out, v)
+		}
 	}
 	return out
 }
