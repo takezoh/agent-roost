@@ -33,7 +33,13 @@ func (m LogModel) View() tea.View {
 
 	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, header, body))
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	// INFO tab: release mouse capture so the terminal emulator can handle
+	// OSC 8 hyperlink clicks natively (Ctrl+Click in WezTerm etc.).
+	if m.activeTabIs("INFO") {
+		v.MouseMode = tea.MouseModeNone
+	} else {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	return v
 }
 
