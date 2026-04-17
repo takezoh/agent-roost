@@ -1,0 +1,23 @@
+{
+  "name": "default",
+  "minimal": false,
+  "colors": {
+    "primary": "#7D56F4",
+    "accent": "#7D56F4",
+    "fg": "#EBDBB2",
+    "muted": "#888888",
+    "dim": "#626262",
+    "selBg": "#3C3836",
+    "selFg": "#EBDBB2",
+    "tagFg": "#1D2021",
+    "running": "#00ff00",
+    "waiting": "#ffff00",
+    "idle": "#888888",
+    "stopped": "#ff0000",
+    "pending": "#ff8800",
+    "warn": "#ffff00",
+    "error": "#ff0000",
+    "runningGradientA": "#7D56F4",
+    "runningGradientB": "#00ff80"
+  }
+}

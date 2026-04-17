@@ -33,7 +33,7 @@ func tuiBootstrap(opts tuiBootstrapOpts) (*config.Config, *proto.Client, error) 
 	if err != nil {
 		return nil, nil, err
 	}
-	tui.ApplyTheme(cfg.Theme)
+	initThemes(cfg.Theme)
 	initGlyphs()
 	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 
@@ -49,6 +49,19 @@ func tuiBootstrap(opts tuiBootstrapOpts) (*config.Config, *proto.Client, error) 
 		client.Subscribe()
 	}
 	return cfg, client, nil
+}
+
+// initThemes loads user themes from ~/.roost/themes/ then selects the active
+// theme from ROOST_THEME env (highest priority), the config value, or "default".
+func initThemes(cfgTheme string) {
+	if home, err := os.UserHomeDir(); err == nil {
+		tui.LoadThemesFromDir(filepath.Join(home, ".roost", "themes"))
+	}
+	name := cfgTheme
+	if env := os.Getenv("ROOST_THEME"); env != "" {
+		name = env
+	}
+	tui.ApplyTheme(name)
 }
 
 // initGlyphs loads the optional user glyph override and applies the

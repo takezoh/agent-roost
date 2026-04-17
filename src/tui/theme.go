@@ -29,6 +29,11 @@ type Theme struct {
 	Warn  color.Color
 	Error color.Color
 
+	// RunningGradientA/B are the two anchor colors for the spinner and
+	// progress-bar gradient while a session is in the Running state.
+	RunningGradientA color.Color
+	RunningGradientB color.Color
+
 	// Minimal switches the layout to a borderless, bar-marked card style
 	// (no top/bottom borders, colored left bar on selection) and renders
 	// tags as prefix-symbol + colored text instead of background chips.
@@ -54,6 +59,9 @@ func newBaseTheme() Theme {
 
 		Warn:  lipgloss.Color("#ffff00"),
 		Error: lipgloss.Color("#ff0000"),
+
+		RunningGradientA: lipgloss.Color("#7D56F4"),
+		RunningGradientB: lipgloss.Color("#00ff80"),
 	}
 }
 
@@ -128,8 +136,6 @@ var (
 	minimalTagBranchPrefixStyle lipgloss.Style // Running
 	minimalSeparatorStyle       lipgloss.Style // Dim
 )
-
-func init() { ApplyTheme("default") }
 
 // ApplyTheme switches the active theme by name. Unknown names fall back to
 // "default" so callers can pass user-supplied config without pre-validation.
