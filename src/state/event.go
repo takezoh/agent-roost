@@ -140,6 +140,16 @@ type EvTmuxSpawnFailed struct {
 	ReplyReqID string
 }
 
+// EvPaneOsc is fired by the PaneTap reader goroutine when an OSC
+// notification is detected in the raw byte stream from a pane.
+// Title and Body are already parsed from the raw payload.
+type EvPaneOsc struct {
+	FrameID FrameID
+	Cmd     int
+	Title   string
+	Body    string
+}
+
 // === isEvent markers ===
 
 func (EvCmdSubscribe) isEvent()       {}
@@ -155,3 +165,4 @@ func (EvPaneDied) isEvent()           {}
 func (EvTmuxWindowVanished) isEvent() {}
 func (EvTmuxPaneSpawned) isEvent()    {}
 func (EvTmuxSpawnFailed) isEvent()    {}
+func (EvPaneOsc) isEvent()            {}

@@ -42,6 +42,10 @@ func Reduce(s State, ev Event) (State, []Effect) {
 	case EvFileChanged:
 		return reduceFileChanged(s, e)
 
+	// pane tap
+	case EvPaneOsc:
+		return reducePaneOsc(s, e)
+
 	// connection lifecycle
 	case EvConnOpened:
 		return reduceConnOpened(s, e)

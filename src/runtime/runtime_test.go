@@ -234,6 +234,7 @@ func (f *fakeTmuxBackend) DisplayPopup(w, h, cmd string) error {
 	f.popups = append(f.popups, cmd)
 	return nil
 }
+func (f *fakeTmuxBackend) PipePane(string, string) error { return nil }
 
 type recordingPersist struct {
 	mu    sync.Mutex

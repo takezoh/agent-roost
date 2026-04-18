@@ -103,9 +103,15 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 	case state.EffRegisterPane:
 		r.sessionPanes[e.FrameID] = e.PaneTarget
 		r.cfg.Tmux.SetEnv(sessionPaneEnvKey(e.FrameID), e.PaneTarget)
+		if r.taps != nil {
+			r.taps.start(e.FrameID, e.PaneTarget, r.Enqueue)
+		}
 
 	case state.EffUnregisterPane:
 		if target, ok := r.sessionPanes[e.FrameID]; ok {
+			if r.taps != nil {
+				r.taps.stop(e.FrameID)
+			}
 			delete(r.sessionPanes, e.FrameID)
 			delete(r.parkedPaneSnapshot, e.FrameID)
 			r.cfg.Tmux.UnsetEnv(sessionPaneEnvKey(e.FrameID))

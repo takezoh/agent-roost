@@ -244,6 +244,10 @@ func (b *RealTmuxBackend) DisplayPopup(width, height, cmd string) error {
 	return c.Start() // fire-and-forget — popup runs independently
 }
 
+func (b *RealTmuxBackend) PipePane(paneTarget, command string) error {
+	return b.client.PipePane(paneTarget, command)
+}
+
 // Underlying returns the wrapped *tmux.Client. Used by main during
 // startup for the operations that aren't part of TmuxBackend
 // (Attach, CreateSession, SetOption on session-scoped keys).
