@@ -87,7 +87,12 @@ func (r *Runtime) acceptLoop() {
 				continue
 			}
 		}
-		r.enqueueInternal(connOpen{conn: conn})
+		if err := checkPeerCred(conn); err != nil {
+				slog.Warn("runtime: rejecting connection", "err", err)
+				conn.Close()
+				continue
+			}
+			r.enqueueInternal(connOpen{conn: conn})
 	}
 }
 
