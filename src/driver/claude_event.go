@@ -221,7 +221,9 @@ func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, now tim
 			})
 		}
 	}
-	effs = append(effs, state.EffEventLogAppend{Line: "SessionStart"})
+	if line := hp.formatLog(); line != "" {
+		effs = append(effs, state.EffEventLogAppend{Line: line})
+	}
 
 	// Trigger branch detection immediately so the tag appears before
 	// the user types anything (Idle sessions are skipped by tick).
@@ -287,7 +289,9 @@ func (d ClaudeDriver) handleUserPromptSubmit(cs ClaudeState, hp hookPayload, now
 	}
 
 	var effs []state.Effect
-	effs = append(effs, state.EffEventLogAppend{Line: "UserPromptSubmit"})
+	if line := hp.formatLog(); line != "" {
+		effs = append(effs, state.EffEventLogAppend{Line: line})
+	}
 
 	turns := appendHookPromptTurn(cs.RecentTurns, hp.Prompt)
 	prompt := formatSummaryPrompt(cs.Summary, turns)
