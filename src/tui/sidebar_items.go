@@ -14,6 +14,9 @@ type listItem struct {
 	projectPath string
 	session     *proto.SessionInfo
 	rows        int
+
+	cachedRender    string
+	cachedRenderKey string
 }
 
 func (li *listItem) SetRows(rendered string) {

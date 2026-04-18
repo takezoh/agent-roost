@@ -362,6 +362,61 @@ func TestSessionCardLinesSubtitleClamp(t *testing.T) {
 	}
 }
 
+func TestItemCacheKey(t *testing.T) {
+	makeSess := func(st state.Status) listItem {
+		return listItem{session: &proto.SessionInfo{State: st}}
+	}
+
+	// Running and Waiting must not be cached (spinner changes every frame).
+	if got := itemCacheKey(makeSess(state.StatusRunning), false, 80, false, ""); got != "" {
+		t.Errorf("Running: want empty key, got %q", got)
+	}
+	if got := itemCacheKey(makeSess(state.StatusWaiting), false, 80, false, ""); got != "" {
+		t.Errorf("Waiting: want empty key, got %q", got)
+	}
+
+	// Idle and Stopped must return a non-empty key.
+	idleKey := itemCacheKey(makeSess(state.StatusIdle), false, 80, false, "")
+	if idleKey == "" {
+		t.Error("Idle: want non-empty key")
+	}
+	stoppedKey := itemCacheKey(makeSess(state.StatusStopped), false, 80, false, "")
+	if stoppedKey == "" {
+		t.Error("Stopped: want non-empty key")
+	}
+
+	// Keys must differ when selected/width/notif change.
+	k1 := itemCacheKey(makeSess(state.StatusIdle), false, 80, false, "")
+	k2 := itemCacheKey(makeSess(state.StatusIdle), true, 80, false, "")
+	if k1 == k2 {
+		t.Error("selected=false vs true must produce different keys")
+	}
+	k3 := itemCacheKey(makeSess(state.StatusIdle), false, 40, false, "")
+	if k1 == k3 {
+		t.Error("width=80 vs 40 must produce different keys")
+	}
+	k4 := itemCacheKey(makeSess(state.StatusIdle), false, 80, false, "alert")
+	if k1 == k4 {
+		t.Error("notif change must produce different keys")
+	}
+
+	// Project items must return non-empty key; fold state must differ.
+	proj := listItem{isProject: true, project: "alpha"}
+	pk1 := itemCacheKey(proj, false, 80, false, "")
+	pk2 := itemCacheKey(proj, false, 80, true, "")
+	if pk1 == "" {
+		t.Error("project item: want non-empty key")
+	}
+	if pk1 == pk2 {
+		t.Error("folded vs unfolded must produce different keys")
+	}
+
+	// nil session with isProject=false must return empty (guard).
+	if got := itemCacheKey(listItem{}, false, 80, false, ""); got != "" {
+		t.Errorf("nil session non-project: want empty key, got %q", got)
+	}
+}
+
 func TestSessionCardLinesNoFallbackWhenTitleEmpty(t *testing.T) {
 	s := &proto.SessionInfo{
 		ID:    "abcdef123456",

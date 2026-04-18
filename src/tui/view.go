@@ -59,6 +59,8 @@ func renderSessionsBody(m *Model, innerWidth int) string {
 	}
 
 	// Pass 1: render all items to measure their row heights.
+	// Non-animated items (not Running/Waiting) are cached by key so that
+	// repeated View() calls from the spinner tick skip redundant lipgloss work.
 	rendered := make([]string, len(m.items))
 	for i := range m.items {
 		selected := i == m.cursor
@@ -66,7 +68,17 @@ func renderSessionsBody(m *Model, innerWidth int) string {
 		if item := m.items[i]; item.session != nil {
 			notif = m.latestNotifLine(item.session.ID)
 		}
-		r := renderItem(m.items[i], selected, innerWidth, m.folded[m.items[i].project], notif)
+		folded := m.folded[m.items[i].project]
+		var r string
+		if key := itemCacheKey(m.items[i], selected, innerWidth, folded, notif); key != "" && m.items[i].cachedRenderKey == key {
+			r = m.items[i].cachedRender
+		} else {
+			r = renderItem(m.items[i], selected, innerWidth, folded, notif)
+			if key != "" {
+				m.items[i].cachedRender = r
+				m.items[i].cachedRenderKey = key
+			}
+		}
 		if Active.Minimal && i > 0 && !m.items[i].isProject && !m.items[i-1].isProject {
 			r = renderSessionSeparator(innerWidth) + "\n" + r
 		}
@@ -338,6 +350,26 @@ func indent(s, prefix string) string {
 		lines[i] = prefix + l
 	}
 	return strings.Join(lines, "\n")
+}
+
+// itemCacheKey returns a cache key for the rendered form of item. An empty
+// string means the item must not be cached (Running/Waiting have spinner
+// animation that changes every frame). The key captures only the inputs that
+// can change between View() calls without triggering rebuildItems: selected
+// state, width, fold state, and notification text. Session data changes
+// always rebuild items, implicitly clearing the cache.
+func itemCacheKey(item listItem, selected bool, width int, folded bool, notifLine string) string {
+	if item.isProject {
+		return fmt.Sprintf("p|%v|%d|%v", selected, width, folded)
+	}
+	if item.session == nil {
+		return ""
+	}
+	switch item.session.State {
+	case state.StatusRunning, state.StatusWaiting:
+		return "" // animated: spinner glyph changes every frame
+	}
+	return fmt.Sprintf("s|%v|%d|%s", selected, width, notifLine)
 }
 
 func formatElapsed(d time.Duration) string {
