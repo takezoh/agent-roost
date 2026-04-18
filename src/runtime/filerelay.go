@@ -112,8 +112,18 @@ func (fr *FileRelay) add(path string, frameID state.FrameID, kind string) {
 	// Seek to end — we don't backfill from the relay. The TUI does
 	// its own backfill on tab switch via direct file reads.
 	var offset int64
-	if info, err := os.Stat(path); err == nil {
+	info, statErr := os.Stat(path)
+	if statErr == nil {
 		offset = info.Size()
+	} else if os.IsNotExist(statErr) {
+		// Touch the file so fsnotify.Add succeeds. The parent directory
+		// must already exist (FileEventLog.Append creates it on first
+		// write, and syncRelayWatches is called after the file-create
+		// effect in the normal flow). If the directory is missing we
+		// skip the touch and rely on the next reconciliation cycle.
+		if f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+			f.Close()
+		}
 	}
 	fr.files[path] = &relayFile{
 		path:    path,

@@ -91,9 +91,38 @@ func (r *Runtime) sendError(e state.EffSendError) {
 	r.queueWire(cc, wire)
 }
 
+// syncRelayWatches ensures every LogTab path for every active session is
+// registered with the FileRelay. Called before each sessions-changed
+// broadcast so that sessions created at runtime get their push channels
+// wired up without requiring drivers to emit EffWatchFile for non-transcript
+// tabs (e.g. the EVENTS tab with TabKindText).
+//
+// FileRelay.add is idempotent by path, so repeated calls are safe.
+func (r *Runtime) syncRelayWatches() {
+	if r.relay == nil {
+		return
+	}
+	for _, sess := range r.state.Sessions {
+		frame, ok := sessionRootFrame(sess)
+		if !ok {
+			continue
+		}
+		drv := state.GetDriver(frame.Command)
+		if drv == nil {
+			continue
+		}
+		for _, lt := range drv.View(frame.Driver).LogTabs {
+			if lt.Path != "" {
+				r.relay.WatchFile(frame.ID, lt.Path, string(lt.Kind))
+			}
+		}
+	}
+}
+
 // broadcastSessionsChanged builds the sessions-changed event from
 // current state and queues it on every subscribed connection.
 func (r *Runtime) broadcastSessionsChanged(preview bool) {
+	r.syncRelayWatches()
 	infos, active := r.buildSessionInfos()
 	ev := proto.EvtSessionsChanged{
 		Sessions:        infos,

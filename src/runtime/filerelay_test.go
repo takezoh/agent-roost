@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/fsnotify/fsnotify"
@@ -65,5 +67,50 @@ func TestUnwatch(t *testing.T) {
 	}
 	if _, ok := fr.files["/tmp/e.log"]; !ok {
 		t.Error("expected /tmp/e.log to remain")
+	}
+}
+
+func TestWatchFileCreatesMissingPath(t *testing.T) {
+	dir := t.TempDir()
+	fr := newTestFileRelay(t)
+
+	// Register a path whose parent dir does not exist yet.
+	// The touch inside add() will fail silently, but the entry is still recorded.
+	missingDir := filepath.Join(dir, "events", "sess-1.log")
+	fr.WatchFile("sess-1", missingDir, "text")
+	if _, ok := fr.files[missingDir]; !ok {
+		t.Fatalf("expected %s to be registered in fr.files", missingDir)
+	}
+
+	// With a pre-existing parent dir, touch creates the file and the fsnotify
+	// watch succeeds.
+	eventsDir := filepath.Join(dir, "events2")
+	if err := os.MkdirAll(eventsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(eventsDir, "sess-2.log")
+	fr.WatchFile("sess-2", path, "text")
+	if _, ok := fr.files[path]; !ok {
+		t.Fatalf("expected %s to be registered in fr.files", path)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("expected %s to be created by touch: %v", path, err)
+	}
+}
+
+func TestWatchFileIdempotent(t *testing.T) {
+	dir := t.TempDir()
+	fr := newTestFileRelay(t)
+
+	path := filepath.Join(dir, "roost.log")
+	if err := os.WriteFile(path, []byte("line\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	fr.WatchFile("frame-1", path, "log")
+	fr.WatchFile("frame-1", path, "log")
+
+	if len(fr.files) != 1 {
+		t.Errorf("fr.files len = %d, want 1 (idempotent)", len(fr.files))
 	}
 }

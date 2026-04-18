@@ -129,21 +129,7 @@ func (r *Runtime) dispatchInternal(ev internalEvent) {
 		r.handleConnClose(e.id)
 	case internalSetRelay:
 		r.relay = e.relay
-		for _, sess := range r.state.Sessions {
-			frame, ok := sessionRootFrame(sess)
-			if !ok {
-				continue
-			}
-			drv := state.GetDriver(frame.Command)
-			if drv == nil {
-				continue
-			}
-			for _, lt := range drv.View(frame.Driver).LogTabs {
-				if lt.Path != "" {
-					r.relay.WatchFile(frame.ID, lt.Path, string(lt.Kind))
-				}
-			}
-		}
+		r.syncRelayWatches()
 	}
 }
 
