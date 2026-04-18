@@ -57,6 +57,16 @@ func Reduce(s State, ev Event) (State, []Effect) {
 		return reduceSubscribe(s, e)
 	case EvCmdUnsubscribe:
 		return reduceUnsubscribe(s, e)
+
+	// surface.* / driver.* RPC commands
+	case EvCmdSurfaceReadText:
+		return reduceSurfaceReadText(s, e)
+	case EvCmdSurfaceSendText:
+		return reduceSurfaceSendText(s, e)
+	case EvCmdSurfaceSendKey:
+		return reduceSurfaceSendKey(s, e)
+	case EvCmdDriverList:
+		return reduceDriverList(s, e)
 	}
 
 	panic(fmt.Sprintf("state.Reduce: unhandled event type %T", ev))

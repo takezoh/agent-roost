@@ -291,5 +291,20 @@ func (r *Runtime) snapshotPaneTargets() map[state.SessionID]string {
 	return out
 }
 
+// sessionPaneForSession returns the pane target for the active frame of the
+// given session. Returns "" if the session has no registered pane.
+func (r *Runtime) sessionPaneForSession(sid state.SessionID) string {
+	sess, ok := r.state.Sessions[sid]
+	if !ok {
+		return ""
+	}
+	for _, fr := range sess.Frames {
+		if p, ok := r.sessionPanes[fr.ID]; ok && p != "" {
+			return p
+		}
+	}
+	return ""
+}
+
 // errClosed is returned when the runtime has already shut down.
 var errClosed = errors.New("runtime: closed")

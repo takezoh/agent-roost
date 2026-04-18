@@ -72,6 +72,10 @@ func (r *Runtime) translateResponseBody(body any) proto.Response {
 		return proto.RespSessions{Sessions: infos, ActiveSessionID: active, Connectors: r.buildConnectorInfos(), Features: r.buildFeatureList()}
 	case state.ActiveSessionReply:
 		return proto.RespActiveSession{ActiveSessionID: b.ActiveSessionID}
+	case state.SurfaceReadTextReply:
+		return r.buildSurfaceText(b)
+	case state.DriverListReply:
+		return r.buildDriverList()
 	}
 	slog.Warn("runtime: unknown response body type, sending RespOK",
 		"type", typeNameOf(body))
@@ -326,6 +330,35 @@ func (r *Runtime) buildFeatureList() []string {
 	return list
 }
 
+// buildSurfaceText calls CapturePane against the session's pane and returns
+// the result as a RespSurfaceText.
+func (r *Runtime) buildSurfaceText(b state.SurfaceReadTextReply) proto.Response {
+	pane := r.sessionPaneForSession(b.SessionID)
+	if pane == "" {
+		return proto.RespSurfaceText{}
+	}
+	text, err := r.cfg.Tmux.CapturePane(pane, b.Lines)
+	if err != nil {
+		slog.Warn("runtime: surface.read_text capture failed", "session", b.SessionID, "err", err)
+		return proto.RespSurfaceText{}
+	}
+	return proto.RespSurfaceText{Text: text}
+}
+
+// buildDriverList returns the list of registered drivers sorted by name.
+func (r *Runtime) buildDriverList() proto.Response {
+	reg := state.GetRegistry()
+	infos := make([]proto.DriverInfo, 0, len(reg))
+	for _, d := range reg {
+		infos = append(infos, proto.DriverInfo{
+			Name:        d.Name(),
+			DisplayName: d.DisplayName(),
+		})
+	}
+	sort.Slice(infos, func(i, j int) bool { return infos[i].Name < infos[j].Name })
+	return proto.RespDriverList{Drivers: infos}
+}
+
 func typeNameOf(v any) string {
 	switch v.(type) {
 	case nil:
@@ -336,6 +369,10 @@ func typeNameOf(v any) string {
 		return "state.SessionsReply"
 	case state.ActiveSessionReply:
 		return "state.ActiveSessionReply"
+	case state.SurfaceReadTextReply:
+		return "state.SurfaceReadTextReply"
+	case state.DriverListReply:
+		return "state.DriverListReply"
 	}
 	return "unknown"
 }

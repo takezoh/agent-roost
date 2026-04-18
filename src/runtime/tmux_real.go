@@ -248,6 +248,15 @@ func (b *RealTmuxBackend) PipePane(paneTarget, command string) error {
 	return b.client.PipePane(paneTarget, command)
 }
 
+func (b *RealTmuxBackend) SendKeys(paneTarget, text string) error {
+	return b.client.SendKeys(paneTarget, text)
+}
+
+func (b *RealTmuxBackend) SendKey(paneTarget, key string) error {
+	_, err := b.client.Run("send-keys", "-t", paneTarget, key)
+	return err
+}
+
 // Underlying returns the wrapped *tmux.Client. Used by main during
 // startup for the operations that aren't part of TmuxBackend
 // (Attach, CreateSession, SetOption on session-scoped keys).

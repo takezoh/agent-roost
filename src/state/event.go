@@ -53,6 +53,36 @@ type EvEvent struct {
 	Payload json.RawMessage
 }
 
+// EvCmdSurfaceReadText requests the trailing lines of a session's pane.
+type EvCmdSurfaceReadText struct {
+	ConnID    ConnID
+	ReqID     string
+	SessionID SessionID
+	Lines     int // 0 = server default
+}
+
+// EvCmdSurfaceSendText sends Text + Enter to a session's active pane.
+type EvCmdSurfaceSendText struct {
+	ConnID    ConnID
+	ReqID     string
+	SessionID SessionID
+	Text      string
+}
+
+// EvCmdSurfaceSendKey sends a named key to a session's active pane.
+type EvCmdSurfaceSendKey struct {
+	ConnID    ConnID
+	ReqID     string
+	SessionID SessionID
+	Key       string
+}
+
+// EvCmdDriverList requests the list of registered drivers.
+type EvCmdDriverList struct {
+	ConnID ConnID
+	ReqID  string
+}
+
 // EvDriverEvent is a driver hook event from the agent process via
 // `roost event <eventType>`. Routed to the session's driver.
 type EvDriverEvent struct {
@@ -163,6 +193,10 @@ type EvPaneOsc struct {
 
 func (EvCmdSubscribe) isEvent()       {}
 func (EvCmdUnsubscribe) isEvent()     {}
+func (EvCmdSurfaceReadText) isEvent() {}
+func (EvCmdSurfaceSendText) isEvent() {}
+func (EvCmdSurfaceSendKey) isEvent()  {}
+func (EvCmdDriverList) isEvent()      {}
 func (EvEvent) isEvent()              {}
 func (EvDriverEvent) isEvent()        {}
 func (EvConnOpened) isEvent()         {}

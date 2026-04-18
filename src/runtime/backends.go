@@ -90,6 +90,12 @@ type TmuxBackend interface {
 	// PipePane pipes pane output to a shell command.
 	// Passing an empty command stops the running pipe.
 	PipePane(paneTarget, command string) error
+
+	// SendKeys sends text followed by Enter to a pane (tmux send-keys ... Enter).
+	SendKeys(paneTarget, text string) error
+
+	// SendKey sends a named key (e.g. "Escape", "q") to a pane without Enter.
+	SendKey(paneTarget, key string) error
 }
 
 // PersistBackend abstracts sessions.json persistence so tests don't
@@ -198,7 +204,9 @@ func (noopTmux) ShowEnvironment() (string, error)          { return "", nil }
 func (noopTmux) DetachClient() error                       { return nil }
 func (noopTmux) KillSession() error                        { return nil }
 func (noopTmux) DisplayPopup(string, string, string) error { return nil }
-func (noopTmux) PipePane(string, string) error              { return nil }
+func (noopTmux) PipePane(string, string) error  { return nil }
+func (noopTmux) SendKeys(string, string) error  { return nil }
+func (noopTmux) SendKey(string, string) error   { return nil }
 
 type noopPersist struct{}
 

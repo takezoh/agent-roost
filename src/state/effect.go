@@ -161,6 +161,18 @@ type EffCloseConn struct {
 	ConnID ConnID
 }
 
+// EffSendTmuxKeys asks the runtime to run `tmux send-keys` against the pane
+// belonging to SessionID. WithEnter=true appends an Enter keypress (send_text
+// semantics); WithEnter=false sends Key as a literal key name (send_key semantics).
+type EffSendTmuxKeys struct {
+	ConnID    ConnID
+	ReqID     string
+	SessionID SessionID
+	Text      string // non-empty when WithEnter=true
+	Key       string // non-empty when WithEnter=false
+	WithEnter bool
+}
+
 // === Persistence / fs ===
 
 // EffPersistSnapshot tells the runtime to write the current State to
@@ -281,3 +293,4 @@ func (EffRemoveManagedWorktree) isEffect()    {}
 func (EffReconcileWindows) isEffect()         {}
 func (EffStartJob) isEffect()                 {}
 func (EffRecordNotification) isEffect()       {}
+func (EffSendTmuxKeys) isEffect()             {}
