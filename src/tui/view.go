@@ -186,7 +186,7 @@ func renderSession(s *proto.SessionInfo, selected bool, width int, notifLine str
 	cardOuter := width - 2     // leave room for the 2-space indent
 	textWidth := cardOuter - 4 // subtract Card border + padding
 	body := strings.Join(sessionCardLines(s, textWidth, notifLine), "\n")
-	return indent(Card(body, selected, cardOuter, s.View.Card.BorderTitle, s.View.Card.BorderTitleSecondary, s.View.Card.BorderBadge), "  ")
+	return indent(Card(body, selected, cardOuter, sessionStateIcon(s), s.View.Card.BorderTitle, s.View.Card.BorderTitleSecondary, s.View.Card.BorderBadge), "  ")
 }
 
 // renderSessionMinimal draws a session as a borderless block with a
@@ -197,7 +197,12 @@ func renderSession(s *proto.SessionInfo, selected bool, width int, notifLine str
 func renderSessionMinimal(s *proto.SessionInfo, selected bool, width int, notifLine string) string {
 	cardOuter := width - 2     // 2-cell outer indent
 	textWidth := cardOuter - 3 // 1 border + 1 left padding + 1 right padding
-	lines := sessionCardLines(s, textWidth, notifLine)
+	icon := sessionStateIcon(s)
+	iconCells := lipgloss.Width(icon) + 1 // icon + space
+	lines := sessionCardLines(s, textWidth-iconCells, notifLine)
+	if len(lines) > 0 {
+		lines[0] = icon + " " + lines[0]
+	}
 	body := strings.Join(lines, "\n")
 
 	barChar := " "
@@ -224,31 +229,29 @@ func renderSessionSeparator(innerWidth int) string {
 	return "  " + minimalSeparatorStyle.Render(strings.Repeat("─", n))
 }
 
-func sessionCardLines(s *proto.SessionInfo, textWidth int, notifLine string) []string {
-	var iconGlyph string
+func sessionStateIcon(s *proto.SessionInfo) string {
 	switch s.State {
 	case state.StatusRunning:
-		iconGlyph = runningSpinnerGlyph()
+		return runningSpinnerGlyph()
 	case state.StatusWaiting:
-		iconGlyph = waitingSpinnerGlyph()
+		return waitingSpinnerGlyph()
 	default:
-		iconGlyph = stateStyle(s.State).Render(glyphs.Get(s.State.SymbolKey()))
+		return stateStyle(s.State).Render(glyphs.Get(s.State.SymbolKey()))
 	}
-	stateStr := iconGlyph + " " + stateStyle(s.State).Render(s.State.String())
-	elapsed := mutedStyle.Render(formatElapsed(time.Since(s.StateChangedAtTime())))
+}
 
+func sessionCardLines(s *proto.SessionInfo, textWidth int, notifLine string) []string {
 	title := s.View.Card.Title
 	if title == "" {
 		title = s.ID[:6]
 	}
-	prefix := stateStr + "  " + elapsed + "  "
-	titleWidth := textWidth - lipgloss.Width(prefix)
+	titleWidth := textWidth
 	if titleWidth < 1 {
 		titleWidth = 1
 	}
 	titleStr := cardTitleStyle.Render(truncate(title, titleWidth))
 
-	lines := []string{prefix + titleStr}
+	lines := []string{titleStr}
 
 	// Subtitle may carry an embedded newline-separated multi-line summary.
 	// Split and render each line independently so haiku-generated 2-3 line

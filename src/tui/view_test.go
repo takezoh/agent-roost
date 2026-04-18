@@ -287,6 +287,34 @@ func TestHandleMouseWheelScrollsWhenOverflows(t *testing.T) {
 	}
 }
 
+func TestSessionCardLinesNoStateTextOrElapsed(t *testing.T) {
+	s := &proto.SessionInfo{
+		State: state.StatusRunning,
+		View: state.View{
+			Card: state.Card{Title: "my-task"},
+		},
+	}
+	lines := sessionCardLines(s, 80, "")
+	first := lines[0]
+	if strings.Contains(first, "running") {
+		t.Errorf("state string leaked into card body: %q", first)
+	}
+	if strings.Contains(first, "waiting") || strings.Contains(first, "idle") || strings.Contains(first, "stopped") {
+		t.Errorf("state string leaked into card body: %q", first)
+	}
+	// elapsed pattern: one or more digits followed by m/h/d
+	for _, line := range lines {
+		for _, ch := range []string{"0m", "1m", "0h", "1h", "0d", "1d"} {
+			if strings.Contains(line, ch) {
+				t.Errorf("elapsed time leaked into card: %q contains %q", line, ch)
+			}
+		}
+	}
+	if !strings.Contains(first, "my-task") {
+		t.Errorf("title missing from first line: %q", first)
+	}
+}
+
 func TestSessionCardLinesSubtitleClamp(t *testing.T) {
 	mk := func(subtitle string) *proto.SessionInfo {
 		// Use Waiting state so the running progress bar does not add an extra line.
