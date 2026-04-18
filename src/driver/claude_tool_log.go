@@ -64,19 +64,14 @@ func summariseToolInput(name string, in map[string]any) map[string]any {
 	}
 }
 
-// resolveProjectSlug derives the project slug from the hook payload's
-// cwd field if available, falling back to StartDir on the ClaudeState.
-// Returns "" when neither is set (entries are still written but the
-// runtime will reject an empty project slug).
-func resolveProjectSlug(cwd, startDir string) string {
-	dir := cwd
-	if dir == "" {
-		dir = startDir
-	}
-	if dir == "" {
+// resolveProjectSlug converts a Session.Project absolute path to the
+// slug used as the tool-log filename. Returns "" when project is empty
+// (the runtime's validateSlug will reject the empty value).
+func resolveProjectSlug(project string) string {
+	if project == "" {
 		return ""
 	}
-	return projectDir(dir)
+	return projectDir(project)
 }
 
 // pickAndTrunc returns a new map containing only the listed keys whose
@@ -121,16 +116,11 @@ func (d ClaudeDriver) handleToolLog(cs ClaudeState, hp hookPayload, now time.Tim
 		if cs.PendingTools == nil {
 			cs.PendingTools = make(map[string]pendingTool)
 		}
-		cwd := hp.Cwd
-		if cwd == "" {
-			cwd = cs.StartDir
-		}
 		cs.PendingTools[hp.ToolUseID] = pendingTool{
 			Name:      hp.ToolName,
 			Input:     hp.ToolInput,
 			StartedAt: now,
 			PermMode:  hp.PermissionMode,
-			Cwd:       cwd,
 		}
 		return cs, nil
 
@@ -176,7 +166,6 @@ func (d ClaudeDriver) emitToolLog(cs ClaudeState, hp hookPayload, now time.Time,
 	var (
 		kind       string
 		durationMs int64
-		cwd        string
 		toolInput  map[string]any
 	)
 
@@ -185,10 +174,6 @@ func (d ClaudeDriver) emitToolLog(cs ClaudeState, hp hookPayload, now time.Time,
 		kind = kindOverride
 		if kind == "" {
 			kind = "auto"
-		}
-		cwd = hp.Cwd
-		if cwd == "" {
-			cwd = cs.StartDir
 		}
 		toolInput = hp.ToolInput
 	} else if entry, ok := cs.PendingTools[hp.ToolUseID]; ok {
@@ -204,7 +189,6 @@ func (d ClaudeDriver) emitToolLog(cs ClaudeState, hp hookPayload, now time.Time,
 		if !entry.StartedAt.IsZero() && !now.IsZero() {
 			durationMs = now.Sub(entry.StartedAt).Milliseconds()
 		}
-		cwd = entry.Cwd
 		toolInput = entry.Input
 	} else {
 		// Orphan: Post arrived without a matching Pre (daemon restart etc.)
@@ -214,14 +198,10 @@ func (d ClaudeDriver) emitToolLog(cs ClaudeState, hp hookPayload, now time.Time,
 		if kind == "" {
 			kind = "orphan"
 		}
-		cwd = hp.Cwd
-		if cwd == "" {
-			cwd = cs.StartDir
-		}
 		toolInput = hp.ToolInput
 	}
 
-	slug := resolveProjectSlug(cwd, cs.StartDir)
+	slug := resolveProjectSlug(cs.Project)
 	if slug == "" {
 		return cs, nil
 	}

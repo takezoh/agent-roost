@@ -23,7 +23,8 @@ func hookEventAny(eventName string, fields map[string]any, ts time.Time) state.D
 }
 
 // makeClaudeWithSession returns a state ready for tool-log tests:
-// SessionStart absorbed, cwd=/work, session_id=sid.
+// SessionStart absorbed (cwd=/work, session_id=sid) and a tick applied
+// so that cs.Project="/work" is set before any hook tests run.
 func makeClaudeWithSession(t *testing.T) (ClaudeDriver, ClaudeState, time.Time) {
 	t.Helper()
 	d, cs, now := newClaude(t)
@@ -32,6 +33,9 @@ func makeClaudeWithSession(t *testing.T) (ClaudeDriver, ClaudeState, time.Time) 
 		"cwd":             "/work",
 		"hook_event_name": "SessionStart",
 	}, now))
+	// Deliver a tick so cs.Project mirrors Session.Project="/work".
+	next, _, _ := d.Step(cs, state.DEvTick{Now: now, Project: "/work"})
+	cs = next.(ClaudeState)
 	return d, cs, now
 }
 
@@ -312,22 +316,25 @@ func TestToolLog_SessionStartClearsPending(t *testing.T) {
 	}
 }
 
-func TestToolLog_ProjectKeyFromCwd(t *testing.T) {
+func TestToolLog_ProjectKeyFromSessionProject(t *testing.T) {
 	d, cs, now := newClaude(t)
-	// StartDir is empty (no SessionStart absorbed)
+	// Set Session.Project via tick (simulates reducer delivering DEvTick.Project).
+	next, _, _ := d.Step(cs, state.DEvTick{Now: now, Project: "/my/project"})
+	cs = next.(ClaudeState)
 	t1 := now.Add(time.Second)
 	t2 := now.Add(2 * time.Second)
 
+	// Pre/Post use a cwd inside a deep subdirectory — slug must NOT follow it.
 	cs, _ = d.handleHook(cs, hookEventAny("PreToolUse", map[string]any{
 		"session_id":  "sid",
-		"cwd":         "/my/project",
+		"cwd":         "/my/project/deep/subdir",
 		"tool_name":   "Bash",
 		"tool_use_id": "id1",
 	}, t1))
 
 	_, effs := d.handleHook(cs, hookEventAny("PostToolUse", map[string]any{
 		"session_id":  "sid",
-		"cwd":         "/my/project",
+		"cwd":         "/my/project/deep/subdir",
 		"tool_name":   "Bash",
 		"tool_use_id": "id1",
 	}, t2))
@@ -336,10 +343,35 @@ func TestToolLog_ProjectKeyFromCwd(t *testing.T) {
 	if !ok {
 		t.Fatal("expected EffToolLogAppend")
 	}
-	// Project slug should be derived from /my/project
+	// Slug must be derived from Session.Project, not the hook cwd.
 	wantProject := projectDir("/my/project")
 	if eff.Project != wantProject {
 		t.Errorf("Project = %q, want %q", eff.Project, wantProject)
+	}
+}
+
+func TestToolLog_NoProjectNoEmit(t *testing.T) {
+	d, cs, now := newClaude(t)
+	// No tick delivered — cs.Project is empty.
+	t1 := now.Add(time.Second)
+	t2 := now.Add(2 * time.Second)
+
+	cs, _ = d.handleHook(cs, hookEventAny("PreToolUse", map[string]any{
+		"session_id":  "sid",
+		"cwd":         "/work",
+		"tool_name":   "Bash",
+		"tool_use_id": "id1",
+	}, t1))
+
+	_, effs := d.handleHook(cs, hookEventAny("PostToolUse", map[string]any{
+		"session_id":  "sid",
+		"cwd":         "/work",
+		"tool_name":   "Bash",
+		"tool_use_id": "id1",
+	}, t2))
+
+	if _, ok := findToolLogAppend(effs); ok {
+		t.Error("expected no EffToolLogAppend when cs.Project is empty")
 	}
 }
 

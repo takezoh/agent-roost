@@ -37,7 +37,6 @@ type pendingTool struct {
 	StartedAt time.Time
 	SawPrompt bool   // true if a permission_prompt Notification was observed
 	PermMode  string // permission_mode from the PreToolUse payload
-	Cwd       string // cwd at PreToolUse time (frozen so Post can use it even if changed)
 }
 
 // ClaudeState is the per-session private state for the Claude driver.

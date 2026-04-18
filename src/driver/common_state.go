@@ -14,6 +14,9 @@ type CommonState struct {
 
 	// Identity & Context
 	RoostSessionID string
+	// Project mirrors Session.Project / SessionFrame.Project. Updated on
+	// every tick via DEvTick.Project; used as the tool-log project slug.
+	Project        string
 	StartDir       string
 	TranscriptPath string
 	WorktreeName   string
@@ -72,6 +75,7 @@ const (
 // skips heavy work for Idle/Stopped sessions, refreshes branch info
 // when active, and checks for hang conditions when running in the background.
 func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []state.Effect {
+	c.Project = e.Project
 	if c.StartDir == "" {
 		c.StartDir = e.Project
 	}
