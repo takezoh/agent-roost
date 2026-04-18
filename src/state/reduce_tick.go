@@ -8,14 +8,19 @@ import "github.com/takezoh/agent-roost/uiproc"
 func reduceTick(s State, e EvTick) (State, []Effect) {
 	s.Now = e.Now
 
+	var seq uint64
 	s, effs, changed := stepActiveSessions(s, func(sessID SessionID, sess Session, active bool) DriverEvent {
 		frame, _ := activeFrame(sess)
-		return DEvTick{
+		ev := DEvTick{
 			Now:        e.Now,
 			Active:     active,
 			Project:    frame.Project,
 			PaneTarget: e.PaneTargets[SessionID(frame.ID)],
+			N:          e.N,
+			Seq:        seq,
 		}
+		seq++
+		return ev
 	})
 
 	// Initialize connectors (once).
@@ -34,18 +39,20 @@ func reduceTick(s State, e EvTick) (State, []Effect) {
 		changed = true
 	}
 
-	// Reconcile: compare live tmux windows with state sessions.
-	// Any session whose window has vanished gets EvTmuxWindowVanished.
-	effs = append(effs, EffReconcileWindows{})
+	// Active-pane death check: every tick (covers the no-active-frame case
+	// where the fast ticker skips; fast ticker handles the active-frame case).
+	effs = append(effs, EffCheckPaneAlive{Pane: "{sessionName}:0.0"})
 
-	// Check pane 0.0 for a dead agent pane (active session's process
-	// exited while swapped into the main pane). Control panes 0.1/0.2
-	// are also checked for health-monitor respawn.
-	effs = append(effs,
-		EffCheckPaneAlive{Pane: "{sessionName}:0.0"},
-		EffCheckPaneAlive{Pane: "{sessionName}:0.1"},
-		EffCheckPaneAlive{Pane: "{sessionName}:0.2"},
-	)
+	// Control-pane health and window reconcile: every 5 ticks to reduce
+	// subprocess pressure. These are non-latency-sensitive: a respawn
+	// triggered 5 s late is indistinguishable from 1 s late for the user.
+	if e.N%5 == 0 {
+		effs = append(effs,
+			EffCheckPaneAlive{Pane: "{sessionName}:0.1"},
+			EffCheckPaneAlive{Pane: "{sessionName}:0.2"},
+			EffReconcileWindows{},
+		)
+	}
 
 	if changed {
 		effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})

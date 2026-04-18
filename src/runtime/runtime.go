@@ -86,6 +86,13 @@ type Runtime struct {
 	// read from the event loop.
 	fastProbeInFlight atomic.Bool
 
+	// tickN is a monotonic counter incremented on each main tick, passed
+	// as EvTick.N so reducers and drivers can gate work to every N-th tick.
+	tickN uint64
+	// parkedScanIdx is a round-robin cursor for monitorParkedPanes;
+	// one non-active frame is inspected per tick rather than all of them.
+	parkedScanIdx int
+
 	// workspaceResolver resolves the workspace name for each session's
 	// project directory, with mtime-based caching of .roost/settings.toml.
 	workspaceResolver *config.WorkspaceResolver
@@ -200,8 +207,9 @@ func (r *Runtime) Run(ctx context.Context) error {
 			r.dispatchInternal(iev)
 
 		case t := <-ticker.C:
+			r.tickN++
 			r.monitorParkedPanes()
-			r.dispatch(state.EvTick{Now: t, PaneTargets: r.snapshotPaneTargets()})
+			r.dispatch(state.EvTick{Now: t, PaneTargets: r.snapshotPaneTargets(), N: r.tickN})
 
 		case <-fastTicker.C:
 			r.scheduleActiveFramePaneProbe()

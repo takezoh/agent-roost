@@ -54,11 +54,16 @@ func (DEvHook) isDriverEvent() {}
 // currently shown in pane 0.0 — drivers use it to gate expensive work
 // that only matters when the user is looking. PaneTarget is the tmux
 // pane id (e.g. "%5") for capture-pane polling.
+// N and Seq are used for bucketing: drivers gate periodic work (e.g.
+// capture-pane) to ticks where (N+Seq)%interval==0, so sessions are
+// spread across different ticks rather than all firing simultaneously.
 type DEvTick struct {
 	Now        time.Time
 	Active     bool
 	Project    string
 	PaneTarget string
+	N          uint64 // monotonic tick counter from EvTick.N
+	Seq        uint64 // position of this session in sorted order (0-indexed)
 }
 
 func (DEvTick) isDriverEvent() {}

@@ -60,6 +60,12 @@ const (
 	// commonHangThreshold is the time without pane changes or hooks
 	// before an agent is considered stale and transitioned to Stopped.
 	commonHangThreshold = 120 * time.Second
+
+	// commonCaptureInterval is the tick stride between hang-detection
+	// captures for background sessions. Sessions are staggered via
+	// (DEvTick.N + DEvTick.Seq) % commonCaptureInterval so that at most
+	// one session fires per tick rather than all firing simultaneously.
+	commonCaptureInterval = uint64(12)
 )
 
 // HandleTick common implementation for drivers. Completes StartDir,
@@ -98,11 +104,17 @@ func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []sta
 	// When active, the agent pane is swapped into 0.0 and the window's .0
 	// holds the main TUI — capturing it would be meaningless. The user
 	// can see the active session directly; hang detection adds no value.
+	// Captures are bucketed: the first capture (PaneHash=="") fires
+	// immediately to establish a baseline; subsequent ones fire every
+	// commonCaptureInterval ticks, staggered by Seq so sessions are spread
+	// across different ticks rather than all firing simultaneously.
 	if !e.Active && c.Status == state.StatusRunning && e.PaneTarget != "" && !c.CaptureInFlight {
-		c.CaptureInFlight = true
-		effs = append(effs, state.EffStartJob{
-			Input: CapturePaneInput{PaneTarget: e.PaneTarget, NLines: 5},
-		})
+		if c.PaneHash == "" || (e.N+e.Seq)%commonCaptureInterval == 0 {
+			c.CaptureInFlight = true
+			effs = append(effs, state.EffStartJob{
+				Input: CapturePaneInput{PaneTarget: e.PaneTarget, NLines: 5},
+			})
+		}
 	}
 
 	// Hang threshold check: if Running, pane is primed, no subagents

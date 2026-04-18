@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"log/slog"
+	"sort"
 	"strings"
 
 	"github.com/takezoh/agent-roost/state"
@@ -46,22 +47,41 @@ func compactPaneTail(s string) string {
 	return strings.Join(lines, " | ")
 }
 
+// monitorParkedPanes inspects one non-active parked pane per tick using a
+// round-robin cursor. With N parked frames each frame is checked every N
+// seconds rather than every second, cutting subprocess load from O(N)/tick
+// to O(1)/tick.
 func (r *Runtime) monitorParkedPanes() {
+	type entry struct {
+		frameID state.FrameID
+		target  string
+	}
+	var entries []entry
 	for frameID, target := range r.sessionPanes {
 		if frameID == r.activeFrameID || target == "" {
 			continue
 		}
-		snap, err := r.cfg.Tmux.InspectPane(target, paneSnapshotLines)
-		if err != nil {
-			continue
-		}
-		sig := parkedPaneSignature(snap)
-		if r.parkedPaneSnapshot[frameID] == sig {
-			continue
-		}
-		r.parkedPaneSnapshot[frameID] = sig
-		logParkedPaneSnapshot(frameID, snap)
+		entries = append(entries, entry{frameID, target})
 	}
+	if len(entries) == 0 {
+		return
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].frameID < entries[j].frameID
+	})
+	e := entries[r.parkedScanIdx%len(entries)]
+	r.parkedScanIdx++
+
+	snap, err := r.cfg.Tmux.InspectPane(e.target, paneSnapshotLines)
+	if err != nil {
+		return
+	}
+	sig := parkedPaneSignature(snap)
+	if r.parkedPaneSnapshot[e.frameID] == sig {
+		return
+	}
+	r.parkedPaneSnapshot[e.frameID] = sig
+	logParkedPaneSnapshot(e.frameID, snap)
 }
 
 func parkedPaneSignature(snap PaneSnapshot) string {

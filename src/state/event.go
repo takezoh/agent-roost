@@ -80,9 +80,12 @@ type EvConnClosed struct {
 // their Step{DEvTick} on every tick. PaneTargets maps each SessionID
 // to its tmux pane id (e.g. "%5"), pre-filled by the runtime so reducers
 // can forward it to drivers without touching the runtime directly.
+// N is a monotonic counter used for effect bucketing (gate expensive
+// effects to every N-th tick rather than every tick).
 type EvTick struct {
 	Now         time.Time
 	PaneTargets map[SessionID]string
+	N           uint64
 }
 
 // EvFileChanged is fired by runtime's fsnotify watcher when a
