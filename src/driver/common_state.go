@@ -121,7 +121,7 @@ func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []sta
 			c.StatusChangedAt = e.Now
 			c.HangDetected = true
 			effs = append(effs, state.EffEventLogAppend{
-				Line: "HangDetected (pane unchanged)",
+				Line: "[event:HangDetected] (pane unchanged)",
 			})
 		}
 	}
@@ -291,4 +291,13 @@ func (c *CommonState) RestoreCommon(bag map[string]string) {
 			c.PaneLastLineAt = t
 		}
 	}
+}
+
+// eventLogLine formats an EVENTS log line for a hook-sourced event.
+// Produces "[event:<name>]" when detail is empty, or "[event:<name>] <detail>".
+func eventLogLine(name, detail string) string {
+	if detail == "" {
+		return "[event:" + name + "]"
+	}
+	return "[event:" + name + "] " + detail
 }

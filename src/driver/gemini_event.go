@@ -49,28 +49,23 @@ func (hp geminiHookPayload) deriveStatus() (state.Status, bool) {
 
 func (hp geminiHookPayload) formatLog() string {
 	name := hp.HookEventName
+	detail := ""
 	switch hp.HookEventName {
 	case "SessionStart":
-		if hp.Source != "" {
-			return name + " " + hp.Source
-		}
+		detail = hp.Source
 	case "BeforeAgent":
 		if hp.Prompt != "" {
-			return fmt.Sprintf(`%s prompt="%s"`, name, previewText(hp.Prompt))
+			detail = fmt.Sprintf(`prompt="%s"`, previewText(hp.Prompt))
 		}
 	case "BeforeTool", "AfterTool":
-		name = strings.TrimSpace(name + " " + hp.ToolName)
+		detail = strings.TrimSpace(hp.ToolName)
 		if cmd := hp.toolInputString("command"); cmd != "" {
-			return fmt.Sprintf(`%s cmd="%s"`, name, previewText(cmd))
+			detail = strings.TrimSpace(fmt.Sprintf(`%s cmd="%s"`, detail, previewText(cmd)))
+		} else if path := hp.toolInputString("file_path"); path != "" {
+			detail = strings.TrimSpace(fmt.Sprintf(`%s path="%s"`, detail, previewText(path)))
 		}
-		if path := hp.toolInputString("file_path"); path != "" {
-			return fmt.Sprintf(`%s path="%s"`, name, previewText(path))
-		}
-		return name
 	case "Notification":
-		if hp.NotificationType != "" {
-			return name + " " + hp.NotificationType
-		}
+		detail = hp.NotificationType
 	case "AfterAgent":
 		var parts []string
 		if hp.StopReason != "" {
@@ -79,11 +74,9 @@ func (hp geminiHookPayload) formatLog() string {
 		if hp.PromptResponse != "" {
 			parts = append(parts, fmt.Sprintf(`resp="%s"`, previewText(hp.PromptResponse)))
 		}
-		if len(parts) > 0 {
-			return name + " " + strings.Join(parts, " ")
-		}
+		detail = strings.Join(parts, " ")
 	}
-	return name
+	return eventLogLine(name, detail)
 }
 
 func (d GeminiDriver) handleHook(gs GeminiState, e state.DEvHook) (GeminiState, []state.Effect) {

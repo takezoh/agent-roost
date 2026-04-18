@@ -165,8 +165,8 @@ func TestClaudeStateChangeStopSetsWaiting(t *testing.T) {
 	if !ok {
 		t.Fatal("expected EffEventLogAppend")
 	}
-	if logEff.Line != "Stop" {
-		t.Errorf("log line = %q, want Stop", logEff.Line)
+	if logEff.Line != "[event:Stop]" {
+		t.Errorf("log line = %q, want [event:Stop]", logEff.Line)
 	}
 	if !next.TranscriptInFlight {
 		t.Error("TranscriptInFlight should be true after state-change")
@@ -191,8 +191,8 @@ func TestClaudeStateChangeStopFailureSetsStopped(t *testing.T) {
 	if !ok {
 		t.Fatal("expected EffEventLogAppend")
 	}
-	if logEff.Line != "StopFailure" {
-		t.Errorf("log line = %q, want StopFailure", logEff.Line)
+	if logEff.Line != "[event:StopFailure]" {
+		t.Errorf("log line = %q, want [event:StopFailure]", logEff.Line)
 	}
 	if !next.TranscriptInFlight {
 		t.Error("TranscriptInFlight should be true after state-change")
@@ -1236,8 +1236,9 @@ func TestClaudeNoStateChangeEventsStillLog(t *testing.T) {
 			if !ok {
 				t.Fatalf("expected EffEventLogAppend for %s", name)
 			}
-			if logEff.Line != name {
-				t.Errorf("log line = %q, want %q", logEff.Line, name)
+			want := "[event:" + name + "]"
+			if logEff.Line != want {
+				t.Errorf("log line = %q, want %q", logEff.Line, want)
 			}
 		})
 	}
