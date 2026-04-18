@@ -127,10 +127,11 @@ type EventLogBackend interface {
 
 // ToolLogBackend writes per-project tool-use JSONL lines. Namespace
 // identifies the driver (opaque to the runtime). Project is the
-// projectDir() slug (e.g. "-workspace-agent-roost"). The file is opened
-// and closed on every append to avoid fd accumulation.
+// projectDir() slug (e.g. "-workspace-agent-roost"). Files are kept open
+// and flushed lazily; CloseAll must be called on shutdown.
 type ToolLogBackend interface {
 	Append(namespace, project, line string) error
+	CloseAll()
 }
 
 // FSWatcher is the fsnotify wrapper. It watches per-session
@@ -204,6 +205,11 @@ type noopEventLog struct{}
 func (noopEventLog) Append(state.FrameID, string) error { return nil }
 func (noopEventLog) Close(state.FrameID)                {}
 func (noopEventLog) CloseAll()                          {}
+
+type noopToolLog struct{}
+
+func (noopToolLog) Append(string, string, string) error { return nil }
+func (noopToolLog) CloseAll()                           {}
 
 type noopWatcher struct {
 	ch chan FSEvent

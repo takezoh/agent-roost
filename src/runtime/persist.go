@@ -12,7 +12,8 @@ import (
 // to an individual file under <dataDir>/sessions/<id>.json with atomic
 // temp+rename. Sessions that are no longer present are deleted.
 type FilePersist struct {
-	dir string
+	dir          string
+	lastKnownIDs map[string]struct{} // nil = first Save not yet called
 }
 
 // NewFilePersist constructs a FilePersist anchored at the given data
@@ -22,7 +23,9 @@ func NewFilePersist(dataDir string) *FilePersist {
 }
 
 // Save writes each session to its own file and removes files for
-// sessions that are no longer in the list.
+// sessions that are no longer in the list. ReadDir is skipped when the
+// set of session IDs has not shrunk since the last call, avoiding a
+// redundant directory scan on every tick.
 func (p *FilePersist) Save(sessions []SessionSnapshot) error {
 	if err := os.MkdirAll(p.dir, 0o755); err != nil {
 		return fmt.Errorf("persist: mkdir: %w", err)
@@ -36,6 +39,27 @@ func (p *FilePersist) Save(sessions []SessionSnapshot) error {
 		}
 	}
 
+	needPrune := p.lastKnownIDs == nil // first call: always prune
+	if !needPrune {
+		for id := range p.lastKnownIDs {
+			if _, ok := want[id]; !ok {
+				needPrune = true
+				break
+			}
+		}
+	}
+
+	if needPrune {
+		if err := p.pruneObsolete(want); err != nil {
+			return err
+		}
+	}
+
+	p.lastKnownIDs = want
+	return nil
+}
+
+func (p *FilePersist) pruneObsolete(want map[string]struct{}) error {
 	entries, err := os.ReadDir(p.dir)
 	if err != nil {
 		return fmt.Errorf("persist: readdir: %w", err)

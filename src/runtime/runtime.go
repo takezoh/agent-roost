@@ -127,6 +127,9 @@ func New(cfg Config) *Runtime {
 	if cfg.Watcher == nil {
 		cfg.Watcher = noopWatcher{}
 	}
+	if cfg.ToolLog == nil {
+		cfg.ToolLog = noopToolLog{}
+	}
 	if cfg.Notifier == nil {
 		cfg.Notifier = noopNotifier{}
 	}
@@ -180,6 +183,7 @@ func (r *Runtime) Run(ctx context.Context) error {
 	defer r.workers.Stop()
 	defer r.shutdownIPC()
 	defer r.cfg.EventLog.CloseAll()
+	defer r.cfg.ToolLog.CloseAll()
 	defer r.deactivateBeforeExit()
 
 	ticker := time.NewTicker(r.cfg.TickInterval)
