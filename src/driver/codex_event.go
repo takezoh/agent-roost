@@ -18,21 +18,19 @@ func (hp codexHookPayload) toolInputString(key string) string {
 
 func (hp codexHookPayload) formatLog() string {
 	name := hp.HookEventName
+	detail := ""
 	switch hp.HookEventName {
 	case "SessionStart":
-		if hp.Source != "" {
-			return name + " " + hp.Source
-		}
+		detail = hp.Source
 	case "UserPromptSubmit":
 		if hp.Prompt != "" {
-			return fmt.Sprintf(`%s prompt="%s"`, name, previewText(hp.Prompt))
+			detail = fmt.Sprintf(`prompt="%s"`, previewText(hp.Prompt))
 		}
 	case "PreToolUse", "PostToolUse":
-		name = strings.TrimSpace(name + " " + hp.ToolName)
+		detail = strings.TrimSpace(hp.ToolName)
 		if cmd := hp.toolInputString("command"); cmd != "" {
-			return fmt.Sprintf(`%s cmd="%s"`, name, previewText(cmd))
+			detail = strings.TrimSpace(fmt.Sprintf(`%s cmd="%s"`, detail, previewText(cmd)))
 		}
-		return name
 	case "Stop":
 		var parts []string
 		if hp.StopReason != "" {
@@ -41,11 +39,9 @@ func (hp codexHookPayload) formatLog() string {
 		if hp.LastAssistantMessage != "" {
 			parts = append(parts, fmt.Sprintf(`last="%s"`, previewText(hp.LastAssistantMessage)))
 		}
-		if len(parts) > 0 {
-			return name + " " + strings.Join(parts, " ")
-		}
+		detail = strings.Join(parts, " ")
 	}
-	return name
+	return eventLogLine(name, detail)
 }
 
 func statusTime(ts, fallback time.Time) time.Time {

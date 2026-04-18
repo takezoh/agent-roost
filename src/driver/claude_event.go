@@ -70,39 +70,37 @@ func (hp hookPayload) deriveState() string {
 	return ""
 }
 
-// formatLog mirrors lib/claude/hookevent.HookEvent.FormatLog.
 func (hp hookPayload) formatLog() string {
-	s := hp.HookEventName
+	if hp.HookEventName == "" {
+		return ""
+	}
+	detail := ""
 	switch hp.HookEventName {
 	case "PreToolUse", "PostToolUse", "PostToolUseFailure":
 		if hp.ToolName == "" {
 			break
 		}
-		s += " " + hp.ToolName
+		detail = hp.ToolName
 		if hp.ToolName == "Bash" {
 			if cmd := hp.toolInputString("command"); cmd != "" {
 				if len(cmd) > 80 {
 					cmd = cmd[:77] + "..."
 				}
-				s += " " + cmd
+				detail += " " + cmd
 			}
 		} else if hp.ToolName == "Read" || hp.ToolName == "Write" || hp.ToolName == "Edit" || hp.ToolName == "Glob" {
 			if fp := hp.toolInputString("file_path"); fp != "" {
-				s += " " + fp
+				detail += " " + fp
 			} else if p := hp.toolInputString("pattern"); p != "" {
-				s += " " + p
+				detail += " " + p
 			}
 		}
 	case "Notification":
-		if hp.NotificationType != "" {
-			s += " " + hp.NotificationType
-		}
+		detail = hp.NotificationType
 	case "SessionStart":
-		if hp.Source != "" {
-			s += " " + hp.Source
-		}
+		detail = hp.Source
 	}
-	return s
+	return eventLogLine(hp.HookEventName, detail)
 }
 
 func (hp hookPayload) logEffects() []state.Effect {
