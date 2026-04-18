@@ -39,6 +39,16 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 		if len(e.Features) > 0 {
 			m.features = features.FromConfig(stringSliceToMap(e.Features), features.All())
 		}
+		// Follow the new active session's workspace before rebuilding items so
+		// the filter is correct on the first pass.
+		if e.ActiveSessionID != "" && e.ActiveSessionID != m.active && !e.IsPreview {
+			for i := range e.Sessions {
+				if e.Sessions[i].ID == e.ActiveSessionID {
+					m.selectedWorkspace = workspaceOf(&e.Sessions[i])
+					break
+				}
+			}
+		}
 		m.rebuildItems()
 		if e.ActiveSessionID == "" {
 			m.active = ""
