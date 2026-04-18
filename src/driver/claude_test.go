@@ -1515,3 +1515,74 @@ func TestClaudeUserPromptSubmitDoesNotUpdateStartDir(t *testing.T) {
 		t.Errorf("StartDir after UserPromptSubmit = %q, want /original (should not change)", cs.StartDir)
 	}
 }
+
+func TestClaudeSessionStartLogsPrefixedEvent(t *testing.T) {
+	d, cs, now := newClaude(t)
+	_, effs := d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+		"session_id":      "uuid",
+		"hook_event_name": "SessionStart",
+	}, now))
+	logEff, ok := findEffect[state.EffEventLogAppend](effs)
+	if !ok {
+		t.Fatal("expected EffEventLogAppend")
+	}
+	if logEff.Line != "[event:SessionStart]" {
+		t.Errorf("log line = %q, want [event:SessionStart]", logEff.Line)
+	}
+
+	// With source field populated.
+	_, effs2 := d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+		"session_id":      "uuid",
+		"hook_event_name": "SessionStart",
+		"source":          "startup",
+	}, now))
+	logEff2, ok := findEffect[state.EffEventLogAppend](effs2)
+	if !ok {
+		t.Fatal("expected EffEventLogAppend with source")
+	}
+	if logEff2.Line != "[event:SessionStart] startup" {
+		t.Errorf("log line = %q, want [event:SessionStart] startup", logEff2.Line)
+	}
+}
+
+func TestClaudeUserPromptSubmitLogsPrefixedEvent(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.ClaudeSessionID = "uuid"
+	_, effs := d.handleHook(cs, hookEvent("UserPromptSubmit", map[string]string{
+		"session_id":      "uuid",
+		"hook_event_name": "UserPromptSubmit",
+		"prompt":          "hello",
+	}, now))
+	logEff, ok := findEffect[state.EffEventLogAppend](effs)
+	if !ok {
+		t.Fatal("expected EffEventLogAppend")
+	}
+	if logEff.Line != "[event:UserPromptSubmit]" {
+		t.Errorf("log line = %q, want [event:UserPromptSubmit]", logEff.Line)
+	}
+}
+
+func TestClaudeCapturePaneOscNotificationsBecomeEffects(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.CaptureInFlight = true
+	now := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
+	_, effs := d.handleJobResult(cs, state.DEvJobResult{
+		Now: now,
+		Result: CapturePaneResult{
+			Snapshot: vt.Snapshot{
+				Stable:        "hash",
+				Notifications: []vt.OscNotification{{Cmd: 9, Payload: "hello"}},
+			},
+		},
+	})
+	notif, ok := findEffect[state.EffRecordNotification](effs)
+	if !ok {
+		t.Fatal("expected EffRecordNotification from OSC 9")
+	}
+	if notif.Cmd != 9 {
+		t.Errorf("Cmd = %d, want 9", notif.Cmd)
+	}
+	if notif.Title != "hello" {
+		t.Errorf("Title = %q, want hello", notif.Title)
+	}
+}

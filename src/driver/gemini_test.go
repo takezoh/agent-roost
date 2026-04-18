@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/takezoh/agent-roost/driver/vt"
 	"github.com/takezoh/agent-roost/state"
 )
 
@@ -227,3 +228,35 @@ func TestGeminiEmptySessionIDDropped(t *testing.T) {
 	}
 }
 
+
+func TestGeminiCapturePaneOscNotificationsBecomeEffects(t *testing.T) {
+	d, gs, _ := newGemini(t)
+	gs.CaptureInFlight = true
+	now := time.Date(2026, 4, 18, 12, 0, 0, 0, time.UTC)
+	_, effs := d.handleJobResult(gs, state.DEvJobResult{
+		Now: now,
+		Result: CapturePaneResult{
+			Snapshot: vt.Snapshot{
+				Stable:        "hash",
+				Notifications: []vt.OscNotification{{Cmd: 9, Payload: "hello"}},
+			},
+		},
+	})
+	var notif state.EffRecordNotification
+	found := false
+	for _, e := range effs {
+		if n, ok := e.(state.EffRecordNotification); ok {
+			notif = n
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected EffRecordNotification from OSC 9")
+	}
+	if notif.Cmd != 9 {
+		t.Errorf("Cmd = %d, want 9", notif.Cmd)
+	}
+	if notif.Title != "hello" {
+		t.Errorf("Title = %q, want hello", notif.Title)
+	}
+}

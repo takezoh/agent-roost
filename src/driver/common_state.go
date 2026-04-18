@@ -129,11 +129,13 @@ func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []sta
 	return effs
 }
 
-// HandleCapturePaneResult updates the pane hash and last-line baselines.
-func (c *CommonState) HandleCapturePaneResult(r CapturePaneResult, err error, now time.Time) {
+// HandleCapturePaneResult updates the pane hash and last-line baselines and
+// returns EffRecordNotification effects for any OSC 9/99/777 notifications in
+// the snapshot.
+func (c *CommonState) HandleCapturePaneResult(r CapturePaneResult, err error, now time.Time) []state.Effect {
 	c.CaptureInFlight = false
 	if err != nil {
-		return
+		return nil
 	}
 	hash := r.Snapshot.Stable
 	if c.PaneHash == "" || hash != c.PaneHash {
@@ -145,6 +147,7 @@ func (c *CommonState) HandleCapturePaneResult(r CapturePaneResult, err error, no
 		c.PaneLastLine = line
 		c.PaneLastLineAt = now
 	}
+	return extractOscNotificationEffects(r.Snapshot.Notifications)
 }
 
 // ResetHangDetection clears hang state, restarting the timer from scratch.
