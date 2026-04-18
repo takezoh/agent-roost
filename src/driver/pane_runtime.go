@@ -16,9 +16,10 @@ type PanePolling struct {
 	LastActivity  time.Time
 }
 
-// paneTickEffects returns the branch-detect and capture-pane effects for a
-// polling driver tick. Callers must handle the early return for
-// parked+waiting sessions before calling this.
+// paneTickEffects returns the branch-detect effect for a polling driver tick,
+// and issues a background capture-pane only for background (non-active)
+// sessions. Active sessions receive capture-pane via paneActivityEffects
+// which is triggered by the PaneTap reader.
 func paneTickEffects(common *CommonState, e state.DEvTick) []state.Effect {
 	var effs []state.Effect
 
@@ -36,13 +37,25 @@ func paneTickEffects(common *CommonState, e state.DEvTick) []state.Effect {
 		}
 	}
 
-	if e.PaneTarget != "" {
-		effs = append(effs, state.EffStartJob{
-			Input: CapturePaneInput{PaneTarget: e.PaneTarget, NLines: 30},
-		})
+	// Background capture-pane for hang detection. Active sessions get
+	// their capture-pane triggered by EvPaneActivity instead of the tick.
+	if !e.Active && e.PaneTarget != "" && !common.CaptureInFlight {
+		if common.PaneHash == "" || (e.N+e.Seq)%commonCaptureInterval == 0 {
+			common.CaptureInFlight = true
+			effs = append(effs, state.EffStartJob{
+				Input: CapturePaneInput{PaneTarget: e.PaneTarget, NLines: 30},
+			})
+		}
 	}
 
 	return effs
+}
+
+// paneActivityEffects issues a capture-pane job for an active session in
+// response to a DEvPaneActivity event. CaptureInFlight prevents concurrent
+// in-flight captures.
+func paneActivityEffects(common *CommonState, e state.DEvPaneActivity) []state.Effect {
+	return common.HandleActivity(e)
 }
 
 // applyPollingBaseline handles priming the baseline on the first capture and

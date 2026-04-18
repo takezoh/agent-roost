@@ -111,6 +111,9 @@ func (d GeminiDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.
 	case state.DEvTick:
 		effs := gs.HandleTick(e, false)
 		return gs, effs, d.view(gs)
+	case state.DEvPaneActivity:
+		effs := gs.HandleActivity(e)
+		return gs, effs, d.view(gs)
 	case state.DEvJobResult:
 		next, effs := d.handleJobResult(gs, e)
 		return next, effs, d.view(next)

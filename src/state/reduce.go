@@ -43,6 +43,8 @@ func Reduce(s State, ev Event) (State, []Effect) {
 		return reduceFileChanged(s, e)
 
 	// pane tap
+	case EvPaneActivity:
+		return reducePaneActivity(s, e)
 	case EvPaneOsc:
 		return reducePaneOsc(s, e)
 

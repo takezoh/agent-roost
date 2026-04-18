@@ -140,6 +140,15 @@ type EvTmuxSpawnFailed struct {
 	ReplyReqID string
 }
 
+// EvPaneActivity is fired by the PaneTap reader goroutine when bytes arrive
+// from a pane's raw stream. The runtime pre-fills PaneTarget and Now so the
+// reducer can pass them to the driver without accessing runtime internals.
+type EvPaneActivity struct {
+	FrameID    FrameID
+	PaneTarget string
+	Now        time.Time
+}
+
 // EvPaneOsc is fired by the PaneTap reader goroutine when an OSC
 // notification is detected in the raw byte stream from a pane.
 // Title and Body are already parsed from the raw payload.
@@ -165,4 +174,5 @@ func (EvPaneDied) isEvent()           {}
 func (EvTmuxWindowVanished) isEvent() {}
 func (EvTmuxPaneSpawned) isEvent()    {}
 func (EvTmuxSpawnFailed) isEvent()    {}
+func (EvPaneActivity) isEvent()        {}
 func (EvPaneOsc) isEvent()            {}

@@ -3,9 +3,15 @@ package runtime
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/takezoh/agent-roost/state"
 )
+
+// tapActivityDebounce is the minimum interval between consecutive EvPaneActivity
+// events emitted by a tap reader. Prevents flooding the event loop when the
+// pane is producing high-volume output.
+const tapActivityDebounce = 100 * time.Millisecond
 
 // tapEntry holds the cancel function and pane identifier for one running tap.
 type tapEntry struct {
@@ -45,7 +51,7 @@ func (m *tapManager) start(frameID state.FrameID, pane string, enqueue func(stat
 		return
 	}
 	m.cancels[frameID] = tapEntry{cancel: cancel, pane: pane}
-	go readTap(tapCtx, frameID, ch, enqueue)
+	go readTap(tapCtx, frameID, pane, ch, enqueue)
 }
 
 // stop cancels the reader goroutine and stops the underlying pipe-pane process.
@@ -68,16 +74,29 @@ func (m *tapManager) stopAll() {
 	}
 }
 
-// readTap parses raw bytes from ch for OSC notification sequences and emits
-// EvPaneOsc events. Runs in its own goroutine; exits when ch is closed or ctx
-// is cancelled.
-func readTap(ctx context.Context, frameID state.FrameID, ch <-chan []byte, enqueue func(state.Event)) {
+// readTap parses raw bytes from ch and emits two event types:
+//   - EvPaneActivity: debounced (100ms), emitted on any byte receipt so the
+//     event loop can trigger a capture-pane without waiting for the next tick.
+//   - EvPaneOsc: emitted per OSC sequence for notification routing.
+//
+// Runs in its own goroutine; exits when ch is closed or ctx is cancelled.
+func readTap(ctx context.Context, frameID state.FrameID, pane string, ch <-chan []byte, enqueue func(state.Event)) {
 	parser := &oscParser{}
+	var lastActivity time.Time
 	for {
 		select {
 		case data, ok := <-ch:
 			if !ok {
 				return
+			}
+			now := time.Now()
+			if now.Sub(lastActivity) >= tapActivityDebounce {
+				lastActivity = now
+				enqueue(state.EvPaneActivity{
+					FrameID:    frameID,
+					PaneTarget: pane,
+					Now:        now,
+				})
 			}
 			for _, seq := range parser.feed(data) {
 				title, body := parseOscPayload(seq.cmd, seq.payload)

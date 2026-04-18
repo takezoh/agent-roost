@@ -209,6 +209,10 @@ func (d ClaudeDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.
 		next, effs := d.handleTick(cs, e)
 		return next, effs, d.view(next)
 
+	case state.DEvPaneActivity:
+		effs := cs.HandleActivity(e)
+		return cs, effs, d.view(cs)
+
 	case state.DEvFileChanged:
 		next, effs := d.handleTranscriptChanged(cs, e)
 		return next, effs, d.view(next)

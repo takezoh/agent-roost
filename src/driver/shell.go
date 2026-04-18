@@ -170,6 +170,10 @@ func (d ShellDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.D
 		effs := paneTickEffects(&ss.CommonState, e)
 		return ss, effs, d.view(ss)
 
+	case state.DEvPaneActivity:
+		effs := paneActivityEffects(&ss.CommonState, e)
+		return ss, effs, d.view(ss)
+
 	case state.DEvJobResult:
 		if summary, inFlight, ok := applySummaryJobResult(ss.Summary, ss.SummaryInFlight, e); ok {
 			ss.Summary = summary

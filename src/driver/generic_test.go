@@ -38,9 +38,22 @@ func TestGenericNewStateDefaults(t *testing.T) {
 	_ = d
 }
 
-func TestGenericTickEmitsCapturePaneJob(t *testing.T) {
+// Active sessions receive capture-pane via DEvPaneActivity (tap-driven), not tick.
+func TestGenericTickActiveDoesNotEmitCapturePaneJob(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
 	_, effs, _ := d.Step(s, state.DEvTick{Now: now, Active: true, PaneTarget: "5"})
+	for _, eff := range effs {
+		if job, ok := eff.(state.EffStartJob); ok {
+			if _, ok := job.Input.(CapturePaneInput); ok {
+				t.Error("active session tick must not emit capture-pane (handled by DEvPaneActivity)")
+			}
+		}
+	}
+}
+
+func TestGenericActivityEmitsCapturePaneJob(t *testing.T) {
+	d, s, _ := newGenericState(t, 0)
+	_, effs, _ := d.Step(s, state.DEvPaneActivity{PaneTarget: "5", Now: time.Now()})
 	if len(effs) != 1 {
 		t.Fatalf("expected 1 effect, got %d", len(effs))
 	}
@@ -48,12 +61,9 @@ func TestGenericTickEmitsCapturePaneJob(t *testing.T) {
 	if !ok {
 		t.Fatalf("effect type = %T, want EffStartJob", effs[0])
 	}
-	if _, ok := job.Input.(CapturePaneInput); !ok {
-		t.Errorf("input type = %T, want CapturePaneInput", job.Input)
-	}
 	in, ok := job.Input.(CapturePaneInput)
 	if !ok {
-		t.Fatalf("input type = %T, want CapturePaneInput", job.Input)
+		t.Errorf("input type = %T, want CapturePaneInput", job.Input)
 	}
 	if in.PaneTarget != "5" {
 		t.Errorf("PaneTarget = %q, want 5", in.PaneTarget)
@@ -80,18 +90,15 @@ func TestGenericTickSkipsWhenParkedAndWaiting(t *testing.T) {
 
 func TestGenericTickRunsWhenActive(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
-	// Status=Waiting but Active=true → tick is processed
+	// Status=Waiting but Active=true → tick is processed (branch detect may run)
+	// Capture-pane is no longer issued from tick for active sessions; DEvPaneActivity handles it.
 	_, effs, _ := d.Step(s, state.DEvTick{Now: now, Active: true, PaneTarget: "5"})
-	var hasCapture bool
 	for _, eff := range effs {
 		if job, ok := eff.(state.EffStartJob); ok {
 			if _, ok := job.Input.(CapturePaneInput); ok {
-				hasCapture = true
+				t.Error("active session tick must not emit capture-pane job")
 			}
 		}
-	}
-	if !hasCapture {
-		t.Error("expected capture-pane job when active (even if Waiting)")
 	}
 }
 
@@ -635,10 +642,10 @@ func TestGenericTickActiveSchedulesBranchJobUpdatesState(t *testing.T) {
 	}
 }
 
-func TestGenericTickActiveWithPaneEmitsBranchAndCapture(t *testing.T) {
+func TestGenericTickActiveWithPaneEmitsBranch(t *testing.T) {
 	d, s, now := newGenericState(t, 0)
 	_, effs, _ := d.Step(s, state.DEvTick{Now: now, Active: true, Project: "/repo", PaneTarget: "5"})
-	var hasBranch, hasCapture bool
+	var hasBranch bool
 	for _, eff := range effs {
 		job, ok := eff.(state.EffStartJob)
 		if !ok {
@@ -648,14 +655,11 @@ func TestGenericTickActiveWithPaneEmitsBranchAndCapture(t *testing.T) {
 			hasBranch = true
 		}
 		if _, ok := job.Input.(CapturePaneInput); ok {
-			hasCapture = true
+			t.Error("active session tick must not emit capture-pane (handled by DEvPaneActivity)")
 		}
 	}
 	if !hasBranch {
 		t.Error("expected BranchDetectInput job")
-	}
-	if !hasCapture {
-		t.Error("expected CapturePaneInput job")
 	}
 }
 

@@ -68,6 +68,17 @@ type DEvTick struct {
 
 func (DEvTick) isDriverEvent() {}
 
+// DEvPaneActivity is fired when the PaneTap reader receives bytes from a pane.
+// Drivers respond by issuing a CapturePaneInput job to sample the current
+// screen state and update their status. PaneTarget and Now are pre-filled
+// by the event loop so Driver.Step remains pure.
+type DEvPaneActivity struct {
+	PaneTarget string
+	Now        time.Time
+}
+
+func (DEvPaneActivity) isDriverEvent() {}
+
 // DEvJobResult delivers an async worker pool result back to the driver
 // that requested it. Result is typed by the worker (the driver dispatches
 // on its concrete type) and Err is non-nil when the job failed. Now is
