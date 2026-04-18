@@ -156,6 +156,12 @@ func DecodeResponseByCommand(env Envelope) (Response, error) {
 	case has(probe, "active_session_id"):
 		var r RespActiveSession
 		return decodeResponse(env.Data, &r)
+	case has(probe, "text"):
+		var r RespSurfaceText
+		return decodeResponse(env.Data, &r)
+	case has(probe, "drivers"):
+		var r RespDriverList
+		return decodeResponse(env.Data, &r)
 	}
 	return RespOK{}, nil
 }

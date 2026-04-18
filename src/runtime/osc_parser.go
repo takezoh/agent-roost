@@ -40,6 +40,10 @@ func (p *oscParser) feed(data []byte) []oscSeq {
 				}
 				p.buf = p.buf[:0]
 				p.inOsc = false
+			} else if len(p.buf) >= 4096 {
+				// Guard against unterminated OSC sequences consuming unbounded memory.
+				p.buf = p.buf[:0]
+				p.inOsc = false
 			} else {
 				p.buf = append(p.buf, b)
 			}

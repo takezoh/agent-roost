@@ -201,6 +201,16 @@ func TestDecodeResponseByCommandHeuristics(t *testing.T) {
 			want: "RespActiveSession",
 		},
 		{
+			name: "surface-text",
+			data: mustMarshal(RespSurfaceText{Text: "hello"}),
+			want: "RespSurfaceText",
+		},
+		{
+			name: "driver-list",
+			data: mustMarshal(RespDriverList{Drivers: []DriverInfo{{Name: "claude", DisplayName: "claude"}}}),
+			want: "RespDriverList",
+		},
+		{
 			name: "empty",
 			data: nil,
 			want: "RespOK",
@@ -259,6 +269,10 @@ func typeName(r Response) string {
 		return "RespSessions"
 	case RespActiveSession:
 		return "RespActiveSession"
+	case RespSurfaceText:
+		return "RespSurfaceText"
+	case RespDriverList:
+		return "RespDriverList"
 	}
 	return "unknown"
 }
