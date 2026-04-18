@@ -47,6 +47,11 @@ type Config struct {
 	// pane to prevent unbounded memory growth. May be nil.
 	TerminalEvict func(pane string)
 
+	// Tap, if non-nil, is used to attach a raw byte stream reader to each
+	// frame's pane. The reader feeds a per-frame vt.Terminal and emits
+	// EvPaneOsc events for OSC 9/99/777 notifications detected in the stream.
+	Tap PaneTap
+
 	// Features is the set of runtime flags built from the config file.
 	// Injected into state.State once at construction; never mutated.
 	Features features.Set
@@ -80,6 +85,8 @@ type Runtime struct {
 	nextConn state.ConnID              // owned by event loop
 
 	done chan struct{}
+
+	taps *tapManager
 
 	// fastProbeInFlight guards against spawning multiple concurrent
 	// PaneAlive probes from the fastTicker. Written from any goroutine,
@@ -186,6 +193,9 @@ func (r *Runtime) Run(ctx context.Context) error {
 	defer r.cfg.ToolLog.CloseAll()
 	defer r.deactivateBeforeExit()
 
+	r.taps = newTapManager(ctx, r.cfg.Tap)
+	defer r.taps.stopAll()
+
 	ticker := time.NewTicker(r.cfg.TickInterval)
 	defer ticker.Stop()
 	fastTicker := time.NewTicker(r.cfg.FastTickInterval)
@@ -279,6 +289,21 @@ func (r *Runtime) snapshotPaneTargets() map[state.SessionID]string {
 		out[state.SessionID(k)] = v
 	}
 	return out
+}
+
+// sessionPaneForSession returns the pane target for the active frame of the
+// given session. Returns "" if the session has no registered pane.
+func (r *Runtime) sessionPaneForSession(sid state.SessionID) string {
+	sess, ok := r.state.Sessions[sid]
+	if !ok {
+		return ""
+	}
+	for _, fr := range sess.Frames {
+		if p, ok := r.sessionPanes[fr.ID]; ok && p != "" {
+			return p
+		}
+	}
+	return ""
 }
 
 // errClosed is returned when the runtime has already shut down.

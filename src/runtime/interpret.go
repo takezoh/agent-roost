@@ -77,9 +77,42 @@ func (r *Runtime) execute(eff state.Effect) {
 		}
 		r.cfg.Notifier.DispatchOSC(e.Title, e.Body, source)
 
+	case state.EffSendTmuxKeys:
+		r.executeSendTmuxKeys(e)
+
 	default:
 		slog.Warn("runtime: unhandled effect type", "type", fmt.Sprintf("%T", eff))
 	}
+}
+
+func (r *Runtime) executeSendTmuxKeys(e state.EffSendTmuxKeys) {
+	pane := r.sessionPaneForSession(e.SessionID)
+	if pane == "" {
+		r.executeIPCEffect(state.EffSendError{
+			ConnID:  e.ConnID,
+			ReqID:   e.ReqID,
+			Code:    "not_found",
+			Message: "no pane registered for session: " + string(e.SessionID),
+		})
+		return
+	}
+	var err error
+	if e.WithEnter {
+		err = r.cfg.Tmux.SendKeys(pane, e.Text)
+	} else {
+		err = r.cfg.Tmux.SendKey(pane, e.Key)
+	}
+	if err != nil {
+		slog.Warn("runtime: send-keys failed", "session", e.SessionID, "err", err)
+		r.executeIPCEffect(state.EffSendError{
+			ConnID:  e.ConnID,
+			ReqID:   e.ReqID,
+			Code:    "internal",
+			Message: err.Error(),
+		})
+		return
+	}
+	r.executeIPCEffect(state.EffSendResponse{ConnID: e.ConnID, ReqID: e.ReqID, Body: nil})
 }
 
 func (r *Runtime) executeTmuxEffect(eff state.Effect) {
@@ -103,9 +136,15 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 	case state.EffRegisterPane:
 		r.sessionPanes[e.FrameID] = e.PaneTarget
 		r.cfg.Tmux.SetEnv(sessionPaneEnvKey(e.FrameID), e.PaneTarget)
+		if r.taps != nil {
+			r.taps.start(e.FrameID, e.PaneTarget, r.Enqueue)
+		}
 
 	case state.EffUnregisterPane:
 		if target, ok := r.sessionPanes[e.FrameID]; ok {
+			if r.taps != nil {
+				r.taps.stop(e.FrameID)
+			}
 			delete(r.sessionPanes, e.FrameID)
 			delete(r.parkedPaneSnapshot, e.FrameID)
 			r.cfg.Tmux.UnsetEnv(sessionPaneEnvKey(e.FrameID))

@@ -145,6 +145,23 @@ func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []sta
 	return effs
 }
 
+// HandleActivity handles a DEvPaneActivity event for active sessions. It issues
+// a CapturePaneInput job (guarded by CaptureInFlight) to sample the screen and
+// update status. Drivers that derive status from hooks (e.g. Claude) should
+// still call this so the pane-hash baseline stays fresh for hang detection.
+func (c *CommonState) HandleActivity(e state.DEvPaneActivity) []state.Effect {
+	if c.Status == state.StatusIdle || c.Status == state.StatusStopped {
+		return nil
+	}
+	if e.PaneTarget == "" || c.CaptureInFlight {
+		return nil
+	}
+	c.CaptureInFlight = true
+	return []state.Effect{state.EffStartJob{
+		Input: CapturePaneInput{PaneTarget: e.PaneTarget, NLines: 30},
+	}}
+}
+
 // HandleCapturePaneResult updates the pane hash and last-line baselines and
 // returns EffRecordNotification effects for any OSC 9/99/777 notifications in
 // the snapshot.

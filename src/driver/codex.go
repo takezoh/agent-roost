@@ -152,6 +152,9 @@ func (d CodexDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.D
 	case state.DEvTick:
 		effs := cs.HandleTick(e, false)
 		return cs, effs, d.view(cs)
+	case state.DEvPaneActivity:
+		effs := cs.HandleActivity(e)
+		return cs, effs, d.view(cs)
 	case state.DEvFileChanged:
 		next, effs := d.handleTranscriptChanged(cs, e)
 		return next, effs, d.view(next)

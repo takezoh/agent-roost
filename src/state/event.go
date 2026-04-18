@@ -53,6 +53,36 @@ type EvEvent struct {
 	Payload json.RawMessage
 }
 
+// EvCmdSurfaceReadText requests the trailing lines of a session's pane.
+type EvCmdSurfaceReadText struct {
+	ConnID    ConnID
+	ReqID     string
+	SessionID SessionID
+	Lines     int // 0 = server default
+}
+
+// EvCmdSurfaceSendText sends Text + Enter to a session's active pane.
+type EvCmdSurfaceSendText struct {
+	ConnID    ConnID
+	ReqID     string
+	SessionID SessionID
+	Text      string
+}
+
+// EvCmdSurfaceSendKey sends a named key to a session's active pane.
+type EvCmdSurfaceSendKey struct {
+	ConnID    ConnID
+	ReqID     string
+	SessionID SessionID
+	Key       string
+}
+
+// EvCmdDriverList requests the list of registered drivers.
+type EvCmdDriverList struct {
+	ConnID ConnID
+	ReqID  string
+}
+
 // EvDriverEvent is a driver hook event from the agent process via
 // `roost event <eventType>`. Routed to the session's driver.
 type EvDriverEvent struct {
@@ -140,10 +170,33 @@ type EvTmuxSpawnFailed struct {
 	ReplyReqID string
 }
 
+// EvPaneActivity is fired by the PaneTap reader goroutine when bytes arrive
+// from a pane's raw stream. The runtime pre-fills PaneTarget and Now so the
+// reducer can pass them to the driver without accessing runtime internals.
+type EvPaneActivity struct {
+	FrameID    FrameID
+	PaneTarget string
+	Now        time.Time
+}
+
+// EvPaneOsc is fired by the PaneTap reader goroutine when an OSC
+// notification is detected in the raw byte stream from a pane.
+// Title and Body are already parsed from the raw payload.
+type EvPaneOsc struct {
+	FrameID FrameID
+	Cmd     int
+	Title   string
+	Body    string
+}
+
 // === isEvent markers ===
 
 func (EvCmdSubscribe) isEvent()       {}
 func (EvCmdUnsubscribe) isEvent()     {}
+func (EvCmdSurfaceReadText) isEvent() {}
+func (EvCmdSurfaceSendText) isEvent() {}
+func (EvCmdSurfaceSendKey) isEvent()  {}
+func (EvCmdDriverList) isEvent()      {}
 func (EvEvent) isEvent()              {}
 func (EvDriverEvent) isEvent()        {}
 func (EvConnOpened) isEvent()         {}
@@ -155,3 +208,5 @@ func (EvPaneDied) isEvent()           {}
 func (EvTmuxWindowVanished) isEvent() {}
 func (EvTmuxPaneSpawned) isEvent()    {}
 func (EvTmuxSpawnFailed) isEvent()    {}
+func (EvPaneActivity) isEvent()        {}
+func (EvPaneOsc) isEvent()            {}

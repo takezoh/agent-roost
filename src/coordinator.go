@@ -54,6 +54,9 @@ func runCoordinator() error {
 	defer cancel()
 
 	terminalEvict := statedriver.RegisterRunners(tmuxBackend.CapturePaneEscaped, cfg.Driver.SummarizeCommand)
+	if os.Getenv("ROOST_OSC_TRACE_PIPE") == "1" {
+		statedriver.SetOscPipeTracer(client.PipePane, dataDir)
+	}
 	connector.RegisterDefaults()
 	connector.RegisterRunners()
 	pool := worker.NewPool(ctx, 4)
@@ -62,6 +65,12 @@ func runCoordinator() error {
 	if err != nil {
 		return fmt.Errorf("notify: %w", err)
 	}
+
+	tapDir := filepath.Join(dataDir, "tap")
+	if err := os.MkdirAll(tapDir, 0o755); err != nil {
+		return fmt.Errorf("mkdir tap dir: %w", err)
+	}
+	paneTap := runtime.NewTmuxPipePaneTap(tmuxBackend.PipePane, tapDir)
 
 	featureSet := features.FromConfig(cfg.Features.Enabled, features.All())
 	rt := runtime.New(runtime.Config{
@@ -78,6 +87,7 @@ func runCoordinator() error {
 		Pool:              pool,
 		Notifier:          runtime.NewNotifier(&cfg.Notifications, ln),
 		TerminalEvict:     terminalEvict,
+		Tap:               paneTap,
 		Features:          featureSet,
 	})
 

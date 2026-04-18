@@ -94,6 +94,18 @@ func DecodeCommand(env Envelope) (Command, error) {
 	case CmdNameEvent:
 		var c CmdEvent
 		return decodeInto(env.Data, &c)
+	case CmdNameSurfaceReadText:
+		var c CmdSurfaceReadText
+		return decodeInto(env.Data, &c)
+	case CmdNameSurfaceSendText:
+		var c CmdSurfaceSendText
+		return decodeInto(env.Data, &c)
+	case CmdNameSurfaceSendKey:
+		var c CmdSurfaceSendKey
+		return decodeInto(env.Data, &c)
+	case CmdNameDriverList:
+		var c CmdDriverList
+		return decodeInto(env.Data, &c)
 	}
 	return nil, fmt.Errorf("proto: unknown command: %q", env.Cmd)
 }
@@ -143,6 +155,12 @@ func DecodeResponseByCommand(env Envelope) (Response, error) {
 		return decodeResponse(env.Data, &r)
 	case has(probe, "active_session_id"):
 		var r RespActiveSession
+		return decodeResponse(env.Data, &r)
+	case has(probe, "text"):
+		var r RespSurfaceText
+		return decodeResponse(env.Data, &r)
+	case has(probe, "drivers"):
+		var r RespDriverList
 		return decodeResponse(env.Data, &r)
 	}
 	return RespOK{}, nil

@@ -105,6 +105,26 @@ type ConnectorInfo struct {
 	Sections  []state.ConnectorSection `json:"sections,omitempty"`
 }
 
+// RespSurfaceText is the response to surface.read_text.
+type RespSurfaceText struct {
+	Text string `json:"text"`
+}
+
+func (RespSurfaceText) isResponse() {}
+
+// RespDriverList is the response to driver.list.
+type RespDriverList struct {
+	Drivers []DriverInfo `json:"drivers"`
+}
+
+func (RespDriverList) isResponse() {}
+
+// DriverInfo is the per-driver payload in RespDriverList.
+type DriverInfo struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+}
+
 // baseName mirrors filepath.Base without importing filepath, so the
 // proto package stays trim. Handles both "/" and OS-native separators.
 func baseName(path string) string {

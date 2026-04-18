@@ -1,7 +1,6 @@
 package driver
 
 import (
-	"strings"
 	"time"
 
 	"github.com/takezoh/agent-roost/driver/vt"
@@ -17,9 +16,10 @@ type PanePolling struct {
 	LastActivity  time.Time
 }
 
-// paneTickEffects returns the branch-detect and capture-pane effects for a
-// polling driver tick. Callers must handle the early return for
-// parked+waiting sessions before calling this.
+// paneTickEffects returns the branch-detect effect for a polling driver tick,
+// and issues a background capture-pane only for background (non-active)
+// sessions. Active sessions receive capture-pane via paneActivityEffects
+// which is triggered by the PaneTap reader.
 func paneTickEffects(common *CommonState, e state.DEvTick) []state.Effect {
 	var effs []state.Effect
 
@@ -37,13 +37,25 @@ func paneTickEffects(common *CommonState, e state.DEvTick) []state.Effect {
 		}
 	}
 
-	if e.PaneTarget != "" {
-		effs = append(effs, state.EffStartJob{
-			Input: CapturePaneInput{PaneTarget: e.PaneTarget, NLines: 30},
-		})
+	// Background capture-pane for hang detection. Active sessions get
+	// their capture-pane triggered by EvPaneActivity instead of the tick.
+	if !e.Active && e.PaneTarget != "" && !common.CaptureInFlight {
+		if common.PaneHash == "" || (e.N+e.Seq)%commonCaptureInterval == 0 {
+			common.CaptureInFlight = true
+			effs = append(effs, state.EffStartJob{
+				Input: CapturePaneInput{PaneTarget: e.PaneTarget, NLines: 30},
+			})
+		}
 	}
 
 	return effs
+}
+
+// paneActivityEffects issues a capture-pane job for an active session in
+// response to a DEvPaneActivity event. CaptureInFlight prevents concurrent
+// in-flight captures.
+func paneActivityEffects(common *CommonState, e state.DEvPaneActivity) []state.Effect {
+	return common.HandleActivity(e)
 }
 
 // applyPollingBaseline handles priming the baseline on the first capture and
@@ -101,47 +113,6 @@ func extractOscNotificationEffects(notifs []vt.OscNotification) []state.Effect {
 	return effs
 }
 
-// parseOscNotif extracts title and body from an OSC notification payload.
-// OSC 9 (iTerm2): payload is the title text.
-// OSC 777 (urxvt): payload is "notify;<title>;<body>".
-// OSC 99 (Kitty): colon-separated key=value pairs; d= is title, p= is body.
-//
-//	Example: "i=1:d=My Title:p=Some body text:f=false:o=always"
 func parseOscNotif(n vt.OscNotification) (title, body string) {
-	switch n.Cmd {
-	case 9:
-		return strings.TrimSpace(n.Payload), ""
-	case 777:
-		parts := strings.SplitN(n.Payload, ";", 3)
-		if len(parts) >= 3 {
-			return parts[1], parts[2]
-		}
-		if len(parts) == 2 {
-			return parts[1], ""
-		}
-	case 99:
-		title, body = parseKittyPayload(n.Payload)
-		if title == "" && body == "" {
-			body = n.Payload
-		}
-	}
-	return title, body
-}
-
-// parseKittyPayload decodes Kitty's OSC 99 key=value payload.
-// Keys: d (title/description), p (body). Unknown keys are ignored.
-func parseKittyPayload(payload string) (title, body string) {
-	for _, part := range strings.Split(payload, ":") {
-		k, v, ok := strings.Cut(part, "=")
-		if !ok {
-			continue
-		}
-		switch k {
-		case "d":
-			title = v
-		case "p":
-			body = v
-		}
-	}
-	return title, body
+	return vt.ParseOscNotification(n)
 }

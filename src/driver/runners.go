@@ -3,6 +3,7 @@ package driver
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sync"
@@ -51,14 +52,27 @@ func (s *terminalStore) feedAndSnapshot(pane string, ansi []byte) vt.Snapshot {
 	if !ok {
 		t = vt.New(0, 0)
 		s.entries[pane] = t
+		startOscPipe(pane)
 	}
 	_ = t.Feed(ansi)
-	return t.Snapshot()
+	snap := t.Snapshot()
+	if oscTraceEnabled() {
+		markers := countOscMarkers(ansi)
+		slog.Debug("osc_trace capture",
+			"pane", pane,
+			"bytes", len(ansi),
+			"osc_markers", markers,
+			"notifications", len(snap.Notifications),
+			"prompt_events", len(snap.PromptEvents),
+		)
+	}
+	return snap
 }
 
 // evict removes the terminal for a pane. Called when a session pane is
 // unregistered so that the scrollback buffer is not held indefinitely.
 func (s *terminalStore) evict(pane string) {
+	stopOscPipe(pane)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.entries, pane)

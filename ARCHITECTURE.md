@@ -10,7 +10,7 @@ roost is a session lifecycle manager — not an agent orchestrator. It does not 
 
 - **Functional Core / Imperative Shell**: All state transitions are expressed as a pure function `state.Reduce(state, event) → (state', effects)`. I/O is emitted as `Effect` values and interpreted by a single event loop (runtime). No goroutines, mutexes, or actors exist in the state layer
 - **Driver as Value Type**: Drivers are stateless plugins. Per-frame state is embedded as a `DriverState` value on each `SessionFrame` and round-trips through `Driver.Step`. No goroutines, no I/O — side effects are returned as `[]Effect`
-- **Single event loop**: All daemon state is exclusively owned by one goroutine. No mutexes needed (except inside the worker pool). Slow I/O (transcript parse, capture-pane, etc.) runs in a fixed-size worker pool and feeds results back as events
+- **Single event loop**: State mutation is exclusively owned by one goroutine. Long-lived I/O readers may only emit events — they never read or write state. The worker pool (discrete jobs) and stream readers (continuous sources) are both concrete instances of this general principle. No mutexes are needed outside these sources
 - **Driver/Connector isolation**: Concepts specific to `driver/` and `connector/` must not leak into `state/`, `runtime/`, `tui/`, or `proto/`. TUI never branches on driver or connector name. Only `main.go` imports driver/connector packages as wiring
 - **No fallbacks**: Do not synthesize "if source A is unavailable, use B". Until `Driver.Step` updates the state, the status does not change
 
