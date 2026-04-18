@@ -94,7 +94,7 @@ type DriverState interface {
 }
 
 // DriverEvent — input to Driver.Step (closed sum type)
-// DEvTick, DEvHook, DEvJobResult, DEvFileChanged
+// DEvTick, DEvPaneActivity, DEvHook, DEvJobResult, DEvFileChanged
 ```
 
 Driver is a **value-type plugin**: no goroutines, no I/O, no mutexes. Per-frame state is embedded on each `SessionFrame.Driver` as a `DriverState` value, and round-trips as arguments and return values of `Driver.Step`. Side effects are returned as `[]Effect` and executed by the runtime's Effect interpreter.
@@ -192,12 +192,15 @@ type Envelope struct {
     Error  *ErrorBody      `json:"error,omitempty"`
 }
 
-// Command — closed sum type. Only 3 wire commands: subscribe, unsubscribe, event.
-// All domain operations (create-session, stop-session, etc.) are dispatched via
-// CmdEvent with Event field discriminator + RegisterEvent[T] typed handler lookup.
+// Command — closed sum type.
+// subscribe / unsubscribe / event: session control and domain operations.
+// surface.read_text / surface.send_text / surface.send_key: pane surface control.
+// driver.list: enumerate registered drivers.
+// All session domain operations are dispatched via CmdEvent with Event field
+// discriminator + RegisterEvent[T] typed handler lookup.
 type Command interface { isCommand(); CommandName() string }
 
-// CmdEvent is the unified envelope for all domain events.
+// CmdEvent is the unified envelope for session domain events and driver hooks.
 // TUI/tool operations (create-session, etc.) and driver hooks both use this.
 type CmdEvent struct {
     Event     string          `json:"event"`
@@ -249,6 +252,9 @@ src/
 │   ├── reduce_event.go  EvEvent → registered handler dispatch, EvDriverEvent → Driver.Step routing
 │   ├── reduce_session.go  session / frame lifecycle reducers (create-session, push-driver, stop-session, …)
 │   ├── reduce_tick.go   EvTick → step active frame of each session → Driver.Step(DEvTick)
+│   ├── reduce_activity.go  EvPaneActivity → Driver.Step(DEvPaneActivity) — activity-driven capture-pane
+│   ├── reduce_osc.go    EvPaneOsc → EffRecordNotification routing
+│   ├── reduce_surface.go  surface.read_text / send_text / send_key / driver.list reducers
 │   ├── reduce_job.go    EvJobResult → Driver.Step(DEvJobResult)
 │   ├── reduce_conn.go   IPC connection lifecycle
 │   ├── reduce_lifecycle.go  shutdown / detach
@@ -281,8 +287,14 @@ src/
 ├── runtime/             Imperative shell — event loop + Effect interpreter
 │   ├── runtime.go       Runtime.Run() — single event loop (select)
 │   ├── interpret.go     execute(Effect) — interpreter for all side effects
-│   ├── ipc.go           IPC server (accept, readLoop, writeLoop)
+│   ├── ipc.go           IPC server (accept + SO_PEERCRED uid check, readLoop, writeLoop)
 │   ├── backends.go      TmuxBackend, PersistBackend, EventLogBackend, FSWatcher interface
+│   ├── panetap.go       PaneTap interface — raw byte stream abstraction over tmux pipe-pane
+│   ├── tmux_pipe_tap.go TmuxPipePaneTap — pipe-pane + FIFO + reader goroutine
+│   ├── tap_manager.go   per-frame tap lifecycle; emits EvPaneActivity / EvPaneOsc into eventCh
+│   ├── osc_parser.go    lightweight OSC state machine (extracts OSC 9/99/777 from raw stream)
+│   ├── peercred_linux.go  SO_PEERCRED uid verification (Linux)
+│   ├── peercred_other.go  no-op stub (non-Linux)
 │   ├── tmux_real.go     TmuxBackend concrete implementation
 │   ├── persist.go       PersistBackend concrete implementation (sessions.json)
 │   ├── eventlog.go      EventLogBackend concrete implementation
@@ -298,8 +310,8 @@ src/
 │       └── runners.go   built-in runners (TranscriptParse, HaikuSummary, GitBranch, CapturePane)
 ├── proto/               Typed IPC — Command / Response / ServerEvent sum types
 │   ├── envelope.go      Envelope wire format ({type, req_id, cmd|name, data})
-│   ├── command.go       Command closed sum type (CmdSubscribe, CmdUnsubscribe, CmdEvent)
-│   ├── response.go      Response closed sum type
+│   ├── command.go       Command closed sum type (CmdSubscribe, CmdUnsubscribe, CmdEvent, CmdSurfaceReadText, CmdSurfaceSendText, CmdSurfaceSendKey, CmdDriverList)
+│   ├── response.go      Response closed sum type (RespOK, RespCreateSession, RespSessions, RespActiveSession, RespSurfaceText, RespDriverList)
 │   ├── event.go         ServerEvent closed sum type
 │   ├── codec.go         NDJSON encode/decode
 │   ├── client.go        proto.Client (for TUI / palette / hook bridge)

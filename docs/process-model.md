@@ -121,6 +121,9 @@ runDaemon()
 │       └── RecreateAll — for each session, walk frames root-to-tail and spawn a window per frame
 │                        via Driver.PrepareLaunch(LaunchModeColdStart, …) using the persisted LaunchOptions
 ├── rt.Run(ctx) — start event loop goroutine (select: eventCh / ticker / workers / fsnotify)
+│                 tapManager starts a reader goroutine per frame on EffRegisterPane;
+│                 each reader parses the raw pipe-pane stream and emits EvPaneActivity /
+│                 EvPaneOsc into eventCh. tapManager.stopAll() is called on ctx cancel.
 │                 defer stack tears down in reverse: deactivateBeforeExit → EventLog.CloseAll
 │                 → shutdownIPC → workers.Stop (bounded 500ms; pool ctx cancels runner
 │                 subprocesses via SIGKILL) → close(done)

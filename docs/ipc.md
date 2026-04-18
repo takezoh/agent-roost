@@ -11,32 +11,32 @@ flowchart TB
     subgraph daemon["Daemon process (runtime.Runtime)"]
         EL["Event loop<br/>select { eventCh | internalCh | ticker | workers.Results | watcher.Events }"]
         Reduce["state.Reduce(state, event)<br/>→ (state', []Effect)<br/>pure function: no goroutine, no I/O"]
-        Interp["Effect interpreter<br/>runtime.execute(eff)<br/>tmux / IPC / persist / worker"]
+        Interp["Effect interpreter<br/>runtime.execute(eff)<br/>tmux / IPC / persist / worker / tap"]
         Pool["Worker pool (4 goroutine)<br/>worker.Dispatch<br/>JobKind-based runner registry"]
+        Tap["tapManager<br/>1 reader goroutine / live frame<br/>pipe-pane → OSC parser → EvPaneOsc / EvPaneActivity"]
 
         EL --> Reduce
         Reduce --> Interp
         Interp -->|EffStartJob| Pool
         Pool -->|EvJobResult| EL
+        Interp -->|EffRegisterPane| Tap
+        Tap -->|"EvPaneOsc<br/>EvPaneActivity"| EL
     end
 
-    subgraph tui["Session list TUI"]
+    subgraph clients["Clients (TUI / CLI / palette)"]
         Client["proto.Client<br/>Envelope send/receive / responses ch / events ch"]
-        Model["Model<br/>UI state management / key input / Cmd dispatch"]
-        View["View<br/>Rendering"]
-
-        Client --> Model --> View
     end
 
-    Client <-->|"Unix socket<br/>NDJSON (proto.Envelope)"| EL
+    Client <-->|"Unix socket (SO_PEERCRED uid check)<br/>NDJSON (proto.Envelope)"| EL
 ```
 
 `runtime.Runtime` is the sole state owner. `state.State` is a pure value type that only round-trips as an argument and return value of `Reduce`. The effect interpreter performs tmux operations, IPC sends, persistence, and worker pool submits, feeding results back to the event loop as `Event`s.
 
 **Runtime composition**:
 - `state`: `state.State` — all domain state (Sessions map, Active, Subscribers, Jobs). Solely owned by the event loop goroutine
-- `eventCh`: channel where external goroutines (IPC reader, worker pool, fsnotify watcher) submit Events
+- `eventCh`: channel where external goroutines (IPC reader, worker pool, fsnotify watcher, tap readers) submit Events
 - `workers`: `worker.Pool` — fixed-size (4) goroutine pool. `worker.Dispatch` dispatches via registered runner lookup using `JobInput.JobKind()`
+- `taps`: `*tapManager` — per-frame PaneTap reader goroutines. Started on `EffRegisterPane`, stopped on `EffUnregisterPane`. Each goroutine parses the raw byte stream from `tmux pipe-pane`, emitting `EvPaneActivity` and `EvPaneOsc` into `eventCh`
 - `conns`: `map[ConnID]*ipcConn` — connection management. Solely owned by the event loop goroutine
 - `cfg.Tmux` / `cfg.Persist` / `cfg.EventLog` / `cfg.Watcher`: backend interfaces (replaceable with fakes during testing)
 
@@ -70,13 +70,15 @@ Command / Response / ServerEvent are closed sum types. See [interfaces.md](inter
 
 ### Commands (Client → Server)
 
-Only 3 wire command types exist. All domain operations are multiplexed through `CmdEvent`:
-
 | Wire Command | Parameters | Function |
 |---------|------------|----------|
 | `subscribe` | filters (optional) | Start receiving broadcasts |
 | `unsubscribe` | - | Stop receiving broadcasts |
-| `event` | event, timestamp, sender_id, payload | Unified event envelope (see below) |
+| `event` | event, timestamp, sender_id, payload | Unified event envelope — domain operations and driver hooks (see below) |
+| `surface.read_text` | session_id, lines | Read the trailing N lines of the active pane's VT snapshot |
+| `surface.send_text` | session_id, text | Send text followed by Enter to the session's active pane |
+| `surface.send_key` | session_id, key | Send a named key (e.g. `Escape`, `q`) without Enter |
+| `driver.list` | - | List available driver names and display names |
 
 #### Event Types (via `CmdEvent.Event`)
 
@@ -151,10 +153,14 @@ flowchart LR
     Interp -->|EffStartJob| Pool["Worker pool<br/>(4 goroutine)"]:::async
     Interp -->|EffWatchFile| Watcher["fsnotify watcher"]:::sync
     Interp -->|EffEventLogAppend| EventLog["event log writer"]:::sync
+    Interp -->|EffRegisterPane| TapMgr["tapManager<br/>(1 goroutine / frame)"]:::async
+    Interp -->|EffSendTmuxKeys| TmuxSync
+    Interp -->|EffRecordNotification| EventLog
 
     Tmux -->|EvTmuxPaneSpawned| EL["event loop (eventCh)"]
     Pool -->|EvJobResult| EL
     Watcher -->|EvFileChanged| EL
+    TapMgr -->|"EvPaneOsc<br/>EvPaneActivity"| EL
 ```
 
 Legend:
@@ -228,12 +234,13 @@ Hook events are processed in a straight line: IPC reader → event loop → Redu
 | Goroutine | Count | Role |
 |-----------|-------|------|
 | `Runtime.Run` (event loop) | 1 | State ownership + Reduce + Effect interpretation |
-| `acceptLoop` | 1 | Accepts new connections from the unix socket |
+| `acceptLoop` | 1 | Accepts new connections; performs SO_PEERCRED uid check before admitting |
 | `ipcConn.readLoop` | M (1 / client) | IPC reader. Converts Commands to Events and submits to eventCh |
 | `ipcConn.writeLoop` | M (1 / client) | IPC writer. Drains outbox and writes to socket |
 | `worker.Pool.run` | 4 (fixed) | Worker pool goroutines |
+| `tapManager.readTap` | N (1 / live frame) | PaneTap reader. Parses raw byte stream from `tmux pipe-pane`, emits `EvPaneActivity` and `EvPaneOsc` into eventCh |
 
-Only IPC reader/writer scales with client count (one per TUI client). No per-session goroutines exist.
+IPC reader/writer scales with client count; tap readers scale with live frame count. Both are continuous sources that only emit events — they never read or write `state.State`.
 
 #### Hook Event Routing Sequence
 
@@ -265,7 +272,7 @@ sequenceDiagram
 - **Every concrete type carries its marker methods** (`isCommand()` / `CommandName()`, `isEvent()` / `EventName()`, `isResponse()`).
 - **`state.View` is written by the driver only.** TUI and future GUI clients read state; neither branches on driver or connector name (see Driver/Connector isolation in `ARCHITECTURE.md`).
 
-The flat `Cmd*`/`Evt*` naming is transitional; a future JSON-RPC migration will introduce `system.*` / `workspace.*` / `surface.*` / `notification.*` / `driver.*` namespaces.
+Commands in the `surface.*` and `driver.*` namespaces use dotted names within the same `proto.Envelope` format — no protocol change is required to add new namespaces.
 
 ## Tool System
 

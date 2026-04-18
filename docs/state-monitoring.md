@@ -4,9 +4,12 @@ For the interactive operation processing flow (TUI → IPC → Reduce → Effect
 
 ## Background pipeline
 
-Every tick (1s), `reduceTick` steps the active frame of each running session by calling `Driver.Step(frame.Driver, DEvTick{...})` and aggregates the returned Effects (EffStartJob, etc.). Pane reconciliation and pane 0.0 health check are performed on the same tick. For the detailed tick processing sequence, see [ipc.md](ipc.md#tick-processing-sequence).
+Two parallel event sources feed Driver.Step:
 
-Driver.Step returns `EffStartJob`, which is submitted to the worker pool. The result is fed back to the event loop via `EvJobResult` → `Driver.Step(DEvJobResult)` reflects it in DriverState.
+- **Periodic tick (1s)**: `reduceTick` steps the active frame of each running session via `Driver.Step(frame.Driver, DEvTick{...})`. Pane reconciliation and the pane 0.0 health check are performed on the same tick. For the detailed sequence, see [ipc.md](ipc.md#tick-processing-sequence).
+- **PaneTap activity (`EvPaneActivity`)**: When the `tapManager` reader goroutine receives bytes from `tmux pipe-pane`, it emits `EvPaneActivity` (debounced to 100 ms). `reduceActivity` calls `Driver.Step(frame.Driver, DEvPaneActivity{...})`, which triggers an immediate capture-pane job for the owning frame rather than waiting for the next tick.
+
+Driver.Step returns `EffStartJob`, which is submitted to the worker pool. The result is fed back via `EvJobResult` → `Driver.Step(DEvJobResult)` and reflected in DriverState.
 
 ## State monitoring
 
@@ -21,7 +24,8 @@ The Driver plugin's `Step` method is responsible for status updates. For the Dri
 | `PrepareLaunch(s, mode, project, cmd, options)` | `reduceCreateSession`, `reducePushDriver`, cold-start bootstrap | Pure function that resolves the frame's launch plan (command / start_dir / normalized `LaunchOptions`). Called synchronously inside `state.Reduce` and on cold-start restoration; the resolved plan is baked into `EffSpawnTmuxWindow` so the runtime never calls drivers |
 | `PrepareCreate(s, sessID, project, cmd, options)` | `reduceCreateSession` (planner-gated drivers only) | Optional extension returning a `CreatePlan` with a `SetupJob` for async pre-launch work (e.g., creating a managed worktree) |
 | `CompleteCreate(s, cmd, options, result, err)` | `handlePendingCreate` (planner-gated drivers only) | Runs after the SetupJob completes; returns the final `CreateLaunch` and the normalized `LaunchOptions` to persist on the frame |
-| `Step(prev, DEvTick)` | `reduceTick` | Periodic polling on the active frame of each running session. Claude gates on `DEvTick.Active`, emitting transcript parse jobs only when active. Generic emits capture-pane jobs |
+| `Step(prev, DEvTick)` | `reduceTick` | Periodic tick on the active frame of each running session. Claude gates on `DEvTick.Active`, emitting transcript parse jobs only when active. Generic uses tick only for idle-threshold detection when no capture-pane is already in flight |
+| `Step(prev, DEvPaneActivity)` | `reduceActivity` | Fired by the PaneTap reader goroutine when bytes arrive from the pane (debounced 100 ms). Generic and Shell drivers emit an immediate capture-pane job, bypassing the tick interval |
 | `Step(prev, DEvHook)` | `reduceDriverHook` | Receives hook events targeted at a specific frame and updates that frame's DriverState. Claude performs status transitions + event log append effects |
 | `Step(prev, DEvJobResult)` | `reduceJobResult` | Reflects results from the worker pool into the owning frame's DriverState. Transcript parse results such as title / lastPrompt |
 | `Step(prev, DEvFileChanged)` | `reduceFileChanged` | File change notification from fsnotify. Emits transcript parse job |
@@ -66,12 +70,20 @@ A mechanism for the hook subprocess to identify its owning roost frame in a race
 
 **Solution**: Inject a frame-scoped env var into the pane environment at `tmux new-window -e` time. The env var is set at the kernel exec level simultaneously with the window creation, so no race occurs. The hook bridge reads the frame id directly from its own process environment, requiring no round-trip to tmux. The reducer then scans the frame stacks to locate the owning frame and routes the hook to that frame's driver. Hooks whose target frame has already been truncated off the stack are silently dropped — this is the intended behavior when a frame's pane has just died and the reducer is still processing the eviction.
 
-### Generic driver (polling-driven)
+### Generic driver (activity-driven + tick idle detection)
 
-`genericDriver` determines state by comparing capture-pane hashes. Behavior of `Step(prev, DEvTick)` (capture-pane results are received from the worker pool via `DEvJobResult{CapturePaneResult}`):
+`genericDriver` determines state by comparing capture-pane hashes. Capture-pane jobs are now triggered primarily by `DEvPaneActivity` (bytes arriving via PaneTap), with `DEvTick` used only for idle-threshold detection. Results arrive from the worker pool via `DEvJobResult{CapturePaneResult}`:
 
 ```mermaid
 flowchart TD
+    act["DEvPaneActivity<br/>(PaneTap bytes received)"] -->|captureInFlight?| guard{in flight?}
+    guard -->|Yes| skip[Skip — already pending]
+    guard -->|No| submit["Submit CapturePane job<br/>(EffStartJob)"]
+    tick["DEvTick<br/>(1 s periodic)"] --> idle{Idle threshold<br/>exceeded?}
+    idle -->|No| noop[No action]
+    idle -->|Yes| idleStatus["StatusIdle (○ gray)"]
+
+    submit --> cap
     cap["CapturePaneResult<br/>(received from worker pool)"] --> primed{primed?}
     primed -->|No| baseline["Set baseline only<br/>(status unchanged)"]
     primed -->|Yes| hash[SHA256 hash comparison]
@@ -79,13 +91,11 @@ flowchart TD
     changed -->|Changed| prompt{Prompt detected?}
     prompt -->|Yes| waiting["StatusWaiting (◆ yellow)"]
     prompt -->|No| running["StatusRunning (● green)"]
-    changed -->|Unchanged| threshold{Idle threshold exceeded?}
-    threshold -->|No| keep[No action]
-    threshold -->|Yes| idle["StatusIdle (○ gray)"]
+    changed -->|Unchanged| keep[No action]
     cap -.->|Error| log[Debug log only<br/>no status change]
 ```
 
-**The first tick does not change status**. It only sets the internal hash baseline, and the previous status restored by `Driver.Restore` is preserved until the next tick. Only from the second tick onward is the status updated when an actual transition is observed.
+**The first capture-pane result does not change status** — it only sets the internal hash baseline. Status changes begin from the second result onward.
 
 When `Driver.Restore` is called, `lastActivity` is also seeded from `status_changed_at`, allowing the idle countdown to continue across restarts.
 
