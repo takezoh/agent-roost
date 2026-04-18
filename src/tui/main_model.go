@@ -58,7 +58,6 @@ func (m MainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		animFrame++
-		m.viewport.SetContent(m.renderContent())
 		return m, cmd
 
 	case tea.KeyPressMsg:

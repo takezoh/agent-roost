@@ -32,6 +32,9 @@ func (m *LogModel) rebuildTabs(current *proto.SessionInfo) bool {
 	}
 	if sessionChanged {
 		m.activeTab = 0
+		if t := m.activeTabState(); t != nil {
+			t.buf = ""
+		}
 		m.viewport.SetContent("")
 		m.following = true
 		m.rebuildRenderer(m.activeTabState())
@@ -166,6 +169,7 @@ func (m *LogModel) switchToTab(tab logTab) bool {
 		return true
 	}
 
+	t.buf = ""
 	m.viewport.SetContent("")
 	m.following = true
 	m.rebuildRenderer(t)
@@ -185,6 +189,10 @@ func (m *LogModel) tabIndexAtX(x int) logTab {
 }
 
 func (m *LogModel) appendContent(newContent string) {
+	tab := m.activeTabState()
+	if tab == nil {
+		return
+	}
 	var styled string
 	if m.isRenderedTab() {
 		styled = m.renderer.Append([]byte(newContent))
@@ -193,12 +201,13 @@ func (m *LogModel) appendContent(newContent string) {
 	} else {
 		styled = newContent
 	}
-	existing := m.viewport.GetContent()
-	content := styled
-	if existing != "" {
-		content = existing + "\n" + styled
+	if tab.buf != "" {
+		tab.buf += "\n" + styled
+	} else {
+		tab.buf = styled
 	}
-	m.viewport.SetContent(trimLines(content, maxLogLines))
+	tab.buf = trimLines(tab.buf, maxLogLines)
+	m.viewport.SetContent(tab.buf)
 }
 
 func (m LogModel) backfillActiveTab() tea.Cmd {
