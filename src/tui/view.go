@@ -278,11 +278,7 @@ func sessionCardLines(s *proto.SessionInfo, textWidth int, notifLine string) []s
 		bell := glyphs.Get("notif.bell")
 		lines = append(lines, mutedStyle.Render(bell+" "+truncate(notifLine, textWidth-3)))
 	}
-	if s.State == state.StatusRunning && textWidth >= 8 {
-		if bar := renderRunningProgress(s, textWidth); bar != "" {
-			lines = append(lines, bar)
-		}
-	}
+
 	return lines
 }
 
