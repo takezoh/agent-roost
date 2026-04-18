@@ -361,3 +361,31 @@ func TestSessionCardLinesSubtitleClamp(t *testing.T) {
 		})
 	}
 }
+
+func TestSessionCardLinesNoFallbackWhenTitleEmpty(t *testing.T) {
+	s := &proto.SessionInfo{
+		ID:    "abcdef123456",
+		State: state.StatusWaiting,
+		View: state.View{
+			Card: state.Card{Subtitle: "some subtitle"},
+		},
+	}
+	lines := sessionCardLines(s, 80, "")
+	for _, line := range lines {
+		if strings.Contains(line, "abcdef") {
+			t.Errorf("session ID leaked into card when title is empty: %q", line)
+		}
+	}
+	if len(lines) != 1 {
+		t.Errorf("expected 1 line (subtitle only), got %d: %v", len(lines), lines)
+	}
+
+	// When both title and subtitle are empty, no lines at all.
+	empty := &proto.SessionInfo{
+		ID:    "abcdef123456",
+		State: state.StatusWaiting,
+	}
+	if got := sessionCardLines(empty, 80, ""); len(got) != 0 {
+		t.Errorf("expected 0 lines when title and subtitle both empty, got %d: %v", len(got), got)
+	}
+}

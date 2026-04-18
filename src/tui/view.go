@@ -241,17 +241,15 @@ func sessionStateIcon(s *proto.SessionInfo) string {
 }
 
 func sessionCardLines(s *proto.SessionInfo, textWidth int, notifLine string) []string {
-	title := s.View.Card.Title
-	if title == "" {
-		title = s.ID[:6]
-	}
 	titleWidth := textWidth
 	if titleWidth < 1 {
 		titleWidth = 1
 	}
-	titleStr := cardTitleStyle.Render(truncate(title, titleWidth))
 
-	lines := []string{titleStr}
+	var lines []string
+	if title := s.View.Card.Title; title != "" {
+		lines = append(lines, cardTitleStyle.Render(truncate(title, titleWidth)))
+	}
 
 	// Subtitle may carry an embedded newline-separated multi-line summary.
 	// Split and render each line independently so haiku-generated 2-3 line
