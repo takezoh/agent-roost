@@ -61,12 +61,8 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.focusCmd(mainPane)
 	}
-	if name, isAll, hit := m.hitTestWorkspaceChip(mouse.X, mouse.Y); hit {
-		if isAll {
-			m.selectedWorkspace = ""
-		} else {
-			m.selectedWorkspace = name
-		}
+	if name, hit := m.hitTestWorkspaceChip(mouse.X, mouse.Y); hit {
+		m.selectedWorkspace = name
 		m.rebuildItems()
 		return m, nil
 	}

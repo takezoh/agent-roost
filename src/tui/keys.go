@@ -3,6 +3,7 @@ package tui
 import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
+	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/state"
 )
 
@@ -58,7 +59,7 @@ func DefaultKeyMap() KeyMap {
 		FilterReset:    key.NewBinding(key.WithKeys("0")),
 		WorkspacePrev:  key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev workspace")),
 		WorkspaceNext:  key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "next workspace")),
-		WorkspaceReset: key.NewBinding(key.WithKeys("`"), key.WithHelp("`", "all workspaces")),
+		WorkspaceReset: key.NewBinding(key.WithKeys("`"), key.WithHelp("`", "reset to default")),
 	}
 }
 
@@ -71,7 +72,7 @@ func (m Model) handleWorkspaceKey(msg tea.KeyPressMsg) (Model, bool) {
 	case key.Matches(msg, m.keys.WorkspaceNext):
 		m.selectedWorkspace = nextWorkspace(m.workspaces, m.selectedWorkspace)
 	case key.Matches(msg, m.keys.WorkspaceReset):
-		m.selectedWorkspace = ""
+		m.selectedWorkspace = config.DefaultWorkspaceName
 	default:
 		return m, false
 	}

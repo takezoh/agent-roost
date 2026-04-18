@@ -126,8 +126,6 @@ var (
 	// Workspace switcher chips
 	workspaceChipOnStyle  lipgloss.Style
 	workspaceChipOffStyle lipgloss.Style
-	workspaceAllOnStyle   lipgloss.Style
-	workspaceAllOffStyle  lipgloss.Style
 
 	// Minimal mode
 	minimalProjectSelStyle      lipgloss.Style // Primary + Bold
@@ -236,13 +234,6 @@ func rebuildWorkspaceStyles(t Theme) {
 		Padding(0, 1)
 	workspaceChipOffStyle = lipgloss.NewStyle().
 		Foreground(t.Muted).
-		Padding(0, 1)
-	workspaceAllOnStyle = lipgloss.NewStyle().
-		Bold(true).
-		Foreground(t.Primary).
-		Padding(0, 1)
-	workspaceAllOffStyle = lipgloss.NewStyle().
-		Foreground(t.Dim).
 		Padding(0, 1)
 }
 

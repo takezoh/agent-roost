@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/proto"
 )
 
@@ -30,18 +31,16 @@ func (m *Model) rebuildItems() {
 	m.workspaces = collectWorkspaces(m.sessions)
 
 	// If the currently selected workspace no longer exists in the session
-	// list, reset to All so the user is never left with an empty view.
-	if m.selectedWorkspace != "" {
-		found := false
-		for _, ws := range m.workspaces {
-			if ws == m.selectedWorkspace {
-				found = true
-				break
-			}
+	// list, reset to default so the user is never left with an empty view.
+	found := false
+	for _, ws := range m.workspaces {
+		if ws == m.selectedWorkspace {
+			found = true
+			break
 		}
-		if !found {
-			m.selectedWorkspace = ""
-		}
+	}
+	if !found {
+		m.selectedWorkspace = config.DefaultWorkspaceName
 	}
 
 	byProject := make(map[string][]proto.SessionInfo)
@@ -51,7 +50,7 @@ func (m *Model) rebuildItems() {
 		if !m.filter.matches(s.State) {
 			continue
 		}
-		if m.selectedWorkspace != "" && workspaceOf(s) != m.selectedWorkspace {
+		if workspaceOf(s) != m.selectedWorkspace {
 			continue
 		}
 		name := s.Name()

@@ -27,7 +27,7 @@ type Model struct {
 	offset            int // first visible item index for scrolling
 	folded            map[string]bool
 	filter            statusFilter
-	selectedWorkspace string   // "" = All workspaces
+	selectedWorkspace string   // active workspace name; default = config.DefaultWorkspaceName
 	workspaces        []string // sorted distinct workspace names (always includes "default")
 	active            string
 	anchored          string
@@ -42,15 +42,16 @@ type Model struct {
 
 func NewModel(client *proto.Client, cfg *config.Config) Model {
 	return Model{
-		client:   client,
-		cfg:      cfg,
-		registry: tools.DefaultRegistry(),
-		keys:     DefaultKeyMap(),
-		folded:   make(map[string]bool),
-		filter:   allOnFilter(),
-		cursor:   -1,
-		spinner:  spinner.New(spinner.WithSpinner(spinner.MiniDot)),
-		help:     help.New(),
+		client:            client,
+		cfg:               cfg,
+		registry:          tools.DefaultRegistry(),
+		keys:              DefaultKeyMap(),
+		folded:            make(map[string]bool),
+		filter:            allOnFilter(),
+		selectedWorkspace: config.DefaultWorkspaceName,
+		cursor:            -1,
+		spinner:           spinner.New(spinner.WithSpinner(spinner.MiniDot)),
+		help:              help.New(),
 	}
 }
 
