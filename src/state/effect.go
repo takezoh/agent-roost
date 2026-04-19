@@ -294,3 +294,13 @@ func (EffReconcileWindows) isEffect()         {}
 func (EffStartJob) isEffect()                 {}
 func (EffRecordNotification) isEffect()       {}
 func (EffSendTmuxKeys) isEffect()             {}
+
+// EffInjectPrompt asks the runtime to paste text into the tmux pane belonging
+// to FrameID using bracketed paste (load-buffer + paste-buffer -d) followed by
+// Enter. The pane must be idle; callers are responsible for checking status.
+type EffInjectPrompt struct {
+	FrameID FrameID
+	Text    string
+}
+
+func (EffInjectPrompt) isEffect() {}

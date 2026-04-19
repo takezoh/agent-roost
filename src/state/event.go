@@ -209,5 +209,5 @@ func (EvPaneDied) isEvent()           {}
 func (EvTmuxWindowVanished) isEvent() {}
 func (EvTmuxPaneSpawned) isEvent()    {}
 func (EvTmuxSpawnFailed) isEvent()    {}
-func (EvPaneActivity) isEvent()        {}
+func (EvPaneActivity) isEvent()       {}
 func (EvPaneOsc) isEvent()            {}

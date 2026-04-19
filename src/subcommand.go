@@ -9,6 +9,7 @@ import (
 
 	_ "github.com/takezoh/agent-roost/lib/codex"
 	_ "github.com/takezoh/agent-roost/lib/gemini"
+	_ "github.com/takezoh/agent-roost/lib/peers"
 )
 
 type commandKind int

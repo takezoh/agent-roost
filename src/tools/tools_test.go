@@ -2,6 +2,8 @@ package tools
 
 import (
 	"testing"
+
+	"github.com/takezoh/agent-roost/features"
 )
 
 func TestHiddenToolExcludedFromAll(t *testing.T) {
@@ -51,7 +53,7 @@ func TestGetReturnsHiddenTool(t *testing.T) {
 }
 
 func TestPushDriverToolIsHidden(t *testing.T) {
-	r := DefaultRegistry()
+	r := DefaultRegistry(features.Set{features.Peers: true})
 	got := r.Get("push-driver")
 	if got == nil {
 		t.Fatal("push-driver not registered")
@@ -153,7 +155,7 @@ func TestMatchMultiToken(t *testing.T) {
 }
 
 func TestPushDriverToolRequiresSessionID(t *testing.T) {
-	r := DefaultRegistry()
+	r := DefaultRegistry(features.Set{features.Peers: true})
 	tool := r.Get("push-driver")
 	if tool == nil {
 		t.Fatal("push-driver not registered")

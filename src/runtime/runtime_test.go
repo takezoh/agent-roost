@@ -234,9 +234,12 @@ func (f *fakeTmuxBackend) DisplayPopup(w, h, cmd string) error {
 	f.popups = append(f.popups, cmd)
 	return nil
 }
-func (f *fakeTmuxBackend) PipePane(string, string) error  { return nil }
-func (f *fakeTmuxBackend) SendKeys(string, string) error  { return nil }
-func (f *fakeTmuxBackend) SendKey(string, string) error   { return nil }
+func (f *fakeTmuxBackend) PipePane(string, string) error    { return nil }
+func (f *fakeTmuxBackend) SendKeys(string, string) error    { return nil }
+func (f *fakeTmuxBackend) SendKey(string, string) error     { return nil }
+func (f *fakeTmuxBackend) LoadBuffer(string, string) error  { return nil }
+func (f *fakeTmuxBackend) PasteBuffer(string, string) error { return nil }
+func (f *fakeTmuxBackend) SendEnter(string) error           { return nil }
 
 type recordingPersist struct {
 	mu    sync.Mutex

@@ -46,6 +46,7 @@ func runSetup() error {
 	}
 	cfgPath := filepath.Join(home, ".codex", "config.toml")
 	hooksPath := filepath.Join(home, ".codex", "hooks.json")
+	mcpPath := filepath.Join(home, ".codex", "mcp.json")
 
 	roostPath, _ := os.Executable()
 	if resolved, err := filepath.EvalSymlinks(roostPath); err == nil {
@@ -57,10 +58,20 @@ func runSetup() error {
 	}
 	if !updated {
 		fmt.Println("Codex hooks already configured")
-		return nil
+	} else {
+		fmt.Printf("Configured Codex hooks: %v\n", events)
+		fmt.Printf("  Config: %s\n", cfgPath)
+		fmt.Printf("  Hooks:  %s\n", hooksPath)
 	}
-	fmt.Printf("Configured Codex hooks: %v\n", events)
-	fmt.Printf("  Config: %s\n", cfgPath)
-	fmt.Printf("  Hooks:  %s\n", hooksPath)
+	added, err := RegisterMCPServer(mcpPath, roostPath)
+	if err != nil {
+		return err
+	}
+	if added {
+		fmt.Printf("Registered MCP server: roost-peers\n")
+		fmt.Printf("  MCP:    %s\n", mcpPath)
+	} else {
+		fmt.Println("MCP server roost-peers already registered")
+	}
 	return nil
 }

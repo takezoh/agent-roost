@@ -84,6 +84,28 @@ func hasCommand(entry any, command string) bool {
 	return false
 }
 
+// RegisterMCPServer writes mcpServers.roost-peers to settings.json.
+// Returns true if the entry was newly written, false if already present.
+func RegisterMCPServer(settingsPath, roostBinary string) (bool, error) {
+	settings, err := readSettings(settingsPath)
+	if err != nil {
+		return false, err
+	}
+	mcpServers, _ := settings["mcpServers"].(map[string]any)
+	if mcpServers == nil {
+		mcpServers = make(map[string]any)
+	}
+	if _, exists := mcpServers["roost-peers"]; exists {
+		return false, nil
+	}
+	mcpServers["roost-peers"] = map[string]any{
+		"command": roostBinary,
+		"args":    []any{"peers-mcp"},
+	}
+	settings["mcpServers"] = mcpServers
+	return true, writeSettings(settingsPath, settings)
+}
+
 func readSettings(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if os.IsNotExist(err) {

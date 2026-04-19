@@ -69,6 +69,8 @@ type SessionFrame struct {
 	LaunchOptions LaunchOptions
 	CreatedAt     time.Time
 	Driver        DriverState
+	PeerInbox     []PeerMessage // queued inbound peer messages
+	PeerSummary   string        // short description of what this agent is doing
 }
 
 // PendingCreate tracks a session creation that is blocked on an async

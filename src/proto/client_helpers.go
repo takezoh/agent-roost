@@ -143,6 +143,55 @@ func (c *Client) PushDriver(sessionID, command string, input []byte) error {
 	return err
 }
 
+// PeerSend sends a peer message to the target frame.
+func (c *Client) PeerSend(fromFrameID, toFrameID, text, replyTo string) error {
+	_, err := c.sendDefault(CmdPeerSend{
+		FromFrameID: fromFrameID,
+		ToFrameID:   toFrameID,
+		Text:        text,
+		ReplyTo:     replyTo,
+	})
+	return err
+}
+
+// PeerList lists peers visible to the caller frame.
+func (c *Client) PeerList(fromFrameID, scope string) ([]PeerPeerInfo, error) {
+	resp, err := c.sendDefault(CmdPeerList{
+		FromFrameID: fromFrameID,
+		Scope:       scope,
+	})
+	if err != nil {
+		return nil, err
+	}
+	r, ok := resp.(RespPeerList)
+	if !ok {
+		return nil, fmt.Errorf("proto: unexpected response for peer.list")
+	}
+	return r.Peers, nil
+}
+
+// PeerSetSummary updates the caller's peer summary.
+func (c *Client) PeerSetSummary(fromFrameID, summary string) error {
+	_, err := c.sendDefault(CmdPeerSetSummary{
+		FromFrameID: fromFrameID,
+		Summary:     summary,
+	})
+	return err
+}
+
+// PeerDrainInbox reads and clears the peer inbox for the given frame.
+func (c *Client) PeerDrainInbox(frameID string) ([]PeerMessage, error) {
+	resp, err := c.sendDefault(CmdPeerDrainInbox{FromFrameID: frameID})
+	if err != nil {
+		return nil, err
+	}
+	r, ok := resp.(RespPeerDrainInbox)
+	if !ok {
+		return nil, fmt.Errorf("proto: unexpected response for peer.drain_inbox")
+	}
+	return r.Messages, nil
+}
+
 // SendEvent ships a generic event to the daemon.
 func (c *Client) SendEvent(eventName string, timestamp time.Time, senderID string, payload json.RawMessage) error {
 	return c.SendWithTimeout(CmdEvent{

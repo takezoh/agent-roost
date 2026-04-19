@@ -3,6 +3,8 @@ package proto
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/takezoh/agent-roost/state"
 )
 
 // Command is the closed sum type of every IPC request the daemon
@@ -27,8 +29,14 @@ const (
 
 	// driver.* — driver registry queries
 	CmdNameDriverList = "driver.list"
-)
 
+	// peer.* — peer-to-peer frame messaging.
+	// Wire command names mirror state event-dispatch keys; keep them unified.
+	CmdNamePeerSend       = state.EventPeerSend
+	CmdNamePeerList       = state.EventPeerList
+	CmdNamePeerSetSummary = state.EventPeerSetSummary
+	CmdNamePeerDrainInbox = state.EventPeerDrainInbox
+)
 
 type CmdSubscribe struct {
 	Filters []string `json:"filters,omitempty"`
@@ -87,3 +95,40 @@ type CmdDriverList struct{}
 
 func (CmdDriverList) isCommand()          {}
 func (CmdDriverList) CommandName() string { return CmdNameDriverList }
+
+// CmdPeerSend sends a message to a peer frame.
+type CmdPeerSend struct {
+	FromFrameID string `json:"from"`
+	ToFrameID   string `json:"to"`
+	Text        string `json:"text"`
+	ReplyTo     string `json:"reply_to,omitempty"`
+}
+
+func (CmdPeerSend) isCommand()          {}
+func (CmdPeerSend) CommandName() string { return CmdNamePeerSend }
+
+// CmdPeerList lists peer frames visible to the caller.
+type CmdPeerList struct {
+	Scope       string `json:"scope,omitempty"`
+	FromFrameID string `json:"from_frame_id,omitempty"`
+}
+
+func (CmdPeerList) isCommand()          {}
+func (CmdPeerList) CommandName() string { return CmdNamePeerList }
+
+// CmdPeerSetSummary updates the caller's peer summary.
+type CmdPeerSetSummary struct {
+	FromFrameID string `json:"from_frame_id"`
+	Summary     string `json:"summary"`
+}
+
+func (CmdPeerSetSummary) isCommand()          {}
+func (CmdPeerSetSummary) CommandName() string { return CmdNamePeerSetSummary }
+
+// CmdPeerDrainInbox reads and clears the caller's peer inbox.
+type CmdPeerDrainInbox struct {
+	FromFrameID string `json:"from_frame_id"`
+}
+
+func (CmdPeerDrainInbox) isCommand()          {}
+func (CmdPeerDrainInbox) CommandName() string { return CmdNamePeerDrainInbox }

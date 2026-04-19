@@ -56,9 +56,19 @@ func runSetup() error {
 	}
 	if len(events) == 0 {
 		fmt.Println("Hooks already registered")
-		return nil
+	} else {
+		fmt.Printf("Registered events: %v\n", events)
+		fmt.Printf("  Settings: %s\n", settingsPath)
 	}
-	fmt.Printf("Registered events: %v\n", events)
-	fmt.Printf("  Settings: %s\n", settingsPath)
+	added, err := RegisterMCPServer(settingsPath, roostPath)
+	if err != nil {
+		return err
+	}
+	if added {
+		fmt.Printf("Registered MCP server: roost-peers\n")
+		fmt.Printf("  Settings: %s\n", settingsPath)
+	} else {
+		fmt.Println("MCP server roost-peers already registered")
+	}
 	return nil
 }
