@@ -54,9 +54,6 @@ func runCoordinator() error {
 	defer cancel()
 
 	terminalEvict := statedriver.RegisterRunners(tmuxBackend.CapturePaneEscaped, cfg.Driver.SummarizeCommand)
-	if os.Getenv("ROOST_OSC_TRACE_PIPE") == "1" {
-		statedriver.SetOscPipeTracer(client.PipePane, dataDir)
-	}
 	connector.RegisterDefaults()
 	connector.RegisterRunners()
 	pool := worker.NewPool(ctx, 4)
@@ -131,6 +128,8 @@ func runCoordinator() error {
 			runErrCh <- err
 		}
 	}()
+
+	rt.StartTapsForRestoredFrames()
 
 	if err := rt.StartIPC(sockPath); err != nil {
 		return fmt.Errorf("ipc: %w", err)

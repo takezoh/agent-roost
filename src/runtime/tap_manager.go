@@ -50,6 +50,7 @@ func (m *tapManager) start(frameID state.FrameID, pane string, enqueue func(stat
 		cancel()
 		return
 	}
+	slog.Info("panetap: started", "frame", frameID, "pane", pane)
 	m.cancels[frameID] = tapEntry{cancel: cancel, pane: pane}
 	go readTap(tapCtx, frameID, pane, ch, enqueue)
 }

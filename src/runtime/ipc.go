@@ -125,6 +125,15 @@ type internalSetRelay struct {
 
 func (internalSetRelay) isInternalEvent() {}
 
+// internalStartRestoredTaps is enqueued by StartTapsForRestoredFrames to
+// attach pane taps to panes that were restored from the snapshot (warm
+// or cold start) — bypasses the reducer because Reduce is only invoked
+// by user-driven events, and restored panes never go through
+// EvTmuxPaneSpawned.
+type internalStartRestoredTaps struct{}
+
+func (internalStartRestoredTaps) isInternalEvent() {}
+
 // dispatchInternal handles runtime-internal events.
 func (r *Runtime) dispatchInternal(ev internalEvent) {
 	switch e := ev.(type) {
@@ -135,6 +144,24 @@ func (r *Runtime) dispatchInternal(ev internalEvent) {
 	case internalSetRelay:
 		r.relay = e.relay
 		r.syncRelayWatches()
+	case internalStartRestoredTaps:
+		_ = e
+		r.startRestoredTaps()
+	}
+}
+
+// startRestoredTaps attaches a pane tap to each restored frame.  Called
+// from the event loop so r.taps is guaranteed to be initialised and
+// r.sessionPanes is accessed under the loop's single-writer discipline.
+func (r *Runtime) startRestoredTaps() {
+	if r.taps == nil {
+		return
+	}
+	for frameID, pane := range r.sessionPanes {
+		if frameID == "_main" || pane == "" {
+			continue
+		}
+		r.taps.start(frameID, pane, r.Enqueue)
 	}
 }
 
