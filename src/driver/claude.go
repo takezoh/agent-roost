@@ -45,6 +45,8 @@ type pendingTool struct {
 type ClaudeState struct {
 	CommonState
 
+	ManagedWorkingDir string // set when roost pre-created the git worktree
+
 	// Identity (set via Restore or DEvHook session-start payload).
 	ClaudeSessionID string // distinct from roost session id; the *Claude* conversation id
 
@@ -146,7 +148,10 @@ func (d ClaudeDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, 
 		startDir = cs.StartDir
 	}
 	req, stripped := resolveWorktreeRequest(baseCommand, options, "--worktree")
-	command := appendFlag(stripped, "--worktree", req.Enabled)
+	command := stripped
+	if cs.ManagedWorkingDir == "" {
+		command = appendFlag(stripped, "--worktree", req.Enabled)
+	}
 	if mode != state.LaunchModeColdStart || cs.ClaudeSessionID == "" {
 		return state.LaunchPlan{Command: command, StartDir: startDir, Stdin: options.InitialInput}, nil
 	}

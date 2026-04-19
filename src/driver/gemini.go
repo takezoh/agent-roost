@@ -18,7 +18,8 @@ const (
 type GeminiState struct {
 	CommonState
 
-	GeminiSessionID string
+	GeminiSessionID   string
+	ManagedWorkingDir string // set when roost pre-created the git worktree
 }
 
 type GeminiDriver struct {
@@ -77,7 +78,10 @@ func (d GeminiDriver) PrepareLaunch(s state.DriverState, mode state.LaunchMode, 
 		startDir = gs.StartDir
 	}
 	req, stripped := resolveWorktreeRequest(baseCommand, options, "--worktree", "--workspace")
-	command := appendFlag(stripped, "--worktree", req.Enabled)
+	command := stripped
+	if gs.ManagedWorkingDir == "" {
+		command = appendFlag(stripped, "--worktree", req.Enabled)
+	}
 	if mode != state.LaunchModeColdStart || gs.GeminiSessionID == "" || !isAlphanumHyphen(gs.GeminiSessionID) {
 		return state.LaunchPlan{Command: command, StartDir: startDir, Stdin: options.InitialInput}, nil
 	}
