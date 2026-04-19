@@ -1,4 +1,4 @@
-package driver
+package runtime
 
 import (
 	"errors"
@@ -9,7 +9,6 @@ import (
 )
 
 // TmuxInjector abstracts the minimal tmux operations InjectPrompt needs.
-// A concrete implementation backed by lib/tmux is a follow-up task.
 type TmuxInjector interface {
 	// ResolveFramePane returns the tmux pane target (e.g. "%3") registered
 	// for the given frame id, or ("", false) if the frame is unknown.
@@ -55,17 +54,17 @@ type TmuxInjector interface {
 func InjectPrompt(inj TmuxInjector, frameID state.FrameID, prompt string) error {
 	trimmed := strings.TrimRight(prompt, "\n\r\t ")
 	if trimmed == "" {
-		return errors.New("driver: empty prompt")
+		return errors.New("runtime: empty prompt")
 	}
 	target, ok := inj.ResolveFramePane(frameID)
 	if !ok || target == "" {
-		return fmt.Errorf("driver: no pane for frame %q", frameID)
+		return fmt.Errorf("runtime: no pane for frame %q", frameID)
 	}
 	if err := inj.PastePrompt(target, trimmed); err != nil {
-		return fmt.Errorf("driver: paste prompt: %w", err)
+		return fmt.Errorf("runtime: paste prompt: %w", err)
 	}
 	if err := inj.SubmitEnter(target); err != nil {
-		return fmt.Errorf("driver: submit enter: %w", err)
+		return fmt.Errorf("runtime: submit enter: %w", err)
 	}
 	return nil
 }

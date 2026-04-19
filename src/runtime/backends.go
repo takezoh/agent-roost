@@ -8,105 +8,114 @@ import (
 // on concrete tmux/persistence/fs/log libraries, so tests can plug in
 // fakes and so the production wiring lives in one place (cmd/main).
 
-// TmuxBackend is the subset of tmux operations the runtime needs.
-// Methods that return data are synchronous (the runtime calls them
-// from execute() and waits for the result before queueing the
-// follow-up event).
-type TmuxBackend interface {
+// PaneLifecycle covers pane/window creation, destruction, and liveness.
+type PaneLifecycle interface {
 	// SpawnWindow creates a new tmux window for a session. Returns the
 	// window index (e.g. "1") and the pane id (e.g. "%5").
 	SpawnWindow(name, command, startDir string, env map[string]string) (windowIndex, paneID string, err error)
-
 	// KillPaneWindow destroys the tmux window containing the named pane.
 	KillPaneWindow(paneTarget string) error
+	// RespawnPane runs respawn-pane against a dead pane.
+	RespawnPane(target, command string) error
+	// PaneAlive returns true if the named pane is currently alive
+	// (i.e. #{pane_dead} == 0). False on error or dead pane.
+	PaneAlive(target string) (bool, error)
+}
 
-	// RunChain executes a sequence of swap-pane (or other) commands as
-	// a single tmux invocation. Used for the swap-pane preview chain.
-	RunChain(ops ...[]string) error
+// PaneIO covers key input and buffer operations directed at a pane.
+type PaneIO interface {
+	// SendKeys sends text followed by Enter to a pane (tmux send-keys ... Enter).
+	SendKeys(paneTarget, text string) error
+	// SendKey sends a named key (e.g. "Escape", "q") to a pane without Enter.
+	SendKey(paneTarget, key string) error
+	// SendEnter sends only the Enter key to a pane (tmux send-keys -t <target> Enter).
+	SendEnter(target string) error
+	// LoadBuffer loads text into a named tmux buffer via stdin.
+	// Implements: tmux load-buffer -b <name> -
+	LoadBuffer(name, text string) error
+	// PasteBuffer pastes a named buffer into the target pane and deletes it.
+	// Implements: tmux paste-buffer -d -b <name> -t <target>
+	PasteBuffer(name, target string) error
+	// PipePane pipes pane output to a shell command.
+	// Passing an empty command stops the running pipe.
+	PipePane(paneTarget, command string) error
+}
 
-	// SwapPane exchanges two pane positions without changing pane ids.
-	SwapPane(srcPane, dstPane string) error
-
-	// BreakPane moves a pane into another window.
-	BreakPane(srcPane, dstWindow string) error
-
-	// BreakPaneToNewWindow moves a pane into a newly created window and
-	// returns that window's index.
-	BreakPaneToNewWindow(srcPane, name string) (string, error)
-
-	// JoinPane moves a pane into another pane slot. sizePct controls
-	// the new pane size; before inserts before the target pane.
-	JoinPane(srcPane, dstPane string, before bool, sizePct int) error
-
+// PaneInspect covers read-only pane introspection.
+type PaneInspect interface {
 	// PaneID returns the pane id (e.g. "%5") for the target pane.
 	PaneID(target string) (string, error)
 	// PaneSize returns the visible size of the target pane.
 	PaneSize(target string) (width, height int, err error)
+	// CapturePane returns the trailing nLines of a pane's content (no SGR).
+	// Used by polling drivers via the worker pool.
+	CapturePane(paneTarget string, nLines int) (string, error)
+	// CapturePaneEscaped returns the trailing nLines with ANSI escape sequences
+	// preserved (-e flag). Used by the VT-parser-based state detection.
+	CapturePaneEscaped(paneTarget string, nLines int) (string, error)
+	// InspectPane snapshots a pane's visible state for diagnostics.
+	InspectPane(target string, nLines int) (PaneSnapshot, error)
+}
 
-	// SelectPane focuses a tmux pane.
-	SelectPane(target string) error
-	// ResizeWindow resizes the tmux window containing the target.
-	ResizeWindow(target string, width, height int) error
-
-	// SetStatusLine writes the tmux status-left.
-	SetStatusLine(line string) error
-
+// SessionEnv covers tmux session-level environment variable operations.
+type SessionEnv interface {
 	// SetEnv writes a tmux session-level environment variable.
 	SetEnv(key, value string) error
 	// UnsetEnv removes a tmux session-level env var.
 	UnsetEnv(key string) error
-
-	// PaneAlive returns true if the named pane is currently alive
-	// (i.e. #{pane_dead} == 0). False on error or dead pane.
-	PaneAlive(target string) (bool, error)
-
-	// RespawnPane runs respawn-pane against a dead pane.
-	RespawnPane(target, command string) error
-
-	// CapturePane returns the trailing nLines of a pane's content (no SGR).
-	// Used by polling drivers via the worker pool.
-	CapturePane(paneTarget string, nLines int) (string, error)
-
-	// CapturePaneEscaped returns the trailing nLines with ANSI escape sequences
-	// preserved (-e flag). Used by the VT-parser-based state detection.
-	CapturePaneEscaped(paneTarget string, nLines int) (string, error)
-
-	// InspectPane snapshots a pane's visible state for diagnostics.
-	InspectPane(target string, nLines int) (PaneSnapshot, error)
-
 	// ShowEnvironment returns the tmux session environment as a
 	// newline-delimited KEY=VALUE string (output of show-environment).
 	ShowEnvironment() (string, error)
+}
 
+// WindowLayout covers pane/window repositioning operations.
+type WindowLayout interface {
+	// SwapPane exchanges two pane positions without changing pane ids.
+	SwapPane(srcPane, dstPane string) error
+	// BreakPane moves a pane into another window.
+	BreakPane(srcPane, dstWindow string) error
+	// BreakPaneToNewWindow moves a pane into a newly created window and
+	// returns that window's index.
+	BreakPaneToNewWindow(srcPane, name string) (string, error)
+	// JoinPane moves a pane into another pane slot. sizePct controls
+	// the new pane size; before inserts before the target pane.
+	JoinPane(srcPane, dstPane string, before bool, sizePct int) error
+	// SelectPane focuses a tmux pane.
+	SelectPane(target string) error
+	// ResizeWindow resizes the tmux window containing the target.
+	ResizeWindow(target string, width, height int) error
+	// RunChain executes a sequence of swap-pane (or other) commands as
+	// a single tmux invocation. Used for the swap-pane preview chain.
+	RunChain(ops ...[]string) error
+}
+
+// TmuxControl covers session/client-level control operations.
+type TmuxControl interface {
+	// SetStatusLine writes the tmux status-left.
+	SetStatusLine(line string) error
 	// DetachClient detaches the current tmux client.
 	DetachClient() error
-
 	// KillSession destroys the roost tmux session.
 	KillSession() error
-
 	// DisplayPopup runs `tmux display-popup`.
 	DisplayPopup(width, height, cmd string) error
+}
 
-	// PipePane pipes pane output to a shell command.
-	// Passing an empty command stops the running pipe.
-	PipePane(paneTarget, command string) error
-
-	// SendKeys sends text followed by Enter to a pane (tmux send-keys ... Enter).
-	SendKeys(paneTarget, text string) error
-
-	// SendKey sends a named key (e.g. "Escape", "q") to a pane without Enter.
-	SendKey(paneTarget, key string) error
-
-	// LoadBuffer loads text into a named tmux buffer via stdin.
-	// Implements: tmux load-buffer -b <name> -
-	LoadBuffer(name, text string) error
-
-	// PasteBuffer pastes a named buffer into the target pane and deletes it.
-	// Implements: tmux paste-buffer -d -b <name> -t <target>
-	PasteBuffer(name, target string) error
-
-	// SendEnter sends only the Enter key to a pane (tmux send-keys -t <target> Enter).
-	SendEnter(target string) error
+// TmuxBackend is the full set of tmux operations the runtime needs.
+// Methods that return data are synchronous (the runtime calls them
+// from execute() and waits for the result before queueing the
+// follow-up event).
+//
+// New code that needs only a subset of these operations should depend on
+// the narrower role interfaces (PaneLifecycle, PaneIO, PaneInspect,
+// SessionEnv, WindowLayout, TmuxControl) instead.
+type TmuxBackend interface {
+	PaneLifecycle
+	PaneIO
+	PaneInspect
+	SessionEnv
+	WindowLayout
+	TmuxControl
 }
 
 // PersistBackend abstracts sessions.json persistence so tests don't

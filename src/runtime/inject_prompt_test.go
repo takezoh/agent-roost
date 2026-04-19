@@ -1,4 +1,4 @@
-package driver
+package runtime
 
 import (
 	"errors"
@@ -8,46 +8,46 @@ import (
 	"github.com/takezoh/agent-roost/state"
 )
 
-// recordedCall captures one call made to fakeInjector.
-type recordedCall struct {
+// recordedInjCall captures one call made to fakePromptInjector.
+type recordedInjCall struct {
 	op     string // "resolve" | "paste" | "submit"
 	frame  state.FrameID
 	target string
 	text   string
 }
 
-// fakeInjector is a test double for TmuxInjector.
-type fakeInjector struct {
+// fakePromptInjector is a test double for TmuxInjector.
+type fakePromptInjector struct {
 	panes     map[state.FrameID]string
 	pasteErr  error
 	submitErr error
-	calls     []recordedCall
+	calls     []recordedInjCall
 }
 
-func (f *fakeInjector) ResolveFramePane(id state.FrameID) (string, bool) {
-	f.calls = append(f.calls, recordedCall{op: "resolve", frame: id})
+func (f *fakePromptInjector) ResolveFramePane(id state.FrameID) (string, bool) {
+	f.calls = append(f.calls, recordedInjCall{op: "resolve", frame: id})
 	p, ok := f.panes[id]
 	return p, ok
 }
 
-func (f *fakeInjector) PastePrompt(target, text string) error {
-	f.calls = append(f.calls, recordedCall{op: "paste", target: target, text: text})
+func (f *fakePromptInjector) PastePrompt(target, text string) error {
+	f.calls = append(f.calls, recordedInjCall{op: "paste", target: target, text: text})
 	return f.pasteErr
 }
 
-func (f *fakeInjector) SubmitEnter(target string) error {
-	f.calls = append(f.calls, recordedCall{op: "submit", target: target})
+func (f *fakePromptInjector) SubmitEnter(target string) error {
+	f.calls = append(f.calls, recordedInjCall{op: "submit", target: target})
 	return f.submitErr
 }
 
-func newFakeInjector(frameID state.FrameID, pane string) *fakeInjector {
-	return &fakeInjector{
+func newFakePromptInjector(frameID state.FrameID, pane string) *fakePromptInjector {
+	return &fakePromptInjector{
 		panes: map[state.FrameID]string{frameID: pane},
 	}
 }
 
 func TestInjectPrompt_Success(t *testing.T) {
-	inj := newFakeInjector("frame1", "%3")
+	inj := newFakePromptInjector("frame1", "%3")
 	err := InjectPrompt(inj, "frame1", "hello")
 
 	if err != nil {
@@ -68,14 +68,13 @@ func TestInjectPrompt_Success(t *testing.T) {
 }
 
 func TestInjectPrompt_Multiline(t *testing.T) {
-	inj := newFakeInjector("frame1", "%3")
+	inj := newFakePromptInjector("frame1", "%3")
 	prompt := "line1\nline2\n  line3"
 	err := InjectPrompt(inj, "frame1", prompt)
 
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Multiline text is passed through unchanged (PastePrompt handles it).
 	got := inj.calls[1].text
 	if got != "line1\nline2\n  line3" {
 		t.Errorf("paste text = %q, want original multiline", got)
@@ -83,7 +82,7 @@ func TestInjectPrompt_Multiline(t *testing.T) {
 }
 
 func TestInjectPrompt_TrimTrailing(t *testing.T) {
-	inj := newFakeInjector("frame1", "%3")
+	inj := newFakePromptInjector("frame1", "%3")
 	err := InjectPrompt(inj, "frame1", "hello\n\n")
 
 	if err != nil {
@@ -96,7 +95,7 @@ func TestInjectPrompt_TrimTrailing(t *testing.T) {
 }
 
 func TestInjectPrompt_EmptyPrompt(t *testing.T) {
-	inj := newFakeInjector("frame1", "%3")
+	inj := newFakePromptInjector("frame1", "%3")
 	err := InjectPrompt(inj, "frame1", "")
 
 	if err == nil {
@@ -108,7 +107,7 @@ func TestInjectPrompt_EmptyPrompt(t *testing.T) {
 }
 
 func TestInjectPrompt_WhitespaceOnly(t *testing.T) {
-	inj := newFakeInjector("frame1", "%3")
+	inj := newFakePromptInjector("frame1", "%3")
 	err := InjectPrompt(inj, "frame1", "   \n\t")
 
 	if err == nil {
@@ -120,20 +119,19 @@ func TestInjectPrompt_WhitespaceOnly(t *testing.T) {
 }
 
 func TestInjectPrompt_EmptyPaneTarget(t *testing.T) {
-	inj := &fakeInjector{panes: map[state.FrameID]string{"frame1": ""}}
+	inj := &fakePromptInjector{panes: map[state.FrameID]string{"frame1": ""}}
 	err := InjectPrompt(inj, "frame1", "hello")
 
 	if err == nil {
 		t.Fatal("want error for empty pane target, got nil")
 	}
-	// resolve was called, but paste and submit were not.
 	if len(inj.calls) != 1 || inj.calls[0].op != "resolve" {
 		t.Errorf("want only resolve call, got %v", inj.calls)
 	}
 }
 
 func TestInjectPrompt_UnknownFrame(t *testing.T) {
-	inj := newFakeInjector("frame1", "%3")
+	inj := newFakePromptInjector("frame1", "%3")
 	err := InjectPrompt(inj, "other-frame", "hello")
 
 	if err == nil {
@@ -142,14 +140,13 @@ func TestInjectPrompt_UnknownFrame(t *testing.T) {
 	if !strings.Contains(err.Error(), "other-frame") {
 		t.Errorf("error %q should mention the frame id", err.Error())
 	}
-	// resolve was called, but paste and submit were not.
 	if len(inj.calls) != 1 || inj.calls[0].op != "resolve" {
 		t.Errorf("want only resolve call, got %v", inj.calls)
 	}
 }
 
 func TestInjectPrompt_PasteError(t *testing.T) {
-	inj := newFakeInjector("frame1", "%3")
+	inj := newFakePromptInjector("frame1", "%3")
 	inj.pasteErr = errors.New("pipe broken")
 	err := InjectPrompt(inj, "frame1", "hello")
 
@@ -159,7 +156,6 @@ func TestInjectPrompt_PasteError(t *testing.T) {
 	if !strings.Contains(err.Error(), "pipe broken") {
 		t.Errorf("error %q should wrap the paste error", err.Error())
 	}
-	// resolve + paste called, submit not called.
 	ops := make([]string, len(inj.calls))
 	for i, c := range inj.calls {
 		ops[i] = c.op
@@ -171,7 +167,7 @@ func TestInjectPrompt_PasteError(t *testing.T) {
 }
 
 func TestInjectPrompt_SubmitError(t *testing.T) {
-	inj := newFakeInjector("frame1", "%3")
+	inj := newFakePromptInjector("frame1", "%3")
 	inj.submitErr = errors.New("session gone")
 	err := InjectPrompt(inj, "frame1", "hello")
 
@@ -181,7 +177,6 @@ func TestInjectPrompt_SubmitError(t *testing.T) {
 	if !strings.Contains(err.Error(), "session gone") {
 		t.Errorf("error %q should wrap the submit error", err.Error())
 	}
-	// All three calls were made.
 	if len(inj.calls) != 3 {
 		t.Errorf("want 3 calls, got %d: %v", len(inj.calls), inj.calls)
 	}

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	roostgit "github.com/takezoh/agent-roost/lib/git"
-	"github.com/takezoh/agent-roost/driver"
 	"github.com/takezoh/agent-roost/runtime/worker"
 	"github.com/takezoh/agent-roost/state"
 	"github.com/takezoh/agent-roost/uiproc"
@@ -121,7 +120,7 @@ func (r *Runtime) executeSendTmuxKeys(e state.EffSendTmuxKeys) {
 
 func (r *Runtime) executeInjectPrompt(e state.EffInjectPrompt) {
 	inj := NewRuntimeTmuxInjector(r.sessionPanes, r.cfg.Tmux)
-	if err := driver.InjectPrompt(inj, e.FrameID, e.Text); err != nil {
+	if err := InjectPrompt(inj, e.FrameID, e.Text); err != nil {
 		slog.Warn("runtime: inject prompt failed", "frame", e.FrameID, "err", err)
 	}
 }

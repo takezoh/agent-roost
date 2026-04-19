@@ -6,7 +6,7 @@ import (
 	"github.com/takezoh/agent-roost/state"
 )
 
-// RuntimeTmuxInjector implements driver.TmuxInjector backed by the
+// RuntimeTmuxInjector implements TmuxInjector backed by the
 // runtime's session pane map and TmuxBackend.
 type RuntimeTmuxInjector struct {
 	panes map[state.FrameID]string // frameID → pane target

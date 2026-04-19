@@ -11,6 +11,7 @@ import (
 
 func runMCPServer() error {
 	server := mcp.NewServer(&mcp.Implementation{Name: "roost-peers", Version: "1.0"}, nil)
+	dial := defaultDialer()
 
 	type listPeersArgs struct {
 		Scope string `json:"scope" jsonschema:"scope: workspace, project, or all,default=workspace"`
@@ -23,26 +24,8 @@ func runMCPServer() error {
 		if scope == "" {
 			scope = "workspace"
 		}
-		frameID := callerFrameID()
-		client, err := dialDaemon()
-		if err != nil {
-			return nil, nil, fmt.Errorf("dial daemon: %w", err)
-		}
-		defer client.Close()
-
-		peers, err := client.PeerList(frameID, scope)
-		if err != nil {
-			return nil, nil, fmt.Errorf("peer.list: %w", err)
-		}
-		b, err := json.Marshal(peers)
-		if err != nil {
-			return nil, nil, err
-		}
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: string(b)},
-			},
-		}, nil, nil
+		res, err := handleListPeers(dial, callerFrameID(), scope)
+		return res, nil, err
 	})
 
 	type peerSendArgs struct {
@@ -54,21 +37,8 @@ func runMCPServer() error {
 		Name:        "peer_send",
 		Description: "Send a message to a peer agent frame",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args peerSendArgs) (*mcp.CallToolResult, any, error) {
-		frameID := callerFrameID()
-		client, err := dialDaemon()
-		if err != nil {
-			return nil, nil, fmt.Errorf("dial daemon: %w", err)
-		}
-		defer client.Close()
-
-		if err := client.PeerSend(frameID, args.To, args.Text, args.ReplyTo); err != nil {
-			return nil, nil, fmt.Errorf("peer.send: %w", err)
-		}
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: "sent"},
-			},
-		}, nil, nil
+		res, err := handlePeerSend(dial, callerFrameID(), args.To, args.Text, args.ReplyTo)
+		return res, nil, err
 	})
 
 	type setSummaryArgs struct {
@@ -78,21 +48,8 @@ func runMCPServer() error {
 		Name:        "set_summary",
 		Description: "Update this frame's peer summary visible to other agents",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args setSummaryArgs) (*mcp.CallToolResult, any, error) {
-		frameID := callerFrameID()
-		client, err := dialDaemon()
-		if err != nil {
-			return nil, nil, fmt.Errorf("dial daemon: %w", err)
-		}
-		defer client.Close()
-
-		if err := client.PeerSetSummary(frameID, args.Summary); err != nil {
-			return nil, nil, fmt.Errorf("peer.set_summary: %w", err)
-		}
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: "ok"},
-			},
-		}, nil, nil
+		res, err := handleSetSummary(dial, callerFrameID(), args.Summary)
+		return res, nil, err
 	})
 
 	type checkMessagesArgs struct{}
@@ -100,30 +57,82 @@ func runMCPServer() error {
 		Name:        "check_messages",
 		Description: "Drain and return inbox messages for the current frame (polling fallback)",
 	}, func(ctx context.Context, req *mcp.CallToolRequest, args checkMessagesArgs) (*mcp.CallToolResult, any, error) {
-		frameID := callerFrameID()
-		client, err := dialDaemon()
-		if err != nil {
-			return nil, nil, fmt.Errorf("dial daemon: %w", err)
-		}
-		defer client.Close()
-
-		msgs, err := client.PeerDrainInbox(frameID)
-		if err != nil {
-			return nil, nil, fmt.Errorf("peer.drain_inbox: %w", err)
-		}
-		b, err := json.Marshal(struct {
-			Messages []proto.PeerMessage `json:"messages"`
-			Count    int                 `json:"count"`
-		}{Messages: msgs, Count: len(msgs)})
-		if err != nil {
-			return nil, nil, err
-		}
-		return &mcp.CallToolResult{
-			Content: []mcp.Content{
-				&mcp.TextContent{Text: string(b)},
-			},
-		}, nil, nil
+		res, err := handleCheckMessages(dial, callerFrameID())
+		return res, nil, err
 	})
 
 	return server.Run(context.Background(), &mcp.StdioTransport{})
+}
+
+func handleListPeers(dial dialer, frameID, scope string) (*mcp.CallToolResult, error) {
+	client, err := dial()
+	if err != nil {
+		return nil, fmt.Errorf("dial daemon: %w", err)
+	}
+	defer client.Close()
+
+	peers, err := client.PeerList(frameID, scope)
+	if err != nil {
+		return nil, fmt.Errorf("peer.list: %w", err)
+	}
+	b, err := json.Marshal(peers)
+	if err != nil {
+		return nil, err
+	}
+	return textResult(string(b)), nil
+}
+
+func handlePeerSend(dial dialer, fromID, toID, text, replyTo string) (*mcp.CallToolResult, error) {
+	client, err := dial()
+	if err != nil {
+		return nil, fmt.Errorf("dial daemon: %w", err)
+	}
+	defer client.Close()
+
+	if err := client.PeerSend(fromID, toID, text, replyTo); err != nil {
+		return nil, fmt.Errorf("peer.send: %w", err)
+	}
+	return textResult("sent"), nil
+}
+
+func handleSetSummary(dial dialer, frameID, summary string) (*mcp.CallToolResult, error) {
+	client, err := dial()
+	if err != nil {
+		return nil, fmt.Errorf("dial daemon: %w", err)
+	}
+	defer client.Close()
+
+	if err := client.PeerSetSummary(frameID, summary); err != nil {
+		return nil, fmt.Errorf("peer.set_summary: %w", err)
+	}
+	return textResult("ok"), nil
+}
+
+func handleCheckMessages(dial dialer, frameID string) (*mcp.CallToolResult, error) {
+	client, err := dial()
+	if err != nil {
+		return nil, fmt.Errorf("dial daemon: %w", err)
+	}
+	defer client.Close()
+
+	msgs, err := client.PeerDrainInbox(frameID)
+	if err != nil {
+		return nil, fmt.Errorf("peer.drain_inbox: %w", err)
+	}
+	b, err := json.Marshal(struct {
+		Messages []proto.PeerMessage `json:"messages"`
+		Count    int                 `json:"count"`
+	}{Messages: msgs, Count: len(msgs)})
+	if err != nil {
+		return nil, err
+	}
+	return textResult(string(b)), nil
+}
+
+func textResult(text string) *mcp.CallToolResult {
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			&mcp.TextContent{Text: text},
+		},
+	}
 }
