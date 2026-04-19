@@ -96,6 +96,17 @@ type TmuxBackend interface {
 
 	// SendKey sends a named key (e.g. "Escape", "q") to a pane without Enter.
 	SendKey(paneTarget, key string) error
+
+	// LoadBuffer loads text into a named tmux buffer via stdin.
+	// Implements: tmux load-buffer -b <name> -
+	LoadBuffer(name, text string) error
+
+	// PasteBuffer pastes a named buffer into the target pane and deletes it.
+	// Implements: tmux paste-buffer -d -b <name> -t <target>
+	PasteBuffer(name, target string) error
+
+	// SendEnter sends only the Enter key to a pane (tmux send-keys -t <target> Enter).
+	SendEnter(target string) error
 }
 
 // PersistBackend abstracts sessions.json persistence so tests don't
@@ -204,9 +215,12 @@ func (noopTmux) ShowEnvironment() (string, error)          { return "", nil }
 func (noopTmux) DetachClient() error                       { return nil }
 func (noopTmux) KillSession() error                        { return nil }
 func (noopTmux) DisplayPopup(string, string, string) error { return nil }
-func (noopTmux) PipePane(string, string) error  { return nil }
-func (noopTmux) SendKeys(string, string) error  { return nil }
-func (noopTmux) SendKey(string, string) error   { return nil }
+func (noopTmux) PipePane(string, string) error   { return nil }
+func (noopTmux) SendKeys(string, string) error   { return nil }
+func (noopTmux) SendKey(string, string) error    { return nil }
+func (noopTmux) LoadBuffer(string, string) error { return nil }
+func (noopTmux) PasteBuffer(string, string) error { return nil }
+func (noopTmux) SendEnter(string) error           { return nil }
 
 type noopPersist struct{}
 

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	roostgit "github.com/takezoh/agent-roost/lib/git"
+	"github.com/takezoh/agent-roost/driver"
 	"github.com/takezoh/agent-roost/runtime/worker"
 	"github.com/takezoh/agent-roost/state"
 	"github.com/takezoh/agent-roost/uiproc"
@@ -80,6 +81,9 @@ func (r *Runtime) execute(eff state.Effect) {
 	case state.EffSendTmuxKeys:
 		r.executeSendTmuxKeys(e)
 
+	case state.EffInjectPrompt:
+		r.executeInjectPrompt(e)
+
 	default:
 		slog.Warn("runtime: unhandled effect type", "type", fmt.Sprintf("%T", eff))
 	}
@@ -113,6 +117,13 @@ func (r *Runtime) executeSendTmuxKeys(e state.EffSendTmuxKeys) {
 		return
 	}
 	r.executeIPCEffect(state.EffSendResponse{ConnID: e.ConnID, ReqID: e.ReqID, Body: nil})
+}
+
+func (r *Runtime) executeInjectPrompt(e state.EffInjectPrompt) {
+	inj := NewRuntimeTmuxInjector(r.sessionPanes, r.cfg.Tmux)
+	if err := driver.InjectPrompt(inj, e.FrameID, e.Text); err != nil {
+		slog.Warn("runtime: inject prompt failed", "frame", e.FrameID, "err", err)
+	}
 }
 
 func (r *Runtime) executeTmuxEffect(eff state.Effect) {

@@ -1,6 +1,8 @@
 package state
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // Reduce is the pure state transition function. Given a current State
 // and an Event, it returns the next State and the side effects the

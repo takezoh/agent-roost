@@ -5,6 +5,7 @@ import (
 
 	"github.com/takezoh/agent-roost/features"
 	"github.com/takezoh/agent-roost/proto"
+	"github.com/takezoh/agent-roost/tools"
 )
 
 type serverEventMsg struct{ event proto.ServerEvent }
@@ -37,7 +38,11 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 		m.sessions = e.Sessions
 		m.connectors = e.Connectors
 		if len(e.Features) > 0 {
-			m.features = features.FromConfig(stringSliceToMap(e.Features), features.All())
+			next := features.FromConfig(stringSliceToMap(e.Features), features.All())
+			if !featureSetsEqual(m.features, next) {
+				m.features = next
+				m.registry = tools.DefaultRegistry(next)
+			}
 		}
 		// Follow the new active session's workspace before rebuilding items so
 		// the filter is correct on the first pass.
@@ -110,4 +115,17 @@ func stringSliceToMap(names []string) map[string]bool {
 		m[n] = true
 	}
 	return m
+}
+
+// featureSetsEqual reports whether two feature sets have the same enabled flags.
+func featureSetsEqual(a, b features.Set) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
 }

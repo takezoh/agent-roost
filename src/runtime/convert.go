@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"encoding/json"
+
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/state"
 )
@@ -51,6 +53,34 @@ func commandToStateEvent(connID state.ConnID, reqID string, cmd proto.Command) s
 		}
 	case proto.CmdDriverList:
 		return state.EvCmdDriverList{ConnID: connID, ReqID: reqID}
+	case proto.CmdPeerSend:
+		return peerEvEvent(connID, reqID, state.EventPeerSend, state.PeerSendParams{
+			ToFrameID:   c.ToFrameID,
+			FromFrameID: c.FromFrameID,
+			Text:        c.Text,
+			ReplyTo:     c.ReplyTo,
+		})
+	case proto.CmdPeerList:
+		return peerEvEvent(connID, reqID, state.EventPeerList, state.PeerListParams{
+			Scope:       c.Scope,
+			FromFrameID: c.FromFrameID,
+		})
+	case proto.CmdPeerSetSummary:
+		return peerEvEvent(connID, reqID, state.EventPeerSetSummary, state.PeerSetSummaryParams{
+			Summary:     c.Summary,
+			FromFrameID: c.FromFrameID,
+		})
+	case proto.CmdPeerDrainInbox:
+		return peerEvEvent(connID, reqID, state.EventPeerDrainInbox, state.PeerDrainInboxParams{
+			FromFrameID: c.FromFrameID,
+		})
 	}
 	return nil
+}
+
+// peerEvEvent marshals a peer params struct and wraps it in state.EvEvent
+// for dispatch via state.eventHandlers.
+func peerEvEvent(connID state.ConnID, reqID, eventName string, params any) state.Event {
+	b, _ := json.Marshal(params)
+	return state.EvEvent{ConnID: connID, ReqID: reqID, Event: eventName, Payload: b}
 }

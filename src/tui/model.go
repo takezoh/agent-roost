@@ -41,10 +41,12 @@ type Model struct {
 }
 
 func NewModel(client *proto.Client, cfg *config.Config) Model {
+	feats := features.FromConfig(cfg.Features.Enabled, features.All())
 	return Model{
 		client:            client,
 		cfg:               cfg,
-		registry:          tools.DefaultRegistry(),
+		registry:          tools.DefaultRegistry(feats),
+		features:          feats,
 		keys:              DefaultKeyMap(),
 		folded:            make(map[string]bool),
 		filter:            allOnFilter(),

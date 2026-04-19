@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/takezoh/agent-roost/config"
+	"github.com/takezoh/agent-roost/features"
 	"github.com/takezoh/agent-roost/lib/git"
 	"github.com/takezoh/agent-roost/logger"
 	"github.com/takezoh/agent-roost/proto"
@@ -154,7 +155,8 @@ func runPalette(args []string) error {
 		prefill["session_id"] = activeID
 	}
 
-	reg := tools.DefaultRegistry()
+	feats := features.FromConfig(cfg.Features.Enabled, features.All())
+	reg := tools.DefaultRegistry(feats)
 	roots := make([]string, len(cfg.Projects.ProjectRoots))
 	for i, r := range cfg.Projects.ProjectRoots {
 		roots[i] = config.ExpandPath(r)

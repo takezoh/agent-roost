@@ -1,8 +1,10 @@
 package runtime
 
 import (
+	"fmt"
 	"log/slog"
 	"sort"
+	"time"
 
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/state"
@@ -76,6 +78,8 @@ func (r *Runtime) translateResponseBody(body any) proto.Response {
 		return r.buildSurfaceText(b)
 	case state.DriverListReply:
 		return r.buildDriverList()
+	case state.PeerListReply:
+		return r.buildPeerListResp(b)
 	}
 	slog.Warn("runtime: unknown response body type, sending RespOK",
 		"type", typeNameOf(body))
@@ -156,6 +160,15 @@ func (r *Runtime) broadcastGenericEvent(e state.EffBroadcastEvent) {
 	case "pane-focused":
 		if p, ok := e.Payload.(state.PaneFocusedPayload); ok {
 			event = proto.EvtPaneFocused{Pane: p.Pane}
+		}
+	case "peer-message":
+		if p, ok := e.Payload.(state.PeerMessagePayload); ok {
+			event = proto.EvtPeerMessage{
+				ToSessionID: string(p.ToSessionID),
+				FromFrameID: string(p.FromFrameID),
+				Text:        p.Text,
+				SentAt:      p.SentAt.Format(time.RFC3339),
+			}
 		}
 	}
 	if event == nil {
@@ -268,6 +281,10 @@ func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
 				}
 			}
 		}
+		// Peer-inbox badge: set only when the driver hasn't already filled it.
+		if len(frame.PeerInbox) > 0 && view.Card.BorderBadge == "" {
+			view.Card.BorderBadge = fmt.Sprintf("💬 %d", len(frame.PeerInbox))
+		}
 		info := proto.SessionInfo{
 			ID:        string(sess.ID),
 			Project:   sess.Project,
@@ -345,6 +362,24 @@ func (r *Runtime) buildSurfaceText(b state.SurfaceReadTextReply) proto.Response 
 	return proto.RespSurfaceText{Text: text}
 }
 
+// buildPeerListResp converts a state.PeerListReply into the proto wire format.
+func (r *Runtime) buildPeerListResp(reply state.PeerListReply) proto.RespPeerList {
+	peers := make([]proto.PeerPeerInfo, 0, len(reply.Peers))
+	for _, p := range reply.Peers {
+		peers = append(peers, proto.PeerPeerInfo{
+			FrameID:    p.FrameID,
+			SessionID:  p.SessionID,
+			Driver:     p.Driver,
+			Project:    p.Project,
+			Workspace:  r.workspaceResolver.Resolve(p.Project),
+			Summary:    p.Summary,
+			Status:     p.Status.String(),
+			InboxCount: p.InboxCount,
+		})
+	}
+	return proto.RespPeerList{Peers: peers}
+}
+
 // buildDriverList returns the list of registered drivers sorted by name.
 func (r *Runtime) buildDriverList() proto.Response {
 	reg := state.GetRegistry()
@@ -373,6 +408,8 @@ func typeNameOf(v any) string {
 		return "state.SurfaceReadTextReply"
 	case state.DriverListReply:
 		return "state.DriverListReply"
+	case state.PeerListReply:
+		return "state.PeerListReply"
 	}
 	return "unknown"
 }

@@ -133,6 +133,13 @@ func stepDriver(s State, frameID FrameID, ev DriverEvent) (State, []Effect, View
 		})
 	}
 
+	// If the frame just became idle, drain its peer inbox.
+	if newStatus != oldStatus {
+		var injectEffs []Effect
+		s, injectEffs = drainPeerInbox(s, sessID, frameID, oldStatus, newStatus)
+		out = append(out, injectEffs...)
+	}
+
 	return s, out, view, true
 }
 

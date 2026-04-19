@@ -21,6 +21,9 @@ const (
 	// Add new runtime flags here. When a feature stabilises, delete the
 	// constant and inline the enabled branch everywhere it appears.
 	// Example: ExampleFeature Flag = "example-feature"
+
+	// Peers enables agent-to-agent messaging via the roost daemon broker.
+	Peers Flag = "peers"
 )
 
 // Set is the collection of enabled runtime flags. Constructed once at
@@ -61,6 +64,6 @@ func FromConfig(raw map[string]bool, known []Flag) Set {
 // accept. Add each new Flag constant here as well.
 func All() []Flag {
 	return []Flag{
-		// ExampleFeature,
+		Peers,
 	}
 }

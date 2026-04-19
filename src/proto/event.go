@@ -15,6 +15,7 @@ const (
 	EvtNameLogLine           = "log-line"
 	EvtNameSessionFileLine   = "session-file-line"
 	EvtNameAgentNotification = "agent-notification"
+	EvtNamePeerMessage       = "peer-message"
 )
 
 // EvtSessionsChanged carries the current session table. Sent on
@@ -80,3 +81,15 @@ type EvtAgentNotification struct {
 
 func (EvtAgentNotification) isEvent()          {}
 func (EvtAgentNotification) EventName() string { return EvtNameAgentNotification }
+
+// EvtPeerMessage is pushed to TUI subscribers when a peer message is
+// injected or queued.
+type EvtPeerMessage struct {
+	ToSessionID string `json:"to_session_id"`
+	FromFrameID string `json:"from_frame_id"`
+	Text        string `json:"text"`
+	SentAt      string `json:"sent_at"` // RFC3339
+}
+
+func (EvtPeerMessage) isEvent()          {}
+func (EvtPeerMessage) EventName() string { return EvtNamePeerMessage }

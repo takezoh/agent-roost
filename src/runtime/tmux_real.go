@@ -1,11 +1,13 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/takezoh/agent-roost/lib/tmux"
 )
@@ -254,6 +256,29 @@ func (b *RealTmuxBackend) SendKeys(paneTarget, text string) error {
 
 func (b *RealTmuxBackend) SendKey(paneTarget, key string) error {
 	_, err := b.client.Run("send-keys", "-t", paneTarget, key)
+	return err
+}
+
+func (b *RealTmuxBackend) LoadBuffer(name, text string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "tmux", "load-buffer", "-b", name, "-")
+	cmd.Stdin = strings.NewReader(text)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("tmux load-buffer: %w: %s", err, stderr.String())
+	}
+	return nil
+}
+
+func (b *RealTmuxBackend) PasteBuffer(name, target string) error {
+	_, err := b.client.Run("paste-buffer", "-d", "-b", name, "-t", target)
+	return err
+}
+
+func (b *RealTmuxBackend) SendEnter(target string) error {
+	_, err := b.client.Run("send-keys", "-t", target, "Enter")
 	return err
 }
 
