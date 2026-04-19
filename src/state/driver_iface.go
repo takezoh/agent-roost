@@ -101,6 +101,19 @@ type DEvFileChanged struct {
 
 func (DEvFileChanged) isDriverEvent() {}
 
+// DEvPaneOsc delivers a parsed OSC sequence from the PaneTap byte stream to
+// the driver. Only OSC 0 (window title) is routed here; OSC 9/99/777 go
+// directly to EffRecordNotification in the state reducer instead. The driver
+// interprets the title string and may update its status accordingly.
+type DEvPaneOsc struct {
+	Cmd   int
+	Title string
+	Body  string
+	Now   time.Time
+}
+
+func (DEvPaneOsc) isDriverEvent() {}
+
 // ViewProvider is an optional capability for drivers that provide a
 // custom TUI view.
 type ViewProvider interface {

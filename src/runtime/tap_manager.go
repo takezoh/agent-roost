@@ -109,6 +109,7 @@ func readTap(ctx context.Context, frameID state.FrameID, pane string, ch <-chan 
 					Cmd:     seq.cmd,
 					Title:   title,
 					Body:    body,
+					Now:     now,
 				})
 			}
 		case <-ctx.Done():

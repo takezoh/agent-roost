@@ -75,3 +75,29 @@ func TestParseOscPayload_OSC99(t *testing.T) {
 		t.Errorf("got title=%q body=%q", title, body)
 	}
 }
+
+func TestOscParserFeed_OSC0_Title(t *testing.T) {
+	p := &oscParser{}
+	seqs := p.feed([]byte("\x1b]0;\xe2\xa0\x82 Claude Code\x07")) // ⠂ Claude Code
+	if len(seqs) != 1 || seqs[0].cmd != 0 {
+		t.Fatalf("expected 1 OSC 0 seq, got %+v", seqs)
+	}
+	if seqs[0].payload != "⠂ Claude Code" {
+		t.Errorf("payload = %q, want \"⠂ Claude Code\"", seqs[0].payload)
+	}
+}
+
+func TestOscParserFeed_OSC0_WaitingTitle(t *testing.T) {
+	p := &oscParser{}
+	seqs := p.feed([]byte("\x1b]0;\xe2\x9c\xb3 Done\x07")) // ✳ Done
+	if len(seqs) != 1 || seqs[0].cmd != 0 {
+		t.Fatalf("expected 1 OSC 0 seq, got %+v", seqs)
+	}
+}
+
+func TestParseOscPayload_OSC0(t *testing.T) {
+	title, body := parseOscPayload(0, "  ✳ Claude Code  ")
+	if title != "✳ Claude Code" || body != "" {
+		t.Errorf("got title=%q body=%q", title, body)
+	}
+}

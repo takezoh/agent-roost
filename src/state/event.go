@@ -187,6 +187,7 @@ type EvPaneOsc struct {
 	Cmd     int
 	Title   string
 	Body    string
+	Now     time.Time
 }
 
 // === isEvent markers ===

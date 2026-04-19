@@ -69,6 +69,11 @@ type ClaudeState struct {
 	// on SessionStart/SessionEnd; entries that never receive a Post are
 	// abandoned silently (e.g. daemon restart mid-tool).
 	PendingTools map[string]pendingTool
+
+	// LastWindowTitle is the most-recently seen OSC 0 title from the pane.
+	// Used to deduplicate rapid spinner updates so only meaningful transitions
+	// (Braille → ✳ or vice-versa) trigger a status change.
+	LastWindowTitle string
 }
 
 // ClaudeDriver is the stateless plugin value. The home directory is
@@ -223,6 +228,10 @@ func (d ClaudeDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.
 
 	case state.DEvJobResult:
 		next, effs := d.handleJobResult(cs, e)
+		return next, effs, d.view(next)
+
+	case state.DEvPaneOsc:
+		next, effs := d.handleWindowTitle(cs, e.Title, e.Now)
 		return next, effs, d.view(next)
 	}
 

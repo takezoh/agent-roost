@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"time"
+	"unicode"
 
 	"github.com/takezoh/agent-roost/state"
 )
@@ -310,6 +311,44 @@ func (d ClaudeDriver) handleUserPromptSubmit(cs ClaudeState, hp hookPayload, now
 	}
 
 	return cs, effs
+}
+
+// handleWindowTitle interprets an OSC 0 window-title update from the pane.
+// Claude Code uses the title to advertise its working state:
+//   - ✳ (U+2733) prefix → agent is idle, waiting for user input
+//   - Braille spinner (U+2800–U+28FF) prefix → agent is working
+//
+// Status transitions trigger EffNotify{NotifyKindDone} automatically via
+// stepDriver's ClassifyStatusTransition diff, so this function returns no
+// effects of its own.
+func (d ClaudeDriver) handleWindowTitle(cs ClaudeState, title string, now time.Time) (ClaudeState, []state.Effect) {
+	if title == cs.LastWindowTitle {
+		return cs, nil
+	}
+	cs.LastWindowTitle = title
+
+	r, _ := firstRune(title)
+	switch {
+	case r == '✳':
+		if cs.Status != state.StatusWaiting {
+			cs.Status = state.StatusWaiting
+			cs.StatusChangedAt = now
+		}
+	case unicode.In(r, unicode.Braille):
+		if cs.Status == state.StatusIdle || cs.Status == state.StatusWaiting {
+			cs.Status = state.StatusRunning
+			cs.StatusChangedAt = now
+		}
+	}
+	return cs, nil
+}
+
+// firstRune returns the first rune in s and whether s was non-empty.
+func firstRune(s string) (rune, bool) {
+	for _, r := range s {
+		return r, true
+	}
+	return 0, false
 }
 
 func absorbIdentityFromHP(cs ClaudeState, hp hookPayload) ClaudeState {
