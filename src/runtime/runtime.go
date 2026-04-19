@@ -180,6 +180,16 @@ func (r *Runtime) SetRelay(fr *FileRelay) {
 	r.internalCh <- internalSetRelay{relay: fr}
 }
 
+// StartTapsForRestoredFrames attaches a pane tap to each frame that was
+// restored from the snapshot.  Normal sessions route through
+// EvTmuxPaneSpawned → EffRegisterPane → tapManager.start, but bootstrap
+// paths (warm restart, cold-start RecreateAll) populate sessionPanes
+// directly without emitting that effect, leaving restored frames
+// without a tap.  Call once from main.go after Run has been started.
+func (r *Runtime) StartTapsForRestoredFrames() {
+	r.enqueueInternal(internalStartRestoredTaps{})
+}
+
 // Run is the event loop. It blocks until ctx is cancelled.
 //
 // Internal events (connOpen, connClose) bypass state.Reduce and go

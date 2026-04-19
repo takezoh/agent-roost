@@ -2,11 +2,43 @@ package runtime
 
 import (
 	"context"
+	"sort"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/takezoh/agent-roost/state"
 )
+
+// fakePaneTap records Start/Stop calls for assertions.
+type fakePaneTap struct {
+	mu      sync.Mutex
+	started []string
+	stopped []string
+}
+
+func (f *fakePaneTap) Start(_ context.Context, pane string) (<-chan []byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.started = append(f.started, pane)
+	ch := make(chan []byte)
+	return ch, nil
+}
+
+func (f *fakePaneTap) Stop(pane string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stopped = append(f.stopped, pane)
+	return nil
+}
+
+func (f *fakePaneTap) startedSorted() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := append([]string(nil), f.started...)
+	sort.Strings(out)
+	return out
+}
 
 func TestReadTapEmitsPaneActivity(t *testing.T) {
 	frameID := state.FrameID("f1")
@@ -105,5 +137,85 @@ func TestReadTapCancelStops(t *testing.T) {
 	case <-done:
 	case <-time.After(time.Second):
 		t.Error("readTap did not exit after context cancel")
+	}
+}
+
+func TestStartRestoredTaps_StartsEveryNonMainFrame(t *testing.T) {
+	tap := &fakePaneTap{}
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tap:          tap,
+	})
+	r.sessionPanes["frame_a"] = "%1"
+	r.sessionPanes["frame_b"] = "%2"
+	r.sessionPanes["_main"] = "%0"
+	r.sessionPanes["frame_c"] = ""
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.taps = newTapManager(ctx, tap)
+
+	r.startRestoredTaps()
+
+	got := tap.startedSorted()
+	want := []string{"%1", "%2"}
+	if len(got) != len(want) {
+		t.Fatalf("started panes = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("started[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestStartRestoredTaps_NoTapsWhenNilManager(t *testing.T) {
+	tap := &fakePaneTap{}
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Second,
+		Tap:          tap,
+	})
+	r.sessionPanes["frame_a"] = "%1"
+	// r.taps left nil (Run not started)
+
+	r.startRestoredTaps() // must not panic
+
+	if len(tap.started) != 0 {
+		t.Errorf("tap unexpectedly started while taps manager was nil: %v", tap.started)
+	}
+}
+
+func TestStartTapsForRestoredFrames_DispatchesViaEventLoop(t *testing.T) {
+	tap := &fakePaneTap{}
+	r := New(Config{
+		SessionName:  "roost-test",
+		TickInterval: 10 * time.Millisecond,
+		Tap:          tap,
+		Tmux:         noopTmux{},
+	})
+	r.state.Sessions[state.SessionID("s1")] = state.Session{ID: "s1"}
+	r.sessionPanes["frame_a"] = "%1"
+	r.sessionPanes["_main"] = "%0"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = r.Run(ctx) }()
+
+	r.StartTapsForRestoredFrames()
+
+	deadline := time.Now().Add(1 * time.Second)
+	for {
+		if len(tap.startedSorted()) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("tap never started; got %v", tap.startedSorted())
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := tap.startedSorted(); got[0] != "%1" {
+		t.Errorf("started = %v, want [%%1]", got)
 	}
 }

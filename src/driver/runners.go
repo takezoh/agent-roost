@@ -52,7 +52,6 @@ func (s *terminalStore) feedAndSnapshot(pane string, ansi []byte) vt.Snapshot {
 	if !ok {
 		t = vt.New(0, 0)
 		s.entries[pane] = t
-		startOscPipe(pane)
 	}
 	_ = t.Feed(ansi)
 	snap := t.Snapshot()
@@ -72,7 +71,6 @@ func (s *terminalStore) feedAndSnapshot(pane string, ansi []byte) vt.Snapshot {
 // evict removes the terminal for a pane. Called when a session pane is
 // unregistered so that the scrollback buffer is not held indefinitely.
 func (s *terminalStore) evict(pane string) {
-	stopOscPipe(pane)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.entries, pane)
