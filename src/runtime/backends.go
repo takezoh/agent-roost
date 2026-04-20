@@ -130,10 +130,12 @@ type PersistBackend interface {
 // bag (opaque map of strings). Pane ids are tracked in tmux session env
 // vars (ROOST_SESSION_<sid>); sessions.json stays pane-id free.
 type SessionSnapshot struct {
-	ID        string                 `json:"id"`
-	Project   string                 `json:"project"`
-	CreatedAt string                 `json:"created_at"`
-	Frames    []SessionFrameSnapshot `json:"frames"`
+	ID            string                 `json:"id"`
+	Project       string                 `json:"project"`
+	CreatedAt     string                 `json:"created_at"`
+	Frames        []SessionFrameSnapshot `json:"frames"`
+	ActiveFrameID string                 `json:"active_frame_id,omitempty"`
+	MRUFrameIDs   []string               `json:"mru_frame_ids,omitempty"`
 }
 
 type SessionFrameSnapshot struct {

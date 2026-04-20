@@ -145,6 +145,7 @@ func runCoordinator() error { //nolint:funlen
 	}
 
 	rt.RespawnMainPane()
+	respawnHeaderPane(client, sessionName)
 	respawnSessionsPane(client, sessionName)
 	respawnLogPane(client, sessionName)
 

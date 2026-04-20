@@ -26,16 +26,20 @@ func TestConstructorsReturnConsistentValues(t *testing.T) {
 }
 
 func TestConstructorFields(t *testing.T) {
+	h := Header()
+	if h.Name != "header" || h.PaneSuffix != ":0.0" || h.Subcommand != "header" {
+		t.Errorf("Header() fields unexpected: %+v", h)
+	}
 	m := Main()
-	if m.Name != "main" || m.PaneSuffix != ":0.0" || m.Subcommand != "main" {
+	if m.Name != "main" || m.PaneSuffix != ":0.1" || m.Subcommand != "main" {
 		t.Errorf("Main() fields unexpected: %+v", m)
 	}
 	l := Log()
-	if l.Name != "log" || l.PaneSuffix != ":0.1" || l.Subcommand != "log" {
+	if l.Name != "log" || l.PaneSuffix != ":0.2" || l.Subcommand != "log" {
 		t.Errorf("Log() fields unexpected: %+v", l)
 	}
 	s := Sessions()
-	if s.Name != "sessions" || s.PaneSuffix != ":0.2" || s.Subcommand != "sessions" {
+	if s.Name != "sessions" || s.PaneSuffix != ":0.3" || s.Subcommand != "sessions" {
 		t.Errorf("Sessions() fields unexpected: %+v", s)
 	}
 }
@@ -88,8 +92,9 @@ func TestRespawnTargetControlPanes(t *testing.T) {
 		pane string
 		want UIProcess
 	}{
-		{"{sessionName}:0.1", Log()},
-		{"{sessionName}:0.2", Sessions()},
+		{"{sessionName}:0.0", Header()},
+		{"{sessionName}:0.2", Log()},
+		{"{sessionName}:0.3", Sessions()},
 	}
 	for _, tc := range cases {
 		got, ok := RespawnTarget(tc.pane)
@@ -104,9 +109,9 @@ func TestRespawnTargetControlPanes(t *testing.T) {
 }
 
 func TestRespawnTargetMainPaneNotHandled(t *testing.T) {
-	_, ok := RespawnTarget("{sessionName}:0.0")
+	_, ok := RespawnTarget("{sessionName}:0.1")
 	if ok {
-		t.Error("pane 0.0 must not be handled by RespawnTarget (requires active-session check)")
+		t.Error("pane 0.1 must not be handled by RespawnTarget (requires active-session check)")
 	}
 }
 

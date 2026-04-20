@@ -17,6 +17,7 @@ var (
 	closeLogger           = logger.Close
 	redirectStderr        = logger.RedirectStderr
 	runCoordinatorFn      = runCoordinator
+	runHeaderTUIFn        = runHeaderTUI
 	runMainTUIFn          = runMainTUI
 	runSessionListFn      = runSessionList
 	runLogViewerFn        = runLogViewer

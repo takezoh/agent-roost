@@ -21,47 +21,61 @@ func (r *Runtime) LoadSnapshot(coldStart bool) error {
 	if err != nil {
 		return err
 	}
-	if len(snaps) == 0 {
-		return nil
-	}
 	now := time.Now()
 	for _, snap := range snaps {
-		createdAt, _ := time.Parse(time.RFC3339, snap.CreatedAt)
-		if createdAt.IsZero() {
-			createdAt = now
-		}
-		sess := state.Session{ID: state.SessionID(snap.ID), Project: snap.Project, CreatedAt: createdAt}
-		for _, fsnap := range snap.Frames {
-			drv := state.GetDriver(fsnap.Command)
-			if drv == nil {
-				slog.Warn("bootstrap: no driver for command, skipping frame", "command", fsnap.Command)
-				break
-			}
-			if coldStart && fsnap.DriverState["status"] == "running" {
-				fsnap.DriverState["status"] = "waiting"
-			}
-			frameCreatedAt, _ := time.Parse(time.RFC3339, fsnap.CreatedAt)
-			if frameCreatedAt.IsZero() {
-				frameCreatedAt = createdAt
-			}
-			sess.Frames = append(sess.Frames, state.SessionFrame{
-				ID:            state.FrameID(fsnap.ID),
-				Project:       fsnap.Project,
-				Command:       fsnap.Command,
-				LaunchOptions: fsnap.LaunchOptions,
-				CreatedAt:     frameCreatedAt,
-				Driver:        drv.Restore(fsnap.DriverState, now),
-			})
-		}
-		if len(sess.Frames) > 0 {
-			sess.Command = sess.Frames[0].Command
-			sess.LaunchOptions = sess.Frames[0].LaunchOptions
-			sess.Driver = sess.Frames[0].Driver
+		if sess, ok := restoreSession(snap, coldStart, now); ok {
 			r.state.Sessions[sess.ID] = sess
 		}
 	}
 	slog.Info("bootstrap: snapshot loaded", "count", len(snaps))
 	return nil
+}
+
+func restoreSession(snap SessionSnapshot, coldStart bool, now time.Time) (state.Session, bool) {
+	createdAt, _ := time.Parse(time.RFC3339, snap.CreatedAt)
+	if createdAt.IsZero() {
+		createdAt = now
+	}
+	sess := state.Session{ID: state.SessionID(snap.ID), Project: snap.Project, CreatedAt: createdAt}
+	for _, fsnap := range snap.Frames {
+		drv := state.GetDriver(fsnap.Command)
+		if drv == nil {
+			slog.Warn("bootstrap: no driver for command, skipping frame", "command", fsnap.Command)
+			break
+		}
+		if coldStart && fsnap.DriverState["status"] == "running" {
+			fsnap.DriverState["status"] = "waiting"
+		}
+		frameCreatedAt, _ := time.Parse(time.RFC3339, fsnap.CreatedAt)
+		if frameCreatedAt.IsZero() {
+			frameCreatedAt = createdAt
+		}
+		sess.Frames = append(sess.Frames, state.SessionFrame{
+			ID:            state.FrameID(fsnap.ID),
+			Project:       fsnap.Project,
+			Command:       fsnap.Command,
+			LaunchOptions: fsnap.LaunchOptions,
+			CreatedAt:     frameCreatedAt,
+			Driver:        drv.Restore(fsnap.DriverState, now),
+		})
+	}
+	if len(sess.Frames) == 0 {
+		return state.Session{}, false
+	}
+	sess.Command = sess.Frames[0].Command
+	sess.LaunchOptions = sess.Frames[0].LaunchOptions
+	sess.Driver = sess.Frames[0].Driver
+	if snap.ActiveFrameID != "" {
+		sess.ActiveFrameID = state.FrameID(snap.ActiveFrameID)
+	} else {
+		sess.ActiveFrameID = sess.Frames[len(sess.Frames)-1].ID
+	}
+	mru := make([]state.FrameID, 0, len(snap.MRUFrameIDs))
+	for _, id := range snap.MRUFrameIDs {
+		mru = append(mru, state.FrameID(id))
+	}
+	sess.MRUFrameIDs = mru
+	return sess, true
 }
 
 // LoadSessionPanes reads the ROOST_FRAME_* tmux session environment

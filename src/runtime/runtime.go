@@ -249,7 +249,7 @@ func (r *Runtime) Run(ctx context.Context) error { //nolint:funlen
 	}
 }
 
-// scheduleActiveFramePaneProbe は active frame (pane 0.0 にスワップ中) の
+// scheduleActiveFramePaneProbe は active frame (pane 0.1 にスワップ中) の
 // 死亡を高速検出する。PaneAlive の tmux shell-out をゴルーチンに委譲して
 // event loop をブロックしない。同時実行は atomic guard で 1 本に制限する。
 func (r *Runtime) scheduleActiveFramePaneProbe() {
@@ -259,7 +259,7 @@ func (r *Runtime) scheduleActiveFramePaneProbe() {
 	if !r.fastProbeInFlight.CompareAndSwap(false, true) {
 		return
 	}
-	target := substitutePlaceholdersString("{sessionName}:0.0", r.cfg.SessionName, r.cfg.RoostExe)
+	target := substitutePlaceholdersString("{sessionName}:0.1", r.cfg.SessionName, r.cfg.RoostExe)
 	frameID := r.activeFrameID // snapshot owned by event loop goroutine
 	go func() {
 		defer r.fastProbeInFlight.Store(false)
@@ -268,7 +268,7 @@ func (r *Runtime) scheduleActiveFramePaneProbe() {
 			return
 		}
 		r.Enqueue(state.EvPaneDied{
-			Pane:         "{sessionName}:0.0",
+			Pane:         "{sessionName}:0.1",
 			OwnerFrameID: frameID,
 		})
 	}()

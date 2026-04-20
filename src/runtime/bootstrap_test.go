@@ -209,14 +209,14 @@ func TestRecoverActivePaneAtMain_RestoresMainTUIWhenSessionActive(t *testing.T) 
 	if ftmux.swapCalls != 1 {
 		t.Fatalf("swapCalls = %d, want 1", ftmux.swapCalls)
 	}
-	if ftmux.swapSources[0] != "%1" || ftmux.swapTargets[0] != "roost-test:0.0" {
-		t.Fatalf("swap = %q -> %q, want %%1 -> roost-test:0.0", ftmux.swapSources[0], ftmux.swapTargets[0])
+	if ftmux.swapSources[0] != "%1" || ftmux.swapTargets[0] != "roost-test:0.1" {
+		t.Fatalf("swap = %q -> %q, want %%1 -> roost-test:0.1", ftmux.swapSources[0], ftmux.swapTargets[0])
 	}
 }
 
 func TestRecoverActivePaneAtMain_IdentifiesMainTUIActive(t *testing.T) {
 	ftmux := newFakeTmux()
-	// 0.0 contains %1, which is the Main TUI
+	// 0.1 contains %1, which is the Main TUI
 	ftmux.mu.Lock()
 	ftmux.spawnPane = "%1"
 	ftmux.mu.Unlock()

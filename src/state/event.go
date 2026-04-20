@@ -25,6 +25,7 @@ const (
 	EventShutdown       = "shutdown"
 	EventDetach         = "detach"
 	EventPushDriver     = "push-driver"
+	EventActivateFrame  = "activate-frame"
 )
 
 // === IPC commands (caller → daemon) ===

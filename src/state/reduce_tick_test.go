@@ -90,7 +90,7 @@ func TestPaneDiedActiveSessionEmitsDeactivate(t *testing.T) {
 	id := SessionID("abc")
 	s.Sessions[id] = stubSession(id)
 	s.ActiveSession = id
-	_, effs := Reduce(s, EvPaneDied{Pane: "{sessionName}:0.0", OwnerFrameID: FrameID(id)})
+	_, effs := Reduce(s, EvPaneDied{Pane: "{sessionName}:0.1", OwnerFrameID: FrameID(id)})
 	if _, ok := findEff[EffDeactivateSession](effs); !ok {
 		t.Error("expected EffDeactivateSession when active session's pane dies")
 	}
@@ -122,14 +122,16 @@ func TestTmuxWindowVanishedInactiveSessionNoDeactivate(t *testing.T) {
 	}
 }
 
-// === mid-frame truncate ===
+// === sibling independence (new model) ===
 
-func TestMidFrameDeathTruncatesUpperFrames(t *testing.T) {
+// TestSiblingIndependence verifies that evicting a child frame leaves
+// all other frames (siblings and root) intact.
+func TestSiblingIndependence(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	rootID := FrameID("frame-root")
-	midID := FrameID("frame-mid")
-	topID := FrameID("frame-top")
+	child1ID := FrameID("frame-child1")
+	child2ID := FrameID("frame-child2")
 	s.Sessions[id] = Session{
 		ID:      id,
 		Project: "/foo",
@@ -137,44 +139,40 @@ func TestMidFrameDeathTruncatesUpperFrames(t *testing.T) {
 		Driver:  stubDriverState{},
 		Frames: []SessionFrame{
 			{ID: rootID, Project: "/foo", Command: "stub", Driver: stubDriverState{}},
-			{ID: midID, Project: "/foo", Command: "stub", Driver: stubDriverState{}},
-			{ID: topID, Project: "/foo", Command: "stub", Driver: stubDriverState{}},
+			{ID: child1ID, Project: "/foo", Command: "stub", Driver: stubDriverState{}},
+			{ID: child2ID, Project: "/foo", Command: "stub", Driver: stubDriverState{}},
 		},
 	}
 	s.ActiveSession = id
 
-	next, effs := Reduce(s, EvTmuxWindowVanished{FrameID: midID})
+	next, _ := Reduce(s, EvTmuxWindowVanished{FrameID: child1ID})
 
 	sess, ok := next.Sessions[id]
 	if !ok {
 		t.Fatal("session should remain when root frame survives")
 	}
-	if len(sess.Frames) != 1 {
-		t.Fatalf("frames = %d, want 1 (root only)", len(sess.Frames))
+	if len(sess.Frames) != 2 {
+		t.Fatalf("frames = %d, want 2 (root + child2)", len(sess.Frames))
+	}
+	found := false
+	for _, f := range sess.Frames {
+		if f.ID == child2ID {
+			found = true
+		}
+		if f.ID == child1ID {
+			t.Errorf("evicted child1 should not appear in frames")
+		}
+	}
+	if !found {
+		t.Error("child2 should survive after child1 is evicted")
 	}
 	if sess.Frames[0].ID != rootID {
-		t.Errorf("surviving frame = %q, want root %q", sess.Frames[0].ID, rootID)
-	}
-
-	// mid and top must both be cleaned up
-	if countEff[EffUnregisterPane](effs) != 2 {
-		t.Errorf("EffUnregisterPane count = %d, want 2 (mid + top)", countEff[EffUnregisterPane](effs))
-	}
-	if countEff[EffUnwatchFile](effs) != 2 {
-		t.Errorf("EffUnwatchFile count = %d, want 2 (mid + top)", countEff[EffUnwatchFile](effs))
-	}
-
-	// active session remains and should be reactivated to the new tail (root)
-	if next.ActiveSession != id {
-		t.Errorf("ActiveSession = %q, want %q", next.ActiveSession, id)
-	}
-	if _, ok := findEff[EffActivateSession](effs); !ok {
-		t.Error("expected EffActivateSession to reactivate root frame after mid truncation")
+		t.Errorf("root frame should survive, got %q", sess.Frames[0].ID)
 	}
 }
 
 // TestPaneDiedTopFrameReactivateBeforeKill asserts Fix A: when the active top
-// frame's pane dies, EffActivateSession (restore parent to 0.0) must precede
+// frame's pane dies, EffActivateSession (restore parent to 0.1) must precede
 // EffKillSessionWindow (tear down the top frame's window).
 // Reversing the order causes kill-window to destroy window 0.
 func TestPaneDiedTopFrameReactivateBeforeKill(t *testing.T) {
@@ -183,10 +181,11 @@ func TestPaneDiedTopFrameReactivateBeforeKill(t *testing.T) {
 	rootID := FrameID("frame-root")
 	topID := FrameID("frame-top")
 	s.Sessions[id] = Session{
-		ID:      id,
-		Project: "/project",
-		Command: "stub",
-		Driver:  stubDriverState{},
+		ID:            id,
+		Project:       "/project",
+		Command:       "stub",
+		Driver:        stubDriverState{},
+		ActiveFrameID: topID,
 		Frames: []SessionFrame{
 			{ID: rootID, Project: "/project", Command: "stub", Driver: stubDriverState{}},
 			{ID: topID, Project: "/project", Command: "stub", Driver: stubDriverState{}},
@@ -194,7 +193,7 @@ func TestPaneDiedTopFrameReactivateBeforeKill(t *testing.T) {
 	}
 	s.ActiveSession = id
 
-	next, effs := Reduce(s, EvPaneDied{Pane: "{sessionName}:0.0", OwnerFrameID: topID})
+	next, effs := Reduce(s, EvPaneDied{Pane: "{sessionName}:0.1", OwnerFrameID: topID})
 
 	activateIdx := -1
 	killIdx := -1
@@ -226,6 +225,45 @@ func TestPaneDiedTopFrameReactivateBeforeKill(t *testing.T) {
 	}
 	if next.ActiveSession != id {
 		t.Errorf("ActiveSession = %q, want %q", next.ActiveSession, id)
+	}
+}
+
+// TestMRUFallbackOnFrameDeath verifies that when the active child frame dies,
+// the previously active frame (via MRU) becomes the new active frame.
+func TestMRUFallbackOnFrameDeath(t *testing.T) {
+	s := New()
+	id := SessionID("sess-mru")
+	rootID := FrameID("frame-root")
+	child1ID := FrameID("frame-child1")
+	child2ID := FrameID("frame-child2")
+	s.Sessions[id] = Session{
+		ID:      id,
+		Project: "/foo",
+		Command: "stub",
+		Driver:  stubDriverState{},
+		Frames: []SessionFrame{
+			{ID: rootID, Project: "/foo", Command: "stub", Driver: stubDriverState{}},
+			{ID: child1ID, Project: "/foo", Command: "stub", Driver: stubDriverState{}},
+			{ID: child2ID, Project: "/foo", Command: "stub", Driver: stubDriverState{}},
+		},
+		ActiveFrameID: child2ID,
+		MRUFrameIDs:   []FrameID{child1ID, rootID},
+	}
+	s.ActiveSession = id
+
+	next, _ := Reduce(s, EvTmuxWindowVanished{FrameID: child2ID})
+
+	sess, ok := next.Sessions[id]
+	if !ok {
+		t.Fatal("session should survive child2 death")
+	}
+	if sess.ActiveFrameID != child1ID {
+		t.Errorf("ActiveFrameID = %q, want child1 via MRU fallback", sess.ActiveFrameID)
+	}
+	for _, f := range sess.Frames {
+		if f.ID == child2ID {
+			t.Error("dead child2 should not appear in frames")
+		}
 	}
 }
 

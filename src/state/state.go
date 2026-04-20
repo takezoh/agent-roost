@@ -57,6 +57,8 @@ type Session struct {
 	Project       string
 	CreatedAt     time.Time
 	Frames        []SessionFrame
+	ActiveFrameID FrameID   // explicit active frame; empty = use Frames[len-1]
+	MRUFrameIDs   []FrameID // MRU stack for fallback on active-frame death
 	Command       string
 	LaunchOptions LaunchOptions
 	Driver        DriverState

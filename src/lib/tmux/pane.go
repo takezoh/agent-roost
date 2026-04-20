@@ -11,6 +11,17 @@ func (c *Client) SplitWindow(target string, horizontal bool, percent int) error 
 	return err
 }
 
+// SplitWindowRows splits target vertically into a fixed-row pane.
+// When before is true (-b flag), the new pane appears above the target.
+func (c *Client) SplitWindowRows(target string, before bool, rows int) error {
+	args := []string{"split-window", "-v", "-l", fmt.Sprintf("%d", rows), "-t", target, "-d"}
+	if before {
+		args = append(args, "-b")
+	}
+	_, err := c.Run(args...)
+	return err
+}
+
 func (c *Client) SelectPane(target string) error {
 	_, err := c.Run("select-pane", "-t", target)
 	return err

@@ -185,7 +185,7 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) { //nolint:funlen
 		target := substitutePlaceholdersString(e.Pane, r.cfg.SessionName, r.cfg.RoostExe)
 		if alive, err := r.cfg.Tmux.PaneAlive(target); err == nil && !alive {
 			ev := state.EvPaneDied{Pane: e.Pane}
-			if e.Pane == "{sessionName}:0.0" {
+			if e.Pane == "{sessionName}:0.1" {
 				ev.OwnerFrameID = r.findPaneOwner(target)
 			}
 			r.Enqueue(ev)
@@ -377,11 +377,17 @@ func (r *Runtime) snapshotSessions() []SessionSnapshot {
 				DriverState:   bag,
 			})
 		}
+		mruIDs := make([]string, len(sess.MRUFrameIDs))
+		for i, id := range sess.MRUFrameIDs {
+			mruIDs[i] = string(id)
+		}
 		out = append(out, SessionSnapshot{
-			ID:        string(sess.ID),
-			Project:   sess.Project,
-			CreatedAt: sess.CreatedAt.UTC().Format(time.RFC3339),
-			Frames:    frames,
+			ID:            string(sess.ID),
+			Project:       sess.Project,
+			CreatedAt:     sess.CreatedAt.UTC().Format(time.RFC3339),
+			Frames:        frames,
+			ActiveFrameID: string(sess.ActiveFrameID),
+			MRUFrameIDs:   mruIDs,
 		})
 	}
 	return out

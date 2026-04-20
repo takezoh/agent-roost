@@ -41,15 +41,16 @@ func reduceTick(s State, e EvTick) (State, []Effect) {
 
 	// Active-pane death check: every tick (covers the no-active-frame case
 	// where the fast ticker skips; fast ticker handles the active-frame case).
-	effs = append(effs, EffCheckPaneAlive{Pane: "{sessionName}:0.0"})
+	effs = append(effs, EffCheckPaneAlive{Pane: "{sessionName}:0.1"})
 
 	// Control-pane health and window reconcile: every 5 ticks to reduce
 	// subprocess pressure. These are non-latency-sensitive: a respawn
 	// triggered 5 s late is indistinguishable from 1 s late for the user.
 	if e.N%5 == 0 {
 		effs = append(effs,
-			EffCheckPaneAlive{Pane: "{sessionName}:0.1"},
+			EffCheckPaneAlive{Pane: "{sessionName}:0.0"},
 			EffCheckPaneAlive{Pane: "{sessionName}:0.2"},
+			EffCheckPaneAlive{Pane: "{sessionName}:0.3"},
 			EffReconcileWindows{},
 		)
 	}
@@ -74,10 +75,9 @@ func stepConnectors(s State) (State, []Effect) {
 }
 
 // reducePaneDied handles a dead pane detected by EffCheckPaneAlive.
-//   - Control panes (0.1 / 0.2): respawn the TUI process
-//   - Pane 0.0 with no active session: respawn the main TUI
-//   - Pane 0.0 with active session: evict the dead session, kill its
-//     parked window, clear ActiveSession, then deactivate back to main
+//   - Panes 0.0/0.2/0.3 (header/log/sessions): always respawn via RespawnTarget
+//   - Pane 0.1 with no active session: main TUI crashed — respawn it
+//   - Pane 0.1 with active session: evict the owning session
 func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 	// Control pane respawn
 	if proc, ok := uiproc.RespawnTarget(e.Pane); ok {
@@ -86,14 +86,14 @@ func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 		}
 	}
 
-	// Pane 0.0 dead with no active session: main TUI crashed.
-	if e.Pane == "{sessionName}:0.0" && s.ActiveSession == "" {
+	// Pane 0.1 dead with no active session: main TUI crashed.
+	if e.Pane == "{sessionName}:0.1" && s.ActiveSession == "" {
 		return s, []Effect{
 			EffRespawnPane{Pane: e.Pane, Proc: uiproc.Main()},
 		}
 	}
 
-	// Pane 0.0 dead with active session: evict the owning session.
+	// Pane 0.1 dead with active session: evict the owning session.
 	// OwnerFrameID is set by the runtime; fall back to ActiveSession
 	// if the runtime couldn't identify the owner via pane_id.
 	ownerID := e.OwnerFrameID

@@ -64,6 +64,15 @@ type SessionInfo struct {
 	State          state.Status `json:"state,omitempty"`
 	StateChangedAt string       `json:"state_changed_at,omitempty"`
 	View           state.View   `json:"view"`
+	Frames         []FrameInfo  `json:"frames,omitempty"`
+	ActiveFrameID  string       `json:"active_frame_id,omitempty"`
+	IsActive       bool         `json:"is_active,omitempty"` // true when displayed in main pane
+}
+
+// FrameInfo is the per-frame wire payload for header tab rendering.
+type FrameInfo struct {
+	ID      string `json:"id"`
+	Command string `json:"command"`
 }
 
 // Name returns the display name for the session (basename of project).

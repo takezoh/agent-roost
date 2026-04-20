@@ -804,7 +804,7 @@ func TestPaneDiedEvictsSessionByOwnerID(t *testing.T) {
 	s.ActiveSession = "s1"
 
 	next, effs := Reduce(s, EvPaneDied{
-		Pane:         "{sessionName}:0.0",
+		Pane:         "{sessionName}:0.1",
 		OwnerFrameID: "s1",
 	})
 	if _, ok := next.Sessions["s1"]; ok {
@@ -820,7 +820,7 @@ func TestPaneDiedEvictsSessionByOwnerID(t *testing.T) {
 		t.Error("expected EffBroadcastSessionsChanged")
 	}
 	if _, ok := findEff[EffRespawnPane](effs); ok {
-		t.Error("should not respawn pane 0.0 directly after eviction")
+		t.Error("should not respawn pane 0.1 directly after eviction")
 	}
 }
 
@@ -832,7 +832,7 @@ func TestPaneDiedFallbackViaActiveSession(t *testing.T) {
 	s.ActiveSession = "s1"
 
 	next, effs := Reduce(s, EvPaneDied{
-		Pane:         "{sessionName}:0.0",
+		Pane:         "{sessionName}:0.1",
 		OwnerFrameID: "", // runtime couldn't identify owner
 	})
 	if _, ok := next.Sessions["s1"]; ok {
@@ -842,7 +842,7 @@ func TestPaneDiedFallbackViaActiveSession(t *testing.T) {
 		t.Error("expected EffKillSessionWindow")
 	}
 	if _, ok := findEff[EffRespawnPane](effs); ok {
-		t.Error("should not respawn pane 0.0 directly after fallback eviction")
+		t.Error("should not respawn pane 0.1 directly after fallback eviction")
 	}
 }
 
@@ -853,15 +853,15 @@ func TestPaneDiedNoActiveRespawnsMainTUI(t *testing.T) {
 	}
 
 	_, effs := Reduce(s, EvPaneDied{
-		Pane:         "{sessionName}:0.0",
+		Pane:         "{sessionName}:0.1",
 		OwnerFrameID: "",
 	})
 	respawn, ok := findEff[EffRespawnPane](effs)
 	if !ok {
 		t.Fatal("expected EffRespawnPane for main TUI")
 	}
-	if respawn.Pane != "{sessionName}:0.0" {
-		t.Errorf("pane = %q, want {sessionName}:0.0", respawn.Pane)
+	if respawn.Pane != "{sessionName}:0.1" {
+		t.Errorf("pane = %q, want {sessionName}:0.1", respawn.Pane)
 	}
 	if !reflect.DeepEqual(respawn.Proc, uiproc.Main()) {
 		t.Errorf("proc = %+v, want Main()", respawn.Proc)

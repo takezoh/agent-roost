@@ -80,6 +80,21 @@ func initGlyphs() {
 	}
 }
 
+func runHeaderTUI() error {
+	_, client, err := tuiBootstrap(tuiBootstrapOpts{Subscribe: true, AllowOffline: true})
+	if err != nil {
+		return err
+	}
+	if client != nil {
+		defer client.Close()
+	}
+	model := tui.NewHeaderModel(client)
+	if _, err := tea.NewProgram(model).Run(); err != nil {
+		return fmt.Errorf("header: %w", err)
+	}
+	return nil
+}
+
 func runMainTUI() error {
 	_, client, err := tuiBootstrap(tuiBootstrapOpts{Subscribe: true, AllowOffline: true})
 	if err != nil {

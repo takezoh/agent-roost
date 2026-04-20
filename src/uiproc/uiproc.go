@@ -14,25 +14,30 @@ import (
 // ExtraArgs are pre-shell-quoted because every spawn path (tmux
 // send-keys, respawn-pane, display-popup) feeds the string to a shell.
 type UIProcess struct {
-	Name       string   // "main" | "log" | "sessions" | "palette"
-	PaneSuffix string   // ":0.0" | ":0.1" | ":0.2" | "" (popup-only)
+	Name       string   // "header" | "main" | "log" | "sessions" | "palette"
+	PaneSuffix string   // ":0.0" | ":0.1" | ":0.2" | ":0.3" | "" (popup-only)
 	Subcommand string   // token after --tui flag
 	ExtraArgs  []string // pre-encoded CLI args (values shell-quoted)
 }
 
-// Main returns the UIProcess for the main TUI (pane 0.0).
+// Header returns the UIProcess for the header TUI (pane 0.0, 1-row frame tab bar).
+func Header() UIProcess {
+	return UIProcess{Name: "header", PaneSuffix: ":0.0", Subcommand: "header"}
+}
+
+// Main returns the UIProcess for the main TUI (pane 0.1).
 func Main() UIProcess {
-	return UIProcess{Name: "main", PaneSuffix: ":0.0", Subcommand: "main"}
+	return UIProcess{Name: "main", PaneSuffix: ":0.1", Subcommand: "main"}
 }
 
-// Log returns the UIProcess for the log viewer (pane 0.1).
+// Log returns the UIProcess for the log viewer (pane 0.2).
 func Log() UIProcess {
-	return UIProcess{Name: "log", PaneSuffix: ":0.1", Subcommand: "log"}
+	return UIProcess{Name: "log", PaneSuffix: ":0.2", Subcommand: "log"}
 }
 
-// Sessions returns the UIProcess for the session list (pane 0.2).
+// Sessions returns the UIProcess for the session list (pane 0.3).
 func Sessions() UIProcess {
-	return UIProcess{Name: "sessions", PaneSuffix: ":0.2", Subcommand: "sessions"}
+	return UIProcess{Name: "sessions", PaneSuffix: ":0.3", Subcommand: "sessions"}
 }
 
 // Palette returns the UIProcess for the command palette (popup).
@@ -58,14 +63,17 @@ func Palette(tool string, args map[string]string) UIProcess {
 }
 
 // RespawnTarget returns the UIProcess that should be respawned when the
-// given pane (in {sessionName}:0.N placeholder form) dies. Only handles
-// control panes 0.1 and 0.2; pane 0.0 requires an active-session check
-// that callers handle directly with Main().
+// given pane (in {sessionName}:0.N placeholder form) dies. Handles
+// control panes 0.0 (header), 0.2 (log), 0.3 (sessions); pane 0.1
+// (main TUI) requires an active-session check that callers handle
+// directly with Main().
 func RespawnTarget(pane string) (UIProcess, bool) {
 	switch {
-	case strings.HasSuffix(pane, ":0.1"):
-		return Log(), true
+	case strings.HasSuffix(pane, ":0.0"):
+		return Header(), true
 	case strings.HasSuffix(pane, ":0.2"):
+		return Log(), true
+	case strings.HasSuffix(pane, ":0.3"):
 		return Sessions(), true
 	}
 	return UIProcess{}, false

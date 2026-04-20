@@ -249,9 +249,6 @@ func (r *Runtime) closeConn(id state.ConnID) {
 // the proto.SessionInfo wire format. Calls each driver's View() pure
 // getter to fill the View payload.
 func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
-	// Sort by CreatedAt for stable card ordering — Go map iteration
-	// is randomized, so without sorting the TUI cards would shuffle
-	// on every broadcast.
 	sorted := make([]state.Session, 0, len(r.state.Sessions))
 	for _, sess := range r.state.Sessions {
 		sorted = append(sorted, sess)
@@ -261,45 +258,54 @@ func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
 	})
 	infos := make([]proto.SessionInfo, 0, len(sorted))
 	for _, sess := range sorted {
-		frame, ok := sessionRootFrame(sess)
-		if !ok {
-			continue
+		if info, ok := r.buildOneSessionInfo(sess); ok {
+			infos = append(infos, info)
 		}
-		drv := state.GetDriver(frame.Command)
-		var view state.View
-		if drv != nil {
-			view = drv.View(frame.Driver)
-		}
-		// When the frame stack has more than one frame, show the active
-		// frame's BorderTitle as a secondary chip on the card border.
-		if len(sess.Frames) > 1 {
-			if activeF, ok := sessionActiveFrame(sess); ok {
-				activeDrv := state.GetDriver(activeF.Command)
-				if activeDrv != nil {
-					activeView := activeDrv.View(activeF.Driver)
-					view.Card.BorderTitleSecondary = activeView.Card.BorderTitle
-				}
-			}
-		}
-		// Peer-inbox badge: set only when the driver hasn't already filled it.
-		if len(frame.PeerInbox) > 0 && view.Card.BorderBadge == "" {
-			view.Card.BorderBadge = fmt.Sprintf("💬 %d", len(frame.PeerInbox))
-		}
-		info := proto.SessionInfo{
-			ID:        string(sess.ID),
-			Project:   sess.Project,
-			Workspace: r.workspaceResolver.Resolve(sess.Project),
-			Command:   frame.Command,
-			CreatedAt: sess.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
-			State:     view.Status,
-			View:      view,
-		}
-		if !view.StatusChangedAt.IsZero() {
-			info.StateChangedAt = view.StatusChangedAt.Format("2006-01-02T15:04:05Z07:00")
-		}
-		infos = append(infos, info)
 	}
 	return infos, string(r.activeSession)
+}
+
+func (r *Runtime) buildOneSessionInfo(sess state.Session) (proto.SessionInfo, bool) {
+	frame, ok := sessionRootFrame(sess)
+	if !ok {
+		return proto.SessionInfo{}, false
+	}
+	drv := state.GetDriver(frame.Command)
+	var view state.View
+	if drv != nil {
+		view = drv.View(frame.Driver)
+	}
+	if len(sess.Frames) > 1 {
+		if activeF, ok := sessionActiveFrame(sess); ok {
+			if activeDrv := state.GetDriver(activeF.Command); activeDrv != nil {
+				view.Card.BorderTitleSecondary = activeDrv.View(activeF.Driver).Card.BorderTitle
+			}
+		}
+	}
+	if len(frame.PeerInbox) > 0 && view.Card.BorderBadge == "" {
+		view.Card.BorderBadge = fmt.Sprintf("💬 %d", len(frame.PeerInbox))
+	}
+	frames := make([]proto.FrameInfo, 0, len(sess.Frames))
+	for _, sf := range sess.Frames {
+		frames = append(frames, proto.FrameInfo{ID: string(sf.ID), Command: sf.Command})
+	}
+	activeF, _ := sessionActiveFrame(sess)
+	info := proto.SessionInfo{
+		ID:            string(sess.ID),
+		Project:       sess.Project,
+		Workspace:     r.workspaceResolver.Resolve(sess.Project),
+		Command:       frame.Command,
+		CreatedAt:     sess.CreatedAt.Format("2006-01-02T15:04:05Z07:00"),
+		State:         view.Status,
+		View:          view,
+		Frames:        frames,
+		ActiveFrameID: string(activeF.ID),
+		IsActive:      r.activeSession == sess.ID,
+	}
+	if !view.StatusChangedAt.IsZero() {
+		info.StateChangedAt = view.StatusChangedAt.Format("2006-01-02T15:04:05Z07:00")
+	}
+	return info, true
 }
 
 // buildConnectorInfos materializes the current connector states into

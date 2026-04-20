@@ -105,7 +105,7 @@ func (r *Runtime) ensureMainPaneID() (string, bool) {
 }
 
 func (r *Runtime) mainPaneTarget() string {
-	return r.cfg.SessionName + ":0.0"
+	return r.cfg.SessionName + ":0.1"
 }
 
 func isMissingPaneErr(err error) bool {
@@ -156,6 +156,13 @@ func sessionActiveFrame(sess state.Session) (state.SessionFrame, bool) {
 			CreatedAt:     sess.CreatedAt,
 			Driver:        sess.Driver,
 		}, true
+	}
+	if sess.ActiveFrameID != "" {
+		for _, f := range sess.Frames {
+			if f.ID == sess.ActiveFrameID {
+				return f, true
+			}
+		}
 	}
 	return sess.Frames[len(sess.Frames)-1], true
 }

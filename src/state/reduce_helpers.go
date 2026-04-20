@@ -50,7 +50,60 @@ func activeFrame(sess Session) (SessionFrame, bool) {
 	if len(sess.Frames) == 0 {
 		return rootFrame(sess)
 	}
+	if sess.ActiveFrameID != "" {
+		for _, f := range sess.Frames {
+			if f.ID == sess.ActiveFrameID {
+				return f, true
+			}
+		}
+	}
 	return sess.Frames[len(sess.Frames)-1], true
+}
+
+// pushMRU prepends frameID to sess.MRUFrameIDs, capped at 16 entries.
+func pushMRU(sess Session, frameID FrameID) Session {
+	if frameID == "" {
+		return sess
+	}
+	mru := make([]FrameID, 0, len(sess.MRUFrameIDs)+1)
+	mru = append(mru, frameID)
+	for _, id := range sess.MRUFrameIDs {
+		if id != frameID {
+			mru = append(mru, id)
+		}
+	}
+	if len(mru) > 16 {
+		mru = mru[:16]
+	}
+	sess.MRUFrameIDs = mru
+	return sess
+}
+
+// popMRU returns the first MRU frame that still exists in sess, or "" if none.
+// It also trims stale entries from the front of MRUFrameIDs.
+func popMRU(sess Session) (FrameID, Session) {
+	existing := make(map[FrameID]bool, len(sess.Frames))
+	for _, f := range sess.Frames {
+		existing[f.ID] = true
+	}
+	for i, id := range sess.MRUFrameIDs {
+		if existing[id] {
+			sess.MRUFrameIDs = append([]FrameID(nil), sess.MRUFrameIDs[i+1:]...)
+			return id, sess
+		}
+	}
+	sess.MRUFrameIDs = nil
+	return "", sess
+}
+
+// removeFrameByIndex removes the frame at position i, preserving all others.
+func removeFrameByIndex(sess Session, i int) (Session, SessionFrame) {
+	removed := sess.Frames[i]
+	frames := make([]SessionFrame, 0, len(sess.Frames)-1)
+	frames = append(frames, sess.Frames[:i]...)
+	frames = append(frames, sess.Frames[i+1:]...)
+	sess.Frames = frames
+	return sess, removed
 }
 
 func findFrameIndex(sess Session, frameID FrameID) int {
@@ -312,8 +365,12 @@ func postProcessConnectorEffect(s State, connName string, eff Effect) (Effect, S
 	}
 }
 
-// evictFrame removes all frames from frameID onward, updates state, and
-// returns the effects to clean up tmux and file-watch resources.
+// evictFrame removes a frame and its cleanup effects.
+//
+// When frameID is the root frame (index 0), all sibling frames are also
+// removed and the session is deleted — root death ends the session.
+// When frameID is a child frame (index > 0), only that frame is removed;
+// siblings are unaffected.
 //
 // killWindow controls whether EffKillSessionWindow is emitted per removed
 // frame. Pass true when the tmux window still exists (e.g. EvPaneDied);
@@ -321,42 +378,62 @@ func postProcessConnectorEffect(s State, connName string, eff Effect) (Effect, S
 //
 // Effect ordering: deactivate → reactivate → cleanup → persist → broadcast.
 // Reactivate precedes cleanup so that EffActivateSession swaps the parent
-// pane into 0.0 before EffKillSessionWindow destroys the old window —
+// pane into 0.1 before EffKillSessionWindow destroys the old window —
 // preventing kill-window from targeting window 0.
 func evictFrame(s State, frameID FrameID, killWindow bool) (State, []Effect, bool) {
 	sessID, sess, idx, ok := findFrame(s, frameID)
 	if !ok {
 		return s, nil, false
 	}
-	nextSess, removed := truncateFrames(sess, idx)
+	if idx == 0 {
+		return evictRootFrame(s, sessID, sess, killWindow)
+	}
+	return evictChildFrame(s, sessID, sess, idx, frameID, killWindow)
+}
+
+func evictRootFrame(s State, sessID SessionID, sess Session, killWindow bool) (State, []Effect, bool) {
+	_, allRemoved := truncateFrames(sess, 0)
 	s.Sessions = cloneSessions(s.Sessions)
-	if len(nextSess.Frames) == 0 {
-		delete(s.Sessions, sessID)
-	} else {
-		s.Sessions[sessID] = nextSess
-	}
-	var deactivate []Effect
-	var reactivate []Effect
-	if s.ActiveSession == sessID && len(nextSess.Frames) == 0 {
+	delete(s.Sessions, sessID)
+	var effs []Effect
+	if s.ActiveSession == sessID {
 		s.ActiveSession = ""
-		deactivate = []Effect{EffDeactivateSession{}}
-	} else if s.ActiveSession == sessID {
-		reactivate = []Effect{EffActivateSession{SessionID: sessID, Reason: EventSwitchSession}}
+		effs = append(effs, EffDeactivateSession{})
 	}
-	var cleanup []Effect
-	for _, frame := range removed {
+	for _, frame := range allRemoved {
 		if killWindow {
-			cleanup = append(cleanup, EffKillSessionWindow{FrameID: frame.ID})
+			effs = append(effs, EffKillSessionWindow{FrameID: frame.ID})
 		}
-		cleanup = append(cleanup,
-			EffUnregisterPane{FrameID: frame.ID},
-			EffUnwatchFile{FrameID: frame.ID},
-		)
+		effs = append(effs, EffUnregisterPane{FrameID: frame.ID}, EffUnwatchFile{FrameID: frame.ID})
 	}
-	deactivate = append(deactivate, reactivate...)
-	deactivate = append(deactivate, cleanup...)
-	deactivate = append(deactivate, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
-	return s, deactivate, true
+	effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
+	return s, effs, true
+}
+
+func evictChildFrame(s State, sessID SessionID, sess Session, idx int, frameID FrameID, killWindow bool) (State, []Effect, bool) {
+	wasActive := sess.ActiveFrameID == frameID
+	sess, removed := removeFrameByIndex(sess, idx)
+	if wasActive {
+		fallback, next := popMRU(sess)
+		sess = next
+		if fallback == "" {
+			fallback = sess.Frames[0].ID
+		}
+		sess.ActiveFrameID = fallback
+	}
+	s.Sessions = cloneSessions(s.Sessions)
+	s.Sessions[sessID] = sess
+
+	var effs []Effect
+	if s.ActiveSession == sessID && wasActive {
+		effs = append(effs, EffActivateSession{SessionID: sessID, Reason: EventSwitchSession})
+	}
+	if killWindow {
+		effs = append(effs, EffKillSessionWindow{FrameID: removed.ID})
+	}
+	effs = append(effs, EffUnregisterPane{FrameID: removed.ID}, EffUnwatchFile{FrameID: removed.ID})
+	effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
+	return s, effs, true
 }
 
 // === ErrCode constants used by reducers ===

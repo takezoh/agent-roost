@@ -132,6 +132,16 @@ func (c *Client) Detach() error {
 	return err
 }
 
+// ActivateFrame switches the active frame for a session. The main pane
+// swaps to the target frame's tmux pane.
+func (c *Client) ActivateFrame(sessionID, frameID string) error {
+	_, err := sendJSONEvent[RespOK](c, state.EventActivateFrame, state.ActivateFrameParams{
+		SessionID: sessionID,
+		FrameID:   frameID,
+	})
+	return err
+}
+
 // PushDriver asks the daemon to push a new driver frame onto the given session.
 // input is the stdin content to pipe into the spawned command; nil means no stdin.
 func (c *Client) PushDriver(sessionID, command string, input []byte) error {

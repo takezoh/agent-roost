@@ -154,7 +154,7 @@ func (f *fakeTmuxBackend) PaneID(target string) (string, error) {
 		}
 		return id, nil
 	}
-	if target == "roost-test:0.0" && f.spawnPane != "" {
+	if target == "roost-test:0.1" && f.spawnPane != "" {
 		return f.spawnPane, nil
 	}
 	return "%main", nil
@@ -446,7 +446,7 @@ func TestRuntimeTickFiresHealthChecks(t *testing.T) {
 
 func TestRuntimeRespawnsDeadPane(t *testing.T) {
 	tmux := newFakeTmux()
-	tmux.alive["roost-test:0.1"] = false
+	tmux.alive["roost-test:0.2"] = false // pane 0.2 is the log pane
 	r := New(Config{
 		SessionName:  "roost-test",
 		RoostExe:     "/usr/bin/roost",
@@ -505,8 +505,8 @@ func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
 	if tmux.swapCalls != 1 {
 		t.Fatalf("swapCalls = %d, want 1", tmux.swapCalls)
 	}
-	if tmux.swapSources[0] != "%3" || tmux.swapTargets[0] != "roost-test:0.0" {
-		t.Fatalf("swap = %q -> %q, want %%3 -> roost-test:0.0", tmux.swapSources[0], tmux.swapTargets[0])
+	if tmux.swapSources[0] != "%3" || tmux.swapTargets[0] != "roost-test:0.1" {
+		t.Fatalf("swap = %q -> %q, want %%3 -> roost-test:0.1", tmux.swapSources[0], tmux.swapTargets[0])
 	}
 	if r.sessionPanes["frame-1"] != "%3" {
 		t.Errorf("sessionPanes[frame-1] = %q, want %%3", r.sessionPanes["frame-1"])
@@ -518,7 +518,7 @@ func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
 	if len(tmux.inspectCalls) != 3 {
 		t.Fatalf("inspectCalls = %d, want 3", len(tmux.inspectCalls))
 	}
-	wantTargets := []string{"roost-test:0.0", "%3", "roost-test:0.0"}
+	wantTargets := []string{"roost-test:0.1", "%3", "roost-test:0.1"}
 	for i, want := range wantTargets {
 		if tmux.inspectCalls[i] != want {
 			t.Fatalf("inspectCalls[%d] = %q, want %q", i, tmux.inspectCalls[i], want)
@@ -690,7 +690,7 @@ func TestRuntimeStopSession(t *testing.T) {
 
 func TestFastTickDetectsActivePaneDeath(t *testing.T) {
 	tmux := newFakeTmux()
-	tmux.alive["roost-test:0.0"] = false // mark pane 0.0 as dead
+	tmux.alive["roost-test:0.1"] = false // mark pane 0.1 as dead
 	r := New(Config{
 		SessionName:      "roost-test",
 		TickInterval:     10 * time.Second,
@@ -737,7 +737,7 @@ func TestFastTickSkipsWhenNoActiveFrame(t *testing.T) {
 
 func TestFastTickIgnoresAliveActivePane(t *testing.T) {
 	tmux := newFakeTmux()
-	tmux.alive["roost-test:0.0"] = true
+	tmux.alive["roost-test:0.1"] = true
 	r := New(Config{
 		SessionName:      "roost-test",
 		TickInterval:     10 * time.Second,
@@ -1087,7 +1087,7 @@ func TestMonitorParkedPanesTracksInactiveOnly(t *testing.T) {
 }
 
 // TestPopTopFrameSwapBeforeKill verifies Fix A: when the active top frame's pane
-// dies, SwapPane (restoring the parent pane to 0.0) is called before
+// dies, SwapPane (restoring the parent pane to 0.1) is called before
 // KillPaneWindow (tearing down the top frame's window).
 func TestPopTopFrameSwapBeforeKill(t *testing.T) {
 	tmux := newFakeTmux()
@@ -1104,10 +1104,11 @@ func TestPopTopFrameSwapBeforeKill(t *testing.T) {
 	topFrameID := state.FrameID("frame-top")
 
 	r.state.Sessions[sid] = state.Session{
-		ID:      sid,
-		Project: "/project",
-		Command: "shell",
-		Driver:  drv.NewState(time.Now()),
+		ID:            sid,
+		Project:       "/project",
+		Command:       "shell",
+		Driver:        drv.NewState(time.Now()),
+		ActiveFrameID: topFrameID,
 		Frames: []state.SessionFrame{
 			{ID: rootFrameID, Project: "/project", Command: "shell", Driver: drv.NewState(time.Now())},
 			{ID: topFrameID, Project: "/project", Command: "shell", Driver: drv.NewState(time.Now())},
@@ -1122,7 +1123,7 @@ func TestPopTopFrameSwapBeforeKill(t *testing.T) {
 
 	// Drive the pane-died event directly (no goroutines needed).
 	next, effs := state.Reduce(r.state, state.EvPaneDied{
-		Pane:         "{sessionName}:0.0",
+		Pane:         "{sessionName}:0.1",
 		OwnerFrameID: topFrameID,
 	})
 	r.state = next

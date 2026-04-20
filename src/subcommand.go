@@ -56,6 +56,7 @@ func runCommand(args []string, stdout io.Writer) error {
 }
 
 var tuiHandlers = map[string]func([]string) error{
+	"header":   func(_ []string) error { return runHeaderTUIFn() },
 	"main":     func(_ []string) error { return runMainTUIFn() },
 	"sessions": func(_ []string) error { return runSessionListFn() },
 	"log":      func(_ []string) error { return runLogViewerFn() },

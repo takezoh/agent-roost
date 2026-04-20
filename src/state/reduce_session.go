@@ -67,15 +67,17 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, err.Error())}
 	}
 
+	rootFrameID := allocFrameID()
 	session := Session{
 		ID:            sessID,
 		Project:       p.Project,
 		CreatedAt:     s.Now,
+		ActiveFrameID: rootFrameID,
 		Command:       command,
 		LaunchOptions: p.Options,
 		Driver:        driverState,
 		Frames: []SessionFrame{{
-			ID:            allocFrameID(),
+			ID:            rootFrameID,
 			Project:       p.Project,
 			Command:       command,
 			LaunchOptions: p.Options,
@@ -216,6 +218,8 @@ func pushDriverInternal(s State, sid SessionID, project, rawCommand string, opti
 		CreatedAt:     s.Now,
 		Driver:        driverState,
 	}
+	sess = pushMRU(sess, sess.ActiveFrameID)
+	sess.ActiveFrameID = frame.ID
 	sess.Frames = append(append([]SessionFrame(nil), sess.Frames...), frame)
 	s.Sessions = cloneSessions(s.Sessions)
 	s.Sessions[sid] = sess
@@ -271,7 +275,7 @@ func reduceTmuxPaneSpawned(s State, e EvTmuxPaneSpawned) (State, []Effect) {
 	effs := []Effect{
 		EffRegisterPane{FrameID: e.FrameID, PaneTarget: e.PaneTarget},
 		EffActivateSession{SessionID: e.SessionID, Reason: EventCreateSession},
-		EffSelectPane{Target: "{sessionName}:0.0"},
+		EffSelectPane{Target: "{sessionName}:0.1"},
 		EffSyncStatusLine{Line: ""},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
@@ -369,7 +373,7 @@ func reduceSwitchSession(s State, connID ConnID, reqID string, p SwitchSessionPa
 
 	return s, []Effect{
 		EffActivateSession{SessionID: sid, Reason: EventSwitchSession},
-		EffSelectPane{Target: "{sessionName}:0.0"},
+		EffSelectPane{Target: "{sessionName}:0.1"},
 		EffSyncStatusLine{Line: ""},
 		EffBroadcastSessionsChanged{},
 		okResp(connID, reqID, ActiveSessionReply{ActiveSessionID: string(sid)}),
