@@ -74,7 +74,7 @@ const (
 // HandleTick common implementation for drivers. Completes StartDir,
 // skips heavy work for Idle/Stopped sessions, refreshes branch info
 // when active, and checks for hang conditions when running in the background.
-func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []state.Effect {
+func (c *CommonState) HandleTick(e state.DEvTick, hasActiveSubagents bool) []state.Effect { //nolint:funlen
 	c.Project = e.Project
 	if c.StartDir == "" {
 		c.StartDir = e.Project
@@ -191,23 +191,59 @@ func (c *CommonState) ResetHangDetection() {
 	c.PaneHash = ""
 }
 
+// hookPreamble is the common subset of hook-payload fields every driver needs
+// to validate and absorb before its own logic runs.
+type hookPreamble struct {
+	SessionID      string
+	HookEventName  string
+	Cwd            string
+	TranscriptPath string
+}
+
+// applyHookPreamble validates ordering and updates common fields.
+// Returns false if the hook should be silently dropped.
+// Callers should apply driver-specific session-ID fields themselves.
+func (c *CommonState) applyHookPreamble(p hookPreamble, e state.DEvHook) bool {
+	if p.SessionID == "" {
+		return false
+	}
+	if !e.Timestamp.IsZero() && !e.Timestamp.After(c.LastHookAt) {
+		return false
+	}
+	c.ResetHangDetection()
+	c.LastHookEvent = p.HookEventName
+	if !e.Timestamp.IsZero() {
+		c.LastHookAt = e.Timestamp
+	}
+	if e.RoostSessionID != "" {
+		c.RoostSessionID = e.RoostSessionID
+	}
+	if p.Cwd != "" {
+		c.StartDir = p.Cwd
+	}
+	if p.TranscriptPath != "" {
+		c.TranscriptPath = p.TranscriptPath
+	}
+	return true
+}
+
 // Common persistence keys shared across drivers.
 const (
-	keyRoostSessionID     = "roost_session_id"
-	keyStartDir           = "start_dir"
-	keyTranscriptPath     = "transcript_path"
-	keyWorktreeName       = "worktree_name"
-	keyStatus             = "status"
-	keyStatusChangedAt    = "status_changed_at"
-	keyBranchTag          = "branch_tag"
-	keyBranchBG           = "branch_bg"
-	keyBranchFG           = "branch_fg"
-	keyBranchTarget       = "branch_target"
-	keyBranchAt           = "branch_at"
-	keyBranchIsWorktree   = "branch_is_worktree"
-	keyBranchParentBranch = "branch_parent_branch"
-	keySummary            = "summary"
-	keyTitle              = "title"
+	keyRoostSessionID       = "roost_session_id"
+	keyStartDir             = "start_dir"
+	keyTranscriptPath       = "transcript_path"
+	keyWorktreeName         = "worktree_name"
+	keyStatus               = "status"
+	keyStatusChangedAt      = "status_changed_at"
+	keyBranchTag            = "branch_tag"
+	keyBranchBG             = "branch_bg"
+	keyBranchFG             = "branch_fg"
+	keyBranchTarget         = "branch_target"
+	keyBranchAt             = "branch_at"
+	keyBranchIsWorktree     = "branch_is_worktree"
+	keyBranchParentBranch   = "branch_parent_branch"
+	keySummary              = "summary"
+	keyTitle                = "title"
 	keyLastPrompt           = "last_prompt"
 	keyLastAssistantMessage = "last_assistant_message"
 	keyLastHookEvent        = "last_hook_event"
@@ -217,7 +253,7 @@ const (
 )
 
 // PersistCommon writes the shared fields of CommonState into the persistence bag.
-func (c *CommonState) PersistCommon(out map[string]string) {
+func (c *CommonState) PersistCommon(out map[string]string) { //nolint:funlen
 	if c.RoostSessionID != "" {
 		out[keyRoostSessionID] = c.RoostSessionID
 	}

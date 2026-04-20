@@ -114,7 +114,6 @@ func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 	return s, effs
 }
 
-
 // reduceTmuxWindowVanished evicts a session whose tmux window has
 // disappeared (agent process exited) and broadcasts the new list.
 // If the vanished session was active, deactivation restores the main TUI.

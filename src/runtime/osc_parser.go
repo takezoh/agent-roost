@@ -30,7 +30,8 @@ func (p *oscParser) feed(data []byte) []oscSeq {
 
 		case p.inOsc:
 			isST := b == 0x5C && len(p.buf) > 0 && p.buf[len(p.buf)-1] == 0x1B
-			if b == 0x07 || isST {
+			switch {
+			case b == 0x07 || isST:
 				raw := string(p.buf)
 				if isST {
 					raw = raw[:len(raw)-1] // strip the leading ESC of ST
@@ -40,11 +41,11 @@ func (p *oscParser) feed(data []byte) []oscSeq {
 				}
 				p.buf = p.buf[:0]
 				p.inOsc = false
-			} else if len(p.buf) >= 4096 {
+			case len(p.buf) >= 4096:
 				// Guard against unterminated OSC sequences consuming unbounded memory.
 				p.buf = p.buf[:0]
 				p.inOsc = false
-			} else {
+			default:
 				p.buf = append(p.buf, b)
 			}
 

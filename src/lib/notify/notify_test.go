@@ -132,8 +132,8 @@ func TestNotifier_Send_NoPowerShell(t *testing.T) {
 func TestNotifySendArgs(t *testing.T) {
 	args := notifySendArgs("My Title", "Some body")
 	wants := map[string]bool{
-		"--app-name=roost":      false,
-		"--icon=agent-roost":    false,
+		"--app-name=roost":       false,
+		"--icon=agent-roost":     false,
 		"--category=im.received": false,
 	}
 	for _, a := range args {

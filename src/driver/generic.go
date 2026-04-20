@@ -61,7 +61,7 @@ func (GenericDriver) StartDir(s state.DriverState) string {
 	if !ok {
 		return ""
 	}
-	return gs.CommonState.StartDir
+	return gs.StartDir
 }
 
 func (GenericDriver) WithStartDir(s state.DriverState, dir string) state.DriverState {
@@ -69,7 +69,7 @@ func (GenericDriver) WithStartDir(s state.DriverState, dir string) state.DriverS
 	if !ok {
 		return s
 	}
-	gs.CommonState.StartDir = dir
+	gs.StartDir = dir
 	return gs
 }
 
@@ -150,7 +150,7 @@ func (d GenericDriver) Restore(bag map[string]string, now time.Time) state.Drive
 }
 
 // Step is the pure reducer for the generic driver.
-func (d GenericDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {
+func (d GenericDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) { //nolint:funlen
 	gs, ok := prev.(GenericState)
 	if !ok {
 		gs = d.NewState(time.Time{}).(GenericState)

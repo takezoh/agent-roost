@@ -97,7 +97,7 @@ func Load() (*Config, error) {
 
 func DefaultConfig() *Config {
 	return &Config{
-		Theme:    "default",
+		Theme: "default",
 		Log:   LogConfig{Level: "info"},
 		Tmux: TmuxConfig{
 			SessionName:         "roost",
@@ -126,7 +126,7 @@ func ConfigDirPath() string {
 
 func EnsureConfigDir() string {
 	dir := ConfigDirPath()
-	os.MkdirAll(dir, 0o755)
+	_ = os.MkdirAll(dir, 0o755)
 	return dir
 }
 

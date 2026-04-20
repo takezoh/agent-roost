@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"encoding/json"
 	"log/slog"
 	"strings"
 	"time"
@@ -148,7 +147,7 @@ func (r *Runtime) ReconcileOrphans() {
 }
 
 // RecoverActivePaneAtMain restores a consistent main-pane owner on warm start.
-func (r *Runtime) RecoverActivePaneAtMain() {
+func (r *Runtime) RecoverActivePaneAtMain() { //nolint:funlen
 	paneAtZero, err := r.cfg.Tmux.PaneID(r.mainPaneTarget())
 	if err != nil {
 		slog.Debug("bootstrap: could not get pane id at 0.0", "err", err)
@@ -359,16 +358,4 @@ func (r *Runtime) RespawnMainPane() {
 
 	slog.Info("bootstrap: respawning main TUI", "target", target)
 	_ = r.cfg.Tmux.RespawnPane(target, uiproc.Main().Command(r.cfg.RoostExe))
-}
-
-// decodePersistedState parses the JSON-encoded persisted state blob.
-func decodePersistedState(s string) map[string]string {
-	if s == "" {
-		return nil
-	}
-	var bag map[string]string
-	if err := json.Unmarshal([]byte(s), &bag); err != nil {
-		return nil
-	}
-	return bag
 }

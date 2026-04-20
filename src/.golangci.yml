@@ -1,0 +1,133 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    # Core correctness
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+    # Code quality
+    - gocritic
+    - revive
+    - misspell
+    - unconvert
+    - unparam
+    - copyloopvar
+    # Design principles
+    - depguard
+    - forbidigo
+    # Function length (AGENTS.md: functions ≤ 50 lines)
+    - funlen
+
+  settings:
+    funlen:
+      lines: 50
+      statements: 99999
+      ignore-comments: true
+
+    forbidigo:
+      # Disable default patterns (^fmt\.Print.*$ etc.) — CLI command files intentionally print
+      forbid-default-patterns: false
+      patterns:
+        - pattern: 'sync\.Mutex'
+          pkg: github\.com/takezoh/agent-roost/state
+          msg: "state/ is a pure functional core — no mutexes allowed"
+        - pattern: 'sync\.RWMutex'
+          pkg: github\.com/takezoh/agent-roost/state
+          msg: "state/ is a pure functional core — no mutexes allowed"
+      # NOTE: "go" keyword (goroutines) cannot be detected by forbidigo because it matches
+      # CallExpr nodes only; GoStmt is invisible to it. The "no goroutines in state/" rule
+      # is enforced by code review. A custom staticcheck analyzer would be needed to automate it.
+
+    depguard:
+      rules:
+        state-pure-core:
+          files:
+            - "**/state/**"
+          deny:
+            - pkg: github.com/takezoh/agent-roost/driver
+              desc: "state/ must not import driver (pure functional core)"
+            - pkg: github.com/takezoh/agent-roost/connector
+              desc: "state/ must not import connector (pure functional core)"
+            - pkg: github.com/takezoh/agent-roost/lib
+              desc: "state/ must not import lib (pure functional core)"
+            - pkg: github.com/takezoh/agent-roost/runtime
+              desc: "state/ must not import runtime (pure functional core)"
+            - pkg: github.com/takezoh/agent-roost/tui
+              desc: "state/ must not import tui (pure functional core)"
+            - pkg: github.com/takezoh/agent-roost/proto
+              desc: "state/ must not import proto (pure functional core)"
+        tui-no-driver-connector-lib:
+          files:
+            - "**/tui/**"
+          deny:
+            - pkg: github.com/takezoh/agent-roost/driver
+              desc: "tui/ must not import driver (see ARCHITECTURE.md)"
+            - pkg: github.com/takezoh/agent-roost/connector
+              desc: "tui/ must not import connector (see ARCHITECTURE.md)"
+            - pkg: github.com/takezoh/agent-roost/lib
+              desc: "tui/ must not import lib (see ARCHITECTURE.md)"
+        worker-no-driver-connector-lib:
+          files:
+            - "**/runtime/worker/**"
+          deny:
+            - pkg: github.com/takezoh/agent-roost/driver
+              desc: "runtime/worker must not import driver (see ARCHITECTURE.md)"
+            - pkg: github.com/takezoh/agent-roost/connector
+              desc: "runtime/worker must not import connector (see ARCHITECTURE.md)"
+            - pkg: github.com/takezoh/agent-roost/lib
+              desc: "runtime/worker must not import lib (see ARCHITECTURE.md)"
+        proto-isolation:
+          files:
+            - "**/proto/**"
+          deny:
+            - pkg: github.com/takezoh/agent-roost/driver
+              desc: "proto/ must not import driver (see ARCHITECTURE.md)"
+            - pkg: github.com/takezoh/agent-roost/connector
+              desc: "proto/ must not import connector (see ARCHITECTURE.md)"
+            - pkg: github.com/takezoh/agent-roost/lib
+              desc: "proto/ must not import lib (see ARCHITECTURE.md)"
+            - pkg: github.com/takezoh/agent-roost/runtime
+              desc: "proto/ must not import runtime (see ARCHITECTURE.md)"
+            - pkg: github.com/takezoh/agent-roost/tui
+              desc: "proto/ must not import tui (see ARCHITECTURE.md)"
+
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+        - name: unexported-return
+          disabled: true
+        - name: unused-parameter
+          disabled: true
+
+  exclusions:
+    rules:
+      # Test files: funlen and errcheck are relaxed in tests
+      - linters: [funlen]
+        path: "_test\\.go$"
+      - linters: [errcheck]
+        path: "_test\\.go$"
+      # Deferred close is idiomatic — errors are unrecoverable at that point
+      - linters: [errcheck]
+        text: "Error return value of `.*\\.Close` is not checked"
+      # fmt.Fprintf/Fprintln to os.Stderr/Stdout — write errors are irrelevant for CLI output
+      - linters: [errcheck]
+        text: "Error return value of `fmt\\.Fp" # covers Fprintf, Fprintln
+      # hugeParam false positives on value-type receiver structs (by design)
+      - linters: [gocritic]
+        text: "hugeParam:"
+      # CLI command handlers in lib/*/command.go intentionally print to stdout
+      - linters: [forbidigo]
+        path: "lib/.+/command\\.go$"
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

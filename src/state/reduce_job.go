@@ -36,7 +36,7 @@ func reduceJobResult(s State, e EvJobResult) (State, []Effect) {
 	}
 
 	// Driver job — route to the session's driver Step.
-	next, effs, _, ok := stepDriver(s, meta.FrameID, DEvJobResult{
+	next, effs, ok := stepDriver(s, meta.FrameID, DEvJobResult{
 		Result: e.Result,
 		Err:    e.Err,
 		Now:    s.Now,
@@ -50,7 +50,7 @@ func reduceJobResult(s State, e EvJobResult) (State, []Effect) {
 	return s, effs
 }
 
-func handlePendingCreate(s State, pending PendingCreate, e EvJobResult) (State, []Effect) {
+func handlePendingCreate(s State, pending PendingCreate, e EvJobResult) (State, []Effect) { //nolint:funlen
 	s.PendingCreates = clonePendingCreates(s.PendingCreates)
 	delete(s.PendingCreates, e.JobID)
 	s.Jobs = cloneJobs(s.Jobs)
@@ -116,7 +116,7 @@ func reduceFileChanged(s State, e EvFileChanged) (State, []Effect) {
 	if _, _, _, ok := findFrame(s, e.FrameID); !ok {
 		return s, nil
 	}
-	next, effs, _, ok := stepDriver(s, e.FrameID, DEvFileChanged{Path: e.Path})
+	next, effs, ok := stepDriver(s, e.FrameID, DEvFileChanged{Path: e.Path})
 	if !ok {
 		return s, nil
 	}

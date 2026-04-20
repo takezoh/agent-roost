@@ -97,7 +97,7 @@ func TestGeminiHangDetection(t *testing.T) {
 
 	// 3. Tick after threshold should trigger Idle
 	e.Now = now.Add(commonHangThreshold + 10*time.Second)
-	next, effs, _ = d.Step(gs, e)
+	next, _, _ = d.Step(gs, e)
 	gs = next.(GeminiState)
 
 	if gs.Status != state.StatusStopped {
@@ -132,7 +132,6 @@ func TestGeminiHandleCapturePaneResultError(t *testing.T) {
 		t.Error("CaptureInFlight should be cleared even on error")
 	}
 }
-
 
 func TestGeminiViewIncludesBranchTag(t *testing.T) {
 	d := NewGeminiDriver("/tmp/events")

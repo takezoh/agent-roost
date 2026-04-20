@@ -194,11 +194,12 @@ func (m *LogModel) appendContent(newContent string) {
 		return
 	}
 	var styled string
-	if m.isRenderedTab() {
+	switch {
+	case m.isRenderedTab():
 		styled = m.renderer.Append([]byte(newContent))
-	} else if m.isLogTab() {
+	case m.isLogTab():
 		styled = colorizeLines(newContent)
-	} else {
+	default:
 		styled = newContent
 	}
 	if tab.buf != "" {

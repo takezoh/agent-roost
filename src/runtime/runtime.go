@@ -11,7 +11,6 @@ package runtime
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"net"
 	"sync/atomic"
@@ -195,7 +194,7 @@ func (r *Runtime) StartTapsForRestoredFrames() {
 // Internal events (connOpen, connClose) bypass state.Reduce and go
 // straight to dispatchInternal — they manipulate runtime fields the
 // reducer can't see (the conns map, the next conn id counter).
-func (r *Runtime) Run(ctx context.Context) error {
+func (r *Runtime) Run(ctx context.Context) error { //nolint:funlen
 	defer close(r.done)
 	defer r.workers.Stop()
 	defer r.shutdownIPC()
@@ -315,6 +314,3 @@ func (r *Runtime) sessionPaneForSession(sid state.SessionID) string {
 	}
 	return ""
 }
-
-// errClosed is returned when the runtime has already shut down.
-var errClosed = errors.New("runtime: closed")

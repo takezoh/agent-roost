@@ -151,4 +151,3 @@ func TestRegisterMCPServer_PreservesExistingKeys(t *testing.T) {
 		t.Error("mcpServers was not written")
 	}
 }
-

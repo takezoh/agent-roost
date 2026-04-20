@@ -3,7 +3,10 @@
 ```sh
 make build          # Build Go sources under src/ → ./roost
 make vet            # go vet ./...
-cd src && go test ./...  # Run all tests
+make lint           # golangci-lint (depguard, funlen, staticcheck, etc.)
+cd src && go test ./...          # Run all tests
+cd src && go test ./path/to/pkg  # Run tests for a specific package
+cd src && go test -run TestName ./...  # Run a specific test
 ```
 
 ## Rules

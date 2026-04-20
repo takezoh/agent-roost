@@ -14,9 +14,9 @@ type pushStubState struct {
 // pushDriverStub emits EffPushDriver from its hook handler.
 type pushDriverStub struct{}
 
-func (pushDriverStub) Name() string        { return "pushstub" }
-func (pushDriverStub) DisplayName() string { return "pushstub" }
-func (pushDriverStub) Status(s DriverState) Status { return StatusIdle }
+func (pushDriverStub) Name() string                       { return "pushstub" }
+func (pushDriverStub) DisplayName() string                { return "pushstub" }
+func (pushDriverStub) Status(s DriverState) Status        { return StatusIdle }
 func (pushDriverStub) NewState(now time.Time) DriverState { return pushStubState{} }
 func (pushDriverStub) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string, options LaunchOptions) (LaunchPlan, error) {
 	return LaunchPlan{Command: baseCommand, StartDir: project}, nil
@@ -45,9 +45,9 @@ func init() {
 // bogusSessionDriverStub emits EffPushDriver with a non-existent SessionID.
 type bogusSessionDriverStub struct{}
 
-func (bogusSessionDriverStub) Name() string        { return "bogussessionstub" }
-func (bogusSessionDriverStub) DisplayName() string { return "bogussessionstub" }
-func (bogusSessionDriverStub) Status(s DriverState) Status { return StatusIdle }
+func (bogusSessionDriverStub) Name() string                       { return "bogussessionstub" }
+func (bogusSessionDriverStub) DisplayName() string                { return "bogussessionstub" }
+func (bogusSessionDriverStub) Status(s DriverState) Status        { return StatusIdle }
 func (bogusSessionDriverStub) NewState(now time.Time) DriverState { return pushStubState{} }
 func (bogusSessionDriverStub) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string, options LaunchOptions) (LaunchPlan, error) {
 	return LaunchPlan{Command: baseCommand, StartDir: project}, nil

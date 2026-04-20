@@ -175,7 +175,7 @@ func (r WebResult) Summary() string {
 	return "fetched"
 }
 
-func parseWebResult(name string, raw json.RawMessage) WebResult {
+func parseWebResult(_ string, raw json.RawMessage) WebResult {
 	var v struct {
 		URL     string `json:"url"`
 		Query   string `json:"query"`

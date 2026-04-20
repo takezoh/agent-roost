@@ -286,8 +286,3 @@ func (b *RealTmuxBackend) SendEnter(target string) error {
 // startup for the operations that aren't part of TmuxBackend
 // (Attach, CreateSession, SetOption on session-scoped keys).
 func (b *RealTmuxBackend) Underlying() *tmux.Client { return b.client }
-
-// errSpawn wraps a spawn error with the session name for context.
-func errSpawn(name string, err error) error {
-	return fmt.Errorf("tmux spawn %s: %w", name, err)
-}

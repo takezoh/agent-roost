@@ -13,6 +13,7 @@ import (
 	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/features"
 	"github.com/takezoh/agent-roost/lib/git"
+	"github.com/takezoh/agent-roost/lib/openurl"
 	"github.com/takezoh/agent-roost/logger"
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/tools"
@@ -47,7 +48,7 @@ func tuiBootstrap(opts tuiBootstrapOpts) (*config.Config, *proto.Client, error) 
 	}
 
 	if opts.Subscribe {
-		client.Subscribe()
+		_ = client.Subscribe()
 	}
 	return cfg, client, nil
 }
@@ -102,6 +103,7 @@ func runLogViewer() error {
 	if client != nil {
 		defer client.Close()
 	}
+	tui.SetOpenProject(openurl.Open)
 	model := tui.NewLogModel(logger.LogFilePath(), client)
 	if _, err := tea.NewProgram(model).Run(); err != nil {
 		return fmt.Errorf("log: %w", err)
@@ -122,7 +124,7 @@ func runSessionList() error {
 	return nil
 }
 
-func runPalette(args []string) error {
+func runPalette(args []string) error { //nolint:funlen
 	slog.Info("palette start", "args", args)
 	cfg, client, err := tuiBootstrap(tuiBootstrapOpts{Subscribe: false, AllowOffline: false})
 	if err != nil {

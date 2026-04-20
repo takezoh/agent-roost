@@ -55,8 +55,8 @@ func TestSubagentLoader_MissingFile(t *testing.T) {
 
 func TestSubagentLoader_CacheReuse(t *testing.T) {
 	fsys := fstest.MapFS{
-		"agent-cached.jsonl":      &fstest.MapFile{Data: []byte(`{"type":"user","message":{"content":"x"}}` + "\n")},
-		"agent-cached.meta.json":  &fstest.MapFile{Data: []byte(`{"agentType":"A"}`)},
+		"agent-cached.jsonl":     &fstest.MapFile{Data: []byte(`{"type":"user","message":{"content":"x"}}` + "\n")},
+		"agent-cached.meta.json": &fstest.MapFile{Data: []byte(`{"agentType":"A"}`)},
 	}
 	loader := NewSubagentLoader(fsys, ".", ParserOptions{})
 	first := loader.Load("cached", 0)

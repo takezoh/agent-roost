@@ -23,9 +23,9 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) error {
 		return fmt.Errorf("create session: %w", err)
 	}
 
-	client.SetOption(sn+":0", "remain-on-exit", "on")
-	client.SetOption(sn, "prefix", cfg.Tmux.Prefix)
-	client.SetOption(sn, "mouse", "on")
+	_ = client.SetOption(sn+":0", "remain-on-exit", "on")
+	_ = client.SetOption(sn, "prefix", cfg.Tmux.Prefix)
+	_ = client.SetOption(sn, "mouse", "on")
 	enableHyperlinkForward(client)
 
 	tuiWidth := 100 - cfg.Tmux.PaneRatioHorizontal
@@ -39,45 +39,45 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) error {
 
 	exePath := resolveExe()
 	envPrefix := "ROOST_SESSION_ID=" + sn + " "
-	client.SendKeys(sn+":0.2", envPrefix+uiproc.Sessions().Command(exePath))
-	client.SendKeys(sn+":0.1", envPrefix+uiproc.Log().Command(exePath))
-	client.SendKeys(sn+":0.0", envPrefix+uiproc.Main().Command(exePath))
+	_ = client.SendKeys(sn+":0.2", envPrefix+uiproc.Sessions().Command(exePath))
+	_ = client.SendKeys(sn+":0.1", envPrefix+uiproc.Log().Command(exePath))
+	_ = client.SendKeys(sn+":0.0", envPrefix+uiproc.Main().Command(exePath))
 
 	paneMain, _ := client.DisplayMessage(sn+":0.0", "#{pane_id}")
-	client.SetEnv("ROOST_SESSION__main", paneMain)
+	_ = client.SetEnv("ROOST_SESSION__main", paneMain)
 
-	client.ResizePane(sn+":0.2", tuiWidth, 0)
-	client.ResizePane(sn+":0.1", 0, logHeight)
+	_ = client.ResizePane(sn+":0.2", tuiWidth, 0)
+	_ = client.ResizePane(sn+":0.1", 0, logHeight)
 	setupKeyBindings(client, sn)
 
 	setupStatusBar(client, sn, cfg.Tmux.Prefix)
-	client.SelectPane(sn + ":0.0")
+	_ = client.SelectPane(sn + ":0.0")
 	return nil
 }
 
 func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {
 	slog.Info("restore session")
-	client.Run("select-window", "-t", sn+":0")
-	client.SetOption(sn+":0", "remain-on-exit", "on")
-	client.SetOption(sn, "prefix", cfg.Tmux.Prefix)
-	client.SetOption(sn, "mouse", "on")
+	_, _ = client.Run("select-window", "-t", sn+":0")
+	_ = client.SetOption(sn+":0", "remain-on-exit", "on")
+	_ = client.SetOption(sn, "prefix", cfg.Tmux.Prefix)
+	_ = client.SetOption(sn, "mouse", "on")
 	enableHyperlinkForward(client)
 
 	tuiWidth := 100 - cfg.Tmux.PaneRatioHorizontal
 	logHeight := 100 - cfg.Tmux.PaneRatioVertical
 
-	client.ResizePane(sn+":0.2", tuiWidth, 0)
-	client.ResizePane(sn+":0.1", 0, logHeight)
+	_ = client.ResizePane(sn+":0.2", tuiWidth, 0)
+	_ = client.ResizePane(sn+":0.1", 0, logHeight)
 	setupKeyBindings(client, sn)
 	setupStatusBar(client, sn, cfg.Tmux.Prefix)
-	client.SelectPane(sn + ":0.0")
+	_ = client.SelectPane(sn + ":0.0")
 }
 
 func setupStatusBar(client *tmux.Client, sn string, prefix string) {
-	client.SetOption(sn, "status-left", " ")
-	client.SetOption(sn, "status-left-length", "120")
-	client.SetOption(sn, "status-style", "bg=#1d2021,fg=#ebdbb2")
-	client.Run("set-option", "-t", sn, "status-format[0]",
+	_ = client.SetOption(sn, "status-left", " ")
+	_ = client.SetOption(sn, "status-left-length", "120")
+	_ = client.SetOption(sn, "status-style", "bg=#1d2021,fg=#ebdbb2")
+	_, _ = client.Run("set-option", "-t", sn, "status-format[0]",
 		" "+paneLabel+"#{status-left}#[align=right]"+paneHints(prefix)+" ")
 }
 
@@ -116,21 +116,21 @@ func paneHints(prefix string) string {
 
 func setupKeyBindings(client *tmux.Client, sn string) {
 	exePath := resolveExe()
-	client.UnbindAllKeys("prefix")
-	client.BindKey("prefix", "Space",
+	_ = client.UnbindAllKeys("prefix")
+	_ = client.BindKey("prefix", "Space",
 		"if-shell", "-F", `#{==:#{pane_index},2}`,
 		"select-pane -t "+sn+":0.0",
 		"select-pane -t "+sn+":0.2")
-	client.BindKey("prefix", "Escape", "run-shell", exePath+" event preview-project")
-	client.BindKey("prefix", "z", "resize-pane", "-Z", "-t", sn+":0.0")
-	client.BindKey("prefix", "d", "detach-client")
-	client.BindKey("prefix", "q",
+	_ = client.BindKey("prefix", "Escape", "run-shell", exePath+" event preview-project")
+	_ = client.BindKey("prefix", "z", "resize-pane", "-Z", "-t", sn+":0.0")
+	_ = client.BindKey("prefix", "d", "detach-client")
+	_ = client.BindKey("prefix", "q",
 		"display-popup", "-E", "-w", "40%", "-h", "20%",
 		"echo 'Shutting down...' && "+uiproc.Palette("shutdown", nil).Command(exePath))
-	client.BindKey("prefix", "p",
+	_ = client.BindKey("prefix", "p",
 		"display-popup", "-E", "-w", "60%", "-h", "50%",
 		uiproc.Palette("", nil).Command(exePath))
-	client.BindKey("prefix", "C-p",
+	_ = client.BindKey("prefix", "C-p",
 		"display-popup", "-E", "-w", "60%", "-h", "50%",
 		uiproc.Palette("push-driver", nil).Command(exePath))
 	// Disable right-click context menus (Horizontal/Vertical Split etc.)
@@ -144,20 +144,16 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 		"MouseDown3StatusLeft",
 		"MouseDown3StatusRight",
 	} {
-		client.UnbindKey("root", key)
+		_ = client.UnbindKey("root", key)
 	}
 }
 
-func respawnMainPane(client *tmux.Client, sn string) {
-	client.RespawnPane(sn+":0.0", uiproc.Main().Command(resolveExe()))
-}
-
 func respawnSessionsPane(client *tmux.Client, sn string) {
-	client.RespawnPane(sn+":0.2", uiproc.Sessions().Command(resolveExe()))
+	_ = client.RespawnPane(sn+":0.2", uiproc.Sessions().Command(resolveExe()))
 }
 
 func respawnLogPane(client *tmux.Client, sn string) {
-	client.RespawnPane(sn+":0.1", uiproc.Log().Command(resolveExe()))
+	_ = client.RespawnPane(sn+":0.1", uiproc.Log().Command(resolveExe()))
 }
 
 // enableHyperlinkForward appends "hyperlinks" to the server-wide

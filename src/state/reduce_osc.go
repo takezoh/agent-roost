@@ -10,7 +10,7 @@ func reducePaneOsc(s State, e EvPaneOsc) (State, []Effect) {
 		if e.Title == "" {
 			return s, nil
 		}
-		next, effs, _, _ := stepDriver(s, e.FrameID, DEvPaneOsc{Cmd: 0, Title: e.Title, Now: e.Now})
+		next, effs, _ := stepDriver(s, e.FrameID, DEvPaneOsc{Cmd: 0, Title: e.Title, Now: e.Now})
 		return next, effs
 	}
 

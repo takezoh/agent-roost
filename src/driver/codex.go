@@ -58,7 +58,7 @@ func (CodexDriver) StartDir(s state.DriverState) string {
 	if !ok {
 		return ""
 	}
-	return cs.CommonState.StartDir
+	return cs.StartDir
 }
 
 func (CodexDriver) WithStartDir(s state.DriverState, dir string) state.DriverState {
@@ -66,7 +66,7 @@ func (CodexDriver) WithStartDir(s state.DriverState, dir string) state.DriverSta
 	if !ok {
 		return s
 	}
-	cs.CommonState.StartDir = dir
+	cs.StartDir = dir
 	return cs
 }
 
@@ -135,7 +135,7 @@ func parseCodexHookPayload(payload json.RawMessage) codexHookPayload {
 		return codexHookPayload{}
 	}
 	var hp codexHookPayload
-	json.Unmarshal(payload, &hp)
+	_ = json.Unmarshal(payload, &hp)
 	return hp
 }
 

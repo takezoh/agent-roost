@@ -94,9 +94,9 @@ func TestPaletteQuitsWithoutChain(t *testing.T) {
 
 func TestVisibleWindow(t *testing.T) {
 	tests := []struct {
-		name                       string
-		cursor, total, maxVisible  int
-		wantStart, wantEnd         int
+		name                      string
+		cursor, total, maxVisible int
+		wantStart, wantEnd        int
 	}{
 		{"all fit", 0, 5, 10, 0, 5},
 		{"maxVisible zero", 3, 10, 0, 0, 10},
@@ -333,7 +333,7 @@ func TestRenderPaletteParamNoChipForNonGitProject(t *testing.T) {
 	m.selectedTool = registry.Get("new-session")
 	m.paramIndex = 0
 	m.paramOptions = []string{"opt-a", "opt-b"}
-	m.worktreeOn = true   // pre-set to on; should be suppressed by projectIsGit=false
+	m.worktreeOn = true // pre-set to on; should be suppressed by projectIsGit=false
 	m.projectIsGit = false
 	m.paramCursor = 0
 

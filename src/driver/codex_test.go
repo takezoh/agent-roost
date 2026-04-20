@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	codextranscript "github.com/takezoh/agent-roost/lib/codex/transcript"
 	"github.com/takezoh/agent-roost/driver/vt"
+	codextranscript "github.com/takezoh/agent-roost/lib/codex/transcript"
 	"github.com/takezoh/agent-roost/state"
 )
 
@@ -244,7 +244,7 @@ func TestCodexPersistRestoreRoundTrip(t *testing.T) {
 	d, cs, now := newCodex(t)
 	cs.CommonState = CommonState{
 		RoostSessionID:       "r1",
-		StartDir:           "/repo",
+		StartDir:             "/repo",
 		TranscriptPath:       "/repo/t.jsonl",
 		WorktreeName:         "codex-abcd",
 		Status:               state.StatusRunning,
@@ -503,7 +503,7 @@ func TestCodexCompleteCreateWithWorktree(t *testing.T) {
 	cs.WorktreeName = "feature"
 	next, launch, err := d.CompleteCreate(cs, "codex --worktree feature --model gpt-5", state.LaunchOptions{}, WorktreeSetupResult{
 		StartDir: "/repo/.roost/worktrees/feature",
-		Name:       "feature",
+		Name:     "feature",
 	}, nil)
 	if err != nil {
 		t.Fatalf("CompleteCreate error: %v", err)

@@ -32,7 +32,7 @@ type deactivateDoneMsg struct {
 	err error
 }
 
-func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
+func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) { //nolint:funlen
 	switch e := ev.(type) {
 	case proto.EvtSessionsChanged:
 		m.sessions = e.Sessions
@@ -80,12 +80,11 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 		if m.notifications == nil {
 			m.notifications = make(map[string][]notifEntry)
 		}
-		nb := append(m.notifications[e.SessionID], notifEntry{Cmd: e.Cmd, Title: e.Title, Body: e.Body})
+		m.notifications[e.SessionID] = append(m.notifications[e.SessionID], notifEntry{Cmd: e.Cmd, Title: e.Title, Body: e.Body})
 		const maxNotif = 3
-		if len(nb) > maxNotif {
-			nb = nb[len(nb)-maxNotif:]
+		if len(m.notifications[e.SessionID]) > maxNotif {
+			m.notifications[e.SessionID] = m.notifications[e.SessionID][len(m.notifications[e.SessionID])-maxNotif:]
 		}
-		m.notifications[e.SessionID] = nb
 	}
 	return m, m.listenEvents()
 }

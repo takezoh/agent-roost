@@ -92,19 +92,19 @@ func truncateFrames(sess Session, from int) (Session, []SessionFrame) {
 //     the new id.
 //   - EffEventLogAppend / EffWatchFile / EffUnwatchFile:
 //     fills in the SessionID field if the driver left it blank.
-func stepDriver(s State, frameID FrameID, ev DriverEvent) (State, []Effect, View, bool) {
+func stepDriver(s State, frameID FrameID, ev DriverEvent) (State, []Effect, bool) {
 	sessID, sess, frameIdx, ok := findFrame(s, frameID)
 	if !ok {
-		return s, nil, View{}, false
+		return s, nil, false
 	}
 	frame := sess.Frames[frameIdx]
 	drv := GetDriver(frame.Command)
 	if drv == nil {
-		return s, nil, View{}, false
+		return s, nil, false
 	}
 
 	oldStatus := drv.Status(frame.Driver)
-	nextDS, rawEffs, view := drv.Step(frame.Driver, ev)
+	nextDS, rawEffs, _ := drv.Step(frame.Driver, ev)
 
 	s.Sessions = cloneSessions(s.Sessions)
 	sess.Frames = append([]SessionFrame(nil), sess.Frames...)
@@ -140,7 +140,7 @@ func stepDriver(s State, frameID FrameID, ev DriverEvent) (State, []Effect, View
 		out = append(out, injectEffs...)
 	}
 
-	return s, out, view, true
+	return s, out, true
 }
 
 // postProcessEffect fills in session-context fields the driver Step
@@ -220,7 +220,7 @@ func stepActiveSessions(s State, makeEv func(sessID SessionID, sess Session, act
 		}
 		active := sessID == s.ActiveSession
 		ev := makeEv(sessID, sess, active)
-		next, sessEffs, _, ok := stepDriver(s, frame.ID, ev)
+		next, sessEffs, ok := stepDriver(s, frame.ID, ev)
 		if !ok {
 			continue
 		}
@@ -353,10 +353,10 @@ func evictFrame(s State, frameID FrameID, killWindow bool) (State, []Effect, boo
 			EffUnwatchFile{FrameID: frame.ID},
 		)
 	}
-	effs := append(deactivate, reactivate...)
-	effs = append(effs, cleanup...)
-	effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
-	return s, effs, true
+	deactivate = append(deactivate, reactivate...)
+	deactivate = append(deactivate, cleanup...)
+	deactivate = append(deactivate, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
+	return s, deactivate, true
 }
 
 // === ErrCode constants used by reducers ===

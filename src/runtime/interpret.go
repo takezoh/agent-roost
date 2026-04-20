@@ -20,7 +20,7 @@ import (
 // alive, etc.) call r.Enqueue, which is non-blocking and goroutine-
 // safe so the case can fire from inside the event loop without
 // risking deadlock on the channel.
-func (r *Runtime) execute(eff state.Effect) {
+func (r *Runtime) execute(eff state.Effect) { //nolint:funlen
 	switch e := eff.(type) {
 	case state.EffSpawnTmuxWindow, state.EffKillSessionWindow, state.EffActivateSession,
 		state.EffDeactivateSession, state.EffRegisterPane, state.EffUnregisterPane,
@@ -125,7 +125,7 @@ func (r *Runtime) executeInjectPrompt(e state.EffInjectPrompt) {
 	}
 }
 
-func (r *Runtime) executeTmuxEffect(eff state.Effect) {
+func (r *Runtime) executeTmuxEffect(eff state.Effect) { //nolint:funlen
 	switch e := eff.(type) {
 	case state.EffSpawnTmuxWindow:
 		go r.spawnTmuxWindowAsync(e)
@@ -145,7 +145,7 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 
 	case state.EffRegisterPane:
 		r.sessionPanes[e.FrameID] = e.PaneTarget
-		r.cfg.Tmux.SetEnv(sessionPaneEnvKey(e.FrameID), e.PaneTarget)
+		_ = r.cfg.Tmux.SetEnv(sessionPaneEnvKey(e.FrameID), e.PaneTarget)
 		if r.taps != nil {
 			r.taps.start(e.FrameID, e.PaneTarget, r.Enqueue)
 		}
@@ -157,7 +157,7 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 			}
 			delete(r.sessionPanes, e.FrameID)
 			delete(r.parkedPaneSnapshot, e.FrameID)
-			r.cfg.Tmux.UnsetEnv(sessionPaneEnvKey(e.FrameID))
+			_ = r.cfg.Tmux.UnsetEnv(sessionPaneEnvKey(e.FrameID))
 			r.cfg.EventLog.Close(e.FrameID)
 			if r.cfg.TerminalEvict != nil {
 				r.cfg.TerminalEvict(target)
@@ -166,20 +166,20 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 
 	case state.EffSelectPane:
 		target := substitutePlaceholdersString(e.Target, r.cfg.SessionName, r.cfg.RoostExe)
-		r.cfg.Tmux.SelectPane(target)
+		_ = r.cfg.Tmux.SelectPane(target)
 
 	case state.EffSyncStatusLine:
 		line := e.Line
 		if line == "" {
 			line = r.activeStatusLine()
 		}
-		r.cfg.Tmux.SetStatusLine(line)
+		_ = r.cfg.Tmux.SetStatusLine(line)
 
 	case state.EffSetTmuxEnv:
-		r.cfg.Tmux.SetEnv(e.Key, e.Value)
+		_ = r.cfg.Tmux.SetEnv(e.Key, e.Value)
 
 	case state.EffUnsetTmuxEnv:
-		r.cfg.Tmux.UnsetEnv(e.Key)
+		_ = r.cfg.Tmux.UnsetEnv(e.Key)
 
 	case state.EffCheckPaneAlive:
 		target := substitutePlaceholdersString(e.Pane, r.cfg.SessionName, r.cfg.RoostExe)
@@ -193,16 +193,16 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) {
 
 	case state.EffRespawnPane:
 		target := substitutePlaceholdersString(e.Pane, r.cfg.SessionName, r.cfg.RoostExe)
-		r.cfg.Tmux.RespawnPane(target, e.Proc.Command(r.cfg.RoostExe))
+		_ = r.cfg.Tmux.RespawnPane(target, e.Proc.Command(r.cfg.RoostExe))
 
 	case state.EffDetachClient:
-		r.cfg.Tmux.DetachClient()
+		_ = r.cfg.Tmux.DetachClient()
 
 	case state.EffDisplayPopup:
-		r.cfg.Tmux.DisplayPopup(e.Width, e.Height, uiproc.Palette(e.Tool, e.Args).Command(r.cfg.RoostExe))
+		_ = r.cfg.Tmux.DisplayPopup(e.Width, e.Height, uiproc.Palette(e.Tool, e.Args).Command(r.cfg.RoostExe))
 
 	case state.EffKillSession:
-		r.cfg.Tmux.KillSession()
+		_ = r.cfg.Tmux.KillSession()
 
 	case state.EffReconcileWindows:
 		r.reconcileWindows()
@@ -229,13 +229,13 @@ func (r *Runtime) executeIPCEffect(eff state.Effect) {
 func (r *Runtime) executeFSEffect(eff state.Effect) {
 	switch e := eff.(type) {
 	case state.EffWatchFile:
-		r.cfg.Watcher.Watch(e.FrameID, e.Path)
+		_ = r.cfg.Watcher.Watch(e.FrameID, e.Path)
 		if r.relay != nil {
 			r.relay.WatchFile(e.FrameID, e.Path, e.Kind)
 		}
 
 	case state.EffUnwatchFile:
-		r.cfg.Watcher.Unwatch(e.FrameID)
+		_ = r.cfg.Watcher.Unwatch(e.FrameID)
 		if r.relay != nil {
 			r.relay.UnwatchFile(e.FrameID)
 		}
@@ -287,23 +287,6 @@ func windowName(project, sessionID string) string {
 	return project + ":" + sessionID
 }
 
-// substitutePlaceholders replaces {sessionName} / {roostExe} tokens in
-// every arg of every chain op. Used by EffSwapPane.
-func substitutePlaceholders(ops [][]string, sessionName, roostExe string) [][]string {
-	if len(ops) == 0 {
-		return ops
-	}
-	out := make([][]string, len(ops))
-	for i, op := range ops {
-		row := make([]string, len(op))
-		for j, arg := range op {
-			row[j] = substitutePlaceholdersString(arg, sessionName, roostExe)
-		}
-		out[i] = row
-	}
-	return out
-}
-
 func substitutePlaceholdersString(s, sessionName, roostExe string) string {
 	if s == "" {
 		return s
@@ -331,11 +314,11 @@ func wrapCommandWithStdin(command string, input []byte) string {
 	if _, err := f.Write(input); err != nil {
 		slog.Warn("buildStdinCommand: could not write temp file, stdin ignored",
 			"err", err, "path", f.Name())
-		f.Close()
-		os.Remove(f.Name())
+		_ = f.Close()
+		_ = os.Remove(f.Name())
 		return "exec " + command
 	}
-	f.Close()
+	_ = f.Close()
 	tmp := f.Name() // CreateTemp paths never contain special shell chars
 	return "bash -c " + shellQuote(command+" < "+tmp+"; _ec=$?; rm -f "+tmp+"; exit $_ec")
 }

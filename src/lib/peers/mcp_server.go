@@ -9,7 +9,7 @@ import (
 	"github.com/takezoh/agent-roost/proto"
 )
 
-func runMCPServer() error {
+func runMCPServer() error { //nolint:funlen
 	server := mcp.NewServer(&mcp.Implementation{Name: "roost-peers", Version: "1.0"}, nil)
 	dial := defaultDialer()
 

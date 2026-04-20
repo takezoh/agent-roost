@@ -116,14 +116,6 @@ func isMissingPaneErr(err error) bool {
 	return strings.Contains(msg, "can't find pane")
 }
 
-func windowNameForSession(sessions map[state.SessionID]state.Session, sessID state.SessionID) string {
-	sess, ok := sessions[sessID]
-	if !ok {
-		return "session:" + string(sessID)
-	}
-	return windowName(sess.Project, string(sessID))
-}
-
 func sessionPaneEnvKey(frameID state.FrameID) string {
 	return "ROOST_FRAME_" + string(frameID)
 }

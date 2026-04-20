@@ -77,7 +77,7 @@ func (fr *FileRelay) UnwatchFile(frameID state.FrameID) {
 	defer fr.mu.Unlock()
 	for path, f := range fr.files {
 		if f.frameID == frameID {
-			fr.watcher.Remove(path)
+			_ = fr.watcher.Remove(path)
 			delete(fr.files, path)
 		}
 	}
@@ -88,7 +88,7 @@ func (fr *FileRelay) Unwatch(path string) {
 	fr.mu.Lock()
 	defer fr.mu.Unlock()
 	if _, ok := fr.files[path]; ok {
-		fr.watcher.Remove(path)
+		_ = fr.watcher.Remove(path)
 		delete(fr.files, path)
 	}
 }

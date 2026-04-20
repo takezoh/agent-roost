@@ -8,7 +8,6 @@ import (
 	"github.com/takezoh/agent-roost/state"
 )
 
-
 // toolLogEntry is the per-tool JSONL record written to
 // <dataDir>/claude/tool-logs/<project>.jsonl.
 type toolLogEntry struct {
@@ -162,7 +161,7 @@ func (d ClaudeDriver) handleToolLog(cs ClaudeState, hp hookPayload, now time.Tim
 // emitToolLog looks up the matching PreToolUse entry, derives the kind,
 // builds a JSONL line, emits EffToolLogAppend, and removes the entry
 // from PendingTools. kindOverride is non-empty only for failure paths.
-func (d ClaudeDriver) emitToolLog(cs ClaudeState, hp hookPayload, now time.Time, kindOverride string) (ClaudeState, []state.Effect) {
+func (d ClaudeDriver) emitToolLog(cs ClaudeState, hp hookPayload, now time.Time, kindOverride string) (ClaudeState, []state.Effect) { //nolint:funlen
 	var (
 		kind       string
 		durationMs int64

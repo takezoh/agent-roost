@@ -122,7 +122,7 @@ func overlayBorderTitle(rendered, title, badge string, outerWidth int) string {
 // Layout: ╭─ [icon] [primary] [secondary] ────────── badge ─╮
 // When width is tight, badge is dropped first, then secondary.
 // icon and title are always preserved.
-func overlayCardBorderTitle(rendered, icon string, title, secondary state.Tag, badge string, outerWidth int, fg color.Color) string {
+func overlayCardBorderTitle(rendered, icon string, title, secondary state.Tag, badge string, outerWidth int, fg color.Color) string { //nolint:funlen
 	lines := strings.Split(rendered, "\n")
 	if len(lines) == 0 {
 		return rendered
@@ -140,7 +140,7 @@ func overlayCardBorderTitle(rendered, icon string, title, secondary state.Tag, b
 	titleW := 1 // default: just the leading ─
 	if icon != "" {
 		iconW = 2 + lipgloss.Width(icon) // ─ + icon + space
-		titleW = 0                        // ─ is counted in iconW
+		titleW = 0                       // ─ is counted in iconW
 	}
 	if title.Text != "" {
 		if icon != "" {
@@ -175,7 +175,6 @@ func overlayCardBorderTitle(rendered, icon string, title, secondary state.Tag, b
 	if fill < 0 && secondary.Text != "" {
 		// Drop secondary chip.
 		secondary = state.Tag{}
-		secondaryW = 0
 		fill = middleW - iconW - titleW - badgeW
 	}
 	if fill < 0 {

@@ -26,7 +26,7 @@ func (s *spyEventLog) Append(frameID state.FrameID, line string) error {
 }
 
 func (s *spyEventLog) Close(state.FrameID) {}
-func (s *spyEventLog) CloseAll()            {}
+func (s *spyEventLog) CloseAll()           {}
 
 func TestOscEventLogLine(t *testing.T) {
 	cases := []struct {

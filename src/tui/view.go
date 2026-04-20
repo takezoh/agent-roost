@@ -53,7 +53,7 @@ func (m Model) footerRowCount() int {
 	return 1
 }
 
-func renderSessionsBody(m *Model, innerWidth int) string {
+func renderSessionsBody(m *Model, innerWidth int) string { //nolint:funlen
 	if len(m.items) == 0 {
 		return mutedStyle.Render("  No sessions")
 	}

@@ -59,28 +59,15 @@ func applyHookStatus(cs CodexState, status state.Status, ts time.Time) CodexStat
 
 func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []state.Effect) {
 	hp := parseCodexHookPayload(e.Payload)
-	if hp.SessionID == "" {
+	if !cs.applyHookPreamble(hookPreamble{
+		SessionID:      hp.SessionID,
+		HookEventName:  hp.HookEventName,
+		Cwd:            hp.Cwd,
+		TranscriptPath: hp.TranscriptPath,
+	}, e) {
 		return cs, nil
-	}
-	if !e.Timestamp.IsZero() && !e.Timestamp.After(cs.LastHookAt) {
-		return cs, nil
-	}
-
-	cs.ResetHangDetection()
-	cs.LastHookEvent = hp.HookEventName
-	if !e.Timestamp.IsZero() {
-		cs.LastHookAt = e.Timestamp
-	}
-	if e.RoostSessionID != "" {
-		cs.RoostSessionID = e.RoostSessionID
 	}
 	cs.CodexSessionID = hp.SessionID
-	if hp.Cwd != "" {
-		cs.StartDir = hp.Cwd
-	}
-	if hp.TranscriptPath != "" {
-		cs.TranscriptPath = hp.TranscriptPath
-	}
 
 	var effs []state.Effect
 	effs = append(effs, watchCodexTranscript(&cs)...)

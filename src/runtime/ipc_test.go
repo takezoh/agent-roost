@@ -16,7 +16,7 @@ import (
 // startRuntimeWithIPC spins up a Runtime, opens a Unix socket in a
 // temp dir, and returns the runtime + the socket path. Caller is
 // responsible for cancelling the context to stop the loop.
-func startRuntimeWithIPC(t *testing.T, ctx context.Context) (*Runtime, string) {
+func startRuntimeWithIPC(t *testing.T, ctx context.Context) (*Runtime, string) { //nolint:unparam
 	t.Helper()
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "roost.sock")

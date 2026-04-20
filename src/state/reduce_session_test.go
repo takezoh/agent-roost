@@ -23,7 +23,6 @@ func (stubJobInput) JobKind() string { return "stub" }
 
 type stubDriverState struct {
 	DriverStateBase
-	calls  []string
 	status Status
 }
 

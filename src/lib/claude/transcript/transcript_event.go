@@ -11,7 +11,7 @@ import (
 // ParentUUID are stamped onto every emitted entry from the line wrapper
 // so callers (notably transcript.Tracker) can reconstruct the active
 // conversation chain and ignore rewound branches.
-func (p *Parser) parseLine(line []byte) []Entry {
+func (p *Parser) parseLine(line []byte) []Entry { //nolint:funlen
 	if len(line) == 0 {
 		return nil
 	}

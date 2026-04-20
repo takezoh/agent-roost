@@ -564,7 +564,6 @@ func TestGenericFallbackHasNoCommandTag(t *testing.T) {
 	}
 }
 
-
 func TestGetDriverFallbackFactory(t *testing.T) {
 	state.ClearRegistry()
 	state.RegisterFallbackFactory(func(command string) state.Driver {

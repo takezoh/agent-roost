@@ -10,9 +10,10 @@ import (
 
 	"cloud.google.com/go/datastore"
 	"github.com/stretchr/testify/assert"
-	"google.golang.org/api/option"
 	"google.golang.org/api/iterator" // iterator をインポート
+	"google.golang.org/api/option"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 // TestRunMigrateDatastoreEmulator tests the migration logic using Datastore Emulator.
@@ -32,7 +33,7 @@ func TestRunMigrateDatastoreEmulator(t *testing.T) {
 	// Setup Datastore Client for emulator
 	ctx := context.Background()
 	var opts []option.ClientOption
-	opts = append(opts, option.WithEndpoint(emulatorHost), option.WithGRPCDialOption(grpc.WithInsecure()))
+	opts = append(opts, option.WithEndpoint(emulatorHost), option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())))
 
 	dsClient, err := datastore.NewClient(ctx, projectID, opts...)
 	assert.NoError(t, err)
@@ -80,7 +81,7 @@ func TestRunMigrateDatastoreEmulator(t *testing.T) {
 	_, err = dsClient.GetAll(ctx, pmQuery, &playerMetadata)
 	assert.NoError(t, err)
 	assert.Len(t, playerMetadata, len(mockGameUsers), "Expected PlayerMetadata entities to be created")
-	
+
 	// Basic check for content
 	foundUserIDs := make(map[string]bool)
 	for _, pm := range playerMetadata {
@@ -90,7 +91,6 @@ func TestRunMigrateDatastoreEmulator(t *testing.T) {
 		assert.True(t, foundUserIDs[mu.UserID], "Expected PlayerMetadata for user %s not found", mu.UserID)
 	}
 	slog.Info("PlayerMetadata entities verified.")
-
 
 	// Check if GameUser entities were deleted
 	slog.Info("Verifying GameUser entities deletion...")

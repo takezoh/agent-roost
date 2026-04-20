@@ -237,7 +237,7 @@ type JobInput interface {
 type EffRecordNotification struct {
 	SessionID SessionID
 	FrameID   FrameID
-	Cmd       int    // 9 / 99 / 777
+	Cmd       int // 9 / 99 / 777
 	Title     string
 	Body      string
 }

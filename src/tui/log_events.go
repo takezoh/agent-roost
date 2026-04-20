@@ -6,13 +6,19 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/takezoh/agent-roost/lib/openurl"
 	"github.com/takezoh/agent-roost/proto"
 )
 
 // openProject dispatches a file path or URL to the host handler. It is
-// a package variable so tests can substitute a fake.
-var openProject = openurl.Open
+// a package variable so tests can substitute a fake. Injected by main
+// via SetOpenProject to keep tui/ free of lib/ imports.
+var openProject func(string) error
+
+// SetOpenProject injects the URL/path opener; call once from main before
+// creating a LogModel.
+func SetOpenProject(fn func(string) error) {
+	openProject = fn
+}
 
 type logEventMsg struct{ event proto.ServerEvent }
 type logDisconnectMsg struct{}
@@ -75,7 +81,7 @@ func (m LogModel) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-func (m LogModel) handleLogEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
+func (m LogModel) handleLogEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) { //nolint:funlen
 	switch e := ev.(type) {
 	case proto.EvtSessionsChanged:
 		m.currentSession = pickActiveSession(e.Sessions, e.ActiveSessionID)

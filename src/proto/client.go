@@ -17,8 +17,8 @@ import (
 // reader goroutine that demuxes responses (matched by req_id) and
 // events (pushed onto an events channel), and exposes Send / Events.
 type Client struct {
-	conn   net.Conn
-	writer *bufio.Writer
+	conn    net.Conn
+	writer  *bufio.Writer
 	writeMu sync.Mutex
 
 	gen *ReqIDGen

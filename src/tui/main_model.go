@@ -1,9 +1,9 @@
 package tui
 
 import (
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/spinner"
 	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/state"

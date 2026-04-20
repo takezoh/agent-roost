@@ -72,7 +72,6 @@ func (t *Terminal) Reset() {
 
 func (t *Terminal) registerOscHandlers() {
 	for _, cmd := range []int{9, 99, 777} {
-		cmd := cmd
 		t.em.RegisterOscHandler(cmd, func(data []byte) bool {
 			// data is the full OSC payload including the leading "<cmd>;"
 			// prefix (e.g. "9;Hello from agent").  Strip the numeric prefix.

@@ -797,7 +797,7 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 	cs := ClaudeState{
 		CommonState: CommonState{
 			RoostSessionID:     "roost-1",
-			StartDir:         "/work",
+			StartDir:           "/work",
 			TranscriptPath:     "/tmp/x.jsonl",
 			Status:             state.StatusRunning,
 			StatusChangedAt:    now,
@@ -1330,7 +1330,7 @@ func TestResolveTranscriptPathPrefersExplicit(t *testing.T) {
 	cs := ClaudeState{
 		CommonState: CommonState{
 			TranscriptPath: "/explicit/path.jsonl",
-			StartDir:     "/w",
+			StartDir:       "/w",
 		},
 		ClaudeSessionID: "u",
 	}
@@ -1649,13 +1649,10 @@ func TestHandleWindowTitle_BrailleSpinner_SetsRunning(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.Status = state.StatusWaiting
 
-	next, effs := d.handleWindowTitle(cs, "⠂ Claude Code", now)
+	next := d.handleWindowTitle(cs, "⠂ Claude Code", now)
 
 	if next.Status != state.StatusRunning {
 		t.Errorf("Status = %v, want Running", next.Status)
-	}
-	if len(effs) != 0 {
-		t.Errorf("expected no effects from handleWindowTitle itself, got %d", len(effs))
 	}
 	if next.LastWindowTitle != "⠂ Claude Code" {
 		t.Errorf("LastWindowTitle = %q, want \"⠂ Claude Code\"", next.LastWindowTitle)
@@ -1666,7 +1663,7 @@ func TestHandleWindowTitle_WaitingSymbol_SetsWaiting(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.Status = state.StatusRunning
 
-	next, _ := d.handleWindowTitle(cs, "✳ Done", now)
+	next := d.handleWindowTitle(cs, "✳ Done", now)
 
 	if next.Status != state.StatusWaiting {
 		t.Errorf("Status = %v, want Waiting", next.Status)
@@ -1678,7 +1675,7 @@ func TestHandleWindowTitle_SameTitle_NoStatusChange(t *testing.T) {
 	cs.Status = state.StatusRunning
 	cs.LastWindowTitle = "⠂ Claude Code"
 
-	next, _ := d.handleWindowTitle(cs, "⠂ Claude Code", now)
+	next := d.handleWindowTitle(cs, "⠂ Claude Code", now)
 
 	if next.Status != state.StatusRunning {
 		t.Errorf("Status changed unexpectedly: got %v", next.Status)

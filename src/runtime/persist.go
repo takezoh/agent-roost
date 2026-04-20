@@ -71,7 +71,7 @@ func (p *FilePersist) pruneObsolete(want map[string]struct{}) error {
 		}
 		id := strings.TrimSuffix(name, ".json")
 		if _, ok := want[id]; !ok {
-			os.Remove(filepath.Join(p.dir, name))
+			_ = os.Remove(filepath.Join(p.dir, name))
 		}
 	}
 	return nil

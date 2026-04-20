@@ -44,7 +44,7 @@ func newIPCConn(id state.ConnID, conn net.Conn) *ipcConn {
 func (cc *ipcConn) shut() {
 	cc.once.Do(func() {
 		close(cc.done)
-		cc.conn.Close()
+		_ = cc.conn.Close()
 	})
 }
 
@@ -54,7 +54,7 @@ func (cc *ipcConn) shut() {
 // be called from main after Run is already running (so the accept
 // loop can call Enqueue).
 func (r *Runtime) StartIPC(sockPath string) error {
-	os.Remove(sockPath)
+	_ = os.Remove(sockPath)
 	ln, err := net.Listen("unix", sockPath)
 	if err != nil {
 		return fmt.Errorf("runtime: listen %s: %w", sockPath, err)
@@ -63,7 +63,7 @@ func (r *Runtime) StartIPC(sockPath string) error {
 	// lifecycle, so unauthenticated local access = arbitrary command
 	// execution.
 	if err := os.Chmod(sockPath, 0o600); err != nil {
-		ln.Close()
+		_ = ln.Close()
 		return fmt.Errorf("runtime: chmod %s: %w", sockPath, err)
 	}
 	r.listener = ln
@@ -88,11 +88,11 @@ func (r *Runtime) acceptLoop() {
 			}
 		}
 		if err := checkPeerCred(conn); err != nil {
-				slog.Warn("runtime: rejecting connection", "err", err)
-				conn.Close()
-				continue
-			}
-			r.enqueueInternal(connOpen{conn: conn})
+			slog.Warn("runtime: rejecting connection", "err", err)
+			_ = conn.Close()
+			continue
+		}
+		r.enqueueInternal(connOpen{conn: conn})
 	}
 }
 
@@ -293,7 +293,7 @@ func (r *Runtime) writeWire(cc *ipcConn, wire []byte) error {
 // from Run on shutdown.
 func (r *Runtime) shutdownIPC() {
 	if r.listener != nil {
-		r.listener.Close()
+		_ = r.listener.Close()
 	}
 	for id, cc := range r.conns {
 		cc.shut()

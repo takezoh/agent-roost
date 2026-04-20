@@ -84,12 +84,13 @@ func (m PaletteModel) advanceParam() (tea.Model, tea.Cmd) {
 		if m.selectedTool != nil && m.selectedTool.Name == "new-session" && p.Name == "command" {
 			m.projectIsGit = m.ctx != nil && m.ctx.IsGitProject != nil &&
 				m.ctx.IsGitProject(m.paramArgs["project"])
-			if !m.projectIsGit {
+			switch {
+			case !m.projectIsGit:
 				m.worktreeOn = false
 				delete(m.paramArgs, "worktree")
-			} else if m.worktreeOn {
+			case m.worktreeOn:
 				m.paramArgs["worktree"] = "on"
-			} else {
+			default:
 				delete(m.paramArgs, "worktree")
 			}
 		}
@@ -119,7 +120,7 @@ func (m PaletteModel) advanceParam() (tea.Model, tea.Cmd) {
 	return m, tea.Quit
 }
 
-func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { //nolint:funlen
 	switch {
 	case key.Matches(msg, escapeBinding):
 		if m.initialTool != "" {
@@ -183,7 +184,7 @@ func (m PaletteModel) handleParamSelect(msg tea.KeyPressMsg) (tea.Model, tea.Cmd
 	return m, nil
 }
 
-func (m PaletteModel) filterParamOptions() []matchedOption {
+func (m PaletteModel) filterParamOptions() []matchedOption { //nolint:funlen
 	tokens := strings.Fields(m.input)
 	if len(tokens) == 0 {
 		out := make([]matchedOption, len(m.paramOptions))

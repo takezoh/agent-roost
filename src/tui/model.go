@@ -1,9 +1,9 @@
 package tui
 
 import (
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/help"
 	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/features"
@@ -32,12 +32,12 @@ type Model struct {
 	active            string
 	anchored          string
 	notifications     map[string][]notifEntry // sessionID → ring buffer (latest 3)
-	mouseSeq   int
-	hovering   bool
-	lastMouseX int
-	lastMouseY int
-	width      int
-	height     int
+	mouseSeq          int
+	hovering          bool
+	lastMouseX        int
+	lastMouseY        int
+	width             int
+	height            int
 }
 
 func NewModel(client *proto.Client, cfg *config.Config) Model {
@@ -65,7 +65,7 @@ func (m Model) Init() tea.Cmd {
 	)
 }
 
-func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) { //nolint:funlen
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width

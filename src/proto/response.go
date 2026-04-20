@@ -98,10 +98,10 @@ func (si SessionInfo) StateChangedAtTime() time.Time {
 // ConnectorInfo is the per-connector wire payload carried inside
 // EvtSessionsChanged. Mirrors state.ConnectorView for IPC transport.
 type ConnectorInfo struct {
-	Name      string                 `json:"name"`
-	Label     string                 `json:"label"`
-	Summary   string                 `json:"summary"`
-	Available bool                   `json:"available"`
+	Name      string                   `json:"name"`
+	Label     string                   `json:"label"`
+	Summary   string                   `json:"summary"`
+	Available bool                     `json:"available"`
 	Sections  []state.ConnectorSection `json:"sections,omitempty"`
 }
 

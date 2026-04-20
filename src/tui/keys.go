@@ -1,8 +1,8 @@
 package tui
 
 import (
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/state"
 )
@@ -44,13 +44,13 @@ type KeyMap struct {
 
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
-		Up:          key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
-		Down:        key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
-		Enter:       key.NewBinding(key.WithKeys("enter"), key.WithHelp("Enter", "switch")),
-		New:         key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
-		NewCmd:      key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "command")),
-		Stop:        key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "stop")),
-		Toggle:      key.NewBinding(key.WithKeys("tab"), key.WithHelp("Tab", "fold")),
+		Up:             key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑/k", "up")),
+		Down:           key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓/j", "down")),
+		Enter:          key.NewBinding(key.WithKeys("enter"), key.WithHelp("Enter", "switch")),
+		New:            key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "new")),
+		NewCmd:         key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "command")),
+		Stop:           key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "stop")),
+		Toggle:         key.NewBinding(key.WithKeys("tab"), key.WithHelp("Tab", "fold")),
 		Filter1:        key.NewBinding(key.WithKeys("1")),
 		Filter2:        key.NewBinding(key.WithKeys("2")),
 		Filter3:        key.NewBinding(key.WithKeys("3")),
@@ -103,7 +103,7 @@ func (m Model) handleFilterKey(msg tea.KeyPressMsg) (Model, bool) {
 	return m, true
 }
 
-func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) { //nolint:funlen
 	m.hovering = false
 	if model, handled := m.handleWorkspaceKey(msg); handled {
 		return model, nil

@@ -75,18 +75,17 @@ func InitWithDataDir(level, dir string) error {
 	return nil
 }
 
-
 const maxRotations = 5
 
 // rotateLogs shifts existing log files at startup:
 // roost.log → roost.log.1, roost.log.1 → roost.log.2, … up to maxRotations.
 // Errors are silently ignored; missing files are not an error.
 func rotateLogs(logPath string) {
-	os.Remove(fmt.Sprintf("%s.%d", logPath, maxRotations))
+	_ = os.Remove(fmt.Sprintf("%s.%d", logPath, maxRotations))
 	for i := maxRotations - 1; i >= 1; i-- {
-		os.Rename(fmt.Sprintf("%s.%d", logPath, i), fmt.Sprintf("%s.%d", logPath, i+1))
+		_ = os.Rename(fmt.Sprintf("%s.%d", logPath, i), fmt.Sprintf("%s.%d", logPath, i+1))
 	}
-	os.Rename(logPath, logPath+".1")
+	_ = os.Rename(logPath, logPath+".1")
 }
 
 func parseLevel(level string) slog.Level {

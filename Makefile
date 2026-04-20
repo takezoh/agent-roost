@@ -2,7 +2,7 @@ BINARY  := roost
 SRC_DIR := src
 INSTALL_DIR := $(HOME)/.local/bin
 
-.PHONY: build build-experimental install clean vet
+.PHONY: build build-experimental install clean vet lint
 
 build:
 	cd $(SRC_DIR) && go build -o ../$(BINARY) .
@@ -16,6 +16,9 @@ install: build
 
 vet:
 	cd $(SRC_DIR) && go vet ./...
+
+lint:
+	cd $(SRC_DIR) && go tool golangci-lint run ./...
 
 clean:
 	rm -f $(BINARY)

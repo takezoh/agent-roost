@@ -9,11 +9,11 @@ func reduceDriverHook(s State, e EvDriverEvent) (State, []Effect) {
 	if e.SenderID == "" {
 		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeInvalidArgument, "driver event requires sender_id: "+e.Event)}
 	}
-	if _, _, _, ok := findFrame(s, FrameID(e.SenderID)); !ok {
+	if _, _, _, ok := findFrame(s, e.SenderID); !ok {
 		return s, []Effect{errResp(e.ConnID, e.ReqID, ErrCodeNotFound, "unknown session")}
 	}
 
-	next, rawEffs, _, ok := stepDriver(s, FrameID(e.SenderID), DEvHook{
+	next, rawEffs, ok := stepDriver(s, e.SenderID, DEvHook{
 		Event:          e.Event,
 		Timestamp:      e.Timestamp,
 		RoostSessionID: string(e.SenderID),

@@ -235,7 +235,6 @@ func (st *trackerState) runScanner(f *os.File) {
 	}
 }
 
-
 // resetForRescan clears all derived state but keeps the parser instance
 // (its tool_use_id index will be repopulated as we re-scan).
 func (st *trackerState) resetForRescan() {

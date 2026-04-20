@@ -107,7 +107,7 @@ func (ClaudeDriver) StartDir(s state.DriverState) string {
 	if !ok {
 		return ""
 	}
-	return cs.CommonState.StartDir
+	return cs.StartDir
 }
 
 func (ClaudeDriver) WithStartDir(s state.DriverState, dir string) state.DriverState {
@@ -115,7 +115,7 @@ func (ClaudeDriver) WithStartDir(s state.DriverState, dir string) state.DriverSt
 	if !ok {
 		return s
 	}
-	cs.CommonState.StartDir = dir
+	cs.StartDir = dir
 	return cs
 }
 
@@ -193,7 +193,7 @@ func stripWorktreeFlag(command string) string {
 
 func isAlphanumHyphen(s string) bool {
 	for _, c := range s {
-		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '-' && c != '_' {
 			return false
 		}
 	}
@@ -231,8 +231,8 @@ func (d ClaudeDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.
 		return next, effs, d.view(next)
 
 	case state.DEvPaneOsc:
-		next, effs := d.handleWindowTitle(cs, e.Title, e.Now)
-		return next, effs, d.view(next)
+		next := d.handleWindowTitle(cs, e.Title, e.Now)
+		return next, nil, d.view(next)
 	}
 
 	return cs, nil, d.view(cs)

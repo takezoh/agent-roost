@@ -11,7 +11,7 @@ import (
 // peerTestState builds a minimal State with two sessions/frames for peer tests.
 // frameA and frameB are both in "/workspace" (same workspace root, different projects).
 // statusA/statusB control the driver's reported status.
-func peerTestState(statusA, statusB Status) (State, FrameID, FrameID) {
+func peerTestState(statusA, statusB Status) (State, FrameID, FrameID) { //nolint:unparam
 	s := New()
 	s.Now = time.Date(2026, 4, 19, 12, 0, 0, 0, time.UTC)
 	s.Features = features.Set{features.Peers: true}

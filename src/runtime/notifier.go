@@ -82,5 +82,5 @@ func (n *configNotifier) DispatchOSC(title, body, source string) {
 // noopNotifier does nothing. Used when no Notifier is configured.
 type noopNotifier struct{}
 
-func (noopNotifier) Dispatch(state.EffNotify)             {}
-func (noopNotifier) DispatchOSC(_, _, _ string)           {}
+func (noopNotifier) Dispatch(state.EffNotify)   {}
+func (noopNotifier) DispatchOSC(_, _, _ string) {}

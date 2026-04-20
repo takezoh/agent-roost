@@ -7,7 +7,7 @@ import (
 	"github.com/takezoh/agent-roost/state"
 )
 
-func commandToStateEvent(connID state.ConnID, reqID string, cmd proto.Command) state.Event {
+func commandToStateEvent(connID state.ConnID, reqID string, cmd proto.Command) state.Event { //nolint:funlen
 	switch c := cmd.(type) {
 	case proto.CmdSubscribe:
 		return state.EvCmdSubscribe{ConnID: connID, ReqID: reqID, Filters: c.Filters}

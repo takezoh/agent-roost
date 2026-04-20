@@ -8,11 +8,12 @@ import (
 	"os"
 	"time"
 
-	admin "cloud.google.com/go/datastore/admin/apiv1"
 	"cloud.google.com/go/datastore"
+	admin "cloud.google.com/go/datastore/admin/apiv1"
 	adminpb "cloud.google.com/go/datastore/admin/apiv1/adminpb"
 	"google.golang.org/api/option"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func init() {
@@ -33,7 +34,7 @@ type PlayerMetadataEntity struct {
 }
 
 // RunMigrateDatastore implements `roost migrate-datastore <gcs-export-path> <project-id> <location>`.
-func RunMigrateDatastore(args []string) error {
+func RunMigrateDatastore(args []string) error { //nolint:funlen
 	if len(args) != 3 {
 		fmt.Fprintln(os.Stderr, "usage: roost migrate-datastore <gcs-export-path> <project-id> <location>")
 		return errors.New("migrate-datastore: incorrect number of arguments")
@@ -44,13 +45,13 @@ func RunMigrateDatastore(args []string) error {
 	location := args[2]
 
 	ctx := context.Background()
-	
+
 	// Determine if Datastore Emulator is running
 	datastoreEmulatorHost := os.Getenv("DATASTORE_EMULATOR_HOST")
 	var opts []option.ClientOption
 	if datastoreEmulatorHost != "" {
 		slog.Info("Using Datastore Emulator", "host", datastoreEmulatorHost)
-		opts = append(opts, option.WithEndpoint(datastoreEmulatorHost), option.WithGRPCDialOption(grpc.WithInsecure()))
+		opts = append(opts, option.WithEndpoint(datastoreEmulatorHost), option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())))
 	}
 
 	// 1. Datastore Admin Import
@@ -96,7 +97,7 @@ func RunMigrateDatastore(args []string) error {
 
 	// 3. Create PlayerMetadata entities
 	slog.Info("Creating PlayerMetadata entities...")
-	
+
 	// Batch put operations
 	const batchSize = 500 // Max batch size for Datastore is 500
 	var playerMetadataKeys []*datastore.Key
@@ -106,7 +107,7 @@ func RunMigrateDatastore(args []string) error {
 		key := datastore.NameKey("PlayerMetadata", gu.UserID, nil) // Use UserID as name for uniqueness
 		playerMetadataKeys = append(playerMetadataKeys, key)
 		playerMetadataEntities = append(playerMetadataEntities, &PlayerMetadataEntity{
-			UserID: gu.UserID,
+			UserID:    gu.UserID,
 			CreatedAt: gu.CreatedAt,
 		})
 

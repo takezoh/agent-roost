@@ -33,7 +33,6 @@ type PaletteModel struct {
 
 	width  int
 	height int
-	err    error
 }
 
 func NewPaletteModel(registry *tools.Registry, ctx *tools.ToolContext, initialTool string) PaletteModel {

@@ -59,7 +59,7 @@ func (ShellDriver) StartDir(s state.DriverState) string {
 	if !ok {
 		return ""
 	}
-	return ss.CommonState.StartDir
+	return ss.StartDir
 }
 
 func (ShellDriver) WithStartDir(s state.DriverState, dir string) state.DriverState {
@@ -67,7 +67,7 @@ func (ShellDriver) WithStartDir(s state.DriverState, dir string) state.DriverSta
 	if !ok {
 		return s
 	}
-	ss.CommonState.StartDir = dir
+	ss.StartDir = dir
 	return ss
 }
 
@@ -156,7 +156,7 @@ const (
 	keyShellLastExitCode   = "shell_last_exit_code"
 )
 
-func (d ShellDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {
+func (d ShellDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) { //nolint:funlen
 	ss, ok := prev.(ShellState)
 	if !ok {
 		ss = d.NewState(time.Time{}).(ShellState)

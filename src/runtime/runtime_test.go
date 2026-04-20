@@ -52,8 +52,8 @@ type fakeTmuxBackend struct {
 	resizeTargets    []string
 	resizeWidths     []int
 	resizeHeights    []int
-	respawnCmds []string
-	statusLines []string
+	respawnCmds      []string
+	statusLines      []string
 	envs             map[string]string
 	popups           []string
 	alive            map[string]bool
@@ -255,20 +255,6 @@ func (r *recordingPersist) Save(s []SessionSnapshot) error {
 	return nil
 }
 func (r *recordingPersist) Load() ([]SessionSnapshot, error) { return nil, nil }
-
-type recordingEventLog struct {
-	mu    sync.Mutex
-	lines []string
-}
-
-func (r *recordingEventLog) Append(_ state.FrameID, line string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.lines = append(r.lines, line)
-	return nil
-}
-func (r *recordingEventLog) Close(state.FrameID) {}
-func (r *recordingEventLog) CloseAll()           {}
 
 type recordingWatcher struct {
 	mu      sync.Mutex

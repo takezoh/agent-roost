@@ -15,7 +15,7 @@ import (
 
 // DefaultRegistry returns the built-in palette tool set.
 // feats gates optional tools behind runtime feature flags.
-func DefaultRegistry(feats features.Set) *Registry {
+func DefaultRegistry(feats features.Set) *Registry { //nolint:funlen
 	r := NewRegistry()
 	r.Register(Tool{
 		Name:        "new-session",

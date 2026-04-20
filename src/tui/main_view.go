@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/spinner"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/takezoh/agent-roost/proto"
 	"github.com/takezoh/agent-roost/state"
@@ -56,10 +56,10 @@ func renderKeybindingsBody() string {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString(fmt.Sprintf("%s  %s",
+		fmt.Fprintf(&b, "%s  %s",
 			helpKeyStyle.Render(fmt.Sprintf("%-14s", bind.key)),
 			mutedStyle.Render(bind.desc),
-		))
+		)
 	}
 	return b.String()
 }
@@ -94,12 +94,12 @@ func renderProjectSessionsBody(sessions []proto.SessionInfo) string {
 		if tagText == "" {
 			tagText = "?"
 		}
-		b.WriteString(fmt.Sprintf("%s  %s %s  %s",
+		fmt.Fprintf(&b, "%s  %s %s  %s",
 			mutedStyle.Render(s.ID[:6]),
 			symbol,
 			mutedStyle.Render(fmt.Sprintf("%-5s", elapsed)),
 			tagStyle.Render(tagText),
-		))
+		)
 	}
 	return b.String()
 }
@@ -141,7 +141,7 @@ type iconScheme struct {
 // renderIconPreviewBody renders a comparison table of status icon schemes
 // so the user can evaluate all options in-context before committing to one.
 // Any status cell with >=2 frames animates live via animFrame.
-func renderIconPreviewBody() string {
+func renderIconPreviewBody() string { //nolint:funlen
 	statuses := []state.Status{
 		state.StatusRunning, state.StatusWaiting, state.StatusIdle,
 		state.StatusStopped, state.StatusPending,
@@ -153,8 +153,8 @@ func renderIconPreviewBody() string {
 			states: [5]stateAnim{
 				anim(spinner.Pulse.Frames...), // Running: █▓▒░
 				static("⋯"),                   // Waiting
-				static("\uf04c"),               // Idle: same as NerdFont pause
-				static("\uf04d"),               // Stopped: same as NerdFont stop
+				static("\uf04c"),              // Idle: same as NerdFont pause
+				static("\uf04d"),              // Stopped: same as NerdFont stop
 				static("⚡"),                   // Pending
 			},
 		},
@@ -171,21 +171,21 @@ func renderIconPreviewBody() string {
 		{
 			label: "NerdFont",
 			states: [5]stateAnim{
-				anim(nerdSandFrames...),  // Running: timer-sand
-				static("\uf141"),         // Waiting: ellipsis-h
-				static("\uf04c"),         // Idle: pause
-				static("\uf04d"),         // Stopped: stop
-				static("\uf0e7"),         // Pending: bolt
+				anim(nerdSandFrames...), // Running: timer-sand
+				static("\uf141"),        // Waiting: ellipsis-h
+				static("\uf04c"),        // Idle: pause
+				static("\uf04d"),        // Stopped: stop
+				static("\uf0e7"),        // Pending: bolt
 			},
 		},
 		{
 			label: "Spinner",
 			states: [5]stateAnim{
 				anim(spinner.Hamburger.Frames...), // Running: ☱☲☴☲
-				static("◆"),                        // Waiting (current)
-				static("○"),                        // Idle (current)
-				static("■"),                        // Stopped (current)
-				static("◇"),                        // Pending (current)
+				static("◆"),                       // Waiting (current)
+				static("○"),                       // Idle (current)
+				static("■"),                       // Stopped (current)
+				static("◇"),                       // Pending (current)
 			},
 		},
 	}

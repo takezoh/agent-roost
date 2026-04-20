@@ -38,13 +38,6 @@ func (m Model) previewCmd(sess *proto.SessionInfo) tea.Cmd {
 	}
 }
 
-func (m Model) switchCmd(sess *proto.SessionInfo) tea.Cmd {
-	return func() tea.Msg {
-		activeID, err := m.client.SwitchSession(sess.ID)
-		return switchDoneMsg{sessionID: activeID, err: err}
-	}
-}
-
 func (m Model) cursorPreviewCmd() tea.Cmd {
 	if s := m.cursorSession(); s != nil && s.ID != m.active {
 		return m.previewCmd(s)

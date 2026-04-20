@@ -51,7 +51,7 @@ func init() {
 	RegisterEvent[json.RawMessage](EventLaunchTool, reduceLaunchTool)
 }
 
-func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionParams) (State, []Effect) {
+func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionParams) (State, []Effect) { //nolint:funlen
 	if p.Project == "" {
 		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, "project arg required")}
 	}
@@ -175,7 +175,7 @@ func reducePushDriver(s State, connID ConnID, reqID string, p PushDriverParams) 
 
 // pushDriverInternal is the shared implementation for pushing a new driver frame
 // onto a session. Used by reducePushDriver (IPC) and reduceDriverHook (EffPushDriver).
-func pushDriverInternal(s State, sid SessionID, project, rawCommand string, options LaunchOptions, input []byte, connID ConnID, reqID string) (State, []Effect, error) {
+func pushDriverInternal(s State, sid SessionID, project, rawCommand string, options LaunchOptions, input []byte, connID ConnID, reqID string) (State, []Effect, error) { //nolint:funlen
 	sess, ok := s.Sessions[sid]
 	if !ok {
 		return s, nil, fmt.Errorf("session not found")
@@ -389,7 +389,7 @@ func reducePreviewProject(s State, connID ConnID, reqID string, p PreviewProject
 	effs = append(effs, okResp(connID, reqID, nil))
 	effs = append(effs, EffBroadcastEvent{
 		Name:    "project-selected",
-		Payload: ProjectSelectedPayload{Project: p.Project},
+		Payload: ProjectSelectedPayload(p),
 	})
 	return s, effs
 }
@@ -414,7 +414,7 @@ func reduceFocusPane(s State, connID ConnID, reqID string, p FocusPaneParams) (S
 		EffSelectPane{Target: p.Pane},
 		EffBroadcastEvent{
 			Name:    "pane-focused",
-			Payload: PaneFocusedPayload{Pane: p.Pane},
+			Payload: PaneFocusedPayload(p),
 		},
 		okResp(connID, reqID, nil),
 	}
@@ -427,7 +427,7 @@ type PaneFocusedPayload struct {
 func reduceLaunchTool(s State, connID ConnID, reqID string, raw json.RawMessage) (State, []Effect) {
 	var m map[string]string
 	if len(raw) > 0 {
-		json.Unmarshal(raw, &m)
+		_ = json.Unmarshal(raw, &m)
 	}
 	tool := m["tool"]
 	if tool == "" {

@@ -40,7 +40,7 @@ func (f *fakePromptInjector) SubmitEnter(target string) error {
 	return f.submitErr
 }
 
-func newFakePromptInjector(frameID state.FrameID, pane string) *fakePromptInjector {
+func newFakePromptInjector(frameID state.FrameID, pane string) *fakePromptInjector { //nolint:unparam
 	return &fakePromptInjector{
 		panes: map[state.FrameID]string{frameID: pane},
 	}

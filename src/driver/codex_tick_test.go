@@ -97,7 +97,7 @@ func TestCodexHangDetection(t *testing.T) {
 
 	// 3. Tick after threshold should trigger Idle
 	e.Now = now.Add(commonHangThreshold + 10*time.Second)
-	next, effs, _ = d.Step(cs, e)
+	next, _, _ = d.Step(cs, e)
 	cs = next.(CodexState)
 
 	if cs.Status != state.StatusStopped {

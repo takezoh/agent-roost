@@ -6,12 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"net"
-	"sync"
 	"testing"
-
-	"github.com/takezoh/agent-roost/state"
 	"time"
 
+	"github.com/takezoh/agent-roost/state"
 )
 
 // fakeServer pairs a net.Pipe end with a goroutine that reads
@@ -22,7 +20,6 @@ type fakeServer struct {
 	conn   net.Conn
 	reader *bufio.Reader
 	writer *bufio.Writer
-	wg     sync.WaitGroup
 }
 
 func newFakeServer(t *testing.T) (*Client, *fakeServer) {

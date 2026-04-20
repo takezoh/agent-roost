@@ -82,14 +82,15 @@ func (hp hookPayload) formatLog() string {
 			break
 		}
 		detail = hp.ToolName
-		if hp.ToolName == "Bash" {
+		switch hp.ToolName {
+		case "Bash":
 			if cmd := hp.toolInputString("command"); cmd != "" {
 				if len(cmd) > 80 {
 					cmd = cmd[:77] + "..."
 				}
 				detail += " " + cmd
 			}
-		} else if hp.ToolName == "Read" || hp.ToolName == "Write" || hp.ToolName == "Edit" || hp.ToolName == "Glob" {
+		case "Read", "Write", "Edit", "Glob":
 			if fp := hp.toolInputString("file_path"); fp != "" {
 				detail += " " + fp
 			} else if p := hp.toolInputString("pattern"); p != "" {
@@ -116,13 +117,13 @@ func parseHookPayload(payload json.RawMessage) hookPayload {
 		return hookPayload{}
 	}
 	var hp hookPayload
-	json.Unmarshal(payload, &hp)
+	_ = json.Unmarshal(payload, &hp)
 	return hp
 }
 
 // handleHook parses the raw JSON from the bridge and dispatches by
 // hook_event_name.
-func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, []state.Effect) {
+func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, []state.Effect) { //nolint:funlen
 	hp := parseHookPayload(e.Payload)
 	if hp.SessionID == "" {
 		return cs, nil
@@ -321,9 +322,9 @@ func (d ClaudeDriver) handleUserPromptSubmit(cs ClaudeState, hp hookPayload, now
 // Status transitions trigger EffNotify{NotifyKindDone} automatically via
 // stepDriver's ClassifyStatusTransition diff, so this function returns no
 // effects of its own.
-func (d ClaudeDriver) handleWindowTitle(cs ClaudeState, title string, now time.Time) (ClaudeState, []state.Effect) {
+func (d ClaudeDriver) handleWindowTitle(cs ClaudeState, title string, now time.Time) ClaudeState {
 	if title == cs.LastWindowTitle {
-		return cs, nil
+		return cs
 	}
 	cs.LastWindowTitle = title
 
@@ -340,7 +341,7 @@ func (d ClaudeDriver) handleWindowTitle(cs ClaudeState, title string, now time.T
 			cs.StatusChangedAt = now
 		}
 	}
-	return cs, nil
+	return cs
 }
 
 // firstRune returns the first rune in s and whether s was non-empty.

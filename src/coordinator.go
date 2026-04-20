@@ -20,7 +20,7 @@ import (
 	"github.com/takezoh/agent-roost/state"
 )
 
-func runCoordinator() error {
+func runCoordinator() error { //nolint:funlen
 	cfg, err := loadConfig()
 	if err != nil {
 		return err

@@ -198,25 +198,25 @@ type PaneSnapshot struct {
 func (noopTmux) SpawnWindow(name, command, startDir string, env map[string]string) (string, string, error) {
 	return "", "", nil
 }
-func (noopTmux) KillPaneWindow(string) error { return nil }
-func (noopTmux) RunChain(...[]string) error  { return nil }
+func (noopTmux) KillPaneWindow(string) error    { return nil }
+func (noopTmux) RunChain(...[]string) error     { return nil }
 func (noopTmux) SwapPane(string, string) error  { return nil }
 func (noopTmux) BreakPane(string, string) error { return nil }
 func (noopTmux) BreakPaneToNewWindow(string, string) (string, error) {
 	return "", nil
 }
-func (noopTmux) JoinPane(string, string, bool, int) error { return nil }
-func (noopTmux) PaneID(string) (string, error)            { return "", nil }
-func (noopTmux) PaneSize(string) (int, int, error)        { return 0, 0, nil }
-func (noopTmux) SelectPane(string) error                  { return nil }
-func (noopTmux) ResizeWindow(string, int, int) error      { return nil }
-func (noopTmux) SetStatusLine(string) error               { return nil }
-func (noopTmux) SetEnv(string, string) error              { return nil }
-func (noopTmux) UnsetEnv(string) error                    { return nil }
-func (noopTmux) PaneAlive(string) (bool, error)           { return true, nil }
-func (noopTmux) RespawnPane(string, string) error         { return nil }
-func (noopTmux) CapturePane(string, int) (string, error)         { return "", nil }
-func (noopTmux) CapturePaneEscaped(string, int) (string, error)  { return "", nil }
+func (noopTmux) JoinPane(string, string, bool, int) error       { return nil }
+func (noopTmux) PaneID(string) (string, error)                  { return "", nil }
+func (noopTmux) PaneSize(string) (int, int, error)              { return 0, 0, nil }
+func (noopTmux) SelectPane(string) error                        { return nil }
+func (noopTmux) ResizeWindow(string, int, int) error            { return nil }
+func (noopTmux) SetStatusLine(string) error                     { return nil }
+func (noopTmux) SetEnv(string, string) error                    { return nil }
+func (noopTmux) UnsetEnv(string) error                          { return nil }
+func (noopTmux) PaneAlive(string) (bool, error)                 { return true, nil }
+func (noopTmux) RespawnPane(string, string) error               { return nil }
+func (noopTmux) CapturePane(string, int) (string, error)        { return "", nil }
+func (noopTmux) CapturePaneEscaped(string, int) (string, error) { return "", nil }
 func (noopTmux) InspectPane(string, int) (PaneSnapshot, error) {
 	return PaneSnapshot{}, nil
 }
@@ -224,12 +224,12 @@ func (noopTmux) ShowEnvironment() (string, error)          { return "", nil }
 func (noopTmux) DetachClient() error                       { return nil }
 func (noopTmux) KillSession() error                        { return nil }
 func (noopTmux) DisplayPopup(string, string, string) error { return nil }
-func (noopTmux) PipePane(string, string) error   { return nil }
-func (noopTmux) SendKeys(string, string) error   { return nil }
-func (noopTmux) SendKey(string, string) error    { return nil }
-func (noopTmux) LoadBuffer(string, string) error { return nil }
-func (noopTmux) PasteBuffer(string, string) error { return nil }
-func (noopTmux) SendEnter(string) error           { return nil }
+func (noopTmux) PipePane(string, string) error             { return nil }
+func (noopTmux) SendKeys(string, string) error             { return nil }
+func (noopTmux) SendKey(string, string) error              { return nil }
+func (noopTmux) LoadBuffer(string, string) error           { return nil }
+func (noopTmux) PasteBuffer(string, string) error          { return nil }
+func (noopTmux) SendEnter(string) error                    { return nil }
 
 type noopPersist struct{}
 

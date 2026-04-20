@@ -149,4 +149,3 @@ func (m Model) hitTestFilterChip(x, y int) (status state.Status, isAll bool, hit
 	}
 	return 0, false, false
 }
-

@@ -259,7 +259,7 @@ func TestHandleMouseWheelStopsAtMaxOffset(t *testing.T) {
 
 func TestHandleMouseWheelNoScrollWhenFits(t *testing.T) {
 	m := Model{
-		items:  makeItems(2, 2, 2), // total 6 rows
+		items:  makeItems(2, 2, 2),  // total 6 rows
 		height: baseHeaderRows + 10, // bodyHeight=10, fits
 		offset: 0,
 		cursor: 0,

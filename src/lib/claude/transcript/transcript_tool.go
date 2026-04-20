@@ -38,7 +38,7 @@ var toolInputHandlers = map[string]toolInputFunc{
 	"Grep":            patternPathInput,
 	"Bash":            bashInput,
 	"WebFetch":        webFetchInput,
-	"WebSearch":      webSearchInput,
+	"WebSearch":       webSearchInput,
 	"Agent":           agentInput,
 	"Task":            agentInput,
 	"TaskCreate":      taskCreateInput,

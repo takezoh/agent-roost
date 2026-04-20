@@ -81,28 +81,15 @@ func (hp geminiHookPayload) formatLog() string {
 
 func (d GeminiDriver) handleHook(gs GeminiState, e state.DEvHook) (GeminiState, []state.Effect) {
 	hp := parseGeminiHookPayload(e.Payload)
-	if hp.SessionID == "" {
+	if !gs.applyHookPreamble(hookPreamble{
+		SessionID:      hp.SessionID,
+		HookEventName:  hp.HookEventName,
+		Cwd:            hp.Cwd,
+		TranscriptPath: hp.TranscriptPath,
+	}, e) {
 		return gs, nil
-	}
-	if !e.Timestamp.IsZero() && !e.Timestamp.After(gs.LastHookAt) {
-		return gs, nil
-	}
-
-	gs.ResetHangDetection()
-	gs.LastHookEvent = hp.HookEventName
-	if !e.Timestamp.IsZero() {
-		gs.LastHookAt = e.Timestamp
-	}
-	if e.RoostSessionID != "" {
-		gs.RoostSessionID = e.RoostSessionID
 	}
 	gs.GeminiSessionID = hp.SessionID
-	if hp.Cwd != "" {
-		gs.StartDir = hp.Cwd
-	}
-	if hp.TranscriptPath != "" {
-		gs.TranscriptPath = hp.TranscriptPath
-	}
 
 	var effs []state.Effect
 

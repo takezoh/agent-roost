@@ -7,7 +7,7 @@ package state
 // may no-op the event.
 func reducePaneActivity(s State, e EvPaneActivity) (State, []Effect) {
 	s.Now = e.Now
-	next, effs, _, ok := stepDriver(s, e.FrameID, DEvPaneActivity{
+	next, effs, ok := stepDriver(s, e.FrameID, DEvPaneActivity{
 		PaneTarget: e.PaneTarget,
 		Now:        e.Now,
 	})

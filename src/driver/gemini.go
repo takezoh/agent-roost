@@ -39,7 +39,7 @@ func (GeminiDriver) StartDir(s state.DriverState) string {
 	if !ok {
 		return ""
 	}
-	return gs.CommonState.StartDir
+	return gs.StartDir
 }
 
 func (GeminiDriver) WithStartDir(s state.DriverState, dir string) state.DriverState {
@@ -47,7 +47,7 @@ func (GeminiDriver) WithStartDir(s state.DriverState, dir string) state.DriverSt
 	if !ok {
 		return s
 	}
-	gs.CommonState.StartDir = dir
+	gs.StartDir = dir
 	return gs
 }
 
@@ -130,6 +130,6 @@ func parseGeminiHookPayload(payload json.RawMessage) geminiHookPayload {
 		return geminiHookPayload{}
 	}
 	var hp geminiHookPayload
-	json.Unmarshal(payload, &hp)
+	_ = json.Unmarshal(payload, &hp)
 	return hp
 }

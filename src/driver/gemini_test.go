@@ -324,7 +324,6 @@ func TestGeminiEmptySessionIDDropped(t *testing.T) {
 	}
 }
 
-
 func TestGeminiCapturePaneOscNotificationsBecomeEffects(t *testing.T) {
 	d, gs, _ := newGemini(t)
 	gs.CaptureInFlight = true

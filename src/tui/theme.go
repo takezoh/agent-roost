@@ -84,7 +84,6 @@ var (
 	sectionStyle  lipgloss.Style
 	projectStyle  lipgloss.Style
 	selectedStyle lipgloss.Style
-	helpStyle     lipgloss.Style
 	helpKeyStyle  lipgloss.Style
 	mutedStyle    lipgloss.Style
 
@@ -159,7 +158,6 @@ func rebuildHeaderStyles(t Theme) {
 	sectionStyle = lipgloss.NewStyle().Foreground(t.Dim)
 	projectStyle = lipgloss.NewStyle().Bold(true).Foreground(t.Fg)
 	selectedStyle = lipgloss.NewStyle().Background(t.SelBg).Foreground(t.SelFg)
-	helpStyle = lipgloss.NewStyle().Foreground(t.Dim)
 	helpKeyStyle = lipgloss.NewStyle().Foreground(t.Fg).Bold(true)
 	mutedStyle = lipgloss.NewStyle().Foreground(t.Muted)
 }

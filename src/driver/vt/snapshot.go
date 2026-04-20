@@ -12,11 +12,11 @@ import (
 type PromptPhase int
 
 const (
-	PromptPhaseNone    PromptPhase = iota
-	PromptPhaseStart               // 133;A — prompt rendering started
-	PromptPhaseInput               // 133;B — prompt done, awaiting input
-	PromptPhaseCommand             // 133;C — command execution started
-	PromptPhaseComplete            // 133;D — command finished
+	PromptPhaseNone     PromptPhase = iota
+	PromptPhaseStart                // 133;A — prompt rendering started
+	PromptPhaseInput                // 133;B — prompt done, awaiting input
+	PromptPhaseCommand              // 133;C — command execution started
+	PromptPhaseComplete             // 133;D — command finished
 )
 
 // PromptEvent is a single OSC 133 semantic-prompt event captured from the
@@ -28,16 +28,16 @@ type PromptEvent struct {
 
 // Snapshot is the parsed state of a terminal emulator at a point in time.
 type Snapshot struct {
-	Cols, Rows    int
+	Cols, Rows       int
 	CursorX, CursorY int
-	AtAltScreen   bool
+	AtAltScreen      bool
 	// Stable is an FNV-64a hash of all visible cell content+link.
 	// If it equals the previous Snapshot.Stable, DirtyCount is 0.
-	Stable      string
+	Stable string
 	// LastLine is the last non-empty visible line, used for prompt detection.
-	LastLine    string
+	LastLine string
 	// DirtyCount is 0 when Stable matches the previous snapshot, 1 otherwise.
-	DirtyCount  int
+	DirtyCount    int
 	Notifications []OscNotification
 	// PromptEvents holds OSC 133 semantic-prompt events captured since the
 	// previous Snapshot. Flushed (set to nil) on each Snapshot() call.
