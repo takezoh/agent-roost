@@ -1157,3 +1157,29 @@ func TestPopTopFrameSwapBeforeKill(t *testing.T) {
 		t.Errorf("activeFrameID = %q, want root %q", r.activeFrameID, rootFrameID)
 	}
 }
+
+// TestSwapHiddenUsesPositionalTargets verifies that swapHidden() uses positional
+// targets on every call so repeated toggles never produce a self-swap.
+func TestSwapHiddenUsesPositionalTargets(t *testing.T) {
+	fake := newFakeTmux()
+	r := New(Config{SessionName: "roost-test", Tmux: fake})
+	r.sessionPanes["_log"] = "%42" // must not appear as a SwapPane arg
+
+	r.swapHidden()
+	r.swapHidden()
+
+	fake.mu.Lock()
+	defer fake.mu.Unlock()
+
+	if fake.swapCalls != 2 {
+		t.Fatalf("SwapPane call count = %d, want 2", fake.swapCalls)
+	}
+	wantSrc := r.hiddenPaneTarget()
+	wantDst := r.mainPaneTarget()
+	for i, src := range fake.swapSources {
+		dst := fake.swapTargets[i]
+		if src != wantSrc || dst != wantDst {
+			t.Errorf("call %d: SwapPane(%q, %q), want (%q, %q)", i, src, dst, wantSrc, wantDst)
+		}
+	}
+}
