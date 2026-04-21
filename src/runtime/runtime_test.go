@@ -446,7 +446,7 @@ func TestRuntimeTickFiresHealthChecks(t *testing.T) {
 
 func TestRuntimeRespawnsDeadPane(t *testing.T) {
 	tmux := newFakeTmux()
-	tmux.alive["roost-test:0.2"] = false // pane 0.2 is the log pane
+	tmux.alive["roost-test:0.2"] = false // pane 0.2 is the sessions pane
 	r := New(Config{
 		SessionName:  "roost-test",
 		RoostExe:     "/usr/bin/roost",
@@ -474,7 +474,7 @@ func TestRuntimeRespawnsDeadPane(t *testing.T) {
 	if len(tmux.respawnCmds) == 0 {
 		t.Fatal("expected respawn for dead pane")
 	}
-	if tmux.respawnCmds[0] != "'/usr/bin/roost' --tui log" {
+	if tmux.respawnCmds[0] != "'/usr/bin/roost' --tui sessions" {
 		t.Errorf("respawn cmd = %q", tmux.respawnCmds[0])
 	}
 }

@@ -211,3 +211,21 @@ func (c *Client) SendEvent(eventName string, timestamp time.Time, senderID strin
 		Payload:   payload,
 	}, defaultRequestTimeout)
 }
+
+// ActivateOccupant changes what occupies the main pane (0.1).
+// kind must be "main", "log", or "frame"; session/frame IDs are only
+// needed for kind="frame".
+func (c *Client) ActivateOccupant(kind, sessionID, frameID string) error {
+	_, err := sendJSONEvent[RespOK](c, state.EventActivateOccupant, state.ActivateOccupantParams{
+		Kind:      kind,
+		SessionID: sessionID,
+		FrameID:   frameID,
+	})
+	return err
+}
+
+// ActivateLog respawns pane 0.1 with the log TUI.
+func (c *Client) ActivateLog() error { return c.ActivateOccupant("log", "", "") }
+
+// ActivateMain restores pane 0.1 to the main TUI.
+func (c *Client) ActivateMain() error { return c.ActivateOccupant("main", "", "") }

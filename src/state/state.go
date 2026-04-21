@@ -47,6 +47,11 @@ type State struct {
 	// from the config file and never mutated. Reduce reads it as a
 	// read-only value, so it does not break pure-function semantics.
 	Features features.Set
+
+	// MainIsLog is true when the log TUI (rather than the main TUI) is
+	// currently occupying pane 0.1. When false, pane 0.1 holds either
+	// the main TUI or a swapped-in session frame (ActiveSession != "").
+	MainIsLog bool
 }
 
 // Session is the static metadata + driver state of one roost session.

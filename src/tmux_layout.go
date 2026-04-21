@@ -12,14 +12,13 @@ import (
 	"github.com/takezoh/agent-roost/uiproc"
 )
 
-// Window 0 pane layout (4 panes):
+// Window 0 pane layout (3 panes):
 //
-//	0.0 HEADER  (1 row, left column only — frame tab bar)
-//	0.1 MAIN    (left column, middle — active agent pane)
-//	0.2 LOG     (left column, bottom — log viewer)
-//	0.3 SESSIONS (right column, full height — session list)
+//	0.0 HEADER   (1 row, left column only — frame tab bar)
+//	0.1 MAIN     (left column — active agent / main TUI / log TUI)
+//	0.2 SESSIONS (right column, full height — session list)
 const paneLabel = `#{?#{==:#{window_index},0},` +
-	`#{?#{==:#{pane_index},0},[HEADER],#{?#{==:#{pane_index},1},[MAIN],#{?#{==:#{pane_index},2},[LOG],[SESSIONS]}}},` +
+	`#{?#{==:#{pane_index},0},[HEADER],#{?#{==:#{pane_index},1},[MAIN],[SESSIONS]}},` +
 	`[#{window_name}]}`
 
 func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) error {
@@ -35,7 +34,6 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) error {
 	enableHyperlinkForward(client)
 
 	tuiWidth := 100 - cfg.Tmux.PaneRatioHorizontal
-	logHeight := 100 - cfg.Tmux.PaneRatioVertical
 
 	// Step 1: Split sessions sidebar to the right.
 	// After: 0.0=left-area, 0.1=SESSIONS(right).
@@ -43,30 +41,21 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) error {
 		return fmt.Errorf("split sessions: %w", err)
 	}
 	// Step 2: Split a 1-row header above the left area only.
-	// After (DFS re-index): 0.0=HEADER, 0.1=left-area, 0.2=SESSIONS.
+	// After (DFS re-index): 0.0=HEADER, 0.1=MAIN, 0.2=SESSIONS.
 	if err := client.SplitWindowRows(sn+":0.0", true, 1); err != nil {
 		return fmt.Errorf("split header: %w", err)
-	}
-	// Step 3: Split the left area vertically for the log pane.
-	// After (DFS re-index): 0.0=HEADER, 0.1=MAIN, 0.2=LOG, 0.3=SESSIONS.
-	if err := client.SplitWindow(sn+":0.1", false, logHeight); err != nil {
-		return fmt.Errorf("split log: %w", err)
 	}
 
 	exePath := resolveExe()
 	envPrefix := "ROOST_SESSION_ID=" + sn + " "
-	_ = client.SendKeys(sn+":0.3", envPrefix+uiproc.Sessions().Command(exePath))
-	_ = client.SendKeys(sn+":0.2", envPrefix+uiproc.Log().Command(exePath))
+	_ = client.SendKeys(sn+":0.2", envPrefix+uiproc.Sessions().Command(exePath))
 	_ = client.SendKeys(sn+":0.1", envPrefix+uiproc.Main().Command(exePath))
 	_ = client.SendKeys(sn+":0.0", envPrefix+uiproc.Header().Command(exePath))
 
 	paneMain, _ := client.DisplayMessage(sn+":0.1", "#{pane_id}")
-	_ = client.SetEnv("ROOST_SESSION__main", paneMain)
-	paneHeader, _ := client.DisplayMessage(sn+":0.0", "#{pane_id}")
-	_ = client.SetEnv("ROOST_SESSION__header", paneHeader)
+	_ = client.SetEnv("ROOST_FRAME__main", paneMain)
 
-	_ = client.ResizePane(sn+":0.3", tuiWidth, 0)
-	_ = client.ResizePane(sn+":0.2", 0, logHeight)
+	_ = client.ResizePane(sn+":0.2", tuiWidth, 0)
 	setupKeyBindings(client, sn)
 
 	setupStatusBar(client, sn, cfg.Tmux.Prefix)
@@ -83,10 +72,8 @@ func restoreSession(client *tmux.Client, cfg *config.Config, sn string) {
 	enableHyperlinkForward(client)
 
 	tuiWidth := 100 - cfg.Tmux.PaneRatioHorizontal
-	logHeight := 100 - cfg.Tmux.PaneRatioVertical
 
-	_ = client.ResizePane(sn+":0.3", tuiWidth, 0)
-	_ = client.ResizePane(sn+":0.2", 0, logHeight)
+	_ = client.ResizePane(sn+":0.2", tuiWidth, 0)
 	setupKeyBindings(client, sn)
 	setupStatusBar(client, sn, cfg.Tmux.Prefix)
 	_ = client.SelectPane(sn + ":0.1")
@@ -114,10 +101,6 @@ func paneHints(prefix string) string {
 		k + prefix + " d" + d + " detach" + sep +
 		k + prefix + " q" + d + " quit"
 
-	log := k + "g" + d + " top" + sep +
-		k + "G" + d + " bottom" + sep +
-		k + "↑/↓" + d + " scroll"
-
 	sessions := k + "n" + d + " new" + sep +
 		k + "N" + d + " cmd" + sep +
 		k + "Enter" + d + " switch" + sep +
@@ -129,8 +112,7 @@ func paneHints(prefix string) string {
 
 	return "#{?#{==:#{window_index},0}," +
 		"#{?#{==:#{pane_index},1}," + main + "," +
-		"#{?#{==:#{pane_index},2}," + log + "," +
-		"#{?#{==:#{pane_index},3}," + sessions + "," + other + "}}}," +
+		"#{?#{==:#{pane_index},2}," + sessions + "," + other + "}}," +
 		other + "}"
 }
 
@@ -138,9 +120,10 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 	exePath := resolveExe()
 	_ = client.UnbindAllKeys("prefix")
 	_ = client.BindKey("prefix", "Space",
-		"if-shell", "-F", `#{==:#{pane_index},3}`,
+		"if-shell", "-F", `#{==:#{pane_index},2}`,
 		"select-pane -t "+sn+":0.1",
-		"select-pane -t "+sn+":0.3")
+		"select-pane -t "+sn+":0.2")
+	_ = client.BindKey("prefix", "l", "run-shell", exePath+" activate-occupant log")
 	_ = client.BindKey("prefix", "Escape", "run-shell", exePath+" event preview-project")
 	_ = client.BindKey("prefix", "z", "resize-pane", "-Z", "-t", sn+":0.1")
 	_ = client.BindKey("prefix", "d", "detach-client")
@@ -173,11 +156,7 @@ func respawnHeaderPane(client *tmux.Client, sn string) {
 }
 
 func respawnSessionsPane(client *tmux.Client, sn string) {
-	_ = client.RespawnPane(sn+":0.3", uiproc.Sessions().Command(resolveExe()))
-}
-
-func respawnLogPane(client *tmux.Client, sn string) {
-	_ = client.RespawnPane(sn+":0.2", uiproc.Log().Command(resolveExe()))
+	_ = client.RespawnPane(sn+":0.2", uiproc.Sessions().Command(resolveExe()))
 }
 
 // enableHyperlinkForward appends "hyperlinks" to the server-wide

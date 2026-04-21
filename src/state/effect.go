@@ -304,3 +304,11 @@ type EffInjectPrompt struct {
 }
 
 func (EffInjectPrompt) isEffect() {}
+
+// EffRespawnMainPane replaces the process in pane 0.1 with the given UI
+// process. Used to toggle between main TUI and log TUI without moving panes.
+type EffRespawnMainPane struct {
+	Proc uiproc.UIProcess
+}
+
+func (EffRespawnMainPane) isEffect() {}

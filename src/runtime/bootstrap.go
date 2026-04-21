@@ -276,16 +276,19 @@ func (r *Runtime) bootstrapSessionEffect(sessID state.SessionID, frameID state.F
 	}
 }
 
-// deactivateBeforeExit moves the active session back to its own window
-// so pane 0.0 shows the main TUI when the coordinator re-attaches.
-// Called from the event loop's defer stack in Run — safe to access
-// runtime state here because the select loop has already exited.
+// deactivateBeforeExit ensures pane 0.1 shows the main TUI when the
+// coordinator re-attaches. Handles both an active session frame and the
+// log TUI occupant. Called from the event loop's defer stack in Run.
 func (r *Runtime) deactivateBeforeExit() {
-	if r.activeSession == "" {
+	if r.activeSession != "" {
+		r.deactivateSession()
+		slog.Info("bootstrap: deactivated session before exit")
 		return
 	}
-	r.deactivateSession()
-	slog.Info("bootstrap: deactivated session before exit")
+	if r.state.MainIsLog {
+		_ = r.cfg.Tmux.RespawnPane(r.mainPaneTarget(), uiproc.Main().Command(r.cfg.RoostExe))
+		slog.Info("bootstrap: restored main TUI from log before exit")
+	}
 }
 
 // RecreateAll spawns fresh tmux windows for every session in r.state.

@@ -50,7 +50,6 @@ func reduceTick(s State, e EvTick) (State, []Effect) {
 		effs = append(effs,
 			EffCheckPaneAlive{Pane: "{sessionName}:0.0"},
 			EffCheckPaneAlive{Pane: "{sessionName}:0.2"},
-			EffCheckPaneAlive{Pane: "{sessionName}:0.3"},
 			EffReconcileWindows{},
 		)
 	}
@@ -75,8 +74,8 @@ func stepConnectors(s State) (State, []Effect) {
 }
 
 // reducePaneDied handles a dead pane detected by EffCheckPaneAlive.
-//   - Panes 0.0/0.2/0.3 (header/log/sessions): always respawn via RespawnTarget
-//   - Pane 0.1 with no active session: main TUI crashed — respawn it
+//   - Panes 0.0/0.2 (header/sessions): always respawn via RespawnTarget
+//   - Pane 0.1 with no active session: main or log TUI crashed — respawn it
 //   - Pane 0.1 with active session: evict the owning session
 func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 	// Control pane respawn
@@ -86,10 +85,14 @@ func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 		}
 	}
 
-	// Pane 0.1 dead with no active session: main TUI crashed.
+	// Pane 0.1 dead with no active session: main or log TUI crashed.
 	if e.Pane == "{sessionName}:0.1" && s.ActiveSession == "" {
+		proc := uiproc.Main()
+		if s.MainIsLog {
+			proc = uiproc.Log()
+		}
 		return s, []Effect{
-			EffRespawnPane{Pane: e.Pane, Proc: uiproc.Main()},
+			EffRespawnPane{Pane: e.Pane, Proc: proc},
 		}
 	}
 

@@ -35,11 +35,11 @@ func TestConstructorFields(t *testing.T) {
 		t.Errorf("Main() fields unexpected: %+v", m)
 	}
 	l := Log()
-	if l.Name != "log" || l.PaneSuffix != ":0.2" || l.Subcommand != "log" {
+	if l.Name != "log" || l.PaneSuffix != "" || l.Subcommand != "log" {
 		t.Errorf("Log() fields unexpected: %+v", l)
 	}
 	s := Sessions()
-	if s.Name != "sessions" || s.PaneSuffix != ":0.3" || s.Subcommand != "sessions" {
+	if s.Name != "sessions" || s.PaneSuffix != ":0.2" || s.Subcommand != "sessions" {
 		t.Errorf("Sessions() fields unexpected: %+v", s)
 	}
 }
@@ -93,8 +93,7 @@ func TestRespawnTargetControlPanes(t *testing.T) {
 		want UIProcess
 	}{
 		{"{sessionName}:0.0", Header()},
-		{"{sessionName}:0.2", Log()},
-		{"{sessionName}:0.3", Sessions()},
+		{"{sessionName}:0.2", Sessions()},
 	}
 	for _, tc := range cases {
 		got, ok := RespawnTarget(tc.pane)

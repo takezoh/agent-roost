@@ -30,14 +30,15 @@ func Main() UIProcess {
 	return UIProcess{Name: "main", PaneSuffix: ":0.1", Subcommand: "main"}
 }
 
-// Log returns the UIProcess for the log viewer (pane 0.2).
+// Log returns the UIProcess for the log viewer. Log has no fixed pane position
+// — it is respawned into pane 0.1 on demand via EffRespawnMainPane.
 func Log() UIProcess {
-	return UIProcess{Name: "log", PaneSuffix: ":0.2", Subcommand: "log"}
+	return UIProcess{Name: "log", PaneSuffix: "", Subcommand: "log"}
 }
 
-// Sessions returns the UIProcess for the session list (pane 0.3).
+// Sessions returns the UIProcess for the session list (pane 0.2).
 func Sessions() UIProcess {
-	return UIProcess{Name: "sessions", PaneSuffix: ":0.3", Subcommand: "sessions"}
+	return UIProcess{Name: "sessions", PaneSuffix: ":0.2", Subcommand: "sessions"}
 }
 
 // Palette returns the UIProcess for the command palette (popup).
@@ -64,16 +65,13 @@ func Palette(tool string, args map[string]string) UIProcess {
 
 // RespawnTarget returns the UIProcess that should be respawned when the
 // given pane (in {sessionName}:0.N placeholder form) dies. Handles
-// control panes 0.0 (header), 0.2 (log), 0.3 (sessions); pane 0.1
-// (main TUI) requires an active-session check that callers handle
-// directly with Main().
+// control panes 0.0 (header) and 0.2 (sessions); pane 0.1 (main/log)
+// requires an occupant check that callers handle directly.
 func RespawnTarget(pane string) (UIProcess, bool) {
 	switch {
 	case strings.HasSuffix(pane, ":0.0"):
 		return Header(), true
 	case strings.HasSuffix(pane, ":0.2"):
-		return Log(), true
-	case strings.HasSuffix(pane, ":0.3"):
 		return Sessions(), true
 	}
 	return UIProcess{}, false

@@ -89,7 +89,8 @@ func TestReduceEmptyTickEmitsHealthChecks(t *testing.T) {
 	if !next.Now.Equal(now) {
 		t.Errorf("Now = %v, want %v", next.Now, now)
 	}
-	// 4 EffCheckPaneAlive: 0.1 every tick + 0.0/0.2/0.3 every 5 ticks (N=0 fires).
+	// 3 EffCheckPaneAlive: 0.1 every tick + 0.0/0.2 every 5 ticks (N=0 fires).
+	// (0.3 removed: log pane no longer has a fixed position)
 	// + 1 EffReconcileWindows. No broadcast/persist when no sessions changed.
 	var checks int
 	for _, e := range effs {
@@ -97,7 +98,7 @@ func TestReduceEmptyTickEmitsHealthChecks(t *testing.T) {
 			checks++
 		}
 	}
-	if checks != 4 {
-		t.Errorf("EffCheckPaneAlive count = %d, want 4", checks)
+	if checks != 3 {
+		t.Errorf("EffCheckPaneAlive count = %d, want 3", checks)
 	}
 }

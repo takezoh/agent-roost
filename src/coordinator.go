@@ -147,7 +147,6 @@ func runCoordinator() error { //nolint:funlen
 	rt.RespawnMainPane()
 	respawnHeaderPane(client, sessionName)
 	respawnSessionsPane(client, sessionName)
-	respawnLogPane(client, sessionName)
 
 	slog.Info("attaching to tmux session")
 	if err := client.Attach(); err != nil {
