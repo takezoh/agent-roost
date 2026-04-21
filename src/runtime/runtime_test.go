@@ -524,8 +524,8 @@ func TestActivateSessionInspectsPanesAroundSwap(t *testing.T) {
 			t.Fatalf("inspectCalls[%d] = %q, want %q", i, tmux.inspectCalls[i], want)
 		}
 	}
-	if r.activeSession != "sess-1" {
-		t.Fatalf("activeSession = %q, want sess-1", r.activeSession)
+	if r.mainPaneSession != "sess-1" {
+		t.Fatalf("activeSession = %q, want sess-1", r.mainPaneSession)
 	}
 }
 
@@ -1000,7 +1000,7 @@ func TestActivateSessionSwapsOnFrameChange(t *testing.T) {
 	r.sessionPanes[rootFrameID] = "%1"
 	r.sessionPanes[newFrameID] = "%2"
 	r.sessionPanes["_main"] = "%0"
-	r.activeSession = sid
+	r.mainPaneSession = sid
 	r.activeFrameID = rootFrameID // old frame — different from top-of-stack
 
 	r.activateSession(sid, "push")
@@ -1047,7 +1047,7 @@ func TestActivateSessionNoopWhenFrameUnchanged(t *testing.T) {
 	}
 	r.sessionPanes[frameID] = "%1"
 	r.sessionPanes["_main"] = "%0"
-	r.activeSession = sid
+	r.mainPaneSession = sid
 	r.activeFrameID = frameID // already on the active frame
 
 	r.activateSession(sid, "noop")
@@ -1114,11 +1114,12 @@ func TestPopTopFrameSwapBeforeKill(t *testing.T) {
 			{ID: topFrameID, Project: "/project", Command: "shell", Driver: drv.NewState(time.Now())},
 		},
 	}
+	r.state.ActiveOccupant = state.OccupantFrame
 	r.state.ActiveSession = sid
 	r.sessionPanes[rootFrameID] = "%A"
 	r.sessionPanes[topFrameID] = "%B"
 	r.sessionPanes["_main"] = "%main"
-	r.activeSession = sid
+	r.mainPaneSession = sid
 	r.activeFrameID = topFrameID
 
 	// Drive the pane-died event directly (no goroutines needed).

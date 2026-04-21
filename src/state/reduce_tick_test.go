@@ -91,6 +91,7 @@ func TestPaneDiedActiveSessionEmitsDeactivate(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = stubSession(id)
+	s.ActiveOccupant = OccupantFrame
 	s.ActiveSession = id
 	_, effs := Reduce(s, EvPaneDied{Pane: "{sessionName}:0.1", OwnerFrameID: FrameID(id)})
 	if _, ok := findEff[EffDeactivateSession](effs); !ok {
@@ -102,6 +103,7 @@ func TestTmuxWindowVanishedActiveSessionEmitsDeactivateAndRespawn(t *testing.T) 
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = stubSession(id)
+	s.ActiveOccupant = OccupantFrame
 	s.ActiveSession = id
 	_, effs := Reduce(s, EvTmuxWindowVanished{FrameID: FrameID(id)})
 	if _, ok := findEff[EffDeactivateSession](effs); !ok {
@@ -193,6 +195,7 @@ func TestPaneDiedTopFrameReactivateBeforeKill(t *testing.T) {
 			{ID: topID, Project: "/project", Command: "stub", Driver: stubDriverState{}},
 		},
 	}
+	s.ActiveOccupant = OccupantFrame
 	s.ActiveSession = id
 
 	next, effs := Reduce(s, EvPaneDied{Pane: "{sessionName}:0.1", OwnerFrameID: topID})

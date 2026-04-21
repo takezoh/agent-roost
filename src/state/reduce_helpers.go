@@ -398,7 +398,10 @@ func evictRootFrame(s State, sessID SessionID, sess Session, killWindow bool) (S
 	var effs []Effect
 	if s.ActiveSession == sessID {
 		s.ActiveSession = ""
-		effs = append(effs, EffDeactivateSession{})
+		if s.ActiveOccupant == OccupantFrame {
+			s.ActiveOccupant = OccupantMain
+			effs = append(effs, EffDeactivateSession{})
+		}
 	}
 	for _, frame := range allRemoved {
 		if killWindow {
@@ -428,6 +431,7 @@ func evictChildFrame(s State, sessID SessionID, sess Session, idx int, frameID F
 	if s.ActiveSession == sessID && wasActive {
 		var pre []Effect
 		s, pre = ensureMainAtVisibleSlot(s)
+		s.ActiveOccupant = OccupantFrame
 		effs = append(effs, pre...)
 		effs = append(effs, EffActivateSession{SessionID: sessID, Reason: EventSwitchSession})
 	}

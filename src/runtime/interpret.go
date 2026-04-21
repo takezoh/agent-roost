@@ -400,10 +400,10 @@ func (r *Runtime) snapshotSessions() []SessionSnapshot {
 // is currently shown in pane 0.0. Empty when no session is active
 // or no driver matches.
 func (r *Runtime) activeStatusLine() string {
-	if r.activeSession == "" {
+	if r.mainPaneSession == "" {
 		return ""
 	}
-	sess, ok := r.state.Sessions[r.activeSession]
+	sess, ok := r.state.Sessions[r.mainPaneSession]
 	if !ok {
 		return ""
 	}

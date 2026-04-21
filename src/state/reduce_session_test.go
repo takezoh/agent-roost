@@ -473,6 +473,7 @@ func TestStopActiveSessionEmitsDeactivate(t *testing.T) {
 	s := New()
 	id := SessionID("abc")
 	s.Sessions[id] = stubSession(id)
+	s.ActiveOccupant = OccupantFrame
 	s.ActiveSession = id
 	next, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "stop-session",
@@ -515,6 +516,7 @@ func TestStopSessionMultiFrameKillsAllWindows(t *testing.T) {
 		Driver:  GetDriver("shell").NewState(sess.CreatedAt),
 	})
 	s.Sessions[id] = sess
+	s.ActiveOccupant = OccupantFrame
 	s.ActiveSession = id
 
 	next, effs := Reduce(s, EvEvent{
@@ -630,6 +632,7 @@ func TestSwitchSessionAlsoSelectsPane(t *testing.T) {
 
 func TestPreviewProjectDeactivatesActive(t *testing.T) {
 	s := New()
+	s.ActiveOccupant = OccupantFrame
 	s.ActiveSession = "abc"
 	next, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "preview-project",
@@ -827,6 +830,7 @@ func TestPaneDiedEvictsSessionByOwnerID(t *testing.T) {
 	s.Sessions = map[SessionID]Session{
 		"s1": stubSession("s1"),
 	}
+	s.ActiveOccupant = OccupantFrame
 	s.ActiveSession = "s1"
 
 	next, effs := Reduce(s, EvPaneDied{
@@ -855,6 +859,7 @@ func TestPaneDiedFallbackViaActiveSession(t *testing.T) {
 	s.Sessions = map[SessionID]Session{
 		"s1": stubSession("s1"),
 	}
+	s.ActiveOccupant = OccupantFrame
 	s.ActiveSession = "s1"
 
 	next, effs := Reduce(s, EvPaneDied{
@@ -1337,21 +1342,21 @@ func TestPushDriverNilInputProducesNilStdin(t *testing.T) {
 	}
 }
 
-// === MainIsLog / ensureMainAtVisibleSlot integration ===
+// === ActiveOccupant / ensureMainAtVisibleSlot integration ===
 
 // TestSwitchSessionSwapsHiddenWhenLog verifies that switching to a session
 // while the log TUI is visible emits EffSwapHidden before EffActivateSession.
 func TestSwitchSessionSwapsHiddenWhenLog(t *testing.T) {
 	s := New()
-	s.MainIsLog = true
+	s.ActiveOccupant = OccupantLog
 	s.Sessions["s1"] = stubSession("s1")
 
 	next, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "switch-session",
 		Payload: mustPayload(map[string]string{"session_id": "s1"}),
 	})
-	if next.MainIsLog {
-		t.Error("MainIsLog should be cleared by switch-session")
+	if next.ActiveOccupant != OccupantFrame {
+		t.Errorf("ActiveOccupant = %q, want frame (set by switch-session)", next.ActiveOccupant)
 	}
 	assertEffectOrder[EffSwapHidden, EffActivateSession](t, effs)
 	mustOK(t, effs)
@@ -1361,15 +1366,15 @@ func TestSwitchSessionSwapsHiddenWhenLog(t *testing.T) {
 // is visible emits EffSwapHidden before EffActivateSession.
 func TestPreviewSessionSwapsHiddenWhenLog(t *testing.T) {
 	s := New()
-	s.MainIsLog = true
+	s.ActiveOccupant = OccupantLog
 	s.Sessions["s1"] = stubSession("s1")
 
 	next, effs := Reduce(s, EvEvent{
 		ConnID: 1, ReqID: "r", Event: "preview-session",
 		Payload: mustPayload(map[string]string{"session_id": "s1"}),
 	})
-	if next.MainIsLog {
-		t.Error("MainIsLog should be cleared by preview-session")
+	if next.ActiveOccupant != OccupantFrame {
+		t.Errorf("ActiveOccupant = %q, want frame (set by preview-session)", next.ActiveOccupant)
 	}
 	assertEffectOrder[EffSwapHidden, EffActivateSession](t, effs)
 	mustOK(t, effs)
@@ -1379,7 +1384,7 @@ func TestPreviewSessionSwapsHiddenWhenLog(t *testing.T) {
 // log is visible emits EffSwapHidden before EffActivateSession.
 func TestTmuxPaneSpawnedSwapsHiddenWhenLog(t *testing.T) {
 	s := New()
-	s.MainIsLog = true
+	s.ActiveOccupant = OccupantLog
 	s.Sessions["s1"] = stubSession("s1")
 	frameID := s.Sessions["s1"].Frames[0].ID
 
@@ -1388,8 +1393,8 @@ func TestTmuxPaneSpawnedSwapsHiddenWhenLog(t *testing.T) {
 		FrameID:    frameID,
 		PaneTarget: "roost:0.1",
 	})
-	if next.MainIsLog {
-		t.Error("MainIsLog should be cleared by pane spawn")
+	if next.ActiveOccupant != OccupantFrame {
+		t.Errorf("ActiveOccupant = %q, want frame (set by pane spawn)", next.ActiveOccupant)
 	}
 	assertEffectOrder[EffSwapHidden, EffActivateSession](t, effs)
 	mustOK(t, effs)

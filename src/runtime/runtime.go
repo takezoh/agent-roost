@@ -66,9 +66,11 @@ type Runtime struct {
 
 	// sessionPanes maps each FrameID to its tmux pane id ("%5", "%12", ...).
 	sessionPanes map[state.FrameID]string
-	// activeSession is the SessionID currently shown in pane 0.0, or "".
-	activeSession state.SessionID
-	activeFrameID state.FrameID
+	// mainPaneSession is the SessionID whose frame is currently in pane 0.1,
+	// or "". Distinct from state.ActiveSession (logical focus): this tracks
+	// the physical occupant only.
+	mainPaneSession state.SessionID
+	activeFrameID   state.FrameID
 	// parkedPaneSnapshot stores the last logged parked-pane signature per session.
 	parkedPaneSnapshot map[state.FrameID]string
 

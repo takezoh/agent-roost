@@ -3,9 +3,9 @@ package state
 // ActivateOccupantParams is the payload for EventActivateOccupant.
 // Kind must be "main", "log", or "frame" (frame requires SessionID + FrameID).
 type ActivateOccupantParams struct {
-	Kind      string `json:"kind"`
-	SessionID string `json:"session_id,omitempty"`
-	FrameID   string `json:"frame_id,omitempty"`
+	Kind      OccupantKind `json:"kind"`
+	SessionID string       `json:"session_id,omitempty"`
+	FrameID   string       `json:"frame_id,omitempty"`
 }
 
 func init() {
@@ -14,50 +14,37 @@ func init() {
 
 func reduceActivateOccupant(s State, connID ConnID, reqID string, p ActivateOccupantParams) (State, []Effect) {
 	switch p.Kind {
-	case "log":
-		return reduceActivateLog(s, connID, reqID)
-	case "main":
-		return reduceActivateMain(s, connID, reqID)
-	case "frame":
+	case OccupantLog, OccupantMain:
+		return reduceActivateOccupantSlot(s, connID, reqID, p.Kind)
+	case OccupantFrame:
 		return reduceActivateOccupantFrame(s, connID, reqID, SessionID(p.SessionID), FrameID(p.FrameID))
 	default:
-		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, "unknown occupant kind: "+p.Kind)}
+		return s, []Effect{errResp(connID, reqID, ErrCodeInvalidArgument, "unknown occupant kind: "+string(p.Kind))}
 	}
 }
 
 // ensureMainAtVisibleSlot swaps pane 0.1 back to the main TUI if the log TUI
-// currently occupies it, and clears MainIsLog. Must be called before emitting
-// EffActivateSession so the swap source (0.1) is always the main TUI.
+// currently occupies it. Must be called before emitting EffActivateSession so
+// the swap source (0.1) is always the main TUI.
 func ensureMainAtVisibleSlot(s State) (State, []Effect) {
-	if !s.MainIsLog {
+	if s.ActiveOccupant != OccupantLog {
 		return s, nil
 	}
-	s.MainIsLog = false
+	s.ActiveOccupant = OccupantMain
 	return s, []Effect{EffSwapHidden{}}
 }
 
-func reduceActivateLog(s State, connID ConnID, reqID string) (State, []Effect) {
+// reduceActivateOccupantSlot handles activate-main and activate-log.
+// ActiveSession (logical focus) is preserved across both transitions.
+func reduceActivateOccupantSlot(s State, connID ConnID, reqID string, target OccupantKind) (State, []Effect) {
 	var effs []Effect
-	if s.ActiveSession != "" {
+	if s.ActiveOccupant == OccupantFrame {
+		// Frame is in 0.1 — swap it back before switching to main/log.
 		effs = append(effs, EffDeactivateSession{})
-		s.ActiveSession = ""
+		s.ActiveOccupant = OccupantMain
 	}
-	if s.MainIsLog {
-		return s, append(effs, okResp(connID, reqID, nil))
-	}
-	s.MainIsLog = true
-	effs = append(effs, EffSwapHidden{}, okResp(connID, reqID, nil))
-	return s, effs
-}
-
-func reduceActivateMain(s State, connID ConnID, reqID string) (State, []Effect) {
-	var effs []Effect
-	if s.ActiveSession != "" {
-		effs = append(effs, EffDeactivateSession{})
-		s.ActiveSession = ""
-	}
-	if s.MainIsLog {
-		s.MainIsLog = false
+	if s.ActiveOccupant != target {
+		s.ActiveOccupant = target
 		effs = append(effs, EffSwapHidden{})
 	}
 	effs = append(effs, okResp(connID, reqID, nil))
@@ -73,6 +60,8 @@ func reduceActivateOccupantFrame(s State, connID ConnID, reqID string, sessID Se
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "frame not found")}
 	}
 	s, effs := ensureMainAtVisibleSlot(s)
+	s.ActiveOccupant = OccupantFrame
+	s.ActiveSession = sessID
 	effs = append(effs, EffActivateSession{SessionID: sessID, Reason: EventActivateOccupant})
 	effs = append(effs, okResp(connID, reqID, nil))
 	return s, effs

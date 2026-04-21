@@ -262,7 +262,7 @@ func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
 			infos = append(infos, info)
 		}
 	}
-	return infos, string(r.activeSession)
+	return infos, string(r.state.ActiveSession)
 }
 
 func (r *Runtime) buildOneSessionInfo(sess state.Session) (proto.SessionInfo, bool) {
@@ -300,7 +300,7 @@ func (r *Runtime) buildOneSessionInfo(sess state.Session) (proto.SessionInfo, bo
 		View:          view,
 		Frames:        frames,
 		ActiveFrameID: string(activeF.ID),
-		IsActive:      r.activeSession == sess.ID,
+		IsActive:      r.state.ActiveSession == sess.ID,
 	}
 	if !view.StatusChangedAt.IsZero() {
 		info.StateChangedAt = view.StatusChangedAt.Format("2006-01-02T15:04:05Z07:00")

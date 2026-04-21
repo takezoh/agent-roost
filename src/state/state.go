@@ -22,6 +22,15 @@ type (
 	JobID     uint64
 )
 
+// OccupantKind identifies what currently occupies pane 0.1.
+type OccupantKind string
+
+const (
+	OccupantMain  OccupantKind = "main"
+	OccupantLog   OccupantKind = "log"
+	OccupantFrame OccupantKind = "frame"
+)
+
 // State is the entire roost domain state at one point in time. Reduce
 // produces a new State value from an existing State + an Event; the
 // runtime swaps its single in-memory copy each tick of the event loop.
@@ -31,7 +40,6 @@ type (
 type State struct {
 	Sessions       map[SessionID]Session
 	PendingCreates map[JobID]PendingCreate
-	ActiveSession  SessionID
 	Subscribers    map[ConnID]Subscriber
 	Jobs           map[JobID]JobMeta
 	NextJobID      JobID
@@ -48,10 +56,21 @@ type State struct {
 	// read-only value, so it does not break pure-function semantics.
 	Features features.Set
 
-	// MainIsLog is true when the log TUI (rather than the main TUI) is
-	// currently occupying pane 0.1. When false, pane 0.1 holds either
-	// the main TUI or a swapped-in session frame (ActiveSession != "").
-	MainIsLog bool
+	// ActiveOccupant identifies what currently occupies pane 0.1.
+	// - OccupantMain: the main TUI is in 0.1; log TUI is in __hidden__.0.
+	// - OccupantLog: the log TUI is in 0.1; main TUI is in __hidden__.0.
+	// - OccupantFrame: the ActiveSession's frame pane is in 0.1.
+	// Invariant: ActiveOccupant == OccupantFrame iff the runtime's
+	// mainPaneSession is non-empty.
+	ActiveOccupant OccupantKind
+
+	// ActiveSession is the logically focused session. Independent of
+	// ActiveOccupant: it persists across log/main toggles and is only
+	// cleared when the session is removed or preview-project is entered.
+	// When ActiveOccupant == OccupantFrame, ActiveSession identifies the
+	// frame's session (required). When OccupantMain/OccupantLog, it is
+	// the last focused session used by log and header TUIs to render tabs.
+	ActiveSession SessionID
 }
 
 // Session is the static metadata + driver state of one roost session.
@@ -116,5 +135,6 @@ func New() State {
 		Subscribers:    map[ConnID]Subscriber{},
 		Jobs:           map[JobID]JobMeta{},
 		Connectors:     map[string]ConnectorState{},
+		ActiveOccupant: OccupantMain,
 	}
 }

@@ -271,6 +271,7 @@ func reduceTmuxPaneSpawned(s State, e EvTmuxPaneSpawned) (State, []Effect) {
 		return s, nil
 	}
 	s, pre := ensureMainAtVisibleSlot(s)
+	s.ActiveOccupant = OccupantFrame
 	s.ActiveSession = e.SessionID
 
 	effs := []Effect{EffRegisterPane{FrameID: e.FrameID, PaneTarget: e.PaneTarget}}
@@ -335,7 +336,10 @@ func reduceStopSession(s State, connID ConnID, reqID string, p StopSessionParams
 	var deactivate []Effect
 	if s.ActiveSession == sid {
 		s.ActiveSession = ""
-		deactivate = []Effect{EffDeactivateSession{}}
+		if s.ActiveOccupant == OccupantFrame {
+			s.ActiveOccupant = OccupantMain
+			deactivate = []Effect{EffDeactivateSession{}}
+		}
 	}
 	// place broadcast first — TUI updates before tmux kill completes
 	effs := []Effect{EffBroadcastSessionsChanged{}}
@@ -357,6 +361,7 @@ func reducePreviewSession(s State, connID ConnID, reqID string, p PreviewSession
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
 	s, pre := ensureMainAtVisibleSlot(s)
+	s.ActiveOccupant = OccupantFrame
 	s.ActiveSession = sid
 
 	pre = append(pre,
@@ -374,6 +379,7 @@ func reduceSwitchSession(s State, connID ConnID, reqID string, p SwitchSessionPa
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
 	s, pre := ensureMainAtVisibleSlot(s)
+	s.ActiveOccupant = OccupantFrame
 	s.ActiveSession = sid
 
 	pre = append(pre,
@@ -392,10 +398,11 @@ type ActiveSessionReply struct {
 
 func reducePreviewProject(s State, connID ConnID, reqID string, p PreviewProjectParams) (State, []Effect) {
 	var effs []Effect
-	if s.ActiveSession != "" {
+	if s.ActiveOccupant == OccupantFrame {
+		s.ActiveOccupant = OccupantMain
 		effs = append(effs, EffDeactivateSession{})
-		s.ActiveSession = ""
 	}
+	s.ActiveSession = ""
 	effs = append(effs, okResp(connID, reqID, nil))
 	effs = append(effs, EffBroadcastEvent{
 		Name:    "project-selected",

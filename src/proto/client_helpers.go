@@ -217,7 +217,7 @@ func (c *Client) SendEvent(eventName string, timestamp time.Time, senderID strin
 // needed for kind="frame".
 func (c *Client) ActivateOccupant(kind, sessionID, frameID string) error {
 	_, err := sendJSONEvent[RespOK](c, state.EventActivateOccupant, state.ActivateOccupantParams{
-		Kind:      kind,
+		Kind:      state.OccupantKind(kind),
 		SessionID: sessionID,
 		FrameID:   frameID,
 	})

@@ -176,13 +176,13 @@ func (r *Runtime) RecoverActivePaneAtMain() { //nolint:funlen
 	}
 	// Detect if the log TUI ended up at 0.1 (roost crashed while log was visible).
 	if r.sessionPanes["_log"] != "" && r.sessionPanes["_log"] == paneAtZero {
-		r.state.MainIsLog = true
-		slog.Info("bootstrap: log TUI detected at 0.1; setting MainIsLog=true", "pane", paneAtZero)
+		r.state.ActiveOccupant = state.OccupantLog
+		slog.Info("bootstrap: log TUI detected at 0.1; setting ActiveOccupant=log", "pane", paneAtZero)
 		return
 	}
-	// Otherwise 0.1 holds main TUI or a frame — normalize MainIsLog to false
-	// so a stale snapshot value cannot diverge from the physical pane state.
-	r.state.MainIsLog = false
+	// Otherwise 0.1 holds main TUI or a frame — normalize occupant from
+	// physical pane state rather than relying on stale snapshot value.
+	r.state.ActiveOccupant = state.OccupantMain
 
 	var owner state.FrameID
 	for id, paneID := range r.sessionPanes {
@@ -197,7 +197,7 @@ func (r *Runtime) RecoverActivePaneAtMain() { //nolint:funlen
 			r.sessionPanes["_main"] = paneAtZero
 			_ = r.cfg.Tmux.SetEnv("ROOST_FRAME__main", paneAtZero)
 		}
-		r.activeSession = ""
+		r.mainPaneSession = ""
 		slog.Info("bootstrap: main TUI active at 0.0", "pane", paneAtZero)
 		return
 	}
@@ -206,7 +206,7 @@ func (r *Runtime) RecoverActivePaneAtMain() { //nolint:funlen
 		for sid, sess := range r.state.Sessions {
 			for _, frame := range sess.Frames {
 				if frame.ID == owner {
-					r.activeSession = sid
+					r.mainPaneSession = sid
 				}
 			}
 		}
@@ -217,7 +217,7 @@ func (r *Runtime) RecoverActivePaneAtMain() { //nolint:funlen
 	for sid, sess := range r.state.Sessions {
 		for _, frame := range sess.Frames {
 			if frame.ID == owner {
-				r.activeSession = sid
+				r.mainPaneSession = sid
 			}
 		}
 	}
@@ -226,7 +226,7 @@ func (r *Runtime) RecoverActivePaneAtMain() { //nolint:funlen
 		slog.Warn("bootstrap: failed to restore main TUI at 0.0", "session", owner)
 		return
 	}
-	r.activeSession = ""
+	r.mainPaneSession = ""
 }
 
 func (r *Runtime) RecoverWarmStartSessions() {
@@ -294,14 +294,14 @@ func (r *Runtime) bootstrapSessionEffect(sessID state.SessionID, frameID state.F
 // coordinator re-attaches. Handles both an active session frame and the
 // log TUI occupant. Called from the event loop's defer stack in Run.
 func (r *Runtime) deactivateBeforeExit() {
-	if r.activeSession != "" {
+	if r.mainPaneSession != "" {
 		r.deactivateSession()
 		slog.Info("bootstrap: deactivated session before exit")
 		return
 	}
-	if r.state.MainIsLog {
+	if r.state.ActiveOccupant == state.OccupantLog {
 		r.swapHidden()
-		r.state.MainIsLog = false
+		r.state.ActiveOccupant = state.OccupantMain
 		slog.Info("bootstrap: swapped log TUI back to hidden before exit")
 	}
 }
@@ -383,7 +383,7 @@ func (r *Runtime) RespawnMainPane() {
 	}
 
 	// Double check to protect active sessions if mapping failed
-	if target == r.mainPaneTarget() && r.activeSession != "" {
+	if target == r.mainPaneTarget() && r.mainPaneSession != "" {
 		slog.Warn("bootstrap: skipping main TUI respawn to protect active session at 0.0")
 		return
 	}

@@ -36,7 +36,7 @@ func (r *Runtime) activateSession(sessID state.SessionID, reason string) {
 }
 
 func (r *Runtime) deactivateSession() {
-	if r.activeSession == "" {
+	if r.mainPaneSession == "" {
 		return
 	}
 	r.swapMainIntoMain()
@@ -67,13 +67,13 @@ func (r *Runtime) swapSessionIntoMain(sessID state.SessionID) bool {
 		slog.Warn("runtime: swap-pane session failed", "session", sessID, "pane", paneID, "err", err)
 		return false
 	}
-	r.activeSession = sessID
+	r.mainPaneSession = sessID
 	r.activeFrameID = frame.ID
 	return true
 }
 
 func (r *Runtime) swapMainIntoMain() bool {
-	if r.activeSession == "" {
+	if r.mainPaneSession == "" {
 		return true
 	}
 	paneID := r.sessionPanes["_main"]
@@ -85,7 +85,7 @@ func (r *Runtime) swapMainIntoMain() bool {
 		slog.Warn("runtime: swap-pane main failed", "pane", paneID, "err", err)
 		return false
 	}
-	r.activeSession = ""
+	r.mainPaneSession = ""
 	r.activeFrameID = ""
 	return true
 }

@@ -99,14 +99,14 @@ func TestDeactivateBeforeExit_SwapsBack(t *testing.T) {
 	})
 	r.state.Sessions["s1"] = state.Session{ID: "s1", Frames: []state.SessionFrame{{ID: "f1", Command: "stub", Driver: driver.NewGenericDriver("", "", 0).NewState(time.Now())}}}
 	r.sessionPanes["f1"] = "%1"
-	r.activeSession = "s1"
+	r.mainPaneSession = "s1"
 	r.activeFrameID = "f1"
 	r.sessionPanes["_main"] = "%main"
 
 	r.deactivateBeforeExit()
 
-	if r.activeSession != "" {
-		t.Errorf("activeSession = %q, want empty", r.activeSession)
+	if r.mainPaneSession != "" {
+		t.Errorf("activeSession = %q, want empty", r.mainPaneSession)
 	}
 	ftmux.mu.Lock()
 	defer ftmux.mu.Unlock()
@@ -198,8 +198,8 @@ func TestRecoverActivePaneAtMain_RestoresMainTUIWhenSessionActive(t *testing.T) 
 
 	r.RecoverActivePaneAtMain()
 
-	if r.activeSession != "" {
-		t.Errorf("activeSession = %q, want empty", r.activeSession)
+	if r.mainPaneSession != "" {
+		t.Errorf("activeSession = %q, want empty", r.mainPaneSession)
 	}
 	if r.sessionPanes["_main"] != "%1" {
 		t.Errorf("sessionPanes[_main] = %q, want %%1", r.sessionPanes["_main"])
@@ -231,8 +231,8 @@ func TestRecoverActivePaneAtMain_IdentifiesMainTUIActive(t *testing.T) {
 
 	r.RecoverActivePaneAtMain()
 
-	if r.activeSession != "" {
-		t.Errorf("activeSession = %q, want empty", r.activeSession)
+	if r.mainPaneSession != "" {
+		t.Errorf("activeSession = %q, want empty", r.mainPaneSession)
 	}
 }
 
@@ -251,8 +251,8 @@ func TestRecoverActivePaneAtMain_LeavesSessionActiveWhenMainPaneUnknown(t *testi
 
 	r.RecoverActivePaneAtMain()
 
-	if r.activeSession != "s1" {
-		t.Errorf("activeSession = %q, want s1", r.activeSession)
+	if r.mainPaneSession != "s1" {
+		t.Errorf("activeSession = %q, want s1", r.mainPaneSession)
 	}
 }
 

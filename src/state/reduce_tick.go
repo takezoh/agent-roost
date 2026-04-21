@@ -92,10 +92,10 @@ func reducePaneDied(s State, e EvPaneDied) (State, []Effect) {
 		}
 	}
 
-	// Pane 0.1 dead with no active session: main or log TUI crashed.
-	if e.Pane == "{sessionName}:0.1" && s.ActiveSession == "" {
+	// Pane 0.1 dead with no active frame: main or log TUI crashed.
+	if e.Pane == "{sessionName}:0.1" && s.ActiveOccupant != OccupantFrame {
 		proc := uiproc.Main()
-		if s.MainIsLog {
+		if s.ActiveOccupant == OccupantLog {
 			proc = uiproc.Log()
 		}
 		return s, []Effect{
