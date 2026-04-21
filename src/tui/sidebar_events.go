@@ -71,7 +71,9 @@ func (m Model) handleServerEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) { //
 			if sc := m.findSessionCursorByID(e.ActiveSessionID); sc >= 0 {
 				m.cursor = sc
 			}
-			return m, tea.Batch(m.listenEvents(), m.focusCmd(mainPane))
+			if !e.IsPreview {
+				return m, tea.Batch(m.listenEvents(), m.focusCmd(mainPane))
+			}
 		}
 		if e.ActiveSessionID == "" && m.active == "" {
 			m.cursor = -1
