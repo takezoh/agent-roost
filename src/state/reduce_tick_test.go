@@ -3,6 +3,8 @@ package state
 import (
 	"testing"
 	"time"
+
+	"github.com/takezoh/agent-roost/uiproc"
 )
 
 // stepActiveSessions delivers DEvTick to all sessions regardless of status.
@@ -291,5 +293,43 @@ func TestTickNoBroadcastWhenNoChange(t *testing.T) {
 		if _, ok := e.(EffPersistSnapshot); ok {
 			t.Error("should not persist when no driver state changed")
 		}
+	}
+}
+
+// TestHiddenPaneDiedRestartsLogTUI verifies that a EvPaneDied for the hidden
+// pane emits EffRespawnPane targeting the log TUI process.
+func TestHiddenPaneDiedRestartsLogTUI(t *testing.T) {
+	s := New()
+	_, effs := Reduce(s, EvPaneDied{Pane: "{sessionName}:__hidden__.0"})
+
+	respawn, ok := findEff[EffRespawnPane](effs)
+	if !ok {
+		t.Fatal("expected EffRespawnPane for hidden pane death")
+	}
+	if respawn.Pane != "{sessionName}:__hidden__.0" {
+		t.Errorf("respawn target = %q, want __hidden__.0", respawn.Pane)
+	}
+	want := uiproc.Log()
+	if respawn.Proc.Name != want.Name {
+		t.Errorf("respawn proc = %q, want %q", respawn.Proc.Name, want.Name)
+	}
+}
+
+// TestHiddenPaneHealthCheckOnTickN0 verifies that the tick emits
+// EffCheckPaneAlive for the __hidden__ pane when N%5==0.
+func TestHiddenPaneHealthCheckOnTickN0(t *testing.T) {
+	s := New()
+	_, effs := Reduce(s, EvTick{Now: time.Now(), N: 0})
+
+	var hiddenChecks int
+	for _, e := range effs {
+		if c, ok := e.(EffCheckPaneAlive); ok {
+			if c.Pane == "{sessionName}:__hidden__.0" {
+				hiddenChecks++
+			}
+		}
+	}
+	if hiddenChecks != 1 {
+		t.Errorf("hidden pane EffCheckPaneAlive count = %d, want 1 on tick N=0", hiddenChecks)
 	}
 }

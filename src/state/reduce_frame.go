@@ -33,6 +33,9 @@ func reduceActivateFrame(s State, connID ConnID, reqID string, p ActivateFramePa
 		EffBroadcastSessionsChanged{},
 	}
 	if s.ActiveSession == sid {
+		var pre []Effect
+		s, pre = ensureMainAtVisibleSlot(s)
+		effs = append(effs, pre...)
 		effs = append(effs, EffActivateSession{SessionID: sid, Reason: EventActivateFrame})
 	}
 	return s, effs

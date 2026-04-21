@@ -159,6 +159,32 @@ func countEff[T Effect](effs []Effect) int {
 	return n
 }
 
+// assertEffectOrder asserts that effect of type A appears before effect of
+// type B in effs, and that both are present.
+func assertEffectOrder[A, B Effect](t *testing.T, effs []Effect) {
+	t.Helper()
+	aIdx, bIdx := -1, -1
+	for i, e := range effs {
+		if _, ok := e.(A); ok && aIdx < 0 {
+			aIdx = i
+		}
+		if _, ok := e.(B); ok {
+			bIdx = i
+		}
+	}
+	var zeroA A
+	var zeroB B
+	if aIdx < 0 {
+		t.Fatalf("expected %T in effects", zeroA)
+	}
+	if bIdx < 0 {
+		t.Fatalf("expected %T in effects", zeroB)
+	}
+	if aIdx > bIdx {
+		t.Errorf("%T (idx %d) must precede %T (idx %d)", zeroA, aIdx, zeroB, bIdx)
+	}
+}
+
 func mustPayload(fields map[string]string) json.RawMessage {
 	b, _ := json.Marshal(fields)
 	return json.RawMessage(b)
@@ -1309,4 +1335,78 @@ func TestPushDriverNilInputProducesNilStdin(t *testing.T) {
 	if spawn.Stdin != nil {
 		t.Errorf("spawn.Stdin = %q, want nil", spawn.Stdin)
 	}
+}
+
+// === MainIsLog / ensureMainAtVisibleSlot integration ===
+
+// TestSwitchSessionSwapsHiddenWhenLog verifies that switching to a session
+// while the log TUI is visible emits EffSwapHidden before EffActivateSession.
+func TestSwitchSessionSwapsHiddenWhenLog(t *testing.T) {
+	s := New()
+	s.MainIsLog = true
+	s.Sessions["s1"] = stubSession("s1")
+
+	next, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "switch-session",
+		Payload: mustPayload(map[string]string{"session_id": "s1"}),
+	})
+	if next.MainIsLog {
+		t.Error("MainIsLog should be cleared by switch-session")
+	}
+	assertEffectOrder[EffSwapHidden, EffActivateSession](t, effs)
+	mustOK(t, effs)
+}
+
+// TestPreviewSessionSwapsHiddenWhenLog verifies that preview-session while log
+// is visible emits EffSwapHidden before EffActivateSession.
+func TestPreviewSessionSwapsHiddenWhenLog(t *testing.T) {
+	s := New()
+	s.MainIsLog = true
+	s.Sessions["s1"] = stubSession("s1")
+
+	next, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "preview-session",
+		Payload: mustPayload(map[string]string{"session_id": "s1"}),
+	})
+	if next.MainIsLog {
+		t.Error("MainIsLog should be cleared by preview-session")
+	}
+	assertEffectOrder[EffSwapHidden, EffActivateSession](t, effs)
+	mustOK(t, effs)
+}
+
+// TestTmuxPaneSpawnedSwapsHiddenWhenLog verifies that a pane spawn while
+// log is visible emits EffSwapHidden before EffActivateSession.
+func TestTmuxPaneSpawnedSwapsHiddenWhenLog(t *testing.T) {
+	s := New()
+	s.MainIsLog = true
+	s.Sessions["s1"] = stubSession("s1")
+	frameID := s.Sessions["s1"].Frames[0].ID
+
+	next, effs := Reduce(s, EvTmuxPaneSpawned{
+		SessionID:  "s1",
+		FrameID:    frameID,
+		PaneTarget: "roost:0.1",
+	})
+	if next.MainIsLog {
+		t.Error("MainIsLog should be cleared by pane spawn")
+	}
+	assertEffectOrder[EffSwapHidden, EffActivateSession](t, effs)
+	mustOK(t, effs)
+}
+
+// TestSwitchSessionNoSwapWhenMain verifies that no EffSwapHidden is emitted
+// when main is already at the visible slot.
+func TestSwitchSessionNoSwapWhenMain(t *testing.T) {
+	s := New()
+	s.Sessions["s1"] = stubSession("s1")
+
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "switch-session",
+		Payload: mustPayload(map[string]string{"session_id": "s1"}),
+	})
+	if n := countEff[EffSwapHidden](effs); n != 0 {
+		t.Errorf("EffSwapHidden count = %d, want 0 (main already visible)", n)
+	}
+	mustOK(t, effs)
 }

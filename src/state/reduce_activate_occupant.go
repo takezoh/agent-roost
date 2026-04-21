@@ -1,7 +1,5 @@
 package state
 
-import "github.com/takezoh/agent-roost/uiproc"
-
 // ActivateOccupantParams is the payload for EventActivateOccupant.
 // Kind must be "main", "log", or "frame" (frame requires SessionID + FrameID).
 type ActivateOccupantParams struct {
@@ -27,24 +25,32 @@ func reduceActivateOccupant(s State, connID ConnID, reqID string, p ActivateOccu
 	}
 }
 
-func reduceActivateLog(s State, connID ConnID, reqID string) (State, []Effect) {
-	if s.MainIsLog {
-		return s, []Effect{okResp(connID, reqID, nil)}
+// ensureMainAtVisibleSlot swaps pane 0.1 back to the main TUI if the log TUI
+// currently occupies it, and clears MainIsLog. Must be called before emitting
+// EffActivateSession so the swap source (0.1) is always the main TUI.
+func ensureMainAtVisibleSlot(s State) (State, []Effect) {
+	if !s.MainIsLog {
+		return s, nil
 	}
+	s.MainIsLog = false
+	return s, []Effect{EffSwapHidden{}}
+}
+
+func reduceActivateLog(s State, connID ConnID, reqID string) (State, []Effect) {
 	var effs []Effect
 	if s.ActiveSession != "" {
 		effs = append(effs, EffDeactivateSession{})
 		s.ActiveSession = ""
 	}
+	if s.MainIsLog {
+		return s, append(effs, okResp(connID, reqID, nil))
+	}
 	s.MainIsLog = true
-	effs = append(effs, EffRespawnMainPane{Proc: uiproc.Log()}, okResp(connID, reqID, nil))
+	effs = append(effs, EffSwapHidden{}, okResp(connID, reqID, nil))
 	return s, effs
 }
 
 func reduceActivateMain(s State, connID ConnID, reqID string) (State, []Effect) {
-	if !s.MainIsLog && s.ActiveSession == "" {
-		return s, []Effect{okResp(connID, reqID, nil)}
-	}
 	var effs []Effect
 	if s.ActiveSession != "" {
 		effs = append(effs, EffDeactivateSession{})
@@ -52,7 +58,7 @@ func reduceActivateMain(s State, connID ConnID, reqID string) (State, []Effect) 
 	}
 	if s.MainIsLog {
 		s.MainIsLog = false
-		effs = append(effs, EffRespawnMainPane{Proc: uiproc.Main()})
+		effs = append(effs, EffSwapHidden{})
 	}
 	effs = append(effs, okResp(connID, reqID, nil))
 	return s, effs
@@ -66,12 +72,7 @@ func reduceActivateOccupantFrame(s State, connID ConnID, reqID string, sessID Se
 	if findFrameIndex(sess, frameID) < 0 {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "frame not found")}
 	}
-	var effs []Effect
-	if s.MainIsLog {
-		// Swap log out first so 0.1 is back to main before frame swap.
-		s.MainIsLog = false
-		effs = append(effs, EffRespawnMainPane{Proc: uiproc.Main()})
-	}
+	s, effs := ensureMainAtVisibleSlot(s)
 	effs = append(effs, EffActivateSession{SessionID: sessID, Reason: EventActivateOccupant})
 	effs = append(effs, okResp(connID, reqID, nil))
 	return s, effs

@@ -108,6 +108,20 @@ func (r *Runtime) mainPaneTarget() string {
 	return r.cfg.SessionName + ":0.1"
 }
 
+// swapHidden exchanges pane 0.1 with the __hidden__ window pane, switching
+// the visible slot between the main TUI and the log TUI. Both processes
+// remain alive throughout the swap.
+func (r *Runtime) swapHidden() {
+	hiddenPane := r.sessionPanes["_log"]
+	if hiddenPane == "" {
+		slog.Warn("runtime: swap-hidden skipped; hidden pane unknown")
+		return
+	}
+	if err := r.cfg.Tmux.SwapPane(hiddenPane, r.mainPaneTarget()); err != nil {
+		slog.Warn("runtime: swap-hidden failed", "pane", hiddenPane, "err", err)
+	}
+}
+
 func isMissingPaneErr(err error) bool {
 	if err == nil {
 		return false

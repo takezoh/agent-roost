@@ -270,16 +270,18 @@ func reduceTmuxPaneSpawned(s State, e EvTmuxPaneSpawned) (State, []Effect) {
 	if findFrameIndex(sess, e.FrameID) < 0 {
 		return s, nil
 	}
+	s, pre := ensureMainAtVisibleSlot(s)
 	s.ActiveSession = e.SessionID
 
-	effs := []Effect{
-		EffRegisterPane{FrameID: e.FrameID, PaneTarget: e.PaneTarget},
+	effs := []Effect{EffRegisterPane{FrameID: e.FrameID, PaneTarget: e.PaneTarget}}
+	effs = append(effs, pre...)
+	effs = append(effs,
 		EffActivateSession{SessionID: e.SessionID, Reason: EventCreateSession},
 		EffSelectPane{Target: "{sessionName}:0.1"},
 		EffSyncStatusLine{Line: ""},
 		EffPersistSnapshot{},
 		EffBroadcastSessionsChanged{},
-	}
+	)
 	if e.ReplyConn != 0 {
 		effs = append(effs, okResp(e.ReplyConn, e.ReplyReqID, CreateSessionReply{
 			SessionID: string(e.SessionID),
@@ -354,14 +356,16 @@ func reducePreviewSession(s State, connID ConnID, reqID string, p PreviewSession
 	if _, ok := s.Sessions[sid]; !ok {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
+	s, pre := ensureMainAtVisibleSlot(s)
 	s.ActiveSession = sid
 
-	return s, []Effect{
+	pre = append(pre,
 		EffActivateSession{SessionID: sid, Reason: EventPreviewSession},
 		EffSyncStatusLine{Line: ""},
 		EffBroadcastSessionsChanged{IsPreview: true},
 		okResp(connID, reqID, ActiveSessionReply{ActiveSessionID: string(sid)}),
-	}
+	)
+	return s, pre
 }
 
 func reduceSwitchSession(s State, connID ConnID, reqID string, p SwitchSessionParams) (State, []Effect) {
@@ -369,15 +373,17 @@ func reduceSwitchSession(s State, connID ConnID, reqID string, p SwitchSessionPa
 	if _, ok := s.Sessions[sid]; !ok {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "session not found")}
 	}
+	s, pre := ensureMainAtVisibleSlot(s)
 	s.ActiveSession = sid
 
-	return s, []Effect{
+	pre = append(pre,
 		EffActivateSession{SessionID: sid, Reason: EventSwitchSession},
 		EffSelectPane{Target: "{sessionName}:0.1"},
 		EffSyncStatusLine{Line: ""},
 		EffBroadcastSessionsChanged{},
 		okResp(connID, reqID, ActiveSessionReply{ActiveSessionID: string(sid)}),
-	}
+	)
+	return s, pre
 }
 
 type ActiveSessionReply struct {

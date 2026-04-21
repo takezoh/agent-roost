@@ -426,6 +426,9 @@ func evictChildFrame(s State, sessID SessionID, sess Session, idx int, frameID F
 
 	var effs []Effect
 	if s.ActiveSession == sessID && wasActive {
+		var pre []Effect
+		s, pre = ensureMainAtVisibleSlot(s)
+		effs = append(effs, pre...)
 		effs = append(effs, EffActivateSession{SessionID: sessID, Reason: EventSwitchSession})
 	}
 	if killWindow {

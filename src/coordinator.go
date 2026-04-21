@@ -94,6 +94,7 @@ func runCoordinator() error { //nolint:funlen
 	warmRestart := client.SessionExists()
 	if warmRestart {
 		slog.Info("session exists, restoring")
+		ensureHiddenWindow(client, sessionName)
 		state.Register(statedriver.NewShellDriver("shell", resolveShellDisplay(client), idleThreshold))
 		if err := rt.LoadSnapshot(false); err != nil {
 			slog.Error("snapshot load failed", "err", err)

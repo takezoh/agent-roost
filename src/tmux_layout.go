@@ -55,6 +55,20 @@ func setupNewSession(client *tmux.Client, cfg *config.Config, sn string) error {
 	paneMain, _ := client.DisplayMessage(sn+":0.1", "#{pane_id}")
 	_ = client.SetEnv("ROOST_FRAME__main", paneMain)
 
+	// Create the __hidden__ window to house the log TUI as a persistent process.
+	// The window stays detached so it never steals focus. remain-on-exit keeps
+	// the pane alive after the log TUI exits (for crash recovery via respawn).
+	hiddenPaneID, err := client.Run(
+		"new-window", "-d", "-n", "__hidden__", "-t", sn+":",
+		"-P", "-F", "#{pane_id}",
+		envPrefix+uiproc.Log().Command(exePath),
+	)
+	if err != nil {
+		return fmt.Errorf("hidden window: %w", err)
+	}
+	_ = client.SetOption(sn+":__hidden__", "remain-on-exit", "on")
+	_ = client.SetEnv("ROOST_HIDDEN_PANE", hiddenPaneID)
+
 	_ = client.ResizePane(sn+":0.2", tuiWidth, 0)
 	setupKeyBindings(client, sn)
 
@@ -95,6 +109,8 @@ func paneHints(prefix string) string {
 	sep := d + " · "
 
 	main := k + prefix + " Space" + d + " toggle" + sep +
+		k + prefix + " m" + d + " main" + sep +
+		k + prefix + " l" + d + " log" + sep +
 		k + prefix + " z" + d + " zoom" + sep +
 		k + prefix + " p" + d + " palette" + sep +
 		k + prefix + " C-p" + d + " push" + sep +
@@ -124,6 +140,7 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 		"select-pane -t "+sn+":0.1",
 		"select-pane -t "+sn+":0.2")
 	_ = client.BindKey("prefix", "l", "run-shell", exePath+" activate-occupant log")
+	_ = client.BindKey("prefix", "m", "run-shell", exePath+" activate-occupant main")
 	_ = client.BindKey("prefix", "Escape", "run-shell", exePath+" event preview-project")
 	_ = client.BindKey("prefix", "z", "resize-pane", "-Z", "-t", sn+":0.1")
 	_ = client.BindKey("prefix", "d", "detach-client")
@@ -149,6 +166,39 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 	} {
 		_ = client.UnbindKey("root", key)
 	}
+}
+
+// ensureHiddenWindow verifies that the __hidden__ window exists on warm
+// restart and recreates it with the log TUI if it has been lost. The new
+// pane id is stored in the ROOST_HIDDEN_PANE session env var so that the
+// next LoadSessionPanes call picks it up.
+func ensureHiddenWindow(client *tmux.Client, sn string) {
+	windows, err := client.ListWindows()
+	if err != nil {
+		slog.Warn("restore: could not list windows for hidden-window check", "err", err)
+		return
+	}
+	for _, w := range windows {
+		if w.Name == "__hidden__" {
+			slog.Info("restore: hidden window present")
+			return
+		}
+	}
+	slog.Info("restore: hidden window missing, recreating")
+	exePath := resolveExe()
+	envPrefix := "ROOST_SESSION_ID=" + sn + " "
+	hiddenPaneID, err := client.Run(
+		"new-window", "-d", "-n", "__hidden__", "-t", sn+":",
+		"-P", "-F", "#{pane_id}",
+		envPrefix+uiproc.Log().Command(exePath),
+	)
+	if err != nil {
+		slog.Warn("restore: hidden window recreation failed", "err", err)
+		return
+	}
+	_ = client.SetOption(sn+":__hidden__", "remain-on-exit", "on")
+	_ = client.SetEnv("ROOST_HIDDEN_PANE", hiddenPaneID)
+	slog.Info("restore: hidden window recreated", "pane", hiddenPaneID)
 }
 
 func respawnHeaderPane(client *tmux.Client, sn string) {

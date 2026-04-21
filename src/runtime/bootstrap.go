@@ -99,6 +99,10 @@ func (r *Runtime) LoadSessionPanes() error {
 		if len(parts) != 2 {
 			continue
 		}
+		if parts[0] == "ROOST_HIDDEN_PANE" {
+			r.sessionPanes["_log"] = parts[1]
+			continue
+		}
 		if !strings.HasPrefix(parts[0], "ROOST_FRAME_") {
 			continue
 		}
@@ -170,9 +174,19 @@ func (r *Runtime) RecoverActivePaneAtMain() { //nolint:funlen
 	if paneAtZero == "" {
 		return
 	}
+	// Detect if the log TUI ended up at 0.1 (roost crashed while log was visible).
+	if r.sessionPanes["_log"] != "" && r.sessionPanes["_log"] == paneAtZero {
+		r.state.MainIsLog = true
+		slog.Info("bootstrap: log TUI detected at 0.1; setting MainIsLog=true", "pane", paneAtZero)
+		return
+	}
+	// Otherwise 0.1 holds main TUI or a frame — normalize MainIsLog to false
+	// so a stale snapshot value cannot diverge from the physical pane state.
+	r.state.MainIsLog = false
+
 	var owner state.FrameID
 	for id, paneID := range r.sessionPanes {
-		if id == "_main" || paneID != paneAtZero {
+		if id == "_main" || id == "_log" || paneID != paneAtZero {
 			continue
 		}
 		owner = id
@@ -286,8 +300,9 @@ func (r *Runtime) deactivateBeforeExit() {
 		return
 	}
 	if r.state.MainIsLog {
-		_ = r.cfg.Tmux.RespawnPane(r.mainPaneTarget(), uiproc.Main().Command(r.cfg.RoostExe))
-		slog.Info("bootstrap: restored main TUI from log before exit")
+		r.swapHidden()
+		r.state.MainIsLog = false
+		slog.Info("bootstrap: swapped log TUI back to hidden before exit")
 	}
 }
 

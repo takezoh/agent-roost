@@ -26,7 +26,7 @@ func (r *Runtime) execute(eff state.Effect) { //nolint:funlen
 		state.EffDeactivateSession, state.EffRegisterPane, state.EffUnregisterPane,
 		state.EffSelectPane, state.EffSyncStatusLine, state.EffSetTmuxEnv,
 		state.EffUnsetTmuxEnv, state.EffCheckPaneAlive, state.EffRespawnPane,
-		state.EffRespawnMainPane, state.EffDetachClient, state.EffDisplayPopup,
+		state.EffSwapHidden, state.EffDetachClient, state.EffDisplayPopup,
 		state.EffKillSession, state.EffReconcileWindows:
 		r.executeTmuxEffect(e)
 
@@ -195,8 +195,8 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) { //nolint:funlen
 		target := substitutePlaceholdersString(e.Pane, r.cfg.SessionName, r.cfg.RoostExe)
 		_ = r.cfg.Tmux.RespawnPane(target, e.Proc.Command(r.cfg.RoostExe))
 
-	case state.EffRespawnMainPane:
-		_ = r.cfg.Tmux.RespawnPane(r.mainPaneTarget(), e.Proc.Command(r.cfg.RoostExe))
+	case state.EffSwapHidden:
+		r.swapHidden()
 
 	case state.EffDetachClient:
 		_ = r.cfg.Tmux.DetachClient()
