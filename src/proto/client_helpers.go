@@ -67,13 +67,14 @@ func (c *Client) StopSession(id string) error {
 }
 
 // ListSessions returns the current session table, active session id,
-// connector info, and the list of enabled runtime feature flags.
-func (c *Client) ListSessions() ([]SessionInfo, string, []ConnectorInfo, []string, error) {
+// active occupant kind, connector info, and the list of enabled runtime
+// feature flags.
+func (c *Client) ListSessions() ([]SessionInfo, string, string, []ConnectorInfo, []string, error) {
 	r, err := sendJSONEvent[RespSessions](c, state.EventListSessions, nil)
 	if err != nil {
-		return nil, "", nil, nil, err
+		return nil, "", "", nil, nil, err
 	}
-	return r.Sessions, r.ActiveSessionID, r.Connectors, r.Features, nil
+	return r.Sessions, r.ActiveSessionID, r.ActiveOccupant, r.Connectors, r.Features, nil
 }
 
 // PreviewSession swaps a session into pane 0.0 without focusing it.

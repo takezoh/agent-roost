@@ -30,11 +30,18 @@ func Panel(title, badge, body string, outerWidth int) string {
 	return overlayBorderTitle(rendered, title, badge, outerWidth)
 }
 
+// CardOpts controls optional rendering behaviour for Card.
+type CardOpts struct {
+	// SecondaryDim renders the secondary chip with mutedStyle instead of
+	// tagStyle (used when the frame occupant is not active).
+	SecondaryDim bool
+}
+
 // Card wraps body in a small rounded border. When selected, the border color
 // is switched to the accent color instead of a dim line.
 // outerWidth is the total width including borders + padding.
 // icon is rendered on the top border immediately left of borderTitle.
-func Card(body string, selected bool, outerWidth int, icon string, borderTitle, borderTitleSecondary state.Tag, borderBadge string) string {
+func Card(body string, selected bool, outerWidth int, icon string, borderTitle, borderTitleSecondary state.Tag, borderBadge string, opts CardOpts) string {
 	if outerWidth < 8 {
 		outerWidth = 8
 	}
@@ -48,7 +55,7 @@ func Card(body string, selected bool, outerWidth int, icon string, borderTitle, 
 		if selected {
 			fg = Active.Primary
 		}
-		rendered = overlayCardBorderTitle(rendered, icon, borderTitle, borderTitleSecondary, borderBadge, outerWidth, fg)
+		rendered = overlayCardBorderTitle(rendered, icon, borderTitle, borderTitleSecondary, borderBadge, outerWidth, fg, opts.SecondaryDim)
 	}
 	return rendered
 }
@@ -122,7 +129,7 @@ func overlayBorderTitle(rendered, title, badge string, outerWidth int) string {
 // Layout: ╭─ [icon] [primary] [secondary] ────────── badge ─╮
 // When width is tight, badge is dropped first, then secondary.
 // icon and title are always preserved.
-func overlayCardBorderTitle(rendered, icon string, title, secondary state.Tag, badge string, outerWidth int, fg color.Color) string { //nolint:funlen
+func overlayCardBorderTitle(rendered, icon string, title, secondary state.Tag, badge string, outerWidth int, fg color.Color, secondaryDim bool) string { //nolint:funlen
 	lines := strings.Split(rendered, "\n")
 	if len(lines) == 0 {
 		return rendered
@@ -195,7 +202,11 @@ func overlayCardBorderTitle(rendered, icon string, title, secondary state.Tag, b
 	}
 	if secondary.Text != "" {
 		b.WriteString(border.Render(" "))
-		b.WriteString(renderTag(secondary))
+		if secondaryDim {
+			b.WriteString(mutedStyle.Render(secondary.Text))
+		} else {
+			b.WriteString(renderTag(secondary))
+		}
 	}
 	b.WriteString(border.Render(strings.Repeat("─", fill)))
 	if badge != "" {

@@ -70,8 +70,8 @@ func (r *Runtime) translateResponseBody(body any) proto.Response {
 			SessionID: b.SessionID,
 		}
 	case state.SessionsReply:
-		infos, active := r.buildSessionInfos()
-		return proto.RespSessions{Sessions: infos, ActiveSessionID: active, Connectors: r.buildConnectorInfos(), Features: r.buildFeatureList()}
+		infos, active, occupant := r.buildSessionInfos()
+		return proto.RespSessions{Sessions: infos, ActiveSessionID: active, ActiveOccupant: occupant, Connectors: r.buildConnectorInfos(), Features: r.buildFeatureList()}
 	case state.ActiveSessionReply:
 		return proto.RespActiveSession{ActiveSessionID: b.ActiveSessionID}
 	case state.SurfaceReadTextReply:
@@ -131,10 +131,11 @@ func (r *Runtime) syncRelayWatches() {
 // current state and queues it on every subscribed connection.
 func (r *Runtime) broadcastSessionsChanged(preview bool) {
 	r.syncRelayWatches()
-	infos, active := r.buildSessionInfos()
+	infos, active, occupant := r.buildSessionInfos()
 	ev := proto.EvtSessionsChanged{
 		Sessions:        infos,
 		ActiveSessionID: active,
+		ActiveOccupant:  occupant,
 		IsPreview:       preview,
 		Connectors:      r.buildConnectorInfos(),
 		Features:        r.buildFeatureList(),
@@ -247,8 +248,9 @@ func (r *Runtime) closeConn(id state.ConnID) {
 
 // buildSessionInfos materializes the current state.Sessions map into
 // the proto.SessionInfo wire format. Calls each driver's View() pure
-// getter to fill the View payload.
-func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
+// getter to fill the View payload. Returns sessions, active session id,
+// and active occupant kind string ("main" | "log" | "frame").
+func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string, string) {
 	sorted := make([]state.Session, 0, len(r.state.Sessions))
 	for _, sess := range r.state.Sessions {
 		sorted = append(sorted, sess)
@@ -262,7 +264,18 @@ func (r *Runtime) buildSessionInfos() ([]proto.SessionInfo, string) {
 			infos = append(infos, info)
 		}
 	}
-	return infos, string(r.state.ActiveSession)
+	return infos, string(r.state.ActiveSession), occupantString(r.state.ActiveOccupant)
+}
+
+func occupantString(k state.OccupantKind) string {
+	switch k {
+	case state.OccupantLog:
+		return proto.OccupantLog
+	case state.OccupantFrame:
+		return proto.OccupantFrame
+	default:
+		return proto.OccupantMain
+	}
 }
 
 func (r *Runtime) buildOneSessionInfo(sess state.Session) (proto.SessionInfo, bool) {

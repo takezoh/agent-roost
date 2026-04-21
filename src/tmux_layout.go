@@ -209,6 +209,13 @@ func respawnSessionsPane(client *tmux.Client, sn string) {
 	_ = client.RespawnPane(sn+":0.2", uiproc.Sessions().Command(resolveExe()))
 }
 
+// respawnHiddenPane restarts the log TUI in __hidden__.0 after the IPC
+// socket is ready. Called after StartIPC so proto.Dial succeeds, fixing
+// the race where the pane is created before the daemon accepts connections.
+func respawnHiddenPane(client *tmux.Client, sn string) {
+	_ = client.RespawnPane(sn+":__hidden__.0", uiproc.Log().Command(resolveExe()))
+}
+
 // enableHyperlinkForward appends "hyperlinks" to the server-wide
 // terminal-features array so tmux re-emits OSC 8 sequences to the
 // outer terminal (WezTerm, Ghostty, Windows Terminal, ...). Without

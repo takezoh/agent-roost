@@ -8,13 +8,14 @@ import (
 
 func (m Model) requestSessions() tea.Cmd {
 	return func() tea.Msg {
-		sessions, activeID, connectors, feats, err := m.client.ListSessions()
+		sessions, activeID, activeOccupant, connectors, feats, err := m.client.ListSessions()
 		if err != nil {
 			return nil
 		}
 		return serverEventMsg{event: proto.EvtSessionsChanged{
 			Sessions:        sessions,
 			ActiveSessionID: activeID,
+			ActiveOccupant:  activeOccupant,
 			Connectors:      connectors,
 			Features:        feats,
 		}}

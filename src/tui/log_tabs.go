@@ -88,12 +88,9 @@ func buildTabList(prev map[string]*tabState, current *proto.SessionInfo, appLogP
 			tabs = append(tabs, reuseOrNew(lt.Label, lt.Path, lt.Kind, lt.RendererCfg))
 		}
 		if !current.View.SuppressInfo {
-			// TODO: prefix with glyphs.Get("tab.info") once label rendering
-			// supports styled prefixes without breaking tab hit-testing.
 			tabs = append(tabs, reuseOrNew("INFO", "", tabKindInfo, nil))
 		}
 	}
-	// TODO: prefix with glyphs.Get("tab.log") — same constraint as above.
 	return append(tabs, reuseOrNew("LOG", appLogPath, tabKindLog, nil))
 }
 

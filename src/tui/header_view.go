@@ -11,7 +11,9 @@ import (
 
 // frameTabLayout renders a row of frame tab chips for the active session
 // and returns the hitboxes for mouse click detection. Pure function.
-func frameTabLayout(sess proto.SessionInfo) (string, []frameTabHitbox) {
+// When frameFocused is false (main/log TUI is occupying the main pane),
+// the active frame tab is rendered with inactiveTabStyle like all others.
+func frameTabLayout(sess proto.SessionInfo, frameFocused bool) (string, []frameTabHitbox) {
 	if len(sess.Frames) == 0 {
 		return "", nil
 	}
@@ -22,7 +24,7 @@ func frameTabLayout(sess proto.SessionInfo) (string, []frameTabHitbox) {
 	for i, f := range sess.Frames {
 		label := frameTabLabel(f.Command, i)
 		var rendered string
-		if f.ID == sess.ActiveFrameID {
+		if frameFocused && f.ID == sess.ActiveFrameID {
 			rendered = activeTabStyle.Render("[" + label + "]")
 		} else {
 			rendered = inactiveTabStyle.Render(label)
@@ -74,6 +76,6 @@ func (m HeaderModel) renderTabLine() string {
 	if active == nil {
 		return mutedStyle.Render("roost")
 	}
-	line, _ := frameTabLayout(*active)
+	line, _ := frameTabLayout(*active, m.activeOccupant == proto.OccupantFrame)
 	return line
 }

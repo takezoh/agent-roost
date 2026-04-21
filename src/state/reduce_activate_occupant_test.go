@@ -5,7 +5,9 @@ import (
 )
 
 // TestActivateLogSwapsHidden verifies that activating the log TUI when
-// main is visible emits EffSwapHidden and sets ActiveOccupant=log.
+// main is visible emits EffSwapHidden and sets ActiveOccupant=log. A
+// sessions-changed broadcast must also fire so clients (header TUI,
+// sidebar) re-render with the occupant-derived dim state.
 func TestActivateLogSwapsHidden(t *testing.T) {
 	s := New()
 	next, effs := Reduce(s, EvEvent{
@@ -17,6 +19,9 @@ func TestActivateLogSwapsHidden(t *testing.T) {
 	}
 	if _, ok := findEff[EffSwapHidden](effs); !ok {
 		t.Error("expected EffSwapHidden")
+	}
+	if _, ok := findEff[EffBroadcastSessionsChanged](effs); !ok {
+		t.Error("expected EffBroadcastSessionsChanged so TUI re-renders with new occupant")
 	}
 	mustOK(t, effs)
 }
@@ -35,6 +40,9 @@ func TestActivateLogIdempotent(t *testing.T) {
 	}
 	if n := countEff[EffSwapHidden](effs); n != 0 {
 		t.Errorf("EffSwapHidden count = %d, want 0 (already at log)", n)
+	}
+	if n := countEff[EffBroadcastSessionsChanged](effs); n != 0 {
+		t.Errorf("EffBroadcastSessionsChanged count = %d, want 0 (no state change)", n)
 	}
 	mustOK(t, effs)
 }

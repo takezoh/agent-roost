@@ -368,42 +368,42 @@ func TestItemCacheKey(t *testing.T) {
 	}
 
 	// Running and Waiting must not be cached (spinner changes every frame).
-	if got := itemCacheKey(makeSess(state.StatusRunning), false, 80, false, ""); got != "" {
+	if got := itemCacheKey(makeSess(state.StatusRunning), false, 80, false, "", false); got != "" {
 		t.Errorf("Running: want empty key, got %q", got)
 	}
-	if got := itemCacheKey(makeSess(state.StatusWaiting), false, 80, false, ""); got != "" {
+	if got := itemCacheKey(makeSess(state.StatusWaiting), false, 80, false, "", false); got != "" {
 		t.Errorf("Waiting: want empty key, got %q", got)
 	}
 
 	// Idle and Stopped must return a non-empty key.
-	idleKey := itemCacheKey(makeSess(state.StatusIdle), false, 80, false, "")
+	idleKey := itemCacheKey(makeSess(state.StatusIdle), false, 80, false, "", false)
 	if idleKey == "" {
 		t.Error("Idle: want non-empty key")
 	}
-	stoppedKey := itemCacheKey(makeSess(state.StatusStopped), false, 80, false, "")
+	stoppedKey := itemCacheKey(makeSess(state.StatusStopped), false, 80, false, "", false)
 	if stoppedKey == "" {
 		t.Error("Stopped: want non-empty key")
 	}
 
 	// Keys must differ when selected/width/notif change.
-	k1 := itemCacheKey(makeSess(state.StatusIdle), false, 80, false, "")
-	k2 := itemCacheKey(makeSess(state.StatusIdle), true, 80, false, "")
+	k1 := itemCacheKey(makeSess(state.StatusIdle), false, 80, false, "", false)
+	k2 := itemCacheKey(makeSess(state.StatusIdle), true, 80, false, "", false)
 	if k1 == k2 {
 		t.Error("selected=false vs true must produce different keys")
 	}
-	k3 := itemCacheKey(makeSess(state.StatusIdle), false, 40, false, "")
+	k3 := itemCacheKey(makeSess(state.StatusIdle), false, 40, false, "", false)
 	if k1 == k3 {
 		t.Error("width=80 vs 40 must produce different keys")
 	}
-	k4 := itemCacheKey(makeSess(state.StatusIdle), false, 80, false, "alert")
+	k4 := itemCacheKey(makeSess(state.StatusIdle), false, 80, false, "alert", false)
 	if k1 == k4 {
 		t.Error("notif change must produce different keys")
 	}
 
 	// Project items must return non-empty key; fold state must differ.
 	proj := listItem{isProject: true, project: "alpha"}
-	pk1 := itemCacheKey(proj, false, 80, false, "")
-	pk2 := itemCacheKey(proj, false, 80, true, "")
+	pk1 := itemCacheKey(proj, false, 80, false, "", false)
+	pk2 := itemCacheKey(proj, false, 80, true, "", false)
 	if pk1 == "" {
 		t.Error("project item: want non-empty key")
 	}
@@ -412,8 +412,28 @@ func TestItemCacheKey(t *testing.T) {
 	}
 
 	// nil session with isProject=false must return empty (guard).
-	if got := itemCacheKey(listItem{}, false, 80, false, ""); got != "" {
+	if got := itemCacheKey(listItem{}, false, 80, false, "", false); got != "" {
 		t.Errorf("nil session non-project: want empty key, got %q", got)
+	}
+
+	// frameFocused change must bust cache only for multi-frame sessions.
+	multiFrameSess := listItem{session: &proto.SessionInfo{
+		State:  state.StatusIdle,
+		Frames: []proto.FrameInfo{{ID: "f1"}, {ID: "f2"}},
+	}}
+	mf1 := itemCacheKey(multiFrameSess, false, 80, false, "", true)
+	mf2 := itemCacheKey(multiFrameSess, false, 80, false, "", false)
+	if mf1 == mf2 {
+		t.Error("frameFocused change on multi-frame session must produce different keys")
+	}
+	singleFrameSess := listItem{session: &proto.SessionInfo{
+		State:  state.StatusIdle,
+		Frames: []proto.FrameInfo{{ID: "f1"}},
+	}}
+	sf1 := itemCacheKey(singleFrameSess, false, 80, false, "", true)
+	sf2 := itemCacheKey(singleFrameSess, false, 80, false, "", false)
+	if sf1 != sf2 {
+		t.Error("frameFocused change on single-frame session must NOT change key (no secondary chip)")
 	}
 }
 

@@ -35,6 +35,7 @@ func (RespCreateSession) isResponse() {}
 type RespSessions struct {
 	Sessions        []SessionInfo   `json:"sessions"`
 	ActiveSessionID string          `json:"active_session_id,omitempty"`
+	ActiveOccupant  string          `json:"active_occupant,omitempty"` // "main" | "log" | "frame"
 	Connectors      []ConnectorInfo `json:"connectors,omitempty"`
 	Features        []string        `json:"features,omitempty"`
 }

@@ -19,19 +19,25 @@ func reduceActivateFrame(s State, connID ConnID, reqID string, p ActivateFramePa
 	if findFrameIndex(sess, fid) < 0 {
 		return s, []Effect{errResp(connID, reqID, ErrCodeNotFound, "frame not found")}
 	}
-	if sess.ActiveFrameID == fid {
+
+	frameChanged := sess.ActiveFrameID != fid
+	needOccupantSwitch := s.ActiveSession == sid && s.ActiveOccupant != OccupantFrame
+
+	if !frameChanged && !needOccupantSwitch {
 		return s, []Effect{okResp(connID, reqID, nil)}
 	}
-	sess = pushMRU(sess, sess.ActiveFrameID)
-	sess.ActiveFrameID = fid
-	s.Sessions = cloneSessions(s.Sessions)
-	s.Sessions[sid] = sess
 
-	effs := []Effect{
-		okResp(connID, reqID, nil),
-		EffPersistSnapshot{},
-		EffBroadcastSessionsChanged{},
+	effs := []Effect{okResp(connID, reqID, nil)}
+
+	if frameChanged {
+		sess = pushMRU(sess, sess.ActiveFrameID)
+		sess.ActiveFrameID = fid
+		s.Sessions = cloneSessions(s.Sessions)
+		s.Sessions[sid] = sess
+		effs = append(effs, EffPersistSnapshot{})
 	}
+	effs = append(effs, EffBroadcastSessionsChanged{})
+
 	if s.ActiveSession == sid {
 		var pre []Effect
 		s, pre = ensureMainAtVisibleSlot(s)

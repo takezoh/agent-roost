@@ -148,6 +148,10 @@ func runCoordinator() error { //nolint:funlen
 	rt.RespawnMainPane()
 	respawnHeaderPane(client, sessionName)
 	respawnSessionsPane(client, sessionName)
+	// respawnHiddenPane must come after StartIPC: the log TUI dials the
+	// Unix socket on startup, and the socket does not exist until StartIPC
+	// returns. Any earlier respawn results in a silent offline-mode boot.
+	respawnHiddenPane(client, sessionName)
 
 	slog.Info("attaching to tmux session")
 	if err := client.Attach(); err != nil {

@@ -18,11 +18,19 @@ const (
 	EvtNamePeerMessage       = "peer-message"
 )
 
+// ActiveOccupant values for EvtSessionsChanged and RespSessions.
+const (
+	OccupantMain  = "main"
+	OccupantLog   = "log"
+	OccupantFrame = "frame"
+)
+
 // EvtSessionsChanged carries the current session table. Sent on
 // every state change that affects what the TUI should render.
 type EvtSessionsChanged struct {
 	Sessions        []SessionInfo   `json:"sessions"`
 	ActiveSessionID string          `json:"active_session_id,omitempty"`
+	ActiveOccupant  string          `json:"active_occupant,omitempty"` // "main" | "log" | "frame"
 	IsPreview       bool            `json:"is_preview,omitempty"`
 	Connectors      []ConnectorInfo `json:"connectors,omitempty"`
 	Features        []string        `json:"features,omitempty"`

@@ -62,6 +62,7 @@ func renderSessionsBody(m *Model, innerWidth int) string { //nolint:funlen
 	// Non-animated items (not Running/Waiting) are cached by key so that
 	// repeated View() calls from the spinner tick skip redundant lipgloss work.
 	rendered := make([]string, len(m.items))
+	frameFocused := m.activeOccupant == proto.OccupantFrame
 	for i := range m.items {
 		selected := i == m.cursor
 		notif := ""
@@ -70,10 +71,10 @@ func renderSessionsBody(m *Model, innerWidth int) string { //nolint:funlen
 		}
 		folded := m.folded[m.items[i].project]
 		var r string
-		if key := itemCacheKey(m.items[i], selected, innerWidth, folded, notif); key != "" && m.items[i].cachedRenderKey == key {
+		if key := itemCacheKey(m.items[i], selected, innerWidth, folded, notif, frameFocused); key != "" && m.items[i].cachedRenderKey == key {
 			r = m.items[i].cachedRender
 		} else {
-			r = renderItem(m.items[i], selected, innerWidth, folded, notif)
+			r = renderItem(m.items[i], selected, innerWidth, folded, notif, frameFocused)
 			if key != "" {
 				m.items[i].cachedRender = r
 				m.items[i].cachedRenderKey = key
@@ -165,11 +166,11 @@ func stickyProject(items []listItem, offset int) string {
 	return proj
 }
 
-func renderItem(item listItem, selected bool, width int, folded bool, notifLine string) string {
+func renderItem(item listItem, selected bool, width int, folded bool, notifLine string, frameFocused bool) string {
 	if item.isProject {
 		return renderProject(item.project, item.projectPath, folded, selected)
 	}
-	return renderSession(item.session, selected, width, notifLine)
+	return renderSession(item.session, selected, width, notifLine, frameFocused)
 }
 
 func renderProject(name, path string, folded, selected bool) string {
@@ -191,14 +192,14 @@ func renderProject(name, path string, folded, selected bool) string {
 	return projectStyle.Render(line)
 }
 
-func renderSession(s *proto.SessionInfo, selected bool, width int, notifLine string) string {
+func renderSession(s *proto.SessionInfo, selected bool, width int, notifLine string, frameFocused bool) string {
 	if Active.Minimal {
 		return renderSessionMinimal(s, selected, width, notifLine)
 	}
 	cardOuter := width - 2     // leave room for the 2-space indent
 	textWidth := cardOuter - 4 // subtract Card border + padding
 	body := strings.Join(sessionCardLines(s, textWidth, notifLine), "\n")
-	return indent(Card(body, selected, cardOuter, sessionStateIcon(s), s.View.Card.BorderTitle, s.View.Card.BorderTitleSecondary, s.View.Card.BorderBadge), "  ")
+	return indent(Card(body, selected, cardOuter, sessionStateIcon(s), s.View.Card.BorderTitle, s.View.Card.BorderTitleSecondary, s.View.Card.BorderBadge, CardOpts{SecondaryDim: !frameFocused}), "  ")
 }
 
 // renderSessionMinimal draws a session as a borderless block with a
@@ -358,7 +359,7 @@ func indent(s, prefix string) string {
 // can change between View() calls without triggering rebuildItems: selected
 // state, width, fold state, and notification text. Session data changes
 // always rebuild items, implicitly clearing the cache.
-func itemCacheKey(item listItem, selected bool, width int, folded bool, notifLine string) string {
+func itemCacheKey(item listItem, selected bool, width int, folded bool, notifLine string, frameFocused bool) string {
 	if item.isProject {
 		return fmt.Sprintf("p|%v|%d|%v", selected, width, folded)
 	}
@@ -369,7 +370,8 @@ func itemCacheKey(item listItem, selected bool, width int, folded bool, notifLin
 	case state.StatusRunning, state.StatusWaiting:
 		return "" // animated: spinner glyph changes every frame
 	}
-	return fmt.Sprintf("s|%v|%d|%s", selected, width, notifLine)
+	secondaryDim := !frameFocused && len(item.session.Frames) > 1
+	return fmt.Sprintf("s|%v|%d|%s|%v", selected, width, notifLine, secondaryDim)
 }
 
 func formatElapsed(d time.Duration) string {

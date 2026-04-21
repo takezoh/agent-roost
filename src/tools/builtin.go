@@ -87,7 +87,7 @@ func DefaultRegistry(feats features.Set) *Registry { //nolint:funlen
 				{
 					Name: "target",
 					Options: func(ctx *ToolContext) []string {
-						sessions, _, _, _, err := ctx.Client.ListSessions()
+						sessions, _, _, _, _, err := ctx.Client.ListSessions()
 						if err != nil {
 							return nil
 						}

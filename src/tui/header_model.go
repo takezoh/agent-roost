@@ -10,9 +10,10 @@ import (
 // It subscribes to EvtSessionsChanged, finds the active session, and
 // shows its frames as clickable tabs.
 type HeaderModel struct {
-	client   *proto.Client
-	sessions []proto.SessionInfo
-	width    int
+	client         *proto.Client
+	sessions       []proto.SessionInfo
+	activeOccupant string
+	width          int
 }
 
 type headerEventMsg struct{ event proto.ServerEvent }
@@ -64,17 +65,18 @@ func (m HeaderModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m HeaderModel) handleEvent(ev proto.ServerEvent) (tea.Model, tea.Cmd) {
 	if e, ok := ev.(proto.EvtSessionsChanged); ok {
 		m.sessions = e.Sessions
+		m.activeOccupant = e.ActiveOccupant
 	}
 	return m, m.listenEvents()
 }
 
 func (m HeaderModel) requestSessions() tea.Cmd {
 	return func() tea.Msg {
-		sessions, _, connectors, _, err := m.client.ListSessions()
+		sessions, _, occupant, connectors, _, err := m.client.ListSessions()
 		if err != nil {
 			return nil
 		}
-		return headerEventMsg{event: proto.EvtSessionsChanged{Sessions: sessions, Connectors: connectors}}
+		return headerEventMsg{event: proto.EvtSessionsChanged{Sessions: sessions, ActiveOccupant: occupant, Connectors: connectors}}
 	}
 }
 
@@ -105,7 +107,7 @@ func (m HeaderModel) hitTestTab(x, y int) (frameTabHitbox, bool) {
 	if active == nil {
 		return frameTabHitbox{}, false
 	}
-	_, boxes := frameTabLayout(*active)
+	_, boxes := frameTabLayout(*active, m.activeOccupant == proto.OccupantFrame)
 	for _, h := range boxes {
 		if x >= h.x0 && x < h.x1 {
 			return h, true

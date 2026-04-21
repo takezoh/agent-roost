@@ -22,6 +22,7 @@ type Model struct {
 
 	sessions          []proto.SessionInfo
 	connectors        []proto.ConnectorInfo
+	activeOccupant    string
 	items             []listItem
 	cursor            int
 	offset            int // first visible item index for scrolling
