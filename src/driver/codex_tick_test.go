@@ -133,6 +133,38 @@ func TestCodexHandleCapturePaneResultError(t *testing.T) {
 	}
 }
 
+// IsRoot=false ガード: 非 root frame は DEvTick / DEvPaneActivity を無視する。
+
+func TestCodexStepNonRootSkipsTick(t *testing.T) {
+	d := NewCodexDriver("/tmp/events")
+	now := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	cs := d.NewState(now).(CodexState)
+	cs.Status = state.StatusRunning
+	cs.StartDir = "/repo"
+	next, effs, _ := d.Step(cs, state.FrameContext{IsRoot: false}, state.DEvTick{
+		Now: now.Add(time.Second), Active: true, Project: "/repo", PaneTarget: "%5",
+	})
+	if len(effs) != 0 {
+		t.Errorf("non-root DEvTick effects = %d, want 0", len(effs))
+	}
+	if next.(CodexState).StartDir != "/repo" {
+		t.Errorf("non-root DEvTick mutated StartDir: got %q", next.(CodexState).StartDir)
+	}
+}
+
+func TestCodexStepNonRootSkipsPaneActivity(t *testing.T) {
+	d := NewCodexDriver("/tmp/events")
+	now := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	cs := d.NewState(now).(CodexState)
+	cs.Status = state.StatusRunning
+	_, effs, _ := d.Step(cs, state.FrameContext{IsRoot: false}, state.DEvPaneActivity{
+		PaneTarget: "%5", Now: now.Add(time.Second),
+	})
+	if len(effs) != 0 {
+		t.Errorf("non-root DEvPaneActivity effects = %d, want 0", len(effs))
+	}
+}
+
 func TestCodexViewIncludesBranchTag(t *testing.T) {
 	d := NewCodexDriver("/tmp/events")
 	now := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)

@@ -296,3 +296,30 @@ func TestShellOsc133LastEventWins(t *testing.T) {
 		t.Errorf("Status = %v, want Waiting (last event wins)", next.Status)
 	}
 }
+
+// IsRoot=false ガード: 非 root frame は DEvTick / DEvPaneActivity を無視する。
+
+func TestShellStepNonRootSkipsTick(t *testing.T) {
+	d, s, now := newShellState(t, 5*time.Second)
+	s = makeShellRunning(d, s, now)
+	next, effs, _ := d.Step(s, state.FrameContext{IsRoot: false}, state.DEvTick{
+		Now: now.Add(time.Second), Active: true, Project: "/repo", PaneTarget: "%5",
+	})
+	if len(effs) != 0 {
+		t.Errorf("non-root DEvTick effects = %d, want 0", len(effs))
+	}
+	if next.(ShellState).Status != s.Status {
+		t.Errorf("non-root DEvTick mutated Status: got %v, want %v", next.(ShellState).Status, s.Status)
+	}
+}
+
+func TestShellStepNonRootSkipsPaneActivity(t *testing.T) {
+	d, s, now := newShellState(t, 5*time.Second)
+	s = makeShellRunning(d, s, now)
+	_, effs, _ := d.Step(s, state.FrameContext{IsRoot: false}, state.DEvPaneActivity{
+		PaneTarget: "%5", Now: now.Add(time.Second),
+	})
+	if len(effs) != 0 {
+		t.Errorf("non-root DEvPaneActivity effects = %d, want 0", len(effs))
+	}
+}

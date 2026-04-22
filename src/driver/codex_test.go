@@ -80,6 +80,39 @@ func TestCodexSessionStartSetsIdle(t *testing.T) {
 	}
 }
 
+func TestCodexSessionStartNonRootSkipsBranchDetect(t *testing.T) {
+	d, cs, now := newCodex(t)
+	ev := codexHook(map[string]string{
+		"session_id":      "sess-1",
+		"hook_event_name": "SessionStart",
+		"cwd":             "/repo",
+		"transcript_path": "/tmp/t.jsonl",
+	}, now)
+	ev.RoostSessionID = "r1"
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: false}, ev)
+	// Non-root: BranchDetect must NOT be emitted.
+	if next.BranchInFlight {
+		t.Error("BranchInFlight should be false for non-root frame")
+	}
+	for _, eff := range effs {
+		if j, ok := eff.(state.EffStartJob); ok {
+			if _, ok := j.Input.(BranchDetectInput); ok {
+				t.Error("non-root SessionStart must not emit BranchDetectInput")
+			}
+		}
+	}
+	// Other SessionStart work (transcript watch + parse) must still run.
+	foundWatch := false
+	for _, eff := range effs {
+		if w, ok := eff.(state.EffWatchFile); ok {
+			foundWatch = w.Path == "/tmp/t.jsonl"
+		}
+	}
+	if !foundWatch {
+		t.Error("non-root SessionStart should still emit EffWatchFile for transcript")
+	}
+}
+
 func TestCodexUserPromptTransitionsRunning(t *testing.T) {
 	d, cs, now := newCodex(t)
 	cs.RecentTurns = []SummaryTurn{

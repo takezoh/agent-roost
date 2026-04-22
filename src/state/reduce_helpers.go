@@ -145,7 +145,7 @@ func truncateFrames(sess Session, from int) (Session, []SessionFrame) {
 //     the new id.
 //   - EffEventLogAppend / EffWatchFile / EffUnwatchFile:
 //     fills in the SessionID field if the driver left it blank.
-func stepDriver(s State, frameID FrameID, ev DriverEvent) (State, []Effect, bool) {
+func stepDriver(s State, frameID FrameID, ev DriverEvent) (State, []Effect, bool) { //nolint:funlen
 	sessID, sess, frameIdx, ok := findFrame(s, frameID)
 	if !ok {
 		return s, nil, false

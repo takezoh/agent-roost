@@ -123,6 +123,31 @@ func TestClaudeSessionStartSkipsBranchDetectWhenInFlight(t *testing.T) {
 	}
 }
 
+func TestClaudeSessionStartNonRootSkipsBranchDetect(t *testing.T) {
+	d, cs, now := newClaude(t)
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: false}, hookEvent("SessionStart", map[string]string{
+		"session_id":      "uuid",
+		"cwd":             "/work",
+		"transcript_path": "/tmp/x.jsonl",
+		"hook_event_name": "SessionStart",
+	}, now))
+	// Non-root: BranchDetect must NOT be emitted, other effects must still arrive.
+	if next.BranchInFlight {
+		t.Error("BranchInFlight should be false for non-root frame")
+	}
+	for _, e := range effs {
+		if j, ok := e.(state.EffStartJob); ok {
+			if _, ok := j.Input.(BranchDetectInput); ok {
+				t.Error("non-root SessionStart must not emit BranchDetectInput")
+			}
+		}
+	}
+	// Transcript watch should still be set up even for non-root.
+	if _, ok := findEffect[state.EffWatchFile](effs); !ok {
+		t.Error("non-root SessionStart should still emit EffWatchFile")
+	}
+}
+
 func TestClaudeSessionStartNoCwdSkipsBranchDetect(t *testing.T) {
 	d, cs, now := newClaude(t)
 	next, _ := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("SessionStart", map[string]string{

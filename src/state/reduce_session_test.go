@@ -363,6 +363,44 @@ func TestTmuxSpawnedRegistersWindowAndActivates(t *testing.T) {
 	}
 }
 
+func TestTmuxSpawnedRootFrameSetsTapTrue(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	s.Sessions[id] = stubSession(id) // Frames[0] is the root
+	_, effs := Reduce(s, EvTmuxPaneSpawned{
+		SessionID: id, FrameID: FrameID(id), PaneTarget: "%1",
+	})
+	reg, ok := findEff[EffRegisterPane](effs)
+	if !ok {
+		t.Fatal("expected EffRegisterPane")
+	}
+	if !reg.Tap {
+		t.Error("EffRegisterPane.Tap should be true for root frame (Frames[0])")
+	}
+}
+
+func TestTmuxSpawnedChildFrameSetsTapFalse(t *testing.T) {
+	s := New()
+	id := SessionID("abc")
+	childID := FrameID("child-frame")
+	sess := stubSession(id)
+	// Append a child frame at index 1.
+	sess.Frames = append(sess.Frames, SessionFrame{
+		ID: childID, Project: "/foo", Command: "stub", Driver: stubDriverState{},
+	})
+	s.Sessions[id] = sess
+	_, effs := Reduce(s, EvTmuxPaneSpawned{
+		SessionID: id, FrameID: childID, PaneTarget: "%2",
+	})
+	reg, ok := findEff[EffRegisterPane](effs)
+	if !ok {
+		t.Fatal("expected EffRegisterPane")
+	}
+	if reg.Tap {
+		t.Error("EffRegisterPane.Tap should be false for non-root frame (Frames[1])")
+	}
+}
+
 func TestTmuxSpawnedUnknownSessionDropsSilently(t *testing.T) {
 	s := New()
 	_, effs := Reduce(s, EvTmuxPaneSpawned{

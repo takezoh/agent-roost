@@ -42,6 +42,16 @@ type DriverEvent interface {
 // FrameContext carries read-only frame metadata into Driver.Step.
 // It is assembled by stepDriver from the SessionFrame and is never
 // stored inside DriverState or persisted to disk.
+//
+// IsRoot gating policy: drivers must early-return on DEvTick,
+// DEvPaneActivity, and DEvPaneOsc when !IsRoot — these events are
+// routed/emitted only for root frames at the reducer and tap layers,
+// so the driver guard is defense-in-depth. Branch-detect inside
+// SessionStart hooks must also be gated on IsRoot. All other hook
+// behaviors (status transitions, transcript watch, tool logs) and
+// DEvFileChanged / DEvJobResult run on every frame because each child
+// frame owns an independent agent session with its own transcript
+// and hook timestream.
 type FrameContext struct {
 	ID            FrameID
 	Project       string

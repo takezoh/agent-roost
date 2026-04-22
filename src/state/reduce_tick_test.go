@@ -7,6 +7,37 @@ import (
 	"github.com/takezoh/agent-roost/uiproc"
 )
 
+// tickTrackerDriver emits a unique EffStartJob on every DEvTick so tests can
+// count how many times Step was called on this driver's frames.
+type tickTrackerState struct{ DriverStateBase }
+
+type tickTrackerDriver struct{}
+
+func (tickTrackerDriver) Name() string                       { return "ticktracker" }
+func (tickTrackerDriver) DisplayName() string                { return "ticktracker" }
+func (tickTrackerDriver) Status(s DriverState) Status        { return StatusRunning }
+func (tickTrackerDriver) NewState(now time.Time) DriverState { return tickTrackerState{} }
+func (tickTrackerDriver) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCommand string, options LaunchOptions) (LaunchPlan, error) {
+	return LaunchPlan{Command: baseCommand, StartDir: project}, nil
+}
+func (tickTrackerDriver) Persist(s DriverState) map[string]string { return nil }
+func (tickTrackerDriver) Restore(bag map[string]string, now time.Time) DriverState {
+	return tickTrackerState{}
+}
+func (tickTrackerDriver) View(s DriverState) View { return View{} }
+func (tickTrackerDriver) Step(prev DriverState, ctx FrameContext, ev DriverEvent) (DriverState, []Effect, View) {
+	if _, ok := ev.(DEvTick); ok {
+		return prev, []Effect{EffBroadcastSessionsChanged{}}, View{}
+	}
+	return prev, nil, View{}
+}
+
+func init() {
+	if _, exists := driverRegistry["ticktracker"]; !exists {
+		Register(tickTrackerDriver{})
+	}
+}
+
 // stepActiveSessions delivers DEvTick to all sessions regardless of status.
 // Drivers decide internally whether to react (self-skip via no-op return).
 // These tests verify that the runtime does NOT gate on status.
@@ -269,6 +300,46 @@ func TestMRUFallbackOnFrameDeath(t *testing.T) {
 		if f.ID == child2ID {
 			t.Error("dead child2 should not appear in frames")
 		}
+	}
+}
+
+// TestTickFansOutToRootFrameOnly verifies that reduceTick routes DEvTick
+// only to the root frame (Frames[0]) and never to child frames. Uses
+// tickTrackerDriver which emits EffBroadcastSessionsChanged on every tick
+// so that call counts are observable via the effect list.
+func TestTickFansOutToRootFrameOnly(t *testing.T) {
+	now := time.Now()
+	s := New()
+	id := SessionID("s1")
+
+	// Root frame uses stub (no-op on tick).
+	// Child frame uses tickTracker — if called, it emits EffBroadcastSessionsChanged.
+	// If fan-out reaches the child, we'll see an extra Broadcast from it.
+	s.Sessions[id] = Session{
+		ID:      id,
+		Command: "stub",
+		Driver:  stubDriverState{status: StatusRunning},
+		Frames: []SessionFrame{
+			{ID: "root-f", Project: "/foo", Command: "stub", Driver: stubDriverState{status: StatusRunning}},
+			{ID: "child-f", Project: "/foo", Command: "ticktracker", Driver: tickTrackerState{}},
+		},
+	}
+
+	_, effs := Reduce(s, EvTick{Now: now})
+
+	var broadcastCount int
+	for _, e := range effs {
+		if _, ok := e.(EffBroadcastSessionsChanged); ok {
+			broadcastCount++
+		}
+	}
+	// The child frame's tickTrackerDriver emits one EffBroadcastSessionsChanged
+	// per DEvTick call. If fan-out reached the child, broadcastCount >= 1.
+	// The root (stubDriver) emits no Broadcast on tick.
+	// A Broadcast from persist/changed path can appear but only after state
+	// changes — stubDriver returns same state, so none from the root.
+	if broadcastCount > 0 {
+		t.Errorf("expected 0 EffBroadcastSessionsChanged from tick fan-out (child must not be stepped), got %d", broadcastCount)
 	}
 }
 

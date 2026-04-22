@@ -108,3 +108,43 @@ func TestClaudeTickRunsOnRunning(t *testing.T) {
 		t.Error("expected BranchDetectInput job for Running+active session")
 	}
 }
+
+// IsRoot=false ガード: 非 root frame は Tick / PaneActivity / PaneOsc を無視する。
+// fan-out と tap は reducer / runtime 側で root 限定だが Step も defense-in-depth で返す。
+
+func TestClaudeStepNonRootSkipsTick(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.Status = state.StatusRunning
+	cs.StartDir = "/repo"
+	next, effs, _ := d.Step(cs, state.FrameContext{IsRoot: false}, state.DEvTick{
+		Now: now.Add(time.Second), Active: true, Project: "/repo", PaneTarget: "%5",
+	})
+	if len(effs) != 0 {
+		t.Errorf("non-root DEvTick effects = %d, want 0", len(effs))
+	}
+	if next.(ClaudeState).Status != state.StatusRunning {
+		t.Errorf("non-root DEvTick mutated Status: got %v", next.(ClaudeState).Status)
+	}
+}
+
+func TestClaudeStepNonRootSkipsPaneActivity(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.Status = state.StatusRunning
+	_, effs, _ := d.Step(cs, state.FrameContext{IsRoot: false}, state.DEvPaneActivity{
+		PaneTarget: "%5", Now: now.Add(time.Second),
+	})
+	if len(effs) != 0 {
+		t.Errorf("non-root DEvPaneActivity effects = %d, want 0", len(effs))
+	}
+}
+
+func TestClaudeStepNonRootSkipsPaneOsc(t *testing.T) {
+	d, cs, now := newClaude(t)
+	next, _, _ := d.Step(cs, state.FrameContext{IsRoot: false}, state.DEvPaneOsc{
+		Cmd: 0, Title: "✳ Done", Now: now.Add(time.Second),
+	})
+	// handleWindowTitle would otherwise mutate Status when "Done" appears.
+	if next.(ClaudeState).Status != cs.Status {
+		t.Errorf("non-root DEvPaneOsc mutated Status: got %v, want %v", next.(ClaudeState).Status, cs.Status)
+	}
+}

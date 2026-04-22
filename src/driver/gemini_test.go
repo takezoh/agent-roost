@@ -191,6 +191,32 @@ func TestGeminiSessionStartSetsIdle(t *testing.T) {
 	}
 }
 
+func TestGeminiSessionStartNonRootSkipsBranchDetect(t *testing.T) {
+	d, gs, now := newGemini(t)
+	ev := geminiHook(map[string]string{
+		"session_id":      "sess-1",
+		"hook_event_name": "SessionStart",
+		"cwd":             "/repo",
+	}, now)
+	ev.RoostSessionID = "r1"
+	next, effs := d.handleHook(gs, state.FrameContext{IsRoot: false}, ev)
+	// Non-root: BranchDetect must NOT be emitted.
+	if next.BranchInFlight {
+		t.Error("BranchInFlight should be false for non-root frame")
+	}
+	for _, eff := range effs {
+		if j, ok := eff.(state.EffStartJob); ok {
+			if _, ok := j.Input.(BranchDetectInput); ok {
+				t.Error("non-root SessionStart must not emit BranchDetectInput")
+			}
+		}
+	}
+	// Status transition must still run (non-branch-detect hook work is not gated).
+	if next.Status != state.StatusIdle {
+		t.Errorf("Status = %v, want Idle (SessionStart transitions for non-root too)", next.Status)
+	}
+}
+
 func TestGeminiBeforeAgentTransitionsRunning(t *testing.T) {
 	d, gs, now := newGemini(t)
 	gs.GeminiSessionID = "sess-1"

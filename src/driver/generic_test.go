@@ -820,6 +820,33 @@ func TestGenericViewIncludesBranchTag(t *testing.T) {
 	}
 }
 
+// IsRoot=false ガード: 非 root frame は DEvTick / DEvPaneActivity を無視する。
+
+func TestGenericStepNonRootSkipsTick(t *testing.T) {
+	d, s, now := newGenericState(t, 0)
+	primed := d.applyCapture(s, now, vt.Snapshot{Stable: "h0"})
+	running := d.applyCapture(primed, now.Add(time.Second), vt.Snapshot{Stable: "h1"})
+	next, effs, _ := d.Step(running, state.FrameContext{IsRoot: false}, state.DEvTick{
+		Now: now.Add(2 * time.Second), Active: true, Project: "/repo", PaneTarget: "%5",
+	})
+	if len(effs) != 0 {
+		t.Errorf("non-root DEvTick effects = %d, want 0", len(effs))
+	}
+	if next.(GenericState).Status != running.Status {
+		t.Errorf("non-root DEvTick mutated Status: got %v, want %v", next.(GenericState).Status, running.Status)
+	}
+}
+
+func TestGenericStepNonRootSkipsPaneActivity(t *testing.T) {
+	d, s, now := newGenericState(t, 0)
+	_, effs, _ := d.Step(s, state.FrameContext{IsRoot: false}, state.DEvPaneActivity{
+		PaneTarget: "%5", Now: now.Add(time.Second),
+	})
+	if len(effs) != 0 {
+		t.Errorf("non-root DEvPaneActivity effects = %d, want 0", len(effs))
+	}
+}
+
 func TestParseOscNotif(t *testing.T) {
 	tests := []struct {
 		name      string

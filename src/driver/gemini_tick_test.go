@@ -133,6 +133,38 @@ func TestGeminiHandleCapturePaneResultError(t *testing.T) {
 	}
 }
 
+// IsRoot=false ガード: 非 root frame は DEvTick / DEvPaneActivity を無視する。
+
+func TestGeminiStepNonRootSkipsTick(t *testing.T) {
+	d := NewGeminiDriver("/tmp/events")
+	now := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	gs := d.NewState(now).(GeminiState)
+	gs.Status = state.StatusRunning
+	gs.StartDir = "/repo"
+	next, effs, _ := d.Step(gs, state.FrameContext{IsRoot: false}, state.DEvTick{
+		Now: now.Add(time.Second), Active: true, Project: "/repo", PaneTarget: "%5",
+	})
+	if len(effs) != 0 {
+		t.Errorf("non-root DEvTick effects = %d, want 0", len(effs))
+	}
+	if next.(GeminiState).StartDir != "/repo" {
+		t.Errorf("non-root DEvTick mutated StartDir: got %q", next.(GeminiState).StartDir)
+	}
+}
+
+func TestGeminiStepNonRootSkipsPaneActivity(t *testing.T) {
+	d := NewGeminiDriver("/tmp/events")
+	now := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
+	gs := d.NewState(now).(GeminiState)
+	gs.Status = state.StatusRunning
+	_, effs, _ := d.Step(gs, state.FrameContext{IsRoot: false}, state.DEvPaneActivity{
+		PaneTarget: "%5", Now: now.Add(time.Second),
+	})
+	if len(effs) != 0 {
+		t.Errorf("non-root DEvPaneActivity effects = %d, want 0", len(effs))
+	}
+}
+
 func TestGeminiViewIncludesBranchTag(t *testing.T) {
 	d := NewGeminiDriver("/tmp/events")
 	now := time.Date(2026, 4, 12, 0, 0, 0, 0, time.UTC)
