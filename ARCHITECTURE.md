@@ -81,7 +81,7 @@ Code dependency direction:
 | Palette implementation approach | tmux popup (separate process) | Crash isolation. As a Bubbletea submodel, panics would be shared within the TUI |
 | Ctrl+C disabling | Consume KeyPressMsg | Prevents accidental termination of the resident process. Pane becomes inoperable until respawn |
 | No optimistic updates | Do not modify UI state on IPC error | Auto-recovers on next poll. Avoids risk of state inconsistency |
-| shutdown (`C-b q`) behavior | Only `EffKillSession`; sessions.json is preserved | To restore from sessions.json on next startup |
+| shutdown (`C-b q`) behavior | Only `EffKillSession`; sessions.json is preserved | To restore from sessions.json on next cold start. See [Detach vs Shutdown](docs/process-model.md#detach-vs-shutdown) |
 | Claude startup on Cold start | Assemble `claude --resume <id>` inside `Driver.PrepareLaunch(LaunchModeColdStart, …)` using the persisted `LaunchOptions` | Claude-specific `--resume` knowledge is confined to the driver. The resolved launch plan is baked into `EffSpawnTmuxWindow` so the runtime never calls drivers |
 | Launch plan resolution layer | Reducer (pure) | `Driver.PrepareLaunch` runs synchronously inside `state.Reduce`, and the resolved command / start_dir / normalized options are written to `EffSpawnTmuxWindow`. The runtime interprets the effect verbatim without touching drivers, keeping driver-specific logic entirely in the pure functional core |
 | Resident tracking | `FrameID -> PaneID` | Frame identity survives `swap-pane`; each frame maps to exactly one parked pane, and `swap-pane` between pane 0.0 and the frame's parked pane preserves pane ids |

@@ -130,12 +130,23 @@ runDaemon()
 ├── rt.StartIPC() — start Unix socket server
 ├── FileRelay startup — push monitoring for log/transcript files
 ├── tmux attach (blocking)
-└── On attach exit
-    ├── Shutdown received → KillSession()
-    └── Normal detach → exit (tmux session survives)
+└── On attach exit → see [Detach vs Shutdown](#detach-vs-shutdown)
 ```
 
 **The difference between warm start and cold start is only the bootstrap path**. Both use sessions.json as the source of truth, and both restore the same frame stack per session. The driver's PersistedState (status / title / summary / branch, etc.) is included in each frame's `driver_state` bag, and each frame's normalized `LaunchOptions` is persisted alongside it so cold start can respawn with the same launch flavor.
+
+#### Detach vs Shutdown
+
+Both operations first write sessions.json (`EffPersistSnapshot`), then exit — the only difference is what happens to the tmux session:
+
+| | `detach` | `shutdown` |
+|---|---|---|
+| tmux action | `tmux detach-client` — session stays alive | `tmux kill-session` — session destroyed |
+| claude/agent panes | Continue running | Killed via SIGHUP |
+| sessions.json | Saved (not cleared) | Saved (not cleared) |
+| Next `roost` launch | **Warm start** — rebind live panes | **Cold start** — `RecreateAll` respawns panes from sessions.json |
+
+sessions.json is **always preserved** — it is the restoration source. Shutdown does not discard sessions; it stops tmux now and defers restoration to the next cold start.
 
 ### Main TUI
 
