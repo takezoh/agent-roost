@@ -162,7 +162,7 @@ func TestGeminiSessionStartSetsIdle(t *testing.T) {
 		"source":          "startup",
 	}, now)
 	ev.RoostSessionID = "r1"
-	next, effs := d.handleHook(gs, ev)
+	next, effs := d.handleHook(gs, state.FrameContext{IsRoot: true}, ev)
 
 	if next.Status != state.StatusIdle {
 		t.Fatalf("Status = %v, want idle", next.Status)
@@ -194,7 +194,7 @@ func TestGeminiSessionStartSetsIdle(t *testing.T) {
 func TestGeminiBeforeAgentTransitionsRunning(t *testing.T) {
 	d, gs, now := newGemini(t)
 	gs.GeminiSessionID = "sess-1"
-	next, _ := d.handleHook(gs, geminiHook(map[string]string{
+	next, _ := d.handleHook(gs, state.FrameContext{IsRoot: true}, geminiHook(map[string]string{
 		"session_id":      "sess-1",
 		"hook_event_name": "BeforeAgent",
 		"prompt":          "do something",
@@ -210,7 +210,7 @@ func TestGeminiBeforeAgentTransitionsRunning(t *testing.T) {
 func TestGeminiBeforeToolTransitionsRunning(t *testing.T) {
 	d, gs, now := newGemini(t)
 	gs.GeminiSessionID = "sess-1"
-	next, _ := d.handleHook(gs, geminiHook(map[string]string{
+	next, _ := d.handleHook(gs, state.FrameContext{IsRoot: true}, geminiHook(map[string]string{
 		"session_id":      "sess-1",
 		"hook_event_name": "BeforeTool",
 		"tool_name":       "read_file",
@@ -223,7 +223,7 @@ func TestGeminiBeforeToolTransitionsRunning(t *testing.T) {
 func TestGeminiAfterToolTransitionsRunning(t *testing.T) {
 	d, gs, now := newGemini(t)
 	gs.GeminiSessionID = "sess-1"
-	next, _ := d.handleHook(gs, geminiHook(map[string]string{
+	next, _ := d.handleHook(gs, state.FrameContext{IsRoot: true}, geminiHook(map[string]string{
 		"session_id":      "sess-1",
 		"hook_event_name": "AfterTool",
 		"tool_name":       "read_file",
@@ -237,7 +237,7 @@ func TestGeminiAfterAgentTransitionsWaiting(t *testing.T) {
 	d, gs, now := newGemini(t)
 	gs.GeminiSessionID = "sess-1"
 	gs.Status = state.StatusRunning
-	next, _ := d.handleHook(gs, geminiHook(map[string]string{
+	next, _ := d.handleHook(gs, state.FrameContext{IsRoot: true}, geminiHook(map[string]string{
 		"session_id":      "sess-1",
 		"hook_event_name": "AfterAgent",
 		"prompt_response": "here is my answer",
@@ -253,7 +253,7 @@ func TestGeminiAfterAgentTransitionsWaiting(t *testing.T) {
 func TestGeminiNotificationToolPermissionTransitionsPending(t *testing.T) {
 	d, gs, now := newGemini(t)
 	gs.GeminiSessionID = "sess-1"
-	next, effs := d.handleHook(gs, geminiHook(map[string]string{
+	next, effs := d.handleHook(gs, state.FrameContext{IsRoot: true}, geminiHook(map[string]string{
 		"session_id":        "sess-1",
 		"hook_event_name":   "Notification",
 		"notification_type": "ToolPermission",
@@ -271,7 +271,7 @@ func TestGeminiNotificationUnknownTypeDoesNotChangeStatus(t *testing.T) {
 	gs.GeminiSessionID = "sess-1"
 	gs.Status = state.StatusRunning
 	gs.StatusChangedAt = now.Add(-time.Minute)
-	next, _ := d.handleHook(gs, geminiHook(map[string]string{
+	next, _ := d.handleHook(gs, state.FrameContext{IsRoot: true}, geminiHook(map[string]string{
 		"session_id":        "sess-1",
 		"hook_event_name":   "Notification",
 		"notification_type": "something_else",
@@ -285,7 +285,7 @@ func TestGeminiSessionEndTransitionsStopped(t *testing.T) {
 	d, gs, now := newGemini(t)
 	gs.GeminiSessionID = "sess-1"
 	gs.Status = state.StatusWaiting
-	next, _ := d.handleHook(gs, geminiHook(map[string]string{
+	next, _ := d.handleHook(gs, state.FrameContext{IsRoot: true}, geminiHook(map[string]string{
 		"session_id":      "sess-1",
 		"hook_event_name": "SessionEnd",
 	}, now))
@@ -298,7 +298,7 @@ func TestGeminiDropsStaleHook(t *testing.T) {
 	d, gs, now := newGemini(t)
 	gs.GeminiSessionID = "sess-1"
 	gs.LastHookAt = now
-	next, effs := d.handleHook(gs, geminiHook(map[string]string{
+	next, effs := d.handleHook(gs, state.FrameContext{IsRoot: true}, geminiHook(map[string]string{
 		"session_id":      "sess-1",
 		"hook_event_name": "AfterAgent",
 	}, now))
@@ -313,7 +313,7 @@ func TestGeminiDropsStaleHook(t *testing.T) {
 func TestGeminiEmptySessionIDDropped(t *testing.T) {
 	d, gs, now := newGemini(t)
 	gs.Status = state.StatusRunning
-	next, effs := d.handleHook(gs, geminiHook(map[string]string{
+	next, effs := d.handleHook(gs, state.FrameContext{IsRoot: true}, geminiHook(map[string]string{
 		"hook_event_name": "AfterAgent",
 	}, now))
 	if next.Status != state.StatusRunning {

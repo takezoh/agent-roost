@@ -156,7 +156,7 @@ const (
 	keyShellLastExitCode   = "shell_last_exit_code"
 )
 
-func (d ShellDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) { //nolint:funlen
+func (d ShellDriver) Step(prev state.DriverState, ctx state.FrameContext, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) { //nolint:funlen
 	ss, ok := prev.(ShellState)
 	if !ok {
 		ss = d.NewState(time.Time{}).(ShellState)
@@ -164,6 +164,9 @@ func (d ShellDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.D
 
 	switch e := ev.(type) {
 	case state.DEvTick:
+		if !ctx.IsRoot {
+			return ss, nil, d.view(ss)
+		}
 		if !e.Active && ss.Status != state.StatusRunning {
 			return ss, nil, d.view(ss)
 		}

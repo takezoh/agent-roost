@@ -150,7 +150,7 @@ func (d GenericDriver) Restore(bag map[string]string, now time.Time) state.Drive
 }
 
 // Step is the pure reducer for the generic driver.
-func (d GenericDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) { //nolint:funlen
+func (d GenericDriver) Step(prev state.DriverState, ctx state.FrameContext, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) { //nolint:funlen
 	gs, ok := prev.(GenericState)
 	if !ok {
 		gs = d.NewState(time.Time{}).(GenericState)
@@ -158,6 +158,9 @@ func (d GenericDriver) Step(prev state.DriverState, ev state.DriverEvent) (state
 
 	switch e := ev.(type) {
 	case state.DEvTick:
+		if !ctx.IsRoot {
+			return gs, nil, d.view(gs)
+		}
 		// Tick only when visible on the main pane OR actively running
 		// (hash still changing). Parked + waiting sessions skip to save CPU;
 		// the next tick after the user brings them back to active resumes.

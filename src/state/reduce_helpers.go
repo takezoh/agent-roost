@@ -156,8 +156,17 @@ func stepDriver(s State, frameID FrameID, ev DriverEvent) (State, []Effect, bool
 		return s, nil, false
 	}
 
+	ctx := FrameContext{
+		ID:            frame.ID,
+		Project:       frame.Project,
+		Command:       frame.Command,
+		LaunchOptions: frame.LaunchOptions,
+		CreatedAt:     frame.CreatedAt,
+		IsRoot:        frameIdx == 0,
+	}
+
 	oldStatus := drv.Status(frame.Driver)
-	nextDS, rawEffs, _ := drv.Step(frame.Driver, ev)
+	nextDS, rawEffs, _ := drv.Step(frame.Driver, ctx, ev)
 
 	s.Sessions = cloneSessions(s.Sessions)
 	sess.Frames = append([]SessionFrame(nil), sess.Frames...)
@@ -263,7 +272,7 @@ func stepActiveSessions(s State, makeEv func(sessID SessionID, sess Session, act
 	changed := false
 	for _, sessID := range ids {
 		sess := s.Sessions[sessID]
-		frame, ok := activeFrame(sess)
+		frame, ok := rootFrame(sess)
 		if !ok {
 			continue
 		}

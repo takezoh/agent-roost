@@ -28,13 +28,13 @@ func hookEventAny(eventName string, fields map[string]any, ts time.Time) state.D
 func makeClaudeWithSession(t *testing.T) (ClaudeDriver, ClaudeState, time.Time) {
 	t.Helper()
 	d, cs, now := newClaude(t)
-	cs, _ = d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("SessionStart", map[string]string{
 		"session_id":      "sid",
 		"cwd":             "/work",
 		"hook_event_name": "SessionStart",
 	}, now))
 	// Deliver a tick so cs.Project mirrors Session.Project="/work".
-	next, _, _ := d.Step(cs, state.DEvTick{Now: now, Project: "/work"})
+	next, _, _ := d.Step(cs, state.FrameContext{IsRoot: true}, state.DEvTick{Now: now, Project: "/work"})
 	cs = next.(ClaudeState)
 	return d, cs, now
 }
@@ -67,7 +67,7 @@ func TestToolLog_AutoExecute(t *testing.T) {
 	t2 := now.Add(2 * time.Second)
 
 	// PreToolUse
-	cs, _ = d.handleHook(cs, hookEventAny("PreToolUse", map[string]any{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PreToolUse", map[string]any{
 		"session_id":      "sid",
 		"cwd":             "/work",
 		"tool_name":       "Bash",
@@ -77,7 +77,7 @@ func TestToolLog_AutoExecute(t *testing.T) {
 	}, t1))
 
 	// No Notification — auto-execute
-	cs, effs := d.handleHook(cs, hookEventAny("PostToolUse", map[string]any{
+	cs, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PostToolUse", map[string]any{
 		"session_id":      "sid",
 		"cwd":             "/work",
 		"tool_name":       "Bash",
@@ -112,7 +112,7 @@ func TestToolLog_UserApproved(t *testing.T) {
 	t3 := now.Add(3 * time.Second)
 
 	// Pre
-	cs, _ = d.handleHook(cs, hookEventAny("PreToolUse", map[string]any{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PreToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Bash",
@@ -120,14 +120,14 @@ func TestToolLog_UserApproved(t *testing.T) {
 	}, t1))
 
 	// Permission prompt fires (user is asked)
-	cs, _ = d.handleHook(cs, hookEvent("Notification", map[string]string{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("Notification", map[string]string{
 		"session_id":        "sid",
 		"hook_event_name":   "Notification",
 		"notification_type": "permission_prompt",
 	}, t2))
 
 	// Post (user approved)
-	_, effs := d.handleHook(cs, hookEventAny("PostToolUse", map[string]any{
+	_, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PostToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Bash",
@@ -149,14 +149,14 @@ func TestToolLog_Denied(t *testing.T) {
 	t1 := now.Add(time.Second)
 	t2 := now.Add(2 * time.Second)
 
-	cs, _ = d.handleHook(cs, hookEventAny("PreToolUse", map[string]any{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PreToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Bash",
 		"tool_use_id": "id1",
 	}, t1))
 
-	_, effs := d.handleHook(cs, hookEventAny("PostToolUseFailure", map[string]any{
+	_, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PostToolUseFailure", map[string]any{
 		"session_id":   "sid",
 		"cwd":          "/work",
 		"tool_name":    "Bash",
@@ -179,14 +179,14 @@ func TestToolLog_Failed(t *testing.T) {
 	t1 := now.Add(time.Second)
 	t2 := now.Add(2 * time.Second)
 
-	cs, _ = d.handleHook(cs, hookEventAny("PreToolUse", map[string]any{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PreToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Bash",
 		"tool_use_id": "id1",
 	}, t1))
 
-	_, effs := d.handleHook(cs, hookEventAny("PostToolUseFailure", map[string]any{
+	_, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PostToolUseFailure", map[string]any{
 		"session_id":   "sid",
 		"cwd":          "/work",
 		"tool_name":    "Bash",
@@ -217,14 +217,14 @@ func TestToolLog_ParallelOldestGetsPrompt(t *testing.T) {
 	t5 := now.Add(5 * time.Second)
 
 	// Pre for A (older)
-	cs, _ = d.handleHook(cs, hookEventAny("PreToolUse", map[string]any{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PreToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Bash",
 		"tool_use_id": "idA",
 	}, t1))
 	// Pre for B (newer)
-	cs, _ = d.handleHook(cs, hookEventAny("PreToolUse", map[string]any{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PreToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Read",
@@ -232,21 +232,21 @@ func TestToolLog_ParallelOldestGetsPrompt(t *testing.T) {
 	}, t2))
 
 	// One permission_prompt fires — should mark A (oldest)
-	cs, _ = d.handleHook(cs, hookEvent("Notification", map[string]string{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("Notification", map[string]string{
 		"session_id":        "sid",
 		"hook_event_name":   "Notification",
 		"notification_type": "permission_prompt",
 	}, t3))
 
 	// Post A → approved
-	cs, effsA := d.handleHook(cs, hookEventAny("PostToolUse", map[string]any{
+	cs, effsA := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PostToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Bash",
 		"tool_use_id": "idA",
 	}, t4))
 	// Post B → auto
-	_, effsB := d.handleHook(cs, hookEventAny("PostToolUse", map[string]any{
+	_, effsB := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PostToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Read",
@@ -272,7 +272,7 @@ func TestToolLog_Orphan(t *testing.T) {
 	d, cs, now := makeClaudeWithSession(t)
 
 	// Post arrives without a preceding Pre (e.g. daemon restart)
-	_, effs := d.handleHook(cs, hookEventAny("PostToolUse", map[string]any{
+	_, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PostToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Bash",
@@ -295,7 +295,7 @@ func TestToolLog_SessionStartClearsPending(t *testing.T) {
 	t2 := now.Add(2 * time.Second)
 
 	// Pre recorded
-	cs, _ = d.handleHook(cs, hookEventAny("PreToolUse", map[string]any{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PreToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Bash",
@@ -306,7 +306,7 @@ func TestToolLog_SessionStartClearsPending(t *testing.T) {
 	}
 
 	// SessionStart clears pending
-	cs, _ = d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("SessionStart", map[string]string{
 		"session_id":      "sid",
 		"cwd":             "/work",
 		"hook_event_name": "SessionStart",
@@ -319,20 +319,20 @@ func TestToolLog_SessionStartClearsPending(t *testing.T) {
 func TestToolLog_ProjectKeyFromSessionProject(t *testing.T) {
 	d, cs, now := newClaude(t)
 	// Set Session.Project via tick (simulates reducer delivering DEvTick.Project).
-	next, _, _ := d.Step(cs, state.DEvTick{Now: now, Project: "/my/project"})
+	next, _, _ := d.Step(cs, state.FrameContext{IsRoot: true}, state.DEvTick{Now: now, Project: "/my/project"})
 	cs = next.(ClaudeState)
 	t1 := now.Add(time.Second)
 	t2 := now.Add(2 * time.Second)
 
 	// Pre/Post use a cwd inside a deep subdirectory — slug must NOT follow it.
-	cs, _ = d.handleHook(cs, hookEventAny("PreToolUse", map[string]any{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PreToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/my/project/deep/subdir",
 		"tool_name":   "Bash",
 		"tool_use_id": "id1",
 	}, t1))
 
-	_, effs := d.handleHook(cs, hookEventAny("PostToolUse", map[string]any{
+	_, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PostToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/my/project/deep/subdir",
 		"tool_name":   "Bash",
@@ -356,14 +356,14 @@ func TestToolLog_NoProjectNoEmit(t *testing.T) {
 	t1 := now.Add(time.Second)
 	t2 := now.Add(2 * time.Second)
 
-	cs, _ = d.handleHook(cs, hookEventAny("PreToolUse", map[string]any{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PreToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Bash",
 		"tool_use_id": "id1",
 	}, t1))
 
-	_, effs := d.handleHook(cs, hookEventAny("PostToolUse", map[string]any{
+	_, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PostToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Bash",
@@ -380,13 +380,13 @@ func TestToolLog_DurationMs(t *testing.T) {
 	t1 := now.Add(time.Second)
 	t2 := now.Add(3 * time.Second) // 2000 ms after Pre
 
-	cs, _ = d.handleHook(cs, hookEventAny("PreToolUse", map[string]any{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PreToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Bash",
 		"tool_use_id": "id1",
 	}, t1))
-	_, effs := d.handleHook(cs, hookEventAny("PostToolUse", map[string]any{
+	_, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEventAny("PostToolUse", map[string]any{
 		"session_id":  "sid",
 		"cwd":         "/work",
 		"tool_name":   "Bash",

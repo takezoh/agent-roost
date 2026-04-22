@@ -28,7 +28,7 @@ func (pushDriverStub) Restore(bag map[string]string, now time.Time) DriverState 
 func (pushDriverStub) View(s DriverState) View {
 	return View{Card: Card{BorderTitle: Tag{Text: "pushstub"}}}
 }
-func (pushDriverStub) Step(prev DriverState, ev DriverEvent) (DriverState, []Effect, View) {
+func (pushDriverStub) Step(prev DriverState, ctx FrameContext, ev DriverEvent) (DriverState, []Effect, View) {
 	// On any hook, emit EffPushDriver with empty SessionID (to be filled by postProcessEffect).
 	if _, ok := ev.(DEvHook); ok {
 		return prev, []Effect{EffPushDriver{Command: "stub"}}, View{}
@@ -59,7 +59,7 @@ func (bogusSessionDriverStub) Restore(bag map[string]string, now time.Time) Driv
 func (bogusSessionDriverStub) View(s DriverState) View {
 	return View{Card: Card{BorderTitle: Tag{Text: "bogussessionstub"}}}
 }
-func (bogusSessionDriverStub) Step(prev DriverState, ev DriverEvent) (DriverState, []Effect, View) {
+func (bogusSessionDriverStub) Step(prev DriverState, ctx FrameContext, ev DriverEvent) (DriverState, []Effect, View) {
 	if _, ok := ev.(DEvHook); ok {
 		return prev, []Effect{EffPushDriver{SessionID: "does-not-exist", Command: "stub"}}, View{}
 	}

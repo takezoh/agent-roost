@@ -10,7 +10,7 @@ func reduceTick(s State, e EvTick) (State, []Effect) {
 
 	var seq uint64
 	s, effs, changed := stepActiveSessions(s, func(sessID SessionID, sess Session, active bool) DriverEvent {
-		frame, _ := activeFrame(sess)
+		frame, _ := rootFrame(sess)
 		ev := DEvTick{
 			Now:        e.Now,
 			Active:     active,

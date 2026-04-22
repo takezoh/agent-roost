@@ -57,7 +57,7 @@ func applyHookStatus(cs CodexState, status state.Status, ts time.Time) CodexStat
 	return cs
 }
 
-func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []state.Effect) {
+func (d CodexDriver) handleHook(cs CodexState, ctx state.FrameContext, e state.DEvHook) (CodexState, []state.Effect) {
 	hp := parseCodexHookPayload(e.Payload)
 	if !cs.applyHookPreamble(hookPreamble{
 		SessionID:      hp.SessionID,
@@ -76,13 +76,15 @@ func (d CodexDriver) handleHook(cs CodexState, e state.DEvHook) (CodexState, []s
 	case "SessionStart":
 		cs = applyHookStatus(cs, state.StatusIdle, e.Timestamp)
 		effs = append(effs, d.startCodexTranscriptParse(&cs)...)
-		target := cs.StartDir
-		if target != "" && !cs.BranchInFlight {
-			cs.BranchInFlight = true
-			cs.BranchTarget = target
-			effs = append(effs, state.EffStartJob{
-				Input: BranchDetectInput{WorkingDir: target},
-			})
+		if ctx.IsRoot {
+			target := cs.StartDir
+			if target != "" && !cs.BranchInFlight {
+				cs.BranchInFlight = true
+				cs.BranchTarget = target
+				effs = append(effs, state.EffStartJob{
+					Input: BranchDetectInput{WorkingDir: target},
+				})
+			}
 		}
 	case "UserPromptSubmit":
 		cs.LastPrompt = strings.TrimSpace(hp.Prompt)

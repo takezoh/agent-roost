@@ -139,7 +139,7 @@ func parseCodexHookPayload(payload json.RawMessage) codexHookPayload {
 	return hp
 }
 
-func (d CodexDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {
+func (d CodexDriver) Step(prev state.DriverState, ctx state.FrameContext, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {
 	cs, ok := prev.(CodexState)
 	if !ok {
 		cs = d.NewState(time.Time{}).(CodexState)
@@ -147,9 +147,12 @@ func (d CodexDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.D
 
 	switch e := ev.(type) {
 	case state.DEvHook:
-		next, effs := d.handleHook(cs, e)
+		next, effs := d.handleHook(cs, ctx, e)
 		return next, effs, d.view(next)
 	case state.DEvTick:
+		if !ctx.IsRoot {
+			return cs, nil, d.view(cs)
+		}
 		effs := cs.HandleTick(e, false)
 		return cs, effs, d.view(cs)
 	case state.DEvPaneActivity:

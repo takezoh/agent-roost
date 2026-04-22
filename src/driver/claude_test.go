@@ -49,7 +49,7 @@ func findEffect[T state.Effect](effs []state.Effect) (T, bool) {
 
 func TestClaudeSessionStartAbsorbsIdentityAndWatches(t *testing.T) {
 	d, cs, now := newClaude(t)
-	next, effs := d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("SessionStart", map[string]string{
 		"session_id":      "claude-uuid",
 		"cwd":             "/work",
 		"transcript_path": "/tmp/x.jsonl",
@@ -106,7 +106,7 @@ func TestClaudeSessionStartAbsorbsIdentityAndWatches(t *testing.T) {
 func TestClaudeSessionStartSkipsBranchDetectWhenInFlight(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.BranchInFlight = true
-	next, effs := d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("SessionStart", map[string]string{
 		"session_id":      "uuid",
 		"cwd":             "/work",
 		"hook_event_name": "SessionStart",
@@ -125,7 +125,7 @@ func TestClaudeSessionStartSkipsBranchDetectWhenInFlight(t *testing.T) {
 
 func TestClaudeSessionStartNoCwdSkipsBranchDetect(t *testing.T) {
 	d, cs, now := newClaude(t)
-	next, _ := d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+	next, _ := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("SessionStart", map[string]string{
 		"session_id":      "uuid",
 		"hook_event_name": "SessionStart",
 	}, now))
@@ -141,7 +141,7 @@ func TestClaudeSessionStartAbsorbsRoostSessionID(t *testing.T) {
 		"hook_event_name": "SessionStart",
 	}, now)
 	ev.RoostSessionID = "roost-abc"
-	next, _ := d.handleHook(cs, ev)
+	next, _ := d.handleHook(cs, state.FrameContext{IsRoot: true}, ev)
 	if next.RoostSessionID != "roost-abc" {
 		t.Errorf("RoostSessionID = %q, want roost-abc", next.RoostSessionID)
 	}
@@ -151,7 +151,7 @@ func TestClaudeStateChangeStopSetsWaiting(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
 	cs.TranscriptPath = "/tmp/t.jsonl"
-	next, effs := d.handleHook(cs, hookEvent("Stop", map[string]string{
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("Stop", map[string]string{
 		"session_id":      "uuid",
 		"hook_event_name": "Stop",
 	}, now.Add(time.Second)))
@@ -177,7 +177,7 @@ func TestClaudeStateChangeStopFailureSetsStopped(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
 	cs.TranscriptPath = "/tmp/t.jsonl"
-	next, effs := d.handleHook(cs, hookEvent("StopFailure", map[string]string{
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("StopFailure", map[string]string{
 		"session_id":      "uuid",
 		"hook_event_name": "StopFailure",
 	}, now.Add(time.Second)))
@@ -202,7 +202,7 @@ func TestClaudeStateChangeStopFailureSetsStopped(t *testing.T) {
 func TestClaudeUnknownHookEventIsNoop(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.Status = state.StatusWaiting
-	next, _ := d.handleHook(cs, hookEvent("Notification", map[string]string{
+	next, _ := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("Notification", map[string]string{
 		"session_id":        "uuid",
 		"hook_event_name":   "Notification",
 		"notification_type": "something_else",
@@ -215,7 +215,7 @@ func TestClaudeUnknownHookEventIsNoop(t *testing.T) {
 func TestClaudeUserPromptSubmitTriggersHaiku(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
-	next, effs := d.handleHook(cs, hookEvent("UserPromptSubmit", map[string]string{
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("UserPromptSubmit", map[string]string{
 		"session_id":      "uuid",
 		"hook_event_name": "UserPromptSubmit",
 		"prompt":          "do the thing",
@@ -243,7 +243,7 @@ func TestClaudeUserPromptSubmitDedupesWhileInFlight(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.SummaryInFlight = true
 	cs.ClaudeSessionID = "uuid"
-	next, effs := d.handleHook(cs, hookEvent("UserPromptSubmit", map[string]string{
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("UserPromptSubmit", map[string]string{
 		"session_id":      "uuid",
 		"hook_event_name": "UserPromptSubmit",
 		"prompt":          "another",
@@ -260,7 +260,7 @@ func TestClaudeUnknownHookIsNoop(t *testing.T) {
 	d, cs, _ := newClaude(t)
 	cs.ClaudeSessionID = "before"
 	cs.LastPrompt = "before"
-	next, effs := d.handleHook(cs, state.DEvHook{Event: "garbage"})
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, state.DEvHook{Event: "garbage"})
 	if next.ClaudeSessionID != cs.ClaudeSessionID || next.LastPrompt != cs.LastPrompt {
 		t.Error("unknown hook should leave state untouched")
 	}
@@ -281,7 +281,7 @@ func TestClaudeHookDropsStaleEvent(t *testing.T) {
 		"session_id": "uuid", "hook_event_name": "Stop",
 	}, now)
 	ev1.Timestamp = now.Add(200 * time.Millisecond)
-	next, _ := d.handleHook(cs, ev1)
+	next, _ := d.handleHook(cs, state.FrameContext{IsRoot: true}, ev1)
 	if !next.LastBridgeTS.Equal(now.Add(200 * time.Millisecond)) {
 		t.Fatalf("LastBridgeTS = %v, want now+200ms", next.LastBridgeTS)
 	}
@@ -295,7 +295,7 @@ func TestClaudeHookDropsStaleEvent(t *testing.T) {
 		"prompt": "stale",
 	}, now)
 	ev2.Timestamp = now.Add(100 * time.Millisecond)
-	next2, effs := d.handleHook(next, ev2)
+	next2, effs := d.handleHook(next, state.FrameContext{IsRoot: true}, ev2)
 	if next2.Status != state.StatusWaiting {
 		t.Errorf("stale event changed status to %v", next2.Status)
 	}
@@ -316,7 +316,7 @@ func TestClaudeHookAcceptsMissingBridgeTS(t *testing.T) {
 	ev := hookEvent("Stop", map[string]string{
 		"session_id": "uuid", "hook_event_name": "Stop",
 	}, time.Time{})
-	next, _ := d.handleHook(cs, ev)
+	next, _ := d.handleHook(cs, state.FrameContext{IsRoot: true}, ev)
 	if next.Status != state.StatusWaiting {
 		t.Errorf("missing bridge_ts should be accepted, got status %v", next.Status)
 	}
@@ -338,7 +338,7 @@ func TestClaudeSessionStartBypassesOrdering(t *testing.T) {
 		"hook_event_name": "SessionStart",
 	}, now)
 	ev.Timestamp = now.Add(100 * time.Millisecond)
-	next, effs := d.handleHook(cs, ev)
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, ev)
 	if next.Status != state.StatusIdle {
 		t.Errorf("SessionStart should always be accepted, got status %v", next.Status)
 	}
@@ -358,7 +358,7 @@ func TestClaudeHookAdvancesLastBridgeTS(t *testing.T) {
 		"session_id": "uuid", "hook_event_name": "Stop",
 	}, now)
 	ev.Timestamp = now.Add(300 * time.Millisecond)
-	next, _ := d.handleHook(cs, ev)
+	next, _ := d.handleHook(cs, state.FrameContext{IsRoot: true}, ev)
 	if !next.LastBridgeTS.Equal(now.Add(300 * time.Millisecond)) {
 		t.Errorf("LastBridgeTS = %v, want now+300ms", next.LastBridgeTS)
 	}
@@ -375,7 +375,7 @@ func TestClaudeHookPreToolUseThenNotification(t *testing.T) {
 		"tool_name": "Bash",
 	}, now)
 	ev1.Timestamp = now.Add(100 * time.Millisecond)
-	next, _ := d.handleHook(cs, ev1)
+	next, _ := d.handleHook(cs, state.FrameContext{IsRoot: true}, ev1)
 	if next.Status != state.StatusRunning {
 		t.Fatalf("Status = %v, want Running", next.Status)
 	}
@@ -390,7 +390,7 @@ func TestClaudeHookPreToolUseThenNotification(t *testing.T) {
 		"notification_type": "permission_prompt",
 	}, now)
 	ev2.Timestamp = now.Add(150 * time.Millisecond)
-	next2, _ := d.handleHook(next, ev2)
+	next2, _ := d.handleHook(next, state.FrameContext{IsRoot: true}, ev2)
 	if next2.Status != state.StatusPending {
 		t.Errorf("Notification should advance to Pending, got %v", next2.Status)
 	}
@@ -407,7 +407,7 @@ func TestClaudeHookSubagentEventsDoNotChangeStatus(t *testing.T) {
 		"notification_type": "permission_prompt",
 	}, now)
 	ev0.Timestamp = now.Add(100 * time.Millisecond)
-	cs, _ = d.handleHook(cs, ev0)
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, ev0)
 	if cs.Status != state.StatusPending {
 		t.Fatalf("Status = %v, want Pending", cs.Status)
 	}
@@ -431,7 +431,7 @@ func TestClaudeHookSubagentEventsDoNotChangeStatus(t *testing.T) {
 			}
 			ev := hookEvent(tt.event, fields, now)
 			ev.Timestamp = now.Add(200 * time.Millisecond)
-			next, effs := d.handleHook(cs, ev)
+			next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, ev)
 			if next.Status != state.StatusPending {
 				t.Errorf("%s %s: Status = %v, want Pending", tt.event, tt.toolName, next.Status)
 			}
@@ -452,7 +452,7 @@ func TestClaudePendingTransitionsToRunningOnToolUse(t *testing.T) {
 		tsOff++
 		ev := hookEvent(fields["hook_event_name"], fields, now)
 		ev.Timestamp = now.Add(time.Duration(tsOff) * time.Millisecond)
-		next, effs := d.handleHook(cs, ev)
+		next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, ev)
 		cs = next
 		return next, effs
 	}
@@ -1266,7 +1266,7 @@ func TestClaudeViewInfoExtras(t *testing.T) {
 
 func TestClaudeStepRoundTripSessionStartThenView(t *testing.T) {
 	d, cs, now := newClaude(t)
-	next, effs, view := d.Step(cs, hookEvent("SessionStart", map[string]string{
+	next, effs, view := d.Step(cs, state.FrameContext{IsRoot: true}, hookEvent("SessionStart", map[string]string{
 		"session_id":      "uuid",
 		"cwd":             "/work",
 		"transcript_path": "/tmp/x.jsonl",
@@ -1306,7 +1306,7 @@ func TestClaudeNoStateChangeEventsStillLog(t *testing.T) {
 			d, cs, now := newClaude(t)
 			cs.ClaudeSessionID = "uuid"
 			prevStatus := cs.Status
-			next, effs := d.handleHook(cs, hookEvent(name, map[string]string{
+			next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent(name, map[string]string{
 				"session_id":      "uuid",
 				"hook_event_name": name,
 			}, now))
@@ -1517,7 +1517,7 @@ func TestClaudeHookResetsHangDetected(t *testing.T) {
 	cs.ClaudeSessionID = "uuid"
 	cs.HangDetected = true
 	cs.PaneHash = "stale"
-	next, _ := d.handleHook(cs, hookEvent("PreToolUse", map[string]string{
+	next, _ := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("PreToolUse", map[string]string{
 		"session_id":      "uuid",
 		"hook_event_name": "PreToolUse",
 		"tool_name":       "Bash",
@@ -1541,7 +1541,7 @@ func TestClaudeStaleHookDoesNotResetHangDetected(t *testing.T) {
 		"session_id": "uuid", "hook_event_name": "Stop",
 	}, now)
 	ev.Timestamp = now.Add(100 * time.Millisecond) // stale
-	next, _ := d.handleHook(cs, ev)
+	next, _ := d.handleHook(cs, state.FrameContext{IsRoot: true}, ev)
 	if !next.HangDetected {
 		t.Error("stale hook should not clear HangDetected")
 	}
@@ -1561,7 +1561,7 @@ func TestClaudeViewIndicatorsStale(t *testing.T) {
 
 func TestClaudeStateChangeDoesNotUpdateStartDir(t *testing.T) {
 	d, cs, now := newClaude(t)
-	cs, _ = d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("SessionStart", map[string]string{
 		"session_id":      "uuid",
 		"cwd":             "/original",
 		"hook_event_name": "SessionStart",
@@ -1569,7 +1569,7 @@ func TestClaudeStateChangeDoesNotUpdateStartDir(t *testing.T) {
 	if cs.StartDir != "/original" {
 		t.Fatalf("StartDir after SessionStart = %q, want /original", cs.StartDir)
 	}
-	cs, _ = d.handleHook(cs, hookEvent("Stop", map[string]string{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("Stop", map[string]string{
 		"session_id":      "uuid",
 		"cwd":             "/changed",
 		"hook_event_name": "Stop",
@@ -1581,12 +1581,12 @@ func TestClaudeStateChangeDoesNotUpdateStartDir(t *testing.T) {
 
 func TestClaudeUserPromptSubmitDoesNotUpdateStartDir(t *testing.T) {
 	d, cs, now := newClaude(t)
-	cs, _ = d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("SessionStart", map[string]string{
 		"session_id":      "uuid",
 		"cwd":             "/original",
 		"hook_event_name": "SessionStart",
 	}, now))
-	cs, _ = d.handleHook(cs, hookEvent("UserPromptSubmit", map[string]string{
+	cs, _ = d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("UserPromptSubmit", map[string]string{
 		"session_id":      "uuid",
 		"cwd":             "/worktree/path",
 		"hook_event_name": "UserPromptSubmit",
@@ -1599,7 +1599,7 @@ func TestClaudeUserPromptSubmitDoesNotUpdateStartDir(t *testing.T) {
 
 func TestClaudeSessionStartLogsPrefixedEvent(t *testing.T) {
 	d, cs, now := newClaude(t)
-	_, effs := d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+	_, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("SessionStart", map[string]string{
 		"session_id":      "uuid",
 		"hook_event_name": "SessionStart",
 	}, now))
@@ -1612,7 +1612,7 @@ func TestClaudeSessionStartLogsPrefixedEvent(t *testing.T) {
 	}
 
 	// With source field populated.
-	_, effs2 := d.handleHook(cs, hookEvent("SessionStart", map[string]string{
+	_, effs2 := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("SessionStart", map[string]string{
 		"session_id":      "uuid",
 		"hook_event_name": "SessionStart",
 		"source":          "startup",
@@ -1629,7 +1629,7 @@ func TestClaudeSessionStartLogsPrefixedEvent(t *testing.T) {
 func TestClaudeUserPromptSubmitLogsPrefixedEvent(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
-	_, effs := d.handleHook(cs, hookEvent("UserPromptSubmit", map[string]string{
+	_, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("UserPromptSubmit", map[string]string{
 		"session_id":      "uuid",
 		"hook_event_name": "UserPromptSubmit",
 		"prompt":          "hello",
@@ -1686,7 +1686,7 @@ func TestHandleWindowTitle_ViaStep_StatusTransitions(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.Status = state.StatusRunning
 
-	next, _, _ := d.Step(cs, state.DEvPaneOsc{Cmd: 0, Title: "✳ Done", Now: now})
+	next, _, _ := d.Step(cs, state.FrameContext{IsRoot: true}, state.DEvPaneOsc{Cmd: 0, Title: "✳ Done", Now: now})
 	nextCS := next.(ClaudeState)
 
 	if nextCS.Status != state.StatusWaiting {

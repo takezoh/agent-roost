@@ -203,7 +203,7 @@ func isAlphanumHyphen(s string) bool {
 // Step is the pure reducer for the Claude driver. The hook event
 // dispatch lives in claude_event.go; transcript / summary / branch
 // result handling lives in their respective files.
-func (d ClaudeDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {
+func (d ClaudeDriver) Step(prev state.DriverState, ctx state.FrameContext, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {
 	cs, ok := prev.(ClaudeState)
 	if !ok {
 		cs = d.NewState(time.Time{}).(ClaudeState)
@@ -211,10 +211,13 @@ func (d ClaudeDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.
 
 	switch e := ev.(type) {
 	case state.DEvHook:
-		next, effs := d.handleHook(cs, e)
+		next, effs := d.handleHook(cs, ctx, e)
 		return next, effs, d.view(next)
 
 	case state.DEvTick:
+		if !ctx.IsRoot {
+			return cs, nil, d.view(cs)
+		}
 		next, effs := d.handleTick(cs, e)
 		return next, effs, d.view(next)
 

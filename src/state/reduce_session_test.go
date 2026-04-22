@@ -38,7 +38,7 @@ func (stubDriver) PrepareLaunch(s DriverState, mode LaunchMode, project, baseCom
 func (stubDriver) Persist(s DriverState) map[string]string                  { return nil }
 func (stubDriver) Restore(bag map[string]string, now time.Time) DriverState { return stubDriverState{} }
 func (stubDriver) View(s DriverState) View                                  { return View{} }
-func (stubDriver) Step(prev DriverState, ev DriverEvent) (DriverState, []Effect, View) {
+func (stubDriver) Step(prev DriverState, ctx FrameContext, ev DriverEvent) (DriverState, []Effect, View) {
 	return prev, nil, View{}
 }
 
@@ -94,7 +94,7 @@ func (sdDriver) Restore(bag map[string]string, now time.Time) DriverState { retu
 func (sdDriver) View(s DriverState) View {
 	return View{Card: Card{BorderTitle: Tag{Text: "sdstub"}}}
 }
-func (sdDriver) Step(prev DriverState, ev DriverEvent) (DriverState, []Effect, View) {
+func (sdDriver) Step(prev DriverState, ctx FrameContext, ev DriverEvent) (DriverState, []Effect, View) {
 	return prev, nil, View{}
 }
 func (sdDriver) Status(s DriverState) Status { return StatusIdle }

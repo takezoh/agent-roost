@@ -102,7 +102,7 @@ func stripGeminiWorktreeFlag(command string) string {
 	return stripped
 }
 
-func (d GeminiDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {
+func (d GeminiDriver) Step(prev state.DriverState, ctx state.FrameContext, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {
 	gs, ok := prev.(GeminiState)
 	if !ok {
 		gs = d.NewState(time.Time{}).(GeminiState)
@@ -110,9 +110,12 @@ func (d GeminiDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.
 
 	switch e := ev.(type) {
 	case state.DEvHook:
-		next, effs := d.handleHook(gs, e)
+		next, effs := d.handleHook(gs, ctx, e)
 		return next, effs, d.view(next)
 	case state.DEvTick:
+		if !ctx.IsRoot {
+			return gs, nil, d.view(gs)
+		}
 		effs := gs.HandleTick(e, false)
 		return gs, effs, d.view(gs)
 	case state.DEvPaneActivity:

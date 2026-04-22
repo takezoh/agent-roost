@@ -34,7 +34,7 @@ func TestCodexSessionStartSetsIdle(t *testing.T) {
 		"source":          "resume",
 	}, now)
 	ev.RoostSessionID = "r1"
-	next, effs := d.handleHook(cs, ev)
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, ev)
 
 	if next.Status != state.StatusIdle {
 		t.Fatalf("Status = %v, want idle", next.Status)
@@ -88,7 +88,7 @@ func TestCodexUserPromptTransitionsRunning(t *testing.T) {
 		{Role: "user", Text: "find failing tests"},
 		{Role: "assistant", Text: "found driver failures"},
 	}
-	next, effs := d.handleHook(cs, codexHook(map[string]string{
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, codexHook(map[string]string{
 		"session_id":      "sess-1",
 		"hook_event_name": "UserPromptSubmit",
 		"prompt":          "implement this",
@@ -128,7 +128,7 @@ func TestCodexUserPromptTransitionsRunning(t *testing.T) {
 
 func TestCodexStopTransitionsWaiting(t *testing.T) {
 	d, cs, now := newCodex(t)
-	next, _ := d.handleHook(cs, codexHook(map[string]string{
+	next, _ := d.handleHook(cs, state.FrameContext{IsRoot: true}, codexHook(map[string]string{
 		"session_id":             "sess-1",
 		"hook_event_name":        "Stop",
 		"last_assistant_message": "done",
@@ -146,7 +146,7 @@ func TestCodexPendingTransitionsToRunningOnPreToolUse(t *testing.T) {
 	d, cs, now := newCodex(t)
 	cs.Status = state.StatusPending
 	cs.StatusChangedAt = now.Add(-time.Minute)
-	next, _ := d.handleHook(cs, codexHook(map[string]string{
+	next, _ := d.handleHook(cs, state.FrameContext{IsRoot: true}, codexHook(map[string]string{
 		"session_id":      "sess-1",
 		"hook_event_name": "PreToolUse",
 		"tool_name":       "Bash",
@@ -159,7 +159,7 @@ func TestCodexPendingTransitionsToRunningOnPreToolUse(t *testing.T) {
 func TestCodexDropsStaleHook(t *testing.T) {
 	d, cs, now := newCodex(t)
 	cs.LastHookAt = now
-	next, effs := d.handleHook(cs, codexHook(map[string]string{
+	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, codexHook(map[string]string{
 		"session_id":      "sess-1",
 		"hook_event_name": "Stop",
 	}, now))
@@ -568,7 +568,7 @@ func TestCodexViewIncludesEventsTab(t *testing.T) {
 func TestCodexBranchDetectJobResultUpdatesTag(t *testing.T) {
 	d, cs, now := newCodex(t)
 	cs.BranchInFlight = true
-	next, _, _ := d.Step(cs, state.DEvJobResult{
+	next, _, _ := d.Step(cs, state.FrameContext{IsRoot: true}, state.DEvJobResult{
 		Now: now,
 		Result: BranchDetectResult{
 			Branch:       "main",

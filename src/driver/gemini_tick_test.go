@@ -26,7 +26,7 @@ func TestGeminiHandleTickCompletesStartDir(t *testing.T) {
 		Active:  true,
 		Project: "/repo/project",
 	}
-	next, effs, _ := d.Step(gs, e)
+	next, effs, _ := d.Step(gs, state.FrameContext{IsRoot: true}, e)
 	gs = next.(GeminiState)
 
 	if gs.StartDir != "/repo/project" {
@@ -45,7 +45,7 @@ func TestGeminiHandleTickCompletesStartDir(t *testing.T) {
 	gs.Status = state.StatusRunning
 
 	// Next tick should now fire BranchDetect
-	next, effs, _ = d.Step(gs, e)
+	next, effs, _ = d.Step(gs, state.FrameContext{IsRoot: true}, e)
 	gs = next.(GeminiState)
 
 	found := false
@@ -73,7 +73,7 @@ func TestGeminiHangDetection(t *testing.T) {
 
 	// 1. First tick should emit CapturePaneInput
 	e := state.DEvTick{Now: now.Add(time.Second), Active: false, PaneTarget: "1"}
-	next, effs, _ := d.Step(gs, e)
+	next, effs, _ := d.Step(gs, state.FrameContext{IsRoot: true}, e)
 	gs = next.(GeminiState)
 
 	found := false
@@ -97,7 +97,7 @@ func TestGeminiHangDetection(t *testing.T) {
 
 	// 3. Tick after threshold should trigger Idle
 	e.Now = now.Add(commonHangThreshold + 10*time.Second)
-	next, _, _ = d.Step(gs, e)
+	next, _, _ = d.Step(gs, state.FrameContext{IsRoot: true}, e)
 	gs = next.(GeminiState)
 
 	if gs.Status != state.StatusStopped {

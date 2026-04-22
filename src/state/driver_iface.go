@@ -39,6 +39,18 @@ type DriverEvent interface {
 	isDriverEvent()
 }
 
+// FrameContext carries read-only frame metadata into Driver.Step.
+// It is assembled by stepDriver from the SessionFrame and is never
+// stored inside DriverState or persisted to disk.
+type FrameContext struct {
+	ID            FrameID
+	Project       string
+	Command       string
+	LaunchOptions LaunchOptions
+	CreatedAt     time.Time
+	IsRoot        bool
+}
+
 // DEvHook is a hook event from the agent via `roost event <eventType>`.
 // Payload is the raw JSON from stdin.
 type DEvHook struct {
@@ -181,7 +193,7 @@ type Driver interface {
 	// Step is the per-driver reducer. It must be a pure function: no
 	// I/O, no goroutines, no globals (other than the registry). All
 	// side effects are returned as []Effect for the runtime to execute.
-	Step(prev DriverState, ev DriverEvent) (DriverState, []Effect, View)
+	Step(prev DriverState, ctx FrameContext, ev DriverEvent) (DriverState, []Effect, View)
 
 	// Status returns the current driver status without building the
 	// full View. Used by the tick reducer to skip idle/stopped sessions.

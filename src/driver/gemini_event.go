@@ -79,7 +79,7 @@ func (hp geminiHookPayload) formatLog() string {
 	return eventLogLine(name, detail)
 }
 
-func (d GeminiDriver) handleHook(gs GeminiState, e state.DEvHook) (GeminiState, []state.Effect) {
+func (d GeminiDriver) handleHook(gs GeminiState, ctx state.FrameContext, e state.DEvHook) (GeminiState, []state.Effect) {
 	hp := parseGeminiHookPayload(e.Payload)
 	if !gs.applyHookPreamble(hookPreamble{
 		SessionID:      hp.SessionID,
@@ -100,7 +100,7 @@ func (d GeminiDriver) handleHook(gs GeminiState, e state.DEvHook) (GeminiState, 
 	}
 
 	// Session Start specific work
-	if hp.HookEventName == "SessionStart" {
+	if hp.HookEventName == "SessionStart" && ctx.IsRoot {
 		target := gs.StartDir
 		if target != "" && !gs.BranchInFlight {
 			gs.BranchInFlight = true

@@ -17,7 +17,7 @@ type mockDriver struct {
 func (m *mockDriver) Name() string                             { return m.name }
 func (m *mockDriver) DisplayName() string                      { return m.displayName }
 func (m *mockDriver) NewState(now time.Time) state.DriverState { return state.DriverStateBase{} }
-func (m *mockDriver) Step(prev state.DriverState, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {
+func (m *mockDriver) Step(prev state.DriverState, ctx state.FrameContext, ev state.DriverEvent) (state.DriverState, []state.Effect, state.View) {
 	return prev, nil, state.View{}
 }
 func (m *mockDriver) Status(s state.DriverState) state.Status       { return state.StatusIdle }

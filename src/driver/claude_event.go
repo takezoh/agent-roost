@@ -123,7 +123,7 @@ func parseHookPayload(payload json.RawMessage) hookPayload {
 
 // handleHook parses the raw JSON from the bridge and dispatches by
 // hook_event_name.
-func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, []state.Effect) { //nolint:funlen
+func (d ClaudeDriver) handleHook(cs ClaudeState, ctx state.FrameContext, e state.DEvHook) (ClaudeState, []state.Effect) { //nolint:funlen
 	hp := parseHookPayload(e.Payload)
 	if hp.SessionID == "" {
 		return cs, nil
@@ -139,7 +139,7 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 		cs.LastBridgeTS = ts
 		cs.ResetHangDetection()
 		cs.PendingTools = nil // discard any stale pending tools from prior session
-		return d.handleSessionStart(cs, hp, ts)
+		return d.handleSessionStart(cs, ctx, hp, ts)
 	}
 
 	if !ts.IsZero() && !ts.After(cs.LastBridgeTS) {
@@ -193,7 +193,7 @@ func (d ClaudeDriver) handleHook(cs ClaudeState, e state.DEvHook) (ClaudeState, 
 
 // handleSessionStart absorbs identity and kicks initial transcript
 // watch + parse + event log.
-func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, now time.Time) (ClaudeState, []state.Effect) {
+func (d ClaudeDriver) handleSessionStart(cs ClaudeState, ctx state.FrameContext, hp hookPayload, now time.Time) (ClaudeState, []state.Effect) {
 	cs = absorbIdentityFromHP(cs, hp)
 	if hp.Cwd != "" {
 		cs.StartDir = hp.Cwd
@@ -229,13 +229,17 @@ func (d ClaudeDriver) handleSessionStart(cs ClaudeState, hp hookPayload, now tim
 
 	// Trigger branch detection immediately so the tag appears before
 	// the user types anything (Idle sessions are skipped by tick).
-	target := cs.StartDir
-	if target != "" && !cs.BranchInFlight {
-		cs.BranchInFlight = true
-		cs.BranchTarget = target
-		effs = append(effs, state.EffStartJob{
-			Input: BranchDetectInput{WorkingDir: target},
-		})
+	// Only root frame runs branch-detect; non-root frames share the same
+	// repo and the UI displays root's branch info only.
+	if ctx.IsRoot {
+		target := cs.StartDir
+		if target != "" && !cs.BranchInFlight {
+			cs.BranchInFlight = true
+			cs.BranchTarget = target
+			effs = append(effs, state.EffStartJob{
+				Input: BranchDetectInput{WorkingDir: target},
+			})
+		}
 	}
 
 	return cs, effs
