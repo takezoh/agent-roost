@@ -45,6 +45,9 @@ func TestActivateFrameIdempotentWhenAlreadyFrameAndSame(t *testing.T) {
 	if n := countEff[EffActivateSession](effs); n != 0 {
 		t.Errorf("EffActivateSession = %d, want 0", n)
 	}
+	if n := countEff[EffSyncStatusLine](effs); n != 0 {
+		t.Errorf("EffSyncStatusLine = %d, want 0 (no-op path)", n)
+	}
 	mustOK(t, effs)
 }
 
@@ -70,6 +73,9 @@ func TestActivateSameFrameFromLogSwapsToFrame(t *testing.T) {
 	}
 	if _, ok := findEff[EffActivateSession](effs); !ok {
 		t.Error("expected EffActivateSession")
+	}
+	if _, ok := findEff[EffSyncStatusLine](effs); !ok {
+		t.Error("expected EffSyncStatusLine on occupant log→frame")
 	}
 	if _, ok := findEff[EffBroadcastSessionsChanged](effs); !ok {
 		t.Error("expected EffBroadcastSessionsChanged")
@@ -108,6 +114,47 @@ func TestActivateDifferentFrameFromLogSwapsAndChangesFrame(t *testing.T) {
 	}
 	if _, ok := findEff[EffActivateSession](effs); !ok {
 		t.Error("expected EffActivateSession")
+	}
+	mustOK(t, effs)
+}
+
+// TestActivateFrameSyncsStatusLine verifies that switching the active frame
+// within the active session emits EffSyncStatusLine so the runtime re-evaluates
+// activeStatusLine() for the new ActiveFrameID. The ordering
+// EffActivateSession → EffSyncStatusLine is load-bearing: activeSession updates
+// mainPaneSession which SyncStatusLine reads.
+func TestActivateFrameSyncsStatusLine(t *testing.T) {
+	s := makeSessionWithFrames()
+	s.ActiveOccupant = OccupantFrame
+
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "activate-frame",
+		Payload: mustPayload(map[string]string{"session_id": "s1", "frame_id": "f2"}),
+	})
+	if _, ok := findEff[EffSyncStatusLine](effs); !ok {
+		t.Error("expected EffSyncStatusLine on active-frame switch")
+	}
+	assertEffectOrder[EffActivateSession, EffSyncStatusLine](t, effs)
+	mustOK(t, effs)
+}
+
+// TestActivateFrameInInactiveSessionSkipsStatusSync verifies that activating
+// a frame in a non-active session does NOT emit EffSyncStatusLine — the
+// visible status line belongs to s.ActiveSession, not the target session.
+func TestActivateFrameInInactiveSessionSkipsStatusSync(t *testing.T) {
+	s := makeSessionWithFrames()
+	s.ActiveSession = ""
+	s.ActiveOccupant = OccupantMain
+
+	_, effs := Reduce(s, EvEvent{
+		ConnID: 1, ReqID: "r", Event: "activate-frame",
+		Payload: mustPayload(map[string]string{"session_id": "s1", "frame_id": "f2"}),
+	})
+	if n := countEff[EffSyncStatusLine](effs); n != 0 {
+		t.Errorf("EffSyncStatusLine = %d, want 0 (inactive session)", n)
+	}
+	if n := countEff[EffActivateSession](effs); n != 0 {
+		t.Errorf("EffActivateSession = %d, want 0 (inactive session)", n)
 	}
 	mustOK(t, effs)
 }

@@ -141,6 +141,42 @@ func TestUpdateInsight_Incremental(t *testing.T) {
 	}
 }
 
+func TestInsightPlanFileDetection(t *testing.T) {
+	home := "/home/user"
+	planPath := home + "/.claude/plans/my-plan.md"
+	p := NewParser(ParserOptions{})
+	entries := p.ParseAll(strings.NewReader(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"` + planPath + `"}}]}}
+`))
+	snap := AggregateMeta(entries)
+	if snap.Insight.PlanFile != planPath {
+		t.Errorf("PlanFile = %q, want %q", snap.Insight.PlanFile, planPath)
+	}
+}
+
+func TestInsightPlanFileNotSetForNonPlanWrite(t *testing.T) {
+	p := NewParser(ParserOptions{})
+	entries := p.ParseAll(strings.NewReader(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"/home/user/project/src/main.go"}}]}}
+`))
+	snap := AggregateMeta(entries)
+	if snap.Insight.PlanFile != "" {
+		t.Errorf("PlanFile = %q, want empty", snap.Insight.PlanFile)
+	}
+}
+
+func TestInsightPlanFileLastWriteWins(t *testing.T) {
+	home := "/home/user"
+	plan1 := home + "/.claude/plans/plan-a.md"
+	plan2 := home + "/.claude/plans/plan-b.md"
+	p := NewParser(ParserOptions{})
+	entries := p.ParseAll(strings.NewReader(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Write","input":{"file_path":"` + plan1 + `"}}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t2","name":"Write","input":{"file_path":"` + plan2 + `"}}]}}
+`))
+	snap := AggregateMeta(entries)
+	if snap.Insight.PlanFile != plan2 {
+		t.Errorf("PlanFile = %q, want %q (last write wins)", snap.Insight.PlanFile, plan2)
+	}
+}
+
 func TestAppendBoundedUnique(t *testing.T) {
 	got := appendBoundedUnique(nil, "a", 3)
 	got = appendBoundedUnique(got, "b", 3)

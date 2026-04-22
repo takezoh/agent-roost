@@ -68,6 +68,7 @@ type TranscriptParseResult struct {
 	CurrentTool string
 	Subagents   map[string]int
 	RecentTurns []SummaryTurn
+	PlanFile    string // latest Write target under ~/.claude/plans/*.md
 }
 
 type CodexTranscriptParseInput struct {

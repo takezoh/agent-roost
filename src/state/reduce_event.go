@@ -25,20 +25,7 @@ func reduceDriverHook(s State, e EvDriverEvent) (State, []Effect) {
 	s = next
 
 	// Resolve EffPushDriver effects emitted by the driver.
-	var effs []Effect
-	for _, eff := range rawEffs {
-		pd, isPush := eff.(EffPushDriver)
-		if !isPush {
-			effs = append(effs, eff)
-			continue
-		}
-		newS, pushEffs, err := pushDriverInternal(s, pd.SessionID, "", pd.Command, LaunchOptions{}, nil, 0, "")
-		if err != nil {
-			continue
-		}
-		s = newS
-		effs = append(effs, pushEffs...)
-	}
+	s, effs, _ := resolvePushDriverEffects(s, rawEffs)
 
 	effs = append(effs, EffPersistSnapshot{}, EffBroadcastSessionsChanged{})
 	if e.ConnID != 0 {

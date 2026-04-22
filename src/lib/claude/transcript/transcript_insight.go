@@ -1,5 +1,7 @@
 package transcript
 
+import "strings"
+
 // SessionInsight is the rolling, aggregated view of a transcript that
 // callers (status line, sessions view) can render. It is updated
 // incrementally by UpdateInsight as new entries arrive.
@@ -9,6 +11,9 @@ type SessionInsight struct {
 	SubagentCounts map[string]int // agentType -> launches
 	TouchedFiles   []string       // up to 10 unique file paths from Read/Write/Edit
 	AgentName      string         // agent-name event (Claude-assigned slug)
+	// PlanFile is the latest Write target under ~/.claude/plans/*.md.
+	// Set when the agent writes a plan file; overwritten by later Writes.
+	PlanFile string
 }
 
 // MetaSnapshot bundles the legacy session-meta fields with a freshly
@@ -71,6 +76,9 @@ func applyEntryToInsight(insight *SessionInsight, e Entry) {
 		case "Read", "Write", "Edit", "MultiEdit":
 			if e.ToolInput.Primary != "" {
 				insight.TouchedFiles = appendBoundedUnique(insight.TouchedFiles, e.ToolInput.Primary, maxTouchedFiles)
+				if e.ToolName == "Write" && isPlanFilePath(e.ToolInput.Primary) {
+					insight.PlanFile = e.ToolInput.Primary
+				}
 			}
 		}
 	case KindToolResult:
@@ -101,6 +109,12 @@ func appendBoundedUnique(list []string, v string, max int) []string {
 		list = list[len(list)-max:]
 	}
 	return list
+}
+
+// isPlanFilePath reports whether path looks like a Claude plan file:
+// something under .claude/plans/ ending in .md.
+func isPlanFilePath(path string) bool {
+	return strings.Contains(path, "/.claude/plans/") && strings.HasSuffix(path, ".md")
 }
 
 // SubagentTotal sums the SubagentCounts map.

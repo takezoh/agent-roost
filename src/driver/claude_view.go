@@ -59,7 +59,7 @@ func (d ClaudeDriver) view(cs ClaudeState) state.View {
 		DisplayName:     ClaudeDriverName,
 		LogTabs:         logTabs,
 		InfoExtras:      claudeInfoExtras(cs),
-		StatusLine:      cs.StatusLine,
+		StatusLine:      planStatusLine(cs),
 		Status:          cs.Status,
 		StatusChangedAt: cs.StatusChangedAt,
 	}
@@ -99,6 +99,16 @@ func claudeInfoExtras(cs ClaudeState) []state.InfoLine {
 	}
 	add("Transcript", cs.TranscriptPath)
 	return lines
+}
+
+// planStatusLine returns a tmux-formatted clickable "PLAN" label when the
+// session has a detected plan file. The #[range=user|plan]…#[norange] markers
+// register the region so tmux reports mouse_status_range="plan" on click.
+func planStatusLine(cs ClaudeState) string {
+	if cs.PlanFile != "" {
+		return "#[range=user|plan]PLAN#[norange]"
+	}
+	return ""
 }
 
 func subagentDir(transcriptPath string) string {

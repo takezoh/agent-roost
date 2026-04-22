@@ -937,6 +937,28 @@ func TestPaneDiedNoActiveRespawnsMainTUI(t *testing.T) {
 	}
 }
 
+// TestChildFrameEvictionSyncsStatusLine verifies that when a child frame exits
+// the active session, EffSyncStatusLine is emitted so the parent frame's
+// StatusLine (e.g. "PLAN") is restored in the status bar.
+func TestChildFrameEvictionSyncsStatusLine(t *testing.T) {
+	s := New()
+	id := SessionID("sess1")
+	childID := FrameID("child")
+	sess := stubSession(id)
+	sess.Frames = append(sess.Frames, SessionFrame{
+		ID: childID, Project: "/foo", Command: "stub", Driver: stubDriverState{},
+	})
+	sess.ActiveFrameID = childID
+	s.Sessions = map[SessionID]Session{id: sess}
+	s.ActiveSession = id
+	s.ActiveOccupant = OccupantFrame
+
+	_, effs := Reduce(s, EvPaneDied{Pane: "{sessionName}:0.1", OwnerFrameID: childID})
+	if _, ok := findEff[EffSyncStatusLine](effs); !ok {
+		t.Error("expected EffSyncStatusLine after child frame eviction")
+	}
+}
+
 // === reduceJobResult ===
 
 func TestJobResultUnknownDropsSilently(t *testing.T) {

@@ -442,7 +442,10 @@ func evictChildFrame(s State, sessID SessionID, sess Session, idx int, frameID F
 		s, pre = ensureMainAtVisibleSlot(s)
 		s.ActiveOccupant = OccupantFrame
 		effs = append(effs, pre...)
-		effs = append(effs, EffActivateSession{SessionID: sessID, Reason: EventSwitchSession})
+		effs = append(effs,
+			EffActivateSession{SessionID: sessID, Reason: EventSwitchSession},
+			EffSyncStatusLine{Line: ""},
+		)
 	}
 	if killWindow {
 		effs = append(effs, EffKillSessionWindow{FrameID: removed.ID})

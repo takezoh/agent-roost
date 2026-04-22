@@ -27,6 +27,7 @@ const (
 	EventPushDriver       = "push-driver"
 	EventActivateFrame    = "activate-frame"
 	EventActivateOccupant = "activate-occupant"
+	EventStatusLineClick  = "statusline-click"
 )
 
 // === IPC commands (caller → daemon) ===

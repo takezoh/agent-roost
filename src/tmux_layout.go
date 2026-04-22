@@ -153,6 +153,8 @@ func setupKeyBindings(client *tmux.Client, sn string) {
 	_ = client.BindKey("prefix", "C-p",
 		"display-popup", "-E", "-w", "60%", "-h", "50%",
 		uiproc.Palette("push-driver", nil).Command(exePath))
+	_ = client.BindKey("root", "MouseDown1Status", "run-shell", exePath+" statusline-click #{mouse_status_range}")
+
 	// Disable right-click context menus (Horizontal/Vertical Split etc.)
 	// without wiping the entire root table, which would break C-b prefix
 	// forwarding and mouse drag selection.

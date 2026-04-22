@@ -25,6 +25,7 @@ type Config struct {
 // CommonDriverConfig holds settings that apply to all drivers.
 type CommonDriverConfig struct {
 	SummarizeCommand string `toml:"summarize_command"`
+	Pager            string `toml:"pager"`
 }
 
 // FeaturesConfig holds the runtime feature-flag table from the TOML config.
@@ -88,7 +89,22 @@ func LoadFrom(path string) (*Config, error) {
 	if err := cfg.Notifications.Validate(); err != nil {
 		return nil, err
 	}
+	cfg.Driver.Pager = resolvePager(cfg.Driver.Pager)
 	return cfg, nil
+}
+
+// resolvePager returns the effective pager command. Priority:
+//  1. value from config (if non-empty)
+//  2. $PAGER environment variable
+//  3. "less" as the universal fallback
+func resolvePager(configured string) string {
+	if configured != "" {
+		return configured
+	}
+	if p := os.Getenv("PAGER"); p != "" {
+		return p
+	}
+	return "less"
 }
 
 func Load() (*Config, error) {

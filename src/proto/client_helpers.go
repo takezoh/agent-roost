@@ -230,3 +230,11 @@ func (c *Client) ActivateLog() error { return c.ActivateOccupant("log", "", "") 
 
 // ActivateMain restores pane 0.1 to the main TUI.
 func (c *Client) ActivateMain() error { return c.ActivateOccupant("main", "", "") }
+
+// StatusLineClick notifies the daemon that the user clicked a named region in
+// the tmux status bar. rangeName is the tmux #{mouse_status_range} value;
+// empty string means the click landed outside any driver-defined region.
+func (c *Client) StatusLineClick(rangeName string) error {
+	_, err := sendJSONEvent[RespOK](c, state.EventStatusLineClick, map[string]string{"range": rangeName})
+	return err
+}

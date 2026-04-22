@@ -18,6 +18,7 @@ type RegisterOptions struct {
 	IdleThreshold    time.Duration
 	DriverConfigs    map[string]map[string]any
 	SummarizeCommand string // from [driver] common config
+	Pager            string // from [driver] common config; pager command for plan files
 }
 
 // RegisterDefaults wires the built-in driver set into the global state
@@ -36,7 +37,7 @@ type RegisterOptions struct {
 func RegisterDefaults(opts RegisterOptions) {
 	registerOnce.Do(func() {
 		claudeOpts := decodeConfig[ClaudeOptions](opts.DriverConfigs[ClaudeDriverName])
-		state.Register(NewClaudeDriver(opts.Home, opts.EventLogDir, claudeOpts))
+		state.Register(NewClaudeDriver(opts.Home, opts.EventLogDir, claudeOpts, opts.Pager))
 		state.Register(NewCodexDriver(opts.EventLogDir))
 		state.Register(NewGeminiDriver(opts.EventLogDir))
 		state.Register(NewGenericDriver("", "", opts.IdleThreshold))

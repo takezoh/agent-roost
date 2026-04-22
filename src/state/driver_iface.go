@@ -136,6 +136,20 @@ type DEvPaneOsc struct {
 
 func (DEvPaneOsc) isDriverEvent() {}
 
+// DEvStatusLineClick is fired when the user clicks the tmux status bar
+// (bound to MouseDown1Status in the root key table). Range is the
+// tmux #{mouse_status_range} value — the name registered via
+// #[range=user|<name>] in the driver's StatusLine format string.
+// An empty Range means the click landed outside any named region.
+//
+// IsRoot gating: NOT required — every frame owns its own StatusLine.
+type DEvStatusLineClick struct {
+	Range string
+	Now   time.Time
+}
+
+func (DEvStatusLineClick) isDriverEvent() {}
+
 // ViewProvider is an optional capability for drivers that provide a
 // custom TUI view.
 type ViewProvider interface {

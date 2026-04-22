@@ -43,6 +43,7 @@ func runCoordinator() error { //nolint:funlen
 		IdleThreshold:    idleThreshold,
 		DriverConfigs:    cfg.Drivers,
 		SummarizeCommand: cfg.Driver.SummarizeCommand,
+		Pager:            cfg.Driver.Pager,
 	})
 
 	tmuxBackend := runtime.NewRealTmuxBackend(client)

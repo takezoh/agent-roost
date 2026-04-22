@@ -30,7 +30,7 @@ func hookEvent(eventName string, fields map[string]string, ts time.Time) state.D
 func newClaude(t *testing.T) (ClaudeDriver, ClaudeState, time.Time) {
 	t.Helper()
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	cs := d.NewState(now).(ClaudeState)
 	return d, cs, now
 }
@@ -817,7 +817,7 @@ func TestClaudeBranchEmptyResultPreservesExisting(t *testing.T) {
 // === Persistence ===
 
 func TestClaudePersistRoundTrip(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	cs := ClaudeState{
 		CommonState: CommonState{
@@ -889,7 +889,7 @@ func TestClaudePersistRoundTrip(t *testing.T) {
 }
 
 func TestClaudeRestoreEmpty(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	now := time.Date(2026, 4, 10, 12, 0, 0, 0, time.UTC)
 	cs := d.Restore(nil, now).(ClaudeState)
 	if cs.Status != state.StatusIdle {
@@ -904,7 +904,7 @@ func TestClaudeRestoreEmpty(t *testing.T) {
 
 func TestClaudePrepareLaunchResume(t *testing.T) {
 	home := t.TempDir()
-	d := NewClaudeDriver(home, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(home, testEventLogDir, ClaudeOptions{}, "less")
 	cs := ClaudeState{
 		CommonState:     CommonState{StartDir: "/repo"},
 		ClaudeSessionID: "uuid-X",
@@ -928,7 +928,7 @@ func TestClaudePrepareLaunchResume(t *testing.T) {
 }
 
 func TestClaudePrepareLaunchNoSession(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	cs := ClaudeState{}
 	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "claude --foo", state.LaunchOptions{})
 	if err != nil {
@@ -941,7 +941,7 @@ func TestClaudePrepareLaunchNoSession(t *testing.T) {
 }
 
 func TestClaudePrepareLaunchStripsWorktree(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
 	plan, err := d.PrepareLaunch(cs, state.LaunchModeCreate, "/repo", "claude --worktree", state.LaunchOptions{})
 	if err != nil {
@@ -955,7 +955,7 @@ func TestClaudePrepareLaunchStripsWorktree(t *testing.T) {
 }
 
 func TestClaudePrepareLaunchStripsWorktreeWithName(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
 	plan, err := d.PrepareLaunch(cs, state.LaunchModeCreate, "/repo", "claude --worktree my-branch", state.LaunchOptions{})
 	if err != nil {
@@ -969,7 +969,7 @@ func TestClaudePrepareLaunchStripsWorktreeWithName(t *testing.T) {
 }
 
 func TestClaudePrepareLaunchStripsWorktreeEquals(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	cs := ClaudeState{ClaudeSessionID: "uuid-W"}
 	plan, err := d.PrepareLaunch(cs, state.LaunchModeCreate, "/repo", "claude --worktree=my-branch", state.LaunchOptions{})
 	if err != nil {
@@ -983,7 +983,7 @@ func TestClaudePrepareLaunchStripsWorktreeEquals(t *testing.T) {
 }
 
 func TestClaudePrepareLaunchAddsWorktreeFlagFromOptions(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	cs := ClaudeState{}
 	plan, err := d.PrepareLaunch(cs, state.LaunchModeCreate, "/repo", "claude", state.LaunchOptions{
 		Worktree: state.WorktreeOption{Enabled: true},
@@ -1000,7 +1000,7 @@ func TestClaudePrepareLaunchAddsWorktreeFlagFromOptions(t *testing.T) {
 }
 
 func TestClaudePrepareLaunchMissingTranscriptSkipsResume(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	cs := ClaudeState{
 		CommonState:     CommonState{StartDir: "/repo"},
 		ClaudeSessionID: "uuid-Y",
@@ -1016,7 +1016,7 @@ func TestClaudePrepareLaunchMissingTranscriptSkipsResume(t *testing.T) {
 }
 
 func TestClaudePrepareLaunchAlreadyHasResume(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	cs := ClaudeState{ClaudeSessionID: "uuid-Y"}
 	plan, err := d.PrepareLaunch(cs, state.LaunchModeColdStart, "/repo", "claude --resume preset", state.LaunchOptions{})
 	if err != nil {
@@ -1310,7 +1310,7 @@ func TestClaudeStepRoundTripSessionStartThenView(t *testing.T) {
 }
 
 func TestResolveTranscriptPathFallback(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	cs := ClaudeState{
 		CommonState: CommonState{
 			StartDir: "/some/work",
@@ -1351,7 +1351,7 @@ func TestClaudeNoStateChangeEventsStillLog(t *testing.T) {
 }
 
 func TestResolveTranscriptPathPrefersExplicit(t *testing.T) {
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{})
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	cs := ClaudeState{
 		CommonState: CommonState{
 			TranscriptPath: "/explicit/path.jsonl",
@@ -1741,5 +1741,93 @@ func TestClaudeCapturePaneOscNotificationsBecomeEffects(t *testing.T) {
 	}
 	if notif.Title != "hello" {
 		t.Errorf("Title = %q, want hello", notif.Title)
+	}
+}
+
+// === StatusLine / Plan ===
+
+func TestPlanStatusLineEmptyWhenNoPlanFile(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.PlanFile = ""
+	v := d.View(cs)
+	if v.StatusLine != "" {
+		t.Errorf("StatusLine = %q, want empty when no plan file", v.StatusLine)
+	}
+}
+
+func TestPlanStatusLineShowsPlanWhenFileSet(t *testing.T) {
+	d, cs, _ := newClaude(t)
+	cs.PlanFile = "/home/user/.claude/plans/foo.md"
+	v := d.View(cs)
+	want := "#[range=user|plan]PLAN#[norange]"
+	if v.StatusLine != want {
+		t.Errorf("StatusLine = %q, want %q", v.StatusLine, want)
+	}
+}
+
+func TestStatusLineClickEmitsPushDriverForPlan(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.PlanFile = "/home/user/.claude/plans/foo.md"
+	ev := state.DEvStatusLineClick{
+		Range: "plan",
+		Now:   now,
+	}
+	next, effs, _ := d.Step(cs, state.FrameContext{IsRoot: true}, ev)
+	if next.(ClaudeState).PlanFile != cs.PlanFile {
+		t.Error("PlanFile should be unchanged after click")
+	}
+	if len(effs) != 1 {
+		t.Fatalf("want 1 effect (EffPushDriver), got %d", len(effs))
+	}
+	pd, ok := effs[0].(state.EffPushDriver)
+	if !ok {
+		t.Fatalf("effect type = %T, want EffPushDriver", effs[0])
+	}
+	want := "less '/home/user/.claude/plans/foo.md'"
+	if pd.Command != want {
+		t.Errorf("EffPushDriver.Command = %q, want %q", pd.Command, want)
+	}
+}
+
+func TestStatusLineClickNoOpWhenRangeUnknown(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.PlanFile = "/home/user/.claude/plans/foo.md"
+	ev := state.DEvStatusLineClick{
+		Range: "unknown",
+		Now:   now,
+	}
+	_, effs, _ := d.Step(cs, state.FrameContext{IsRoot: true}, ev)
+	if len(effs) != 0 {
+		t.Errorf("expected no effects for unknown range, got %v", effs)
+	}
+}
+
+func TestStatusLineClickNoOpWhenNoPlanFile(t *testing.T) {
+	d, cs, now := newClaude(t)
+	cs.PlanFile = ""
+	ev := state.DEvStatusLineClick{
+		Range: "plan",
+		Now:   now,
+	}
+	_, effs, _ := d.Step(cs, state.FrameContext{IsRoot: true}, ev)
+	if len(effs) != 0 {
+		t.Errorf("expected no effects when no plan file, got %v", effs)
+	}
+}
+
+func TestShellQuote(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{"/home/user/.claude/plans/foo.md", "'/home/user/.claude/plans/foo.md'"},
+		{"path with spaces/bar.md", "'path with spaces/bar.md'"},
+		{"it's a plan.md", `'it'"'"'s a plan.md'`},
+	}
+	for _, tc := range tests {
+		got := shellQuote(tc.in)
+		if got != tc.want {
+			t.Errorf("shellQuote(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }

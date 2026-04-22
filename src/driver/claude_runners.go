@@ -33,6 +33,7 @@ func newTranscriptSummaryRunners(summarizeCmd string) (
 			CurrentTool: snap.Insight.CurrentTool,
 			Subagents:   snap.Insight.SubagentCounts,
 			RecentTurns: normalizeTurns(tracker.RecentRounds(in.ClaudeUUID, 2)),
+			PlanFile:    snap.Insight.PlanFile,
 		}, nil
 	}
 

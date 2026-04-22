@@ -58,6 +58,8 @@ type ClaudeState struct {
 	CurrentTool    string
 	SubagentCounts map[string]int
 	RecentTurns    []SummaryTurn
+	// PlanFile is the latest ~/.claude/plans/*.md path seen in Write tool calls.
+	PlanFile string
 
 	// Summary cache + in-flight guards. Each *InFlight bool prevents
 	// duplicate jobs from being scheduled while one is still pending.
@@ -89,13 +91,14 @@ type ClaudeDriver struct {
 	home         string
 	eventLogDir  string
 	showThinking bool
+	pager        string // command to open plan files (e.g. "less")
 }
 
 // NewClaudeDriver constructs a Claude driver bound to the user's home
 // directory and event log directory. The runtime constructs one of
 // these at startup and registers it with state.Register.
-func NewClaudeDriver(home, eventLogDir string, opts ClaudeOptions) ClaudeDriver {
-	return ClaudeDriver{home: home, eventLogDir: eventLogDir, showThinking: opts.ShowThinking}
+func NewClaudeDriver(home, eventLogDir string, opts ClaudeOptions, pager string) ClaudeDriver {
+	return ClaudeDriver{home: home, eventLogDir: eventLogDir, showThinking: opts.ShowThinking, pager: pager}
 }
 
 func (ClaudeDriver) Name() string                            { return ClaudeDriverName }
@@ -242,6 +245,10 @@ func (d ClaudeDriver) Step(prev state.DriverState, ctx state.FrameContext, ev st
 		}
 		next := d.handleWindowTitle(cs, e.Title, e.Now)
 		return next, nil, d.view(next)
+
+	case state.DEvStatusLineClick:
+		next, effs := d.handleStatusLineClick(cs, e)
+		return next, effs, d.view(next)
 	}
 
 	return cs, nil, d.view(cs)

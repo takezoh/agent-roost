@@ -73,6 +73,7 @@ func (d ClaudeDriver) handleJobResult(cs ClaudeState, e state.DEvJobResult) (Cla
 		cs.CurrentTool = r.CurrentTool
 		cs.SubagentCounts = r.Subagents
 		cs.RecentTurns = r.RecentTurns
+		cs.PlanFile = r.PlanFile
 		return cs, nil
 
 	case BranchDetectResult:
