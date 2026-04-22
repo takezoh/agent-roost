@@ -48,10 +48,13 @@ type EffActivateSession struct {
 type EffDeactivateSession struct{}
 
 // EffRegisterPane records the pane target for a session in the runtime
-// and saves it as a tmux session-level env var.
+// and saves it as a tmux session-level env var. Tap controls whether a
+// byte tap (PaneTap) is started for this pane — only root frames need
+// taps since driver state for non-root frames is not displayed in the UI.
 type EffRegisterPane struct {
 	FrameID    FrameID
 	PaneTarget string
+	Tap        bool
 }
 
 // EffUnregisterPane removes a session from the runtime's pane map and

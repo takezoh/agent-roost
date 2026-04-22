@@ -119,6 +119,9 @@ func (d GeminiDriver) Step(prev state.DriverState, ctx state.FrameContext, ev st
 		effs := gs.HandleTick(e, false)
 		return gs, effs, d.view(gs)
 	case state.DEvPaneActivity:
+		if !ctx.IsRoot {
+			return gs, nil, d.view(gs)
+		}
 		effs := gs.HandleActivity(e)
 		return gs, effs, d.view(gs)
 	case state.DEvJobResult:

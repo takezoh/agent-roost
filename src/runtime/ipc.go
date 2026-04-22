@@ -150,15 +150,26 @@ func (r *Runtime) dispatchInternal(ev internalEvent) {
 	}
 }
 
-// startRestoredTaps attaches a pane tap to each restored frame.  Called
-// from the event loop so r.taps is guaranteed to be initialised and
-// r.sessionPanes is accessed under the loop's single-writer discipline.
+// startRestoredTaps attaches a pane tap to each restored root frame.
+// Non-root frames don't get taps because their driver state isn't
+// displayed in the UI. Called from the event loop so r.taps is
+// guaranteed to be initialised and r.sessionPanes is accessed under
+// the loop's single-writer discipline.
 func (r *Runtime) startRestoredTaps() {
 	if r.taps == nil {
 		return
 	}
+	rootFrames := make(map[state.FrameID]bool)
+	for _, sess := range r.state.Sessions {
+		if len(sess.Frames) > 0 {
+			rootFrames[sess.Frames[0].ID] = true
+		}
+	}
 	for frameID, pane := range r.sessionPanes {
 		if frameID == "_main" || pane == "" {
+			continue
+		}
+		if !rootFrames[frameID] {
 			continue
 		}
 		r.taps.start(frameID, pane, r.Enqueue)

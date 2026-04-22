@@ -156,6 +156,9 @@ func (d CodexDriver) Step(prev state.DriverState, ctx state.FrameContext, ev sta
 		effs := cs.HandleTick(e, false)
 		return cs, effs, d.view(cs)
 	case state.DEvPaneActivity:
+		if !ctx.IsRoot {
+			return cs, nil, d.view(cs)
+		}
 		effs := cs.HandleActivity(e)
 		return cs, effs, d.view(cs)
 	case state.DEvFileChanged:

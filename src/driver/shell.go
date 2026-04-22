@@ -174,6 +174,9 @@ func (d ShellDriver) Step(prev state.DriverState, ctx state.FrameContext, ev sta
 		return ss, effs, d.view(ss)
 
 	case state.DEvPaneActivity:
+		if !ctx.IsRoot {
+			return ss, nil, d.view(ss)
+		}
 		effs := paneActivityEffects(&ss.CommonState, e)
 		return ss, effs, d.view(ss)
 

@@ -146,7 +146,7 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) { //nolint:funlen
 	case state.EffRegisterPane:
 		r.sessionPanes[e.FrameID] = e.PaneTarget
 		_ = r.cfg.Tmux.SetEnv(sessionPaneEnvKey(e.FrameID), e.PaneTarget)
-		if r.taps != nil {
+		if e.Tap && r.taps != nil {
 			r.taps.start(e.FrameID, e.PaneTarget, r.Enqueue)
 		}
 

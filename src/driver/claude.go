@@ -222,6 +222,9 @@ func (d ClaudeDriver) Step(prev state.DriverState, ctx state.FrameContext, ev st
 		return next, effs, d.view(next)
 
 	case state.DEvPaneActivity:
+		if !ctx.IsRoot {
+			return cs, nil, d.view(cs)
+		}
 		effs := cs.HandleActivity(e)
 		return cs, effs, d.view(cs)
 
@@ -234,6 +237,9 @@ func (d ClaudeDriver) Step(prev state.DriverState, ctx state.FrameContext, ev st
 		return next, effs, d.view(next)
 
 	case state.DEvPaneOsc:
+		if !ctx.IsRoot {
+			return cs, nil, d.view(cs)
+		}
 		next := d.handleWindowTitle(cs, e.Title, e.Now)
 		return next, nil, d.view(next)
 	}

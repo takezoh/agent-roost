@@ -267,14 +267,19 @@ func reduceTmuxPaneSpawned(s State, e EvTmuxPaneSpawned) (State, []Effect) {
 	if !ok {
 		return s, nil
 	}
-	if findFrameIndex(sess, e.FrameID) < 0 {
+	frameIdx := findFrameIndex(sess, e.FrameID)
+	if frameIdx < 0 {
 		return s, nil
 	}
 	s, pre := ensureMainAtVisibleSlot(s)
 	s.ActiveOccupant = OccupantFrame
 	s.ActiveSession = e.SessionID
 
-	effs := []Effect{EffRegisterPane{FrameID: e.FrameID, PaneTarget: e.PaneTarget}}
+	effs := []Effect{EffRegisterPane{
+		FrameID:    e.FrameID,
+		PaneTarget: e.PaneTarget,
+		Tap:        frameIdx == 0,
+	}}
 	effs = append(effs, pre...)
 	effs = append(effs,
 		EffActivateSession{SessionID: e.SessionID, Reason: EventCreateSession},

@@ -140,17 +140,30 @@ func TestReadTapCancelStops(t *testing.T) {
 	}
 }
 
-func TestStartRestoredTaps_StartsEveryNonMainFrame(t *testing.T) {
+func TestStartRestoredTaps_StartsOnlyRootFrames(t *testing.T) {
 	tap := &fakePaneTap{}
 	r := New(Config{
 		SessionName:  "roost-test",
 		TickInterval: 10 * time.Second,
 		Tap:          tap,
 	})
+	// frame_a is root of session s1, frame_b is root of session s2.
+	// frame_c is a non-root child frame and must NOT get a tap.
+	r.state.Sessions[state.SessionID("s1")] = state.Session{
+		ID: "s1",
+		Frames: []state.SessionFrame{
+			{ID: state.FrameID("frame_a")},
+			{ID: state.FrameID("frame_c")},
+		},
+	}
+	r.state.Sessions[state.SessionID("s2")] = state.Session{
+		ID:     "s2",
+		Frames: []state.SessionFrame{{ID: state.FrameID("frame_b")}},
+	}
 	r.sessionPanes["frame_a"] = "%1"
 	r.sessionPanes["frame_b"] = "%2"
+	r.sessionPanes["frame_c"] = "%3"
 	r.sessionPanes["_main"] = "%0"
-	r.sessionPanes["frame_c"] = ""
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -195,7 +208,10 @@ func TestStartTapsForRestoredFrames_DispatchesViaEventLoop(t *testing.T) {
 		Tap:          tap,
 		Tmux:         noopTmux{},
 	})
-	r.state.Sessions[state.SessionID("s1")] = state.Session{ID: "s1"}
+	r.state.Sessions[state.SessionID("s1")] = state.Session{
+		ID:     "s1",
+		Frames: []state.SessionFrame{{ID: state.FrameID("frame_a")}},
+	}
 	r.sessionPanes["frame_a"] = "%1"
 	r.sessionPanes["_main"] = "%0"
 
