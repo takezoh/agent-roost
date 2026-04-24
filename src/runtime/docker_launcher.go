@@ -110,9 +110,9 @@ func (l *DockerLauncher) Shutdown() error {
 	return l.mgr.Shutdown(ctx)
 }
 
-// PruneOrphans removes roost-managed Docker containers that are not
-// associated with any of knownProjects. Call once at startup after loading
-// the session snapshot.
-func (l *DockerLauncher) PruneOrphans(ctx context.Context, knownProjects []string) {
-	l.mgr.PruneOrphans(ctx, knownProjects)
+// PruneOrphans removes roost-managed Docker containers whose project is not
+// in knownProjects, or whose image no longer matches the resolved config.
+// resolveImage maps a project path to the currently-effective image.
+func (l *DockerLauncher) PruneOrphans(ctx context.Context, knownProjects []string, resolveImage func(string) string) {
+	l.mgr.PruneOrphans(ctx, knownProjects, resolveImage)
 }

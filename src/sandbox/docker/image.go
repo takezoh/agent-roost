@@ -18,12 +18,12 @@ type devcontainerJSON struct {
 	Image string `json:"image"`
 }
 
-// resolveImage returns the Docker image to use for projectPath.
+// ResolveImage returns the Docker image to use for projectPath.
 // Priority:
 //  1. userImage from config (if non-empty)
 //  2. .devcontainer/devcontainer.json "image" field (if present)
 //  3. defaultImage
-func resolveImage(projectPath, userImage string) string {
+func ResolveImage(projectPath, userImage string) string {
 	if userImage != "" {
 		return userImage
 	}
@@ -32,6 +32,8 @@ func resolveImage(projectPath, userImage string) string {
 	}
 	return defaultImage
 }
+
+func resolveImage(projectPath, userImage string) string { return ResolveImage(projectPath, userImage) }
 
 func readDevcontainerImage(projectPath string) string {
 	path := filepath.Join(projectPath, ".devcontainer", "devcontainer.json")

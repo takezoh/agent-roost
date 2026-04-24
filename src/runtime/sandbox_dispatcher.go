@@ -73,8 +73,9 @@ func (d *SandboxDispatcher) Shutdown() error {
 }
 
 // PruneOrphans forwards to the docker backend when available.
-func (d *SandboxDispatcher) PruneOrphans(ctx context.Context, knownProjects []string) {
+// resolveImage maps a project path to its currently-effective Docker image.
+func (d *SandboxDispatcher) PruneOrphans(ctx context.Context, knownProjects []string, resolveImage func(string) string) {
 	if d.Docker != nil {
-		d.Docker.PruneOrphans(ctx, knownProjects)
+		d.Docker.PruneOrphans(ctx, knownProjects, resolveImage)
 	}
 }

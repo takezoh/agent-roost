@@ -15,8 +15,15 @@ func TestNewAgentLauncher_direct(t *testing.T) {
 			t.Errorf("mode=%q: unexpected error: %v", mode, err)
 			continue
 		}
-		if _, ok := l.(appruntime.DirectLauncher); !ok {
-			t.Errorf("mode=%q: expected DirectLauncher, got %T", mode, l)
+		// newAgentLauncher always returns a SandboxDispatcher; for direct mode
+		// the Docker backend must be nil (no docker spawning).
+		d, ok := l.(*appruntime.SandboxDispatcher)
+		if !ok {
+			t.Errorf("mode=%q: expected *SandboxDispatcher, got %T", mode, l)
+			continue
+		}
+		if d.Docker != nil {
+			t.Errorf("mode=%q: expected Docker=nil for direct mode, got %T", mode, d.Docker)
 		}
 	}
 }

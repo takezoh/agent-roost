@@ -207,7 +207,7 @@ func TestPruneOrphans_removesUnknown(t *testing.T) {
 	t.Cleanup(func() { _, _ = exec.Command("docker", "kill", name).CombinedOutput() })
 
 	// PruneOrphans with empty known list → container should be killed.
-	mgr.PruneOrphans(ctx, nil)
+	mgr.PruneOrphans(ctx, nil, nil)
 
 	running, err := isContainerRunning(ctx, name)
 	if err != nil {
@@ -232,8 +232,8 @@ func TestPruneOrphans_keepsKnown(t *testing.T) {
 	name := cs.name
 	t.Cleanup(func() { _, _ = exec.Command("docker", "kill", name).CombinedOutput() })
 
-	// PruneOrphans with /tmp as known project → container must survive.
-	mgr.PruneOrphans(ctx, []string{"/tmp"})
+	// PruneOrphans with /tmp as known project and matching image → container must survive.
+	mgr.PruneOrphans(ctx, []string{"/tmp"}, func(_ string) string { return "alpine:latest" })
 
 	running, err := isContainerRunning(ctx, name)
 	if err != nil {
@@ -241,6 +241,59 @@ func TestPruneOrphans_keepsKnown(t *testing.T) {
 	}
 	if !running {
 		t.Errorf("container %q should have been kept (project is known)", name)
+	}
+	_ = mgr.DestroyInstance(ctx, inst)
+}
+
+func TestPruneOrphans_ImageMismatch_Prunes(t *testing.T) {
+	skipIfNoDocker(t)
+
+	mgr := New(Config{Network: "bridge"})
+	ctx := context.Background()
+
+	inst, err := mgr.EnsureInstance(ctx, "/tmp", "alpine:latest", sandbox.StartOptions{})
+	if err != nil {
+		t.Fatalf("EnsureInstance: %v", err)
+	}
+	cs := inst.Internal.(*containerState)
+	name := cs.name
+	t.Cleanup(func() { _, _ = exec.Command("docker", "kill", name).CombinedOutput() })
+
+	// resolveImage returns a different image → container is stale → must be pruned.
+	mgr.PruneOrphans(ctx, []string{"/tmp"}, func(_ string) string { return "node:22-bookworm-slim" })
+
+	running, err := isContainerRunning(ctx, name)
+	if err != nil {
+		t.Fatalf("isContainerRunning: %v", err)
+	}
+	if running {
+		t.Errorf("container %q should have been pruned (image mismatch)", name)
+	}
+}
+
+func TestPruneOrphans_ImageMatch_Keeps(t *testing.T) {
+	skipIfNoDocker(t)
+
+	mgr := New(Config{Network: "bridge"})
+	ctx := context.Background()
+
+	inst, err := mgr.EnsureInstance(ctx, "/tmp", "alpine:latest", sandbox.StartOptions{})
+	if err != nil {
+		t.Fatalf("EnsureInstance: %v", err)
+	}
+	cs := inst.Internal.(*containerState)
+	name := cs.name
+	t.Cleanup(func() { _, _ = exec.Command("docker", "kill", name).CombinedOutput() })
+
+	// resolveImage returns the same image → container is still current → must survive.
+	mgr.PruneOrphans(ctx, []string{"/tmp"}, func(_ string) string { return "alpine:latest" })
+
+	running, err := isContainerRunning(ctx, name)
+	if err != nil {
+		t.Fatalf("isContainerRunning: %v", err)
+	}
+	if !running {
+		t.Errorf("container %q should have been kept (image matches)", name)
 	}
 	_ = mgr.DestroyInstance(ctx, inst)
 }

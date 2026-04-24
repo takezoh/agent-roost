@@ -116,5 +116,5 @@ func TestSandboxDispatcher_PruneOrphans_NilDocker_NoOp(t *testing.T) {
 	resolver := config.NewSandboxResolver(config.SandboxConfig{Mode: "direct"})
 	d := &SandboxDispatcher{Resolver: resolver, Direct: DirectLauncher{}}
 	// must not panic
-	d.PruneOrphans(context.Background(), []string{"/workspace/foo"})
+	d.PruneOrphans(context.Background(), []string{"/workspace/foo"}, nil)
 }

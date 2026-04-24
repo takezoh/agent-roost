@@ -122,14 +122,16 @@ func (m *Manager) ensureContainer(ctx context.Context, projectPath, configImage 
 	return nil
 }
 
-func baseContainerArgs(cfg Config, projectPath, name string) []string {
+func baseContainerArgs(cfg Config, projectPath, image, name string) []string {
 	home, _ := os.UserHomeDir()
 	roostSock := filepath.Join(home, ".roost", "roost.sock")
 	uid := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
 	args := []string{
 		"run", "-d", "--rm",
 		"--name", name,
-		"--label", "roost-managed=1", "--label", "roost-project=" + projectPath,
+		"--label", "roost-managed=1",
+		"--label", "roost-project=" + projectPath,
+		"--label", "roost-image=" + image,
 		"--user", uid,
 		"-v", projectPath + ":" + projectPath + ":rw",
 		"-v", roostSock + ":/tmp/roost.sock:rw",
@@ -143,7 +145,7 @@ func (m *Manager) startContainer(ctx context.Context, projectPath, image, name s
 	if err := ensureNetwork(ctx, m.cfg.Network); err != nil {
 		return fmt.Errorf("docker sandbox: ensure network %s: %w", m.cfg.Network, err)
 	}
-	args := baseContainerArgs(m.cfg, projectPath, name)
+	args := baseContainerArgs(m.cfg, projectPath, image, name)
 
 	for _, mount := range opts.ExtraMounts {
 		hostPath := expandPath(strings.SplitN(mount, ":", 2)[0])
@@ -259,10 +261,9 @@ func (m *Manager) Shutdown(_ context.Context) error {
 }
 
 // PruneOrphans stops roost-managed containers that are not associated with any
-// known project. Call once at startup (after loading the session snapshot) to
-// clean up containers left over from a prior daemon run that was never
-// restarted. knownProjects is the set of canonical project paths from the snapshot.
-func (m *Manager) PruneOrphans(ctx context.Context, knownProjects []string) {
+// known project, or whose image no longer matches what resolveImage returns.
+// Call once at startup after loading the session snapshot.
+func (m *Manager) PruneOrphans(ctx context.Context, knownProjects []string, resolveImage func(string) string) {
 	known := make(map[string]struct{}, len(knownProjects))
 	for _, p := range knownProjects {
 		known[p] = struct{}{}
@@ -281,8 +282,9 @@ func (m *Manager) PruneOrphans(ctx context.Context, knownProjects []string) {
 		return
 	}
 
-	// Batch-inspect to read the roost-project label for each container.
-	inspectArgs := append([]string{"inspect", "--format", `{{.Name}}` + "\t" + `{{index .Config.Labels "roost-project"}}`}, names...)
+	// Batch-inspect to read roost-project and roost-image labels.
+	inspectFmt := `{{.Name}}` + "\t" + `{{index .Config.Labels "roost-project"}}` + "\t" + `{{index .Config.Labels "roost-image"}}`
+	inspectArgs := append([]string{"inspect", "--format", inspectFmt}, names...)
 	inspectOut, err := exec.CommandContext(ctx, "docker", inspectArgs...).Output()
 	if err != nil {
 		slog.Warn("docker sandbox: inspect failed during prune", "err", err)
@@ -290,18 +292,21 @@ func (m *Manager) PruneOrphans(ctx context.Context, knownProjects []string) {
 	}
 
 	for _, line := range strings.Split(strings.TrimSpace(string(inspectOut)), "\n") {
-		parts := strings.SplitN(strings.TrimPrefix(strings.TrimSpace(line), "/"), "\t", 2)
-		if len(parts) != 2 {
+		parts := strings.SplitN(strings.TrimPrefix(strings.TrimSpace(line), "/"), "\t", 3)
+		if len(parts) != 3 {
 			continue
 		}
-		containerName, projectPath := parts[0], parts[1]
+		cName, projectPath, labelImage := parts[0], parts[1], parts[2]
 		if _, ok := known[projectPath]; ok {
-			continue
+			// Project is known. Also verify the image is still current.
+			if labelImage != "" && resolveImage != nil && resolveImage(projectPath) == labelImage {
+				continue // project known + image matches → keep
+			}
 		}
-		slog.Info("docker sandbox: pruning orphan container", "name", containerName, "project", projectPath)
+		slog.Info("docker sandbox: pruning orphan container", "name", cName, "project", projectPath, "label_image", labelImage)
 		stopCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		if _, killErr := exec.CommandContext(stopCtx, "docker", "kill", containerName).CombinedOutput(); killErr != nil {
-			slog.Warn("docker sandbox: orphan prune failed", "name", containerName, "err", killErr)
+		if _, killErr := exec.CommandContext(stopCtx, "docker", "kill", cName).CombinedOutput(); killErr != nil {
+			slog.Warn("docker sandbox: orphan prune failed", "name", cName, "err", killErr)
 		}
 		cancel()
 	}

@@ -104,7 +104,11 @@ func runCoordinator() error { //nolint:funlen
 		if d, ok := agentLauncher.(*runtime.SandboxDispatcher); ok {
 			pruneCtx, pruneCancel := context.WithTimeout(ctx, 30*time.Second)
 			defer pruneCancel()
-			d.PruneOrphans(pruneCtx, knownProjects)
+			resolveImg := func(projectPath string) string {
+				cfgImg := d.Resolver.Resolve(projectPath).Docker.Image
+				return sandboxdocker.ResolveImage(projectPath, cfgImg)
+			}
+			d.PruneOrphans(pruneCtx, knownProjects, resolveImg)
 		}
 	}
 
