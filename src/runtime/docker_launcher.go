@@ -102,14 +102,6 @@ func (l *DockerLauncher) makeCleanup(frameID state.FrameID, inst *sandbox.Instan
 	}
 }
 
-// Shutdown is a no-op for the Docker backend: containers must survive daemon
-// shutdown so that tmux panes stay alive for warm-restart adoption.
-func (l *DockerLauncher) Shutdown() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	return l.mgr.Shutdown(ctx)
-}
-
 // PruneOrphans removes roost-managed Docker containers whose project is not
 // in knownProjects, or whose image no longer matches the resolved config.
 // resolveImage maps a project path to the currently-effective image.

@@ -40,10 +40,3 @@ func TestLauncher_nilFallback(t *testing.T) {
 		t.Errorf("expected DirectLauncher fallback, got %T", l)
 	}
 }
-
-func TestDirectLauncher_shutdown(t *testing.T) {
-	l := DirectLauncher{}
-	if err := l.Shutdown(); err != nil {
-		t.Fatalf("Shutdown returned error: %v", err)
-	}
-}

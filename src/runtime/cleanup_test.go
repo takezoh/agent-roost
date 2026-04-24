@@ -92,10 +92,12 @@ func TestDirectLauncher_adoptFrame_noop(t *testing.T) {
 	}
 }
 
-// TestRunShutdown_doesNotDrainCleanups verifies that cancelling the runtime
-// context does not invoke frame cleanup callbacks — containers must survive
-// daemon shutdown so tmux panes stay alive for warm-restart adoption.
-func TestRunShutdown_doesNotDrainCleanups(t *testing.T) {
+// TestCtxCancel_doesNotDrainCleanups verifies that cancelling the runtime
+// context (= daemon SIGINT / detach) does not invoke frame cleanup callbacks.
+// Containers must survive so tmux panes stay alive for warm-restart adoption.
+// The explicit shutdown path drains via EffReleaseFrameSandboxes (see
+// TestEffReleaseFrameSandboxes_drainsCleanups).
+func TestCtxCancel_doesNotDrainCleanups(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -117,7 +119,62 @@ func TestRunShutdown_doesNotDrainCleanups(t *testing.T) {
 	// Allow a brief window for any async goroutines to run.
 	time.Sleep(50 * time.Millisecond)
 	if called.Load() {
-		t.Error("frame cleanup must NOT be called on daemon shutdown (warm-restart requires containers to survive)")
+		t.Error("frame cleanup must NOT be called on ctx cancel (warm-restart requires containers to survive)")
+	}
+}
+
+// TestEffReleaseFrameSandboxes_drainsCleanups verifies that executing
+// EffReleaseFrameSandboxes runs all registered per-frame cleanup closures.
+// This is the explicit shutdown path (reduceShutdown emits this effect).
+func TestEffReleaseFrameSandboxes_drainsCleanups(t *testing.T) {
+	var count atomic.Int32
+	r := New(Config{Tmux: newFakeTmux()})
+	for _, id := range []state.FrameID{"f1", "f2", "f3"} {
+		r.storeFrameCleanup(id, func() error {
+			count.Add(1)
+			return nil
+		})
+	}
+
+	r.execute(state.EffReleaseFrameSandboxes{})
+
+	if got := count.Load(); got != 3 {
+		t.Errorf("EffReleaseFrameSandboxes called %d cleanups, want 3", got)
+	}
+}
+
+// TestEffDetachClient_doesNotDrainCleanups verifies that the detach path
+// does not touch frame cleanups — containers must survive for warm-restart.
+func TestEffDetachClient_doesNotDrainCleanups(t *testing.T) {
+	var called atomic.Bool
+	r := New(Config{Tmux: newFakeTmux()})
+	r.storeFrameCleanup("f-detach", func() error {
+		called.Store(true)
+		return nil
+	})
+
+	r.execute(state.EffDetachClient{})
+
+	if called.Load() {
+		t.Error("EffDetachClient must not drain frame cleanups")
+	}
+}
+
+// TestEffKillSession_doesNotDrainCleanups verifies that EffKillSession alone
+// does not drain cleanups — sandbox release is a separate EffReleaseFrameSandboxes
+// effect that precedes EffKillSession in the shutdown sequence.
+func TestEffKillSession_doesNotDrainCleanups(t *testing.T) {
+	var called atomic.Bool
+	r := New(Config{Tmux: newFakeTmux()})
+	r.storeFrameCleanup("f-kill-session", func() error {
+		called.Store(true)
+		return nil
+	})
+
+	r.execute(state.EffKillSession{})
+
+	if called.Load() {
+		t.Error("EffKillSession must not drain frame cleanups; use EffReleaseFrameSandboxes for that")
 	}
 }
 

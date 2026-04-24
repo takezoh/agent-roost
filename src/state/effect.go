@@ -102,6 +102,12 @@ type EffRespawnPane struct {
 // EffDetachClient asks tmux to detach the current client.
 type EffDetachClient struct{}
 
+// EffReleaseFrameSandboxes asks the runtime to destroy all sandbox resources
+// (Docker containers, VMs, …) held by active frames. Emitted by reduceShutdown
+// only — reduceDetach must NOT emit it so containers survive for warm-restart
+// adoption. The runtime handles this with drainFrameCleanups (parallel, blocking).
+type EffReleaseFrameSandboxes struct{}
+
 // EffDisplayPopup launches a tmux display-popup for a named tool.
 // Tool and Args are structured values — the runtime builds the
 // shell command string with proper escaping, avoiding injection.
@@ -279,6 +285,7 @@ func (EffUnsetTmuxEnv) isEffect()             {}
 func (EffCheckPaneAlive) isEffect()           {}
 func (EffRespawnPane) isEffect()              {}
 func (EffDetachClient) isEffect()             {}
+func (EffReleaseFrameSandboxes) isEffect()    {}
 func (EffDisplayPopup) isEffect()             {}
 func (EffKillSession) isEffect()              {}
 func (EffSendResponse) isEffect()             {}

@@ -231,11 +231,9 @@ func (r *Runtime) Run(ctx context.Context) error { //nolint:funlen
 	defer r.cfg.EventLog.CloseAll()
 	defer r.cfg.ToolLog.CloseAll()
 	defer r.deactivateBeforeExit()
-	defer func() {
-		if err := launcher(r.cfg).Shutdown(); err != nil {
-			slog.Warn("runtime: launcher shutdown failed", "err", err)
-		}
-	}()
+	// Sandbox resources are released via state.EffReleaseFrameSandboxes on
+	// explicit shutdown. On daemon crash (SIGKILL) or panic, the defer stack
+	// does not run; next startup's PruneOrphans recovers orphaned containers.
 
 	r.taps = newTapManager(ctx, r.cfg.Tap)
 	defer r.taps.stopAll()

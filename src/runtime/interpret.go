@@ -83,6 +83,13 @@ func (r *Runtime) execute(eff state.Effect) { //nolint:funlen
 	case state.EffInjectPrompt:
 		r.executeInjectPrompt(e)
 
+	case state.EffReleaseFrameSandboxes:
+		// Emitted by reduceShutdown (not reduceDetach) so containers are
+		// destroyed before the tmux session is killed. drainFrameCleanups runs
+		// all per-frame cleanup closures in parallel and blocks until every
+		// container/VM is released.
+		r.drainFrameCleanups()
+
 	default:
 		slog.Warn("runtime: unhandled effect type", "type", fmt.Sprintf("%T", eff))
 	}

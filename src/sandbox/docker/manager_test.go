@@ -163,7 +163,10 @@ func TestEnsureInstance_docker(t *testing.T) {
 	_ = mgr.DestroyInstance(ctx, inst)
 }
 
-func TestShutdown_PreservesContainers(t *testing.T) {
+// TestReleaseFrame_LastHolder_Destroys verifies the full per-frame cleanup
+// path: AcquireFrame x2 → ReleaseFrame (still live) → ReleaseFrame (last
+// holder) → DestroyInstance → container is killed.
+func TestReleaseFrame_LastHolder_Destroys(t *testing.T) {
 	skipIfNoDocker(t)
 
 	mgr := New(Config{Network: "bridge"})
@@ -177,17 +180,34 @@ func TestShutdown_PreservesContainers(t *testing.T) {
 	name := cs.name
 	t.Cleanup(func() { _, _ = exec.Command("docker", "kill", name).CombinedOutput() })
 
-	// Shutdown must NOT kill the container.
-	if err := mgr.Shutdown(ctx); err != nil {
-		t.Fatalf("Shutdown: %v", err)
-	}
+	mgr.AcquireFrame(inst)
+	mgr.AcquireFrame(inst)
 
+	if mgr.ReleaseFrame(inst) {
+		t.Fatal("ReleaseFrame should return false while second holder exists")
+	}
 	running, err := isContainerRunning(ctx, name)
 	if err != nil {
 		t.Fatalf("isContainerRunning: %v", err)
 	}
 	if !running {
-		t.Errorf("container %q should still be running after Shutdown (warm-restart requirement)", name)
+		t.Error("container should still be running after first release")
+	}
+
+	shouldDestroy := mgr.ReleaseFrame(inst)
+	if !shouldDestroy {
+		t.Fatal("ReleaseFrame should return true for last holder")
+	}
+	if err := mgr.DestroyInstance(ctx, inst); err != nil {
+		t.Fatalf("DestroyInstance: %v", err)
+	}
+
+	running, err = isContainerRunning(ctx, name)
+	if err != nil {
+		t.Fatalf("isContainerRunning: %v", err)
+	}
+	if running {
+		t.Errorf("container %q should be destroyed after last frame released", name)
 	}
 }
 

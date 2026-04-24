@@ -12,7 +12,6 @@ import (
 type fakeAgentLauncher struct {
 	wrapLaunchCalled bool
 	adoptFrameCalled bool
-	shutdownCalled   bool
 	wrapErr          error
 	adoptErr         error
 	wrapResult       WrappedLaunch
@@ -26,11 +25,6 @@ func (f *fakeAgentLauncher) WrapLaunch(_ state.FrameID, _ state.LaunchPlan, _ ma
 func (f *fakeAgentLauncher) AdoptFrame(_ context.Context, _ state.FrameID, _ string) (func() error, error) {
 	f.adoptFrameCalled = true
 	return nil, f.adoptErr
-}
-
-func (f *fakeAgentLauncher) Shutdown() error {
-	f.shutdownCalled = true
-	return nil
 }
 
 func TestSandboxDispatcher_DirectMode_RoutesToDirect(t *testing.T) {
@@ -96,19 +90,6 @@ func TestSandboxDispatcher_AdoptFrame_DirectMode(t *testing.T) {
 	}
 	if !direct.adoptFrameCalled {
 		t.Error("expected direct.AdoptFrame called")
-	}
-}
-
-func TestSandboxDispatcher_Shutdown_CallsBothBackends(t *testing.T) {
-	direct := &fakeAgentLauncher{}
-	resolver := config.NewSandboxResolver(config.SandboxConfig{Mode: "direct"})
-	d := &SandboxDispatcher{Resolver: resolver, Direct: direct}
-
-	if err := d.Shutdown(); err != nil {
-		t.Fatalf("Shutdown error: %v", err)
-	}
-	if !direct.shutdownCalled {
-		t.Error("expected direct.Shutdown to be called")
 	}
 }
 

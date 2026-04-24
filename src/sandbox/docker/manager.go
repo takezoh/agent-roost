@@ -248,18 +248,6 @@ func (m *Manager) DestroyInstance(ctx context.Context, inst *sandbox.Instance) e
 	return nil
 }
 
-// Shutdown is intentionally a no-op: containers must survive daemon shutdown
-// so that tmux panes running "docker exec" stay alive for warm-restart adoption.
-// Containers are destroyed only when frames are explicitly killed (DestroyInstance
-// via ReleaseFrame ref-count == 0). Orphans from prior crashed daemons are cleaned
-// up at next startup by PruneOrphans.
-func (m *Manager) Shutdown(_ context.Context) error {
-	m.mu.Lock()
-	m.containers = map[string]*containerState{}
-	m.mu.Unlock()
-	return nil
-}
-
 // PruneOrphans stops roost-managed containers that are not associated with any
 // known project, or whose image no longer matches what resolveImage returns.
 // Call once at startup after loading the session snapshot.

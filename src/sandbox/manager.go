@@ -56,9 +56,6 @@ type Manager interface {
 	// ReleaseFrame returns true (ref-count == 0).
 	DestroyInstance(ctx context.Context, inst *Instance) error
 
-	// Shutdown stops all sandbox instances at daemon exit.
-	Shutdown(ctx context.Context) error
-
 	// PruneOrphans stops sandbox instances that are not associated with any
 	// of knownProjects, or whose resolved image no longer matches what
 	// resolveImage returns for the project (e.g. after a config change).

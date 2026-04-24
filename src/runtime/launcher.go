@@ -21,6 +21,10 @@ type WrappedLaunch struct {
 // sandbox implementations (bwrap, Firecracker, …) to prepend wrapper
 // commands or spin up VMs. The runtime calls WrapLaunch once per spawn;
 // DirectLauncher is used when no Launcher is configured.
+//
+// Sandbox cleanup is handled via state.EffReleaseFrameSandboxes, not through
+// any Shutdown method. The Launcher is responsible only for per-frame wrap
+// and adopt; the runtime interpreter drains frame cleanups on shutdown.
 type AgentLauncher interface {
 	WrapLaunch(frameID state.FrameID, plan state.LaunchPlan, env map[string]string) (WrappedLaunch, error)
 
@@ -29,8 +33,6 @@ type AgentLauncher interface {
 	// Returns the Cleanup callback that should be stored for the frame, or nil
 	// if no cleanup is needed. Must not start or restart the sandbox.
 	AdoptFrame(ctx context.Context, frameID state.FrameID, projectPath string) (func() error, error)
-
-	Shutdown() error
 }
 
 // DirectLauncher is the no-op implementation: it passes the plan through
@@ -48,8 +50,6 @@ func (DirectLauncher) WrapLaunch(_ state.FrameID, plan state.LaunchPlan, env map
 func (DirectLauncher) AdoptFrame(_ context.Context, _ state.FrameID, _ string) (func() error, error) {
 	return nil, nil
 }
-
-func (DirectLauncher) Shutdown() error { return nil }
 
 // launcher returns cfg.Launcher if set, otherwise a zero-cost DirectLauncher.
 func launcher(cfg Config) AgentLauncher {

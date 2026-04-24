@@ -137,16 +137,19 @@ runDaemon()
 
 #### Detach vs Shutdown
 
-Both operations first write sessions.json (`EffPersistSnapshot`), then exit — the only difference is what happens to the tmux session:
+Both operations first write sessions.json (`EffPersistSnapshot`), then exit — the difference is what happens to tmux and sandbox resources:
 
 | | `detach` | `shutdown` |
 |---|---|---|
 | tmux action | `tmux detach-client` — session stays alive | `tmux kill-session` — session destroyed |
 | claude/agent panes | Continue running | Killed via SIGHUP |
+| Docker / sandbox | Containers **preserved** (`EffReleaseFrameSandboxes` not emitted) | Containers **destroyed** (`EffReleaseFrameSandboxes` drains all frame cleanups before tmux kill) |
 | sessions.json | Saved (not cleared) | Saved (not cleared) |
-| Next `roost` launch | **Warm start** — rebind live panes | **Cold start** — `RecreateAll` respawns panes from sessions.json |
+| Next `roost` launch | **Warm start** — rebind live panes, adopt existing containers | **Cold start** — `RecreateAll` respawns panes and creates new containers from sessions.json |
 
 sessions.json is **always preserved** — it is the restoration source. Shutdown does not discard sessions; it stops tmux now and defers restoration to the next cold start.
+
+On daemon SIGINT/SIGTERM (ctx cancel without explicit shutdown command), `EffReleaseFrameSandboxes` is **not** emitted, so containers survive for warm-restart adoption — same behaviour as `detach`. On daemon crash (SIGKILL/panic), cleanup defers do not run; orphaned containers are recovered by `PruneOrphans` at next startup.
 
 ### Main TUI
 

@@ -52,26 +52,6 @@ func (d *SandboxDispatcher) AdoptFrame(ctx context.Context, frameID state.FrameI
 	}
 }
 
-// Shutdown calls Shutdown on all active backends.
-func (d *SandboxDispatcher) Shutdown() error {
-	errs := make([]error, 0, 2)
-	if err := d.Direct.Shutdown(); err != nil {
-		errs = append(errs, err)
-	}
-	if d.Docker != nil {
-		if err := d.Docker.Shutdown(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-	if len(errs) == 0 {
-		return nil
-	}
-	if len(errs) == 1 {
-		return errs[0]
-	}
-	return fmt.Errorf("sandbox dispatcher: shutdown errors: %v", errs)
-}
-
 // PruneOrphans forwards to the docker backend when available.
 // resolveImage maps a project path to its currently-effective Docker image.
 func (d *SandboxDispatcher) PruneOrphans(ctx context.Context, knownProjects []string, resolveImage func(string) string) {
