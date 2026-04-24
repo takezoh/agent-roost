@@ -25,9 +25,19 @@ type Config struct {
 
 // SandboxConfig controls how agent processes are isolated.
 // mode = "direct" runs agents with no extra sandboxing (default).
-// Future modes (e.g. "firecracker") will be added in Phase 2.
+// mode = "docker" runs each project in a long-lived Docker container.
+// mode = "firecracker" is reserved for a future Firecracker backend (P2.2).
 type SandboxConfig struct {
-	Mode string `toml:"mode"`
+	Mode            string       `toml:"mode"`
+	IncludeNonShell bool         `toml:"include_non_shell"`
+	Docker          DockerConfig `toml:"docker"`
+}
+
+// DockerConfig holds Docker-specific sandbox parameters.
+type DockerConfig struct {
+	Image     string   `toml:"image"`
+	Network   string   `toml:"network"`
+	ExtraArgs []string `toml:"extra_args"`
 }
 
 // CommonDriverConfig holds settings that apply to all drivers.

@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"log/slog"
 	"strings"
 	"time"
@@ -313,41 +314,8 @@ func (r *Runtime) RecreateAll() error {
 	size := r.mainPaneSize()
 	var dead []state.SessionID
 	for id, sess := range r.state.Sessions {
-		for _, frame := range sess.Frames {
-			drv := state.GetDriver(frame.Command)
-			if drv == nil {
-				continue
-			}
-			launch, err := drv.PrepareLaunch(frame.Driver, state.LaunchModeColdStart, frame.Project, frame.Command, frame.LaunchOptions)
-			if err != nil {
-				slog.Error("bootstrap: prepare launch failed", "id", id, "frame", frame.ID, "err", err)
-				dead = append(dead, id)
-				break
-			}
-			baseEnv := map[string]string{"ROOST_SESSION_ID": string(id), "ROOST_FRAME_ID": string(frame.ID)}
-			wrapped, err := launcher(r.cfg).WrapLaunch(frame.ID, launch, baseEnv)
-			if err != nil {
-				slog.Error("bootstrap: launcher wrap failed", "id", id, "frame", frame.ID, "err", err)
-				dead = append(dead, id)
-				break
-			}
-			name := windowName(frame.Project, string(frame.ID))
-			tmuxCmd := "exec " + wrapped.Command
-			if isShellCommand(wrapped.Command) {
-				tmuxCmd = ""
-			}
-			target, paneID, err := r.cfg.Tmux.SpawnWindow(name, tmuxCmd, wrapped.StartDir, wrapped.Env)
-			if err != nil {
-				slog.Error("bootstrap: spawn failed", "id", id, "frame", frame.ID, "err", err)
-				dead = append(dead, id)
-				break
-			}
-			r.resizeWindowToMain(r.cfg.SessionName+":"+target, size)
-			r.sessionPanes[frame.ID] = paneID
-			envKey := sessionPaneEnvKey(frame.ID)
-			if err := r.cfg.Tmux.SetEnv(envKey, paneID); err != nil {
-				slog.Warn("bootstrap: set pane env failed", "key", envKey, "err", err)
-			}
+		if err := r.recreateSessionFrames(id, sess, size); err != nil {
+			dead = append(dead, id)
 		}
 	}
 	for _, id := range dead {
@@ -359,6 +327,73 @@ func (r *Runtime) RecreateAll() error {
 		}
 	}
 	return nil
+}
+
+func (r *Runtime) recreateSessionFrames(id state.SessionID, sess state.Session, size paneSize) error {
+	for _, frame := range sess.Frames {
+		drv := state.GetDriver(frame.Command)
+		if drv == nil {
+			continue
+		}
+		launch, err := drv.PrepareLaunch(frame.Driver, state.LaunchModeColdStart, frame.Project, frame.Command, frame.LaunchOptions)
+		if err != nil {
+			slog.Error("bootstrap: prepare launch failed", "id", id, "frame", frame.ID, "err", err)
+			return err
+		}
+		baseEnv := map[string]string{"ROOST_SESSION_ID": string(id), "ROOST_FRAME_ID": string(frame.ID)}
+		launch.Project = frame.Project
+		wrapped, err := launcher(r.cfg).WrapLaunch(frame.ID, launch, baseEnv)
+		if err != nil {
+			slog.Error("bootstrap: launcher wrap failed", "id", id, "frame", frame.ID, "err", err)
+			return err
+		}
+		name := windowName(frame.Project, string(frame.ID))
+		tmuxCmd := "exec " + wrapped.Command
+		if isShellCommand(wrapped.Command) {
+			tmuxCmd = ""
+		}
+		target, paneID, err := r.cfg.Tmux.SpawnWindow(name, tmuxCmd, wrapped.StartDir, wrapped.Env)
+		if err != nil {
+			slog.Error("bootstrap: spawn failed", "id", id, "frame", frame.ID, "err", err)
+			return err
+		}
+		r.resizeWindowToMain(r.cfg.SessionName+":"+target, size)
+		r.sessionPanes[frame.ID] = paneID
+		if wrapped.Cleanup != nil {
+			r.storeFrameCleanup(frame.ID, wrapped.Cleanup)
+		}
+		envKey := sessionPaneEnvKey(frame.ID)
+		if err := r.cfg.Tmux.SetEnv(envKey, paneID); err != nil {
+			slog.Warn("bootstrap: set pane env failed", "key", envKey, "err", err)
+		}
+	}
+	return nil
+}
+
+// RecoverSandboxFrames re-registers all surviving frames with the sandbox
+// backend during warm start. It calls AdoptFrame for each frame that has a
+// registered pane so the backend (e.g. Docker) can reclaim its container and
+// register a Cleanup callback for when that frame is later killed.
+// Must be called after ReconcileOrphans so only live frames are processed.
+func (r *Runtime) RecoverSandboxFrames() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	l := launcher(r.cfg)
+	for _, sess := range r.state.Sessions {
+		for _, frame := range sess.Frames {
+			if _, ok := r.sessionPanes[frame.ID]; !ok {
+				continue
+			}
+			cleanup, err := l.AdoptFrame(ctx, frame.ID, frame.Project)
+			if err != nil {
+				slog.Warn("bootstrap: sandbox adopt failed", "frame", frame.ID, "err", err)
+				continue
+			}
+			if cleanup != nil {
+				r.storeFrameCleanup(frame.ID, cleanup)
+			}
+		}
+	}
 }
 
 // SetAliases sets the command alias map on state. Called once at

@@ -192,6 +192,7 @@ type LaunchOptions struct {
 type LaunchPlan struct {
 	Command  string
 	StartDir string
+	Project  string // canonical project root; used by sandbox launchers to pick the container
 	Options  LaunchOptions
 	Stdin    []byte // content piped into the spawned command; nil = no stdin
 }

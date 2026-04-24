@@ -132,10 +132,14 @@ func (r *Runtime) executeTmuxEffect(eff state.Effect) { //nolint:funlen
 
 	case state.EffKillSessionWindow:
 		if target := r.sessionPanes[e.FrameID]; target != "" {
+			if tail, err := r.cfg.Tmux.CapturePane(target, 20); err == nil && tail != "" {
+				slog.Info("runtime: pane tail on kill", "frame", e.FrameID, "target", target, "tail", tail)
+			}
 			if err := r.cfg.Tmux.KillPaneWindow(target); err != nil {
 				slog.Error("runtime: kill window failed", "target", target, "err", err)
 			}
 		}
+		r.invokeFrameCleanup(e.FrameID)
 
 	case state.EffActivateSession:
 		r.activateSession(e.SessionID, e.Reason)
@@ -252,6 +256,7 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	plan := state.LaunchPlan{
 		Command:  e.Command,
 		StartDir: e.StartDir,
+		Project:  e.Project,
 		Options:  e.Options,
 		Stdin:    e.Stdin,
 	}
@@ -274,6 +279,7 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	} else if len(e.Stdin) > 0 {
 		spawnCmd = wrapCommandWithStdin(wrapped.Command, e.Stdin)
 	}
+	slog.Info("runtime: spawning window", "frame", e.FrameID, "cmd", spawnCmd)
 	size := r.mainPaneSize()
 	target, paneID, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, wrapped.StartDir, wrapped.Env)
 	if err != nil {
@@ -287,6 +293,9 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 		return
 	}
 	r.resizeWindowToMain(r.cfg.SessionName+":"+target, size)
+	if wrapped.Cleanup != nil {
+		r.storeFrameCleanup(e.FrameID, wrapped.Cleanup)
+	}
 	r.Enqueue(state.EvTmuxPaneSpawned{
 		SessionID:  e.SessionID,
 		FrameID:    e.FrameID,

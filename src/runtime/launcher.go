@@ -1,6 +1,8 @@
 package runtime
 
 import (
+	"context"
+
 	"github.com/takezoh/agent-roost/state"
 )
 
@@ -21,6 +23,13 @@ type WrappedLaunch struct {
 // DirectLauncher is used when no Launcher is configured.
 type AgentLauncher interface {
 	WrapLaunch(frameID state.FrameID, plan state.LaunchPlan, env map[string]string) (WrappedLaunch, error)
+
+	// AdoptFrame is called during warm start to re-register a pre-existing frame
+	// with the sandbox backend (the agent process is already running in tmux).
+	// Returns the Cleanup callback that should be stored for the frame, or nil
+	// if no cleanup is needed. Must not start or restart the sandbox.
+	AdoptFrame(ctx context.Context, frameID state.FrameID, projectPath string) (func() error, error)
+
 	Shutdown() error
 }
 
@@ -34,6 +43,10 @@ func (DirectLauncher) WrapLaunch(_ state.FrameID, plan state.LaunchPlan, env map
 		StartDir: plan.StartDir,
 		Env:      env,
 	}, nil
+}
+
+func (DirectLauncher) AdoptFrame(_ context.Context, _ state.FrameID, _ string) (func() error, error) {
+	return nil, nil
 }
 
 func (DirectLauncher) Shutdown() error { return nil }

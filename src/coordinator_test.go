@@ -1,6 +1,36 @@
 package main
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+
+	"github.com/takezoh/agent-roost/config"
+	appruntime "github.com/takezoh/agent-roost/runtime"
+)
+
+func TestNewAgentLauncher_direct(t *testing.T) {
+	for _, mode := range []string{"", "direct"} {
+		l, err := newAgentLauncher(config.SandboxConfig{Mode: mode})
+		if err != nil {
+			t.Errorf("mode=%q: unexpected error: %v", mode, err)
+			continue
+		}
+		if _, ok := l.(appruntime.DirectLauncher); !ok {
+			t.Errorf("mode=%q: expected DirectLauncher, got %T", mode, l)
+		}
+	}
+}
+
+func TestNewAgentLauncher_docker_missing(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("PATH manipulation unreliable on windows")
+	}
+	t.Setenv("PATH", "")
+	_, err := newAgentLauncher(config.SandboxConfig{Mode: "docker"})
+	if err == nil {
+		t.Error("expected error when docker is not in PATH, got nil")
+	}
+}
 
 func TestResolveShellDisplayFromValues(t *testing.T) {
 	cases := []struct {

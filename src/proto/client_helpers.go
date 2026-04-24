@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/takezoh/agent-roost/state"
@@ -50,7 +51,7 @@ func (c *Client) Subscribe() error {
 // the freshly assigned session id, or an error.
 func (c *Client) CreateSession(project, command string, options state.LaunchOptions) (sessionID string, err error) {
 	r, err := sendJSONEvent[RespCreateSession](c, state.EventCreateSession, state.CreateSessionParams{
-		Project: project,
+		Project: canonicalProjectPath(project),
 		Command: command,
 		Options: options,
 	})
@@ -237,4 +238,21 @@ func (c *Client) ActivateMain() error { return c.ActivateOccupant("main", "", ""
 func (c *Client) StatusLineClick(rangeName string) error {
 	_, err := sendJSONEvent[RespOK](c, state.EventStatusLineClick, map[string]string{"range": rangeName})
 	return err
+}
+
+// canonicalProjectPath returns the canonical absolute path for a project
+// directory. Trailing slashes are removed and symlinks are resolved so that
+// "/workspace/foo" and "/workspace/foo/" map to the same sandbox container.
+// Falls back to filepath.Clean(Abs) when EvalSymlinks fails (e.g. the path
+// does not yet exist).
+func canonicalProjectPath(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return filepath.Clean(p)
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return filepath.Clean(abs)
+	}
+	return resolved
 }

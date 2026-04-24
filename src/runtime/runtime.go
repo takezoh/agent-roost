@@ -13,6 +13,7 @@ import (
 	"context"
 	"log/slog"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -108,6 +109,12 @@ type Runtime struct {
 	// workspaceResolver resolves the workspace name for each session's
 	// project directory, with mtime-based caching of .roost/settings.toml.
 	workspaceResolver *config.WorkspaceResolver
+
+	// frameCleanups holds WrappedLaunch.Cleanup callbacks keyed by FrameID.
+	// Protected by frameCleanupsMu because storeFrameCleanup is called from
+	// goroutines (spawnTmuxWindowAsync) while invoke/drain run in the event loop.
+	frameCleanupsMu sync.Mutex
+	frameCleanups   map[state.FrameID]func() error
 }
 
 // New constructs a Runtime ready for Run. Backends must be set on the
@@ -157,6 +164,7 @@ func New(cfg Config) *Runtime {
 		conns:              map[state.ConnID]*ipcConn{},
 		done:               make(chan struct{}),
 		workspaceResolver:  config.NewWorkspaceResolver(),
+		frameCleanups:      map[state.FrameID]func() error{},
 	}
 	if cfg.Pool != nil {
 		r.workers = cfg.Pool
@@ -168,6 +176,22 @@ func New(cfg Config) *Runtime {
 
 // Done signals when Run has fully exited.
 func (r *Runtime) Done() <-chan struct{} { return r.done }
+
+// KnownProjects returns the canonical project paths for all sessions currently
+// loaded in state. Must be called before Run starts (or from the event loop).
+func (r *Runtime) KnownProjects() []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, sess := range r.state.Sessions {
+		if sess.Project != "" {
+			if _, ok := seen[sess.Project]; !ok {
+				seen[sess.Project] = struct{}{}
+				out = append(out, sess.Project)
+			}
+		}
+	}
+	return out
+}
 
 // Enqueue submits an event into the loop from outside. The runtime
 // itself uses the same channel from inside the loop for self-events.
@@ -207,6 +231,11 @@ func (r *Runtime) Run(ctx context.Context) error { //nolint:funlen
 	defer r.cfg.EventLog.CloseAll()
 	defer r.cfg.ToolLog.CloseAll()
 	defer r.deactivateBeforeExit()
+	defer func() {
+		if err := launcher(r.cfg).Shutdown(); err != nil {
+			slog.Warn("runtime: launcher shutdown failed", "err", err)
+		}
+	}()
 
 	r.taps = newTapManager(ctx, r.cfg.Tap)
 	defer r.taps.stopAll()

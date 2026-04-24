@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
+	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/connector"
 	statedriver "github.com/takezoh/agent-roost/driver"
 	"github.com/takezoh/agent-roost/features"
@@ -17,6 +19,7 @@ import (
 	"github.com/takezoh/agent-roost/logger"
 	"github.com/takezoh/agent-roost/runtime"
 	"github.com/takezoh/agent-roost/runtime/worker"
+	sandboxdocker "github.com/takezoh/agent-roost/sandbox/docker"
 	"github.com/takezoh/agent-roost/state"
 )
 
@@ -71,6 +74,10 @@ func runCoordinator() error { //nolint:funlen
 	paneTap := runtime.NewTmuxPipePaneTap(tmuxBackend.PipePane, tapDir)
 
 	featureSet := features.FromConfig(cfg.Features.Enabled, features.All())
+	agentLauncher, err := newAgentLauncher(cfg.Sandbox)
+	if err != nil {
+		return err
+	}
 	rt := runtime.New(runtime.Config{
 		SessionName:       sessionName,
 		RoostExe:          resolveExe(),
@@ -87,10 +94,19 @@ func runCoordinator() error { //nolint:funlen
 		TerminalEvict:     terminalEvict,
 		Tap:               paneTap,
 		Features:          featureSet,
+		Launcher:          agentLauncher,
 	})
 
 	rt.SetAliases(cfg.Session.Aliases)
 	rt.SetDefaultCommand(cfg.Session.DefaultCommand)
+
+	pruneOrphans := func(knownProjects []string) {
+		if dl, ok := agentLauncher.(*runtime.DockerLauncher); ok {
+			pruneCtx, pruneCancel := context.WithTimeout(ctx, 30*time.Second)
+			defer pruneCancel()
+			dl.PruneOrphans(pruneCtx, knownProjects)
+		}
+	}
 
 	warmRestart := client.SessionExists()
 	if warmRestart {
@@ -100,12 +116,14 @@ func runCoordinator() error { //nolint:funlen
 		if err := rt.LoadSnapshot(false); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
+		pruneOrphans(rt.KnownProjects())
 		if err := rt.LoadSessionPanes(); err != nil {
 			slog.Warn("window map load failed", "err", err)
 		}
 		rt.RecoverActivePaneAtMain()
 		restoreSession(client, cfg, sessionName)
 		rt.ReconcileOrphans()
+		rt.RecoverSandboxFrames()
 		rt.RecoverWarmStartSessions()
 	} else {
 		slog.Info("creating new session")
@@ -119,6 +137,7 @@ func runCoordinator() error { //nolint:funlen
 		if err := rt.LoadSnapshot(true); err != nil {
 			slog.Error("snapshot load failed", "err", err)
 		}
+		pruneOrphans(rt.KnownProjects())
 		if err := rt.RecreateAll(); err != nil {
 			slog.Error("recreate failed", "err", err)
 		}
@@ -170,6 +189,43 @@ func runCoordinator() error { //nolint:funlen
 		slog.Info("detached, session kept alive")
 	} else {
 		slog.Info("tmux server exited")
+	}
+	return nil
+}
+
+// newAgentLauncher returns the AgentLauncher for the configured sandbox mode.
+// "docker" starts a DockerLauncher backed by a per-project container manager.
+// All other modes (including "direct" and "") fall back to DirectLauncher.
+// Returns an error when mode="docker" but the docker daemon is unreachable.
+func newAgentLauncher(sb config.SandboxConfig) (runtime.AgentLauncher, error) {
+	switch sb.Mode {
+	case "docker":
+		if err := checkDockerAvailable(); err != nil {
+			return nil, fmt.Errorf(
+				"sandbox.mode=docker but docker is unavailable: %w\n"+
+					"  → set sandbox.mode=direct in ~/.roost/settings.toml or fix docker", err)
+		}
+		mgr := sandboxdocker.New(sandboxdocker.Config{
+			Image:     sb.Docker.Image,
+			Network:   sb.Docker.Network,
+			ExtraArgs: sb.Docker.ExtraArgs,
+		})
+		slog.Info("sandbox: docker mode enabled")
+		return runtime.NewDockerLauncher(mgr), nil
+	default:
+		return runtime.DirectLauncher{}, nil
+	}
+}
+
+// checkDockerAvailable verifies that the docker daemon is reachable by running
+// "docker info". Returns a non-nil error when docker is missing or the daemon
+// is not running.
+func checkDockerAvailable() error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "docker", "info", "--format", "{{.ServerVersion}}").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("docker info: %w\n%s", err, string(out))
 	}
 	return nil
 }
