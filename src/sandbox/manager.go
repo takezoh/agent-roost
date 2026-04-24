@@ -13,12 +13,11 @@ import (
 )
 
 // Instance represents a running sandbox for one project directory.
-// The concrete fields are managed by the backend; callers treat this as opaque.
-type Instance struct {
+// I is the backend-specific internal state type (e.g. *docker.ContainerState).
+type Instance[I any] struct {
 	ProjectPath string // canonical absolute path
 	Image       string // docker image (or equivalent) used to start this instance
-	// Internal fields are embedded by backend implementations via composition.
-	Internal any
+	Internal    I
 }
 
 // StartOptions carries optional per-launch parameters for starting a new sandbox
@@ -31,30 +30,31 @@ type StartOptions struct {
 }
 
 // Manager is the backend-neutral lifecycle controller for project sandboxes.
+// I is the backend-specific internal state type.
 // Implementations must be safe for concurrent use from multiple goroutines.
-type Manager interface {
+type Manager[I any] interface {
 	// EnsureInstance starts the sandbox for the (projectPath, image) pair if not
 	// already running, or returns the existing instance. opts only apply when a
 	// new instance is created. Concurrent calls for the same (project, image) must
 	// be serialized (e.g. via singleflight).
-	EnsureInstance(ctx context.Context, projectPath, image string, opts StartOptions) (*Instance, error)
+	EnsureInstance(ctx context.Context, projectPath, image string, opts StartOptions) (*Instance[I], error)
 
 	// BuildLaunchCommand generates the shell command string and environment to
 	// run plan inside the sandbox instance. The returned command is passed to
 	// TmuxBackend.SpawnWindow.
-	BuildLaunchCommand(inst *Instance, plan state.LaunchPlan, env map[string]string) (command string, outEnv map[string]string, err error)
+	BuildLaunchCommand(inst *Instance[I], plan state.LaunchPlan, env map[string]string) (command string, outEnv map[string]string, err error)
 
 	// AcquireFrame increments the ref-count for the instance.
 	// Must be called before the frame is spawned.
-	AcquireFrame(inst *Instance)
+	AcquireFrame(inst *Instance[I])
 
 	// ReleaseFrame decrements the ref-count. Returns true when the count
 	// drops to zero — the caller should then call DestroyInstance.
-	ReleaseFrame(inst *Instance) bool
+	ReleaseFrame(inst *Instance[I]) bool
 
 	// DestroyInstance stops and removes the sandbox. Only called when
 	// ReleaseFrame returns true (ref-count == 0).
-	DestroyInstance(ctx context.Context, inst *Instance) error
+	DestroyInstance(ctx context.Context, inst *Instance[I]) error
 
 	// PruneOrphans stops sandbox instances that are not associated with any
 	// of knownProjects, or whose resolved image no longer matches what

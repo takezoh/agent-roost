@@ -1376,24 +1376,6 @@ func TestResolveTranscriptPathPrefersExplicit(t *testing.T) {
 	}
 }
 
-func TestResolveTranscriptPathContainerPathFallsBack(t *testing.T) {
-	// Simulate a container-side path that doesn't exist on host.
-	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
-	cs := ClaudeState{
-		CommonState: CommonState{
-			// Path reported by claude inside a Docker container (HOME=/home/user).
-			TranscriptPath: "/home/user/.claude/projects/-workspace-agent-roost/deadbeef.jsonl",
-			StartDir:       "/workspace/agent-roost",
-		},
-		ClaudeSessionID: "deadbeef",
-	}
-	got := d.resolveTranscriptPath(cs)
-	want := testHome + "/.claude/projects/-workspace-agent-roost/deadbeef.jsonl"
-	if got != want {
-		t.Errorf("resolveTranscriptPath = %q, want %q", got, want)
-	}
-}
-
 // === Hang detection (pane capture) ===
 
 func TestClaudeTickEmitsCapturePaneWhenBackgroundRunning(t *testing.T) {

@@ -8,22 +8,23 @@ import (
 
 	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/sandbox"
+	sandboxdocker "github.com/takezoh/agent-roost/sandbox/docker"
 	"github.com/takezoh/agent-roost/state"
 )
 
 // DockerLauncher wraps launches inside per-project Docker containers.
-// It implements AgentLauncher by delegating to a sandbox.Manager.
+// It implements AgentLauncher by delegating to a sandbox.Manager[*docker.ContainerState].
 // All driver kinds are run inside Docker; docker config is resolved per
 // project via the resolveDocker callback (user + project scope merge).
 type DockerLauncher struct {
-	mgr           sandbox.Manager
+	mgr           sandbox.Manager[*sandboxdocker.ContainerState]
 	resolveDocker func(projectPath string) config.DockerConfig
 }
 
 // NewDockerLauncher creates an AgentLauncher that runs agents inside Docker.
 // resolveDocker is called per launch to obtain the effective docker config
 // for a project (user scope merged with optional project scope override).
-func NewDockerLauncher(mgr sandbox.Manager, resolveDocker func(string) config.DockerConfig) *DockerLauncher {
+func NewDockerLauncher(mgr sandbox.Manager[*sandboxdocker.ContainerState], resolveDocker func(string) config.DockerConfig) *DockerLauncher {
 	return &DockerLauncher{mgr: mgr, resolveDocker: resolveDocker}
 }
 
@@ -89,7 +90,7 @@ func (l *DockerLauncher) AdoptFrame(ctx context.Context, frameID state.FrameID, 
 	return l.makeCleanup(frameID, inst), nil
 }
 
-func (l *DockerLauncher) makeCleanup(frameID state.FrameID, inst *sandbox.Instance) func() error {
+func (l *DockerLauncher) makeCleanup(frameID state.FrameID, inst *sandbox.Instance[*sandboxdocker.ContainerState]) func() error {
 	return func() error {
 		shouldDestroy := l.mgr.ReleaseFrame(inst)
 		slog.Debug("docker launcher: frame released", "frame", frameID, "project", inst.ProjectPath, "image", inst.Image, "destroy", shouldDestroy)

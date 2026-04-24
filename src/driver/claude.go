@@ -284,19 +284,12 @@ func (d ClaudeDriver) WarmStartRecover(s state.DriverState, now time.Time) (stat
 }
 
 // resolveTranscriptPath picks the best known transcript path. Priority:
-//  1. Agent-reported path, if it exists on the local filesystem.
-//  2. Computed from d.home (daemon's host HOME) + claudeSessionID.
-//  3. "" if neither is available.
-//
-// Priority 1 may fall through to 2 when claude runs inside a Docker sandbox:
-// the agent reports a path under the container HOME (e.g. /home/user/.claude/…)
-// which does not exist on the host, while the actual file lives under the host
-// HOME via a bind mount (e.g. /home/take/.claude/…).
+//  1. Agent-reported path (canonical, handles --worktree)
+//  2. Computed from d.home + claudeSessionID
+//  3. "" if neither is available
 func (d ClaudeDriver) resolveTranscriptPath(cs ClaudeState) string {
 	if cs.TranscriptPath != "" {
-		if _, err := os.Stat(cs.TranscriptPath); err == nil {
-			return cs.TranscriptPath
-		}
+		return cs.TranscriptPath
 	}
 	if d.home == "" || cs.ClaudeSessionID == "" || cs.StartDir == "" {
 		return ""

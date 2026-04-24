@@ -31,8 +31,8 @@ type Config struct {
 	ExtraArgs []string // extra args appended to "docker run"
 }
 
-// containerState holds the runtime data for one (project, image) container.
-type containerState struct {
+// ContainerState holds the runtime data for one (project, image) container.
+type ContainerState struct {
 	mu       sync.Mutex
 	name     string // docker container name
 	image    string // resolved docker image
@@ -42,13 +42,13 @@ type containerState struct {
 // containerKey is the composite key used to identify a container.
 func containerKey(projectPath, image string) string { return projectPath + "\t" + image }
 
-// Manager is the Docker implementation of sandbox.Manager.
+// Manager is the Docker implementation of sandbox.Manager[*ContainerState].
 type Manager struct {
 	cfg      Config
 	mu       sync.Mutex
 	inflight singleflight.Group
 	// containers maps containerKey(projectPath, image) → container state
-	containers map[string]*containerState
+	containers map[string]*ContainerState
 }
 
 // New returns a Manager that owns Docker containers for project sandboxes.
@@ -58,7 +58,7 @@ func New(cfg Config) *Manager {
 	}
 	return &Manager{
 		cfg:        cfg,
-		containers: map[string]*containerState{},
+		containers: map[string]*ContainerState{},
 	}
 }
 
@@ -67,7 +67,7 @@ func New(cfg Config) *Manager {
 // devcontainer.json or the built-in default). Concurrent calls for the same
 // (project, resolved-image) are serialized via singleflight.
 // opts are applied only when a new container is created; a cached container ignores them.
-func (m *Manager) EnsureInstance(ctx context.Context, projectPath, configImage string, opts sandbox.StartOptions) (*sandbox.Instance, error) {
+func (m *Manager) EnsureInstance(ctx context.Context, projectPath, configImage string, opts sandbox.StartOptions) (*sandbox.Instance[*ContainerState], error) {
 	// Resolve the image here to compute the correct singleflight key.
 	image := resolveImage(projectPath, configImage)
 	key := containerKey(projectPath, image)
@@ -82,7 +82,7 @@ func (m *Manager) EnsureInstance(ctx context.Context, projectPath, configImage s
 	cs := m.containers[key]
 	m.mu.Unlock()
 
-	return &sandbox.Instance{
+	return &sandbox.Instance[*ContainerState]{
 		ProjectPath: projectPath,
 		Image:       image,
 		Internal:    cs,
@@ -107,7 +107,7 @@ func (m *Manager) ensureContainer(ctx context.Context, projectPath, configImage 
 		// Daemon restarted; container from prior session is still alive — reclaim it.
 		slog.Info("docker sandbox: reclaiming existing container", "name", name, "project", projectPath, "image", image)
 		m.mu.Lock()
-		m.containers[key] = &containerState{name: name, image: image}
+		m.containers[key] = &ContainerState{name: name, image: image}
 		m.mu.Unlock()
 		return nil
 	}
@@ -117,7 +117,7 @@ func (m *Manager) ensureContainer(ctx context.Context, projectPath, configImage 
 	}
 
 	m.mu.Lock()
-	m.containers[key] = &containerState{name: name, image: image}
+	m.containers[key] = &ContainerState{name: name, image: image}
 	m.mu.Unlock()
 	return nil
 }
@@ -125,6 +125,7 @@ func (m *Manager) ensureContainer(ctx context.Context, projectPath, configImage 
 func baseContainerArgs(cfg Config, projectPath, image, name string) []string {
 	home, _ := os.UserHomeDir()
 	roostSock := filepath.Join(home, ".roost", "roost.sock")
+	claudeDir := filepath.Join(home, ".claude")
 	uid := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
 	args := []string{
 		"run", "-d", "--rm",
@@ -135,7 +136,8 @@ func baseContainerArgs(cfg Config, projectPath, image, name string) []string {
 		"--user", uid,
 		"-v", projectPath + ":" + projectPath + ":rw",
 		"-v", roostSock + ":/tmp/roost.sock:rw",
-		"-e", "ROOST_SOCKET=/tmp/roost.sock", "-e", "HOME=/home/user",
+		"-v", claudeDir + ":" + claudeDir + ":rw",
+		"-e", "ROOST_SOCKET=/tmp/roost.sock", "-e", "HOME=" + home,
 		"--network", cfg.Network, "--cap-drop=ALL", "--security-opt=no-new-privileges",
 	}
 	return append(args, cfg.ExtraArgs...)
@@ -174,9 +176,9 @@ func (m *Manager) startContainer(ctx context.Context, projectPath, image, name s
 }
 
 // BuildLaunchCommand generates a "docker exec" command to run plan inside inst.
-func (m *Manager) BuildLaunchCommand(inst *sandbox.Instance, plan state.LaunchPlan, env map[string]string) (string, map[string]string, error) {
-	cs, ok := inst.Internal.(*containerState)
-	if !ok {
+func (m *Manager) BuildLaunchCommand(inst *sandbox.Instance[*ContainerState], plan state.LaunchPlan, env map[string]string) (string, map[string]string, error) {
+	cs := inst.Internal
+	if cs == nil {
 		return "", nil, fmt.Errorf("docker sandbox: invalid instance for %s", inst.ProjectPath)
 	}
 
@@ -212,8 +214,8 @@ func (m *Manager) BuildLaunchCommand(inst *sandbox.Instance, plan state.LaunchPl
 }
 
 // AcquireFrame increments the ref-count for the instance.
-func (m *Manager) AcquireFrame(inst *sandbox.Instance) {
-	cs := inst.Internal.(*containerState) //nolint:forcetypeassert
+func (m *Manager) AcquireFrame(inst *sandbox.Instance[*ContainerState]) {
+	cs := inst.Internal
 	cs.mu.Lock()
 	cs.refCount++
 	cs.mu.Unlock()
@@ -221,8 +223,8 @@ func (m *Manager) AcquireFrame(inst *sandbox.Instance) {
 
 // ReleaseFrame decrements the ref-count. Returns true when the container
 // should be destroyed (count reached zero).
-func (m *Manager) ReleaseFrame(inst *sandbox.Instance) bool {
-	cs := inst.Internal.(*containerState) //nolint:forcetypeassert
+func (m *Manager) ReleaseFrame(inst *sandbox.Instance[*ContainerState]) bool {
+	cs := inst.Internal
 	cs.mu.Lock()
 	cs.refCount--
 	zero := cs.refCount <= 0
@@ -231,8 +233,8 @@ func (m *Manager) ReleaseFrame(inst *sandbox.Instance) bool {
 }
 
 // DestroyInstance kills the Docker container and removes it from the registry.
-func (m *Manager) DestroyInstance(ctx context.Context, inst *sandbox.Instance) error {
-	cs := inst.Internal.(*containerState) //nolint:forcetypeassert
+func (m *Manager) DestroyInstance(ctx context.Context, inst *sandbox.Instance[*ContainerState]) error {
+	cs := inst.Internal
 	m.mu.Lock()
 	delete(m.containers, containerKey(inst.ProjectPath, inst.Image))
 	m.mu.Unlock()

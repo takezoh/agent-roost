@@ -71,8 +71,8 @@ func TestResolveImage_priority(t *testing.T) {
 
 func TestBuildLaunchCommand(t *testing.T) {
 	mgr := New(Config{Network: "test-net"})
-	cs := &containerState{name: "roost-abc123"}
-	inst := &sandbox.Instance{
+	cs := &ContainerState{name: "roost-abc123"}
+	inst := &sandbox.Instance[*ContainerState]{
 		ProjectPath: "/workspace/foo",
 		Internal:    cs,
 	}
@@ -103,8 +103,8 @@ func TestBuildLaunchCommand(t *testing.T) {
 
 func TestBuildLaunchCommand_shellTranslated(t *testing.T) {
 	mgr := New(Config{Network: "test-net"})
-	cs := &containerState{name: "roost-abc123"}
-	inst := &sandbox.Instance{ProjectPath: "/workspace/foo", Internal: cs}
+	cs := &ContainerState{name: "roost-abc123"}
+	inst := &sandbox.Instance[*ContainerState]{ProjectPath: "/workspace/foo", Internal: cs}
 	plan := state.LaunchPlan{Command: "shell", StartDir: "/workspace/foo", Project: "/workspace/foo"}
 
 	cmd, _, err := mgr.BuildLaunchCommand(inst, plan, nil)
@@ -118,8 +118,8 @@ func TestBuildLaunchCommand_shellTranslated(t *testing.T) {
 
 func TestRefCount(t *testing.T) {
 	mgr := New(Config{})
-	cs := &containerState{name: "test"}
-	inst := &sandbox.Instance{ProjectPath: "/proj", Internal: cs}
+	cs := &ContainerState{name: "test"}
+	inst := &sandbox.Instance[*ContainerState]{ProjectPath: "/proj", Internal: cs}
 
 	mgr.AcquireFrame(inst)
 	mgr.AcquireFrame(inst)
@@ -154,8 +154,8 @@ func TestEnsureInstance_docker(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureInstance (2nd): %v", err)
 	}
-	cs1 := inst.Internal.(*containerState)
-	cs2 := inst2.Internal.(*containerState)
+	cs1 := inst.Internal
+	cs2 := inst2.Internal
 	if cs1.name != cs2.name {
 		t.Errorf("second call returned different container: %q vs %q", cs1.name, cs2.name)
 	}
@@ -176,7 +176,7 @@ func TestReleaseFrame_LastHolder_Destroys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureInstance: %v", err)
 	}
-	cs := inst.Internal.(*containerState)
+	cs := inst.Internal
 	name := cs.name
 	t.Cleanup(func() { _, _ = exec.Command("docker", "kill", name).CombinedOutput() })
 
@@ -222,7 +222,7 @@ func TestPruneOrphans_removesUnknown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureInstance: %v", err)
 	}
-	cs := inst.Internal.(*containerState)
+	cs := inst.Internal
 	name := cs.name
 	t.Cleanup(func() { _, _ = exec.Command("docker", "kill", name).CombinedOutput() })
 
@@ -248,7 +248,7 @@ func TestPruneOrphans_keepsKnown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureInstance: %v", err)
 	}
-	cs := inst.Internal.(*containerState)
+	cs := inst.Internal
 	name := cs.name
 	t.Cleanup(func() { _, _ = exec.Command("docker", "kill", name).CombinedOutput() })
 
@@ -275,7 +275,7 @@ func TestPruneOrphans_ImageMismatch_Prunes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureInstance: %v", err)
 	}
-	cs := inst.Internal.(*containerState)
+	cs := inst.Internal
 	name := cs.name
 	t.Cleanup(func() { _, _ = exec.Command("docker", "kill", name).CombinedOutput() })
 
@@ -301,7 +301,7 @@ func TestPruneOrphans_ImageMatch_Keeps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EnsureInstance: %v", err)
 	}
-	cs := inst.Internal.(*containerState)
+	cs := inst.Internal
 	name := cs.name
 	t.Cleanup(func() { _, _ = exec.Command("docker", "kill", name).CombinedOutput() })
 

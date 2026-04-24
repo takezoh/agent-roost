@@ -7,8 +7,8 @@ import (
 )
 
 // defaultImage is used when neither the user config nor .devcontainer/devcontainer.json
-// specifies an image. It provides Node.js + npm so the claude CLI can be installed.
-// Users running non-shell drivers should override this with a project-specific image.
+// specifies an image. Node-based because it is the most common runtime for
+// CLI-driven agent tooling; override with a project-specific image when needed.
 const defaultImage = "node:22-bookworm-slim"
 
 // devcontainerJSON is the minimal subset of .devcontainer/devcontainer.json
