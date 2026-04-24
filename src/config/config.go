@@ -20,6 +20,14 @@ type Config struct {
 	Drivers       map[string]map[string]any `toml:"drivers"`
 	Features      FeaturesConfig            `toml:"features"`
 	Notifications NotificationsConfig       `toml:"notifications"`
+	Sandbox       SandboxConfig             `toml:"sandbox"`
+}
+
+// SandboxConfig controls how agent processes are isolated.
+// mode = "direct" runs agents with no extra sandboxing (default).
+// Future modes (e.g. "firecracker") will be added in Phase 2.
+type SandboxConfig struct {
+	Mode string `toml:"mode"`
 }
 
 // CommonDriverConfig holds settings that apply to all drivers.
@@ -133,6 +141,7 @@ func DefaultConfig() *Config {
 			PushCommands:   []string{"shell"},
 		},
 		Projects: ProjectsConfig{},
+		Sandbox:  SandboxConfig{Mode: "direct"},
 	}
 }
 

@@ -54,6 +54,10 @@ type Config struct {
 	// Features is the set of runtime flags built from the config file.
 	// Injected into state.State once at construction; never mutated.
 	Features features.Set
+
+	// Launcher wraps agent launch plans before they reach tmux, enabling
+	// sandbox implementations. nil falls back to DirectLauncher (no-op).
+	Launcher AgentLauncher
 }
 
 // Runtime owns the event loop goroutine and the side-effect backends.

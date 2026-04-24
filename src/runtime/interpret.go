@@ -249,15 +249,33 @@ func (r *Runtime) executeFSEffect(eff state.Effect) {
 // event loop is not blocked on subprocess wait time. Posts back via
 // EvTmuxPaneSpawned / EvTmuxSpawnFailed.
 func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
+	plan := state.LaunchPlan{
+		Command:  e.Command,
+		StartDir: e.StartDir,
+		Options:  e.Options,
+		Stdin:    e.Stdin,
+	}
+	wrapped, err := launcher(r.cfg).WrapLaunch(e.FrameID, plan, e.Env)
+	if err != nil {
+		slog.Error("runtime: launcher wrap failed", "frame", e.FrameID, "err", err)
+		r.Enqueue(state.EvTmuxSpawnFailed{
+			SessionID:  e.SessionID,
+			FrameID:    e.FrameID,
+			Err:        err.Error(),
+			ReplyConn:  e.ReplyConn,
+			ReplyReqID: e.ReplyReqID,
+		})
+		return
+	}
 	name := windowName(e.Project, string(e.FrameID))
-	spawnCmd := "exec " + e.Command
-	if isShellCommand(e.Command) {
+	spawnCmd := "exec " + wrapped.Command
+	if isShellCommand(wrapped.Command) {
 		spawnCmd = ""
 	} else if len(e.Stdin) > 0 {
-		spawnCmd = wrapCommandWithStdin(e.Command, e.Stdin)
+		spawnCmd = wrapCommandWithStdin(wrapped.Command, e.Stdin)
 	}
 	size := r.mainPaneSize()
-	target, paneID, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, e.StartDir, e.Env)
+	target, paneID, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, wrapped.StartDir, wrapped.Env)
 	if err != nil {
 		r.Enqueue(state.EvTmuxSpawnFailed{
 			SessionID:  e.SessionID,

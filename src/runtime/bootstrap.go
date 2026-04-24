@@ -324,15 +324,19 @@ func (r *Runtime) RecreateAll() error {
 				dead = append(dead, id)
 				break
 			}
+			baseEnv := map[string]string{"ROOST_SESSION_ID": string(id), "ROOST_FRAME_ID": string(frame.ID)}
+			wrapped, err := launcher(r.cfg).WrapLaunch(frame.ID, launch, baseEnv)
+			if err != nil {
+				slog.Error("bootstrap: launcher wrap failed", "id", id, "frame", frame.ID, "err", err)
+				dead = append(dead, id)
+				break
+			}
 			name := windowName(frame.Project, string(frame.ID))
-			tmuxCmd := "exec " + launch.Command
-			if isShellCommand(launch.Command) {
+			tmuxCmd := "exec " + wrapped.Command
+			if isShellCommand(wrapped.Command) {
 				tmuxCmd = ""
 			}
-			target, paneID, err := r.cfg.Tmux.SpawnWindow(
-				name, tmuxCmd, launch.StartDir,
-				map[string]string{"ROOST_SESSION_ID": string(id), "ROOST_FRAME_ID": string(frame.ID)},
-			)
+			target, paneID, err := r.cfg.Tmux.SpawnWindow(name, tmuxCmd, wrapped.StartDir, wrapped.Env)
 			if err != nil {
 				slog.Error("bootstrap: spawn failed", "id", id, "frame", frame.ID, "err", err)
 				dead = append(dead, id)
