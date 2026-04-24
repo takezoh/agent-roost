@@ -30,11 +30,19 @@ func newFCClient(sockPath string) *fcClient {
 }
 
 func (c *fcClient) put(path string, body any) error {
+	return c.do(http.MethodPut, path, body)
+}
+
+func (c *fcClient) patch(path string, body any) error {
+	return c.do(http.MethodPatch, path, body)
+}
+
+func (c *fcClient) do(method, path string, body any) error {
 	b, err := json.Marshal(body)
 	if err != nil {
 		return err
 	}
-	req, err := http.NewRequest(http.MethodPut, c.base+path, bytes.NewReader(b))
+	req, err := http.NewRequest(method, c.base+path, bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
@@ -46,7 +54,7 @@ func (c *fcClient) put(path string, body any) error {
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("FC API %s: %d %s", path, resp.StatusCode, string(raw))
+		return fmt.Errorf("FC API %s %s: %d %s", method, path, resp.StatusCode, string(raw))
 	}
 	return nil
 }

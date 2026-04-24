@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# setup.sh — download Firecracker binaries and build the minimal Alpine rootfs
-# with the guest-signal binary embedded.
+# setup.sh — download Firecracker binaries and build a minimal rootfs
+# that uses our own Go binary as PID 1 (init).
 #
 # Run once before `go run .`.
-# Requires: curl, tar, truncate, mkfs.ext4, mount (root or user-namespace),
-#           go (for guest-signal build).
+# Requires: curl, truncate, mkfs.ext4, sudo (for mount).
 #
 # Output files (all in ~/.roost/images/):
 #   firecracker   – Firecracker v1.11.0 binary
-#   vmlinux       – Linux kernel provided by Firecracker project
-#   rootfs.ext4   – Alpine 3.20 miniroot + guest-signal + /sbin/init wrapper
+#   vmlinux       – Linux kernel from Firecracker's quick-start guide
+#   rootfs.ext4   – minimal ext4 with guest-signal as /sbin/init
 
 set -euo pipefail
 
@@ -32,7 +31,7 @@ if [[ ! -f "${FC_BIN}" ]]; then
   mv "${IMG_DIR}/firecracker-${FC_VERSION}-${ARCH}" "${FC_BIN}"
   chmod +x "${FC_BIN}"
   rm "${TMP_TGZ}"
-  echo "   saved to ${FC_BIN}"
+  echo "   saved: ${FC_BIN}"
 else
   echo "✓ firecracker already present"
 fi
@@ -40,80 +39,51 @@ fi
 # ── 2. vmlinux kernel ────────────────────────────────────────────────────
 KERNEL="${IMG_DIR}/vmlinux"
 if [[ ! -f "${KERNEL}" ]]; then
-  echo "→ downloading vmlinux (Firecracker hello kernel)…"
+  echo "→ downloading vmlinux (Firecracker quick-start kernel)…"
   curl -fsSL -o "${KERNEL}" \
     "https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/${ARCH}/kernels/vmlinux.bin"
-  echo "   saved to ${KERNEL}"
+  echo "   saved: ${KERNEL}"
 else
   echo "✓ vmlinux already present"
 fi
 
-# ── 3. guest-signal binary ───────────────────────────────────────────────
-GUEST_SIGNAL="${SCRIPT_DIR}/guest-signal"
-echo "→ building guest-signal binary…"
+# ── 3. guest-signal binary (our custom PID 1 / init) ─────────────────────
+GUEST_BIN="${SCRIPT_DIR}/guest-signal"
+echo "→ building guest-signal (linux/amd64, static)…"
 (cd "${SCRIPT_DIR}/guest" && \
-  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o "${GUEST_SIGNAL}" .)
-echo "   built at ${GUEST_SIGNAL} ($(du -sh "${GUEST_SIGNAL}" | cut -f1))"
+  GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+  go build -ldflags="-s -w" -o "${GUEST_BIN}" .)
+echo "   built: ${GUEST_BIN}  ($(du -sh "${GUEST_BIN}" | cut -f1))"
 
-# ── 4. Alpine rootfs ext4 image ──────────────────────────────────────────
+# ── 4. Minimal ext4 rootfs ───────────────────────────────────────────────
+# We don't use a distro rootfs.  The only binary in the image is our
+# statically-linked guest-signal, which acts as PID 1 (init).
 ROOTFS="${IMG_DIR}/rootfs.ext4"
-if [[ ! -f "${ROOTFS}" ]]; then
-  echo "→ building Alpine rootfs…"
-
-  ALPINE_VERSION="3.20"
-  ALPINE_ARCH="x86_64"
-  ALPINE_MIRROR="https://dl-cdn.alpinelinux.org/alpine"
-  ALPINE_URL="${ALPINE_MIRROR}/v${ALPINE_VERSION}/releases/${ALPINE_ARCH}/alpine-minirootfs-${ALPINE_VERSION}.0-${ALPINE_ARCH}.tar.gz"
-  ALPINE_TGZ="$(mktemp -t alpine.XXXXXX.tgz)"
-  curl -fsSL -o "${ALPINE_TGZ}" "${ALPINE_URL}"
-
-  # Create a 200 MiB ext4 image.
-  truncate -s 200M "${ROOTFS}"
-  mkfs.ext4 -F -L rootfs "${ROOTFS}"
-
-  # Mount and populate (requires unshare -r for rootless, or run as root).
-  MNT="$(mktemp -d -t fc-rootfs.XXXXXX)"
-
-  # Prefer rootless mount via fuse2fs if available.
-  if command -v fuse2fs &>/dev/null; then
-    fuse2fs "${ROOTFS}" "${MNT}" -o fakeroot,rw
-    UNMOUNT="fusermount -u ${MNT}"
-  else
-    # Fallback: requires root / sudo.
-    sudo mount -o loop "${ROOTFS}" "${MNT}"
-    UNMOUNT="sudo umount ${MNT}"
-  fi
-
-  tar -xzf "${ALPINE_TGZ}" -C "${MNT}"
-  rm "${ALPINE_TGZ}"
-
-  # Copy guest-signal binary.
-  cp "${GUEST_SIGNAL}" "${MNT}/usr/local/bin/guest-signal"
-
-  # Write a minimal /sbin/init that:
-  #  1. Mounts essential pseudo-filesystems.
-  #  2. Runs guest-signal in the background.
-  #  3. Drops to a shell for manual testing.
-  cat > "${MNT}/sbin/init" <<'INIT'
-#!/bin/sh
-mount -t proc none /proc
-mount -t sysfs none /sys
-mount -t devtmpfs none /dev 2>/dev/null || true
-
-# Signal host that the VM is ready.
-/usr/local/bin/guest-signal &
-
-exec /bin/sh
-INIT
-  chmod +x "${MNT}/sbin/init"
-
-  eval "${UNMOUNT}"
-  rmdir "${MNT}"
-  echo "   saved to ${ROOTFS} ($(du -sh "${ROOTFS}" | cut -f1))"
-else
-  echo "✓ rootfs already present"
+if [[ -f "${ROOTFS}" ]]; then
+  echo "→ removing stale rootfs to rebuild from scratch…"
+  rm "${ROOTFS}"
 fi
 
+echo "→ creating minimal ext4 rootfs (64 MiB)…"
+truncate -s 64M "${ROOTFS}"
+mkfs.ext4 -F -L rootfs -q "${ROOTFS}"
+
+MNT="$(mktemp -d -t fc-rootfs.XXXXXX)"
+sudo mount -o loop "${ROOTFS}" "${MNT}"
+
+# Create the bare minimum directory structure.
+# devtmpfs needs /dev; proc needs /proc; sysfs needs /sys.
+# The kernel looks for init at /sbin/init first.
+sudo mkdir -p "${MNT}"/{dev,proc,sys,tmp,sbin}
+
+# Install our Go binary as /sbin/init.
+sudo cp "${GUEST_BIN}" "${MNT}/sbin/init"
+sudo chmod +x "${MNT}/sbin/init"
+
+sudo umount "${MNT}"
+rmdir "${MNT}"
+
+echo "   saved: ${ROOTFS}  ($(du -sh "${ROOTFS}" | cut -f1))"
 echo ""
 echo "All prerequisites ready. Run the PoC:"
 echo "  cd ${SCRIPT_DIR} && go run . --runs 5 --fleet 5"

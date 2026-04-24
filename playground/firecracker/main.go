@@ -33,8 +33,9 @@ type Config struct {
 	ReadyTimeout time.Duration
 
 	// set internally after snapshot creation
-	snapPath string
-	memPath  string
+	snapPath     string
+	memPath      string
+	vsockSnapPath string // vsock UDS base path of the source VM (for snap restore cleanup)
 }
 
 func defaultImageDir() string {

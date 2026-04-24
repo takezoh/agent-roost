@@ -74,15 +74,37 @@ func run(cfg *Config) (Result, error) {
 			}
 
 			// Save snapshot from this first boot for snap-start tests.
+			// Firecracker requires the VM to be paused before snapshotting.
 			if cfg.Runs > 1 {
-				fmt.Println("  creating snapshot…")
-				if err := vm.CreateSnapshot(); err != nil {
-					fmt.Printf("  snapshot failed (snap-start skipped): %v\n", err)
-					cfg.snapPath = ""
-					cfg.memPath = ""
+				fmt.Println("  pausing VM for snapshot…")
+				if err := vm.Pause(); err != nil {
+					fmt.Printf("  pause failed (snap-start skipped): %v\n", err)
 				} else {
-					cfg.snapPath = filepath.Join(os.TempDir(), "roost-poc-"+id, "snap.vmstate")
-					cfg.memPath = filepath.Join(os.TempDir(), "roost-poc-"+id, "snap.mem")
+					fmt.Println("  creating snapshot…")
+					if err := vm.CreateSnapshot(); err != nil {
+						fmt.Printf("  snapshot failed (snap-start skipped): %v\n", err)
+						cfg.snapPath = ""
+						cfg.memPath = ""
+					} else {
+						// Move snapshot files to a fixed location before Stop()
+						// deletes the VM's temp dir (which contains them).
+						// os.Rename is a fast rename on the same filesystem.
+						globalSnap := filepath.Join(os.TempDir(), "roost-poc-snap.vmstate")
+						globalMem := filepath.Join(os.TempDir(), "roost-poc-snap.mem")
+						if err := os.Rename(vm.snapPath, globalSnap); err != nil {
+							fmt.Printf("  snapshot mv failed: %v\n", err)
+							cfg.snapPath = ""
+							cfg.memPath = ""
+						} else if err := os.Rename(vm.memPath, globalMem); err != nil {
+							fmt.Printf("  mem mv failed: %v\n", err)
+							cfg.snapPath = ""
+							cfg.memPath = ""
+						} else {
+							cfg.snapPath = globalSnap
+							cfg.memPath = globalMem
+							cfg.vsockSnapPath = vm.vsockPath
+						}
+					}
 				}
 			}
 		}
@@ -140,19 +162,11 @@ func run(cfg *Config) (Result, error) {
 	return res, nil
 }
 
-// startVMFromSnap starts a fresh firecracker process configured for snapshot
-// load (no kernel/rootfs needed in boot-source; restored from snap).
+// startVMFromSnap starts a bare Firecracker process (no boot resources
+// configured) ready for snapshot/load.  Any prior configuration would
+// cause Firecracker to reject the load with an error.
 func startVMFromSnap(id string, cfg *Config) (*VM, error) {
-	// Snapshot-restore still needs a fresh firecracker process.
-	// We reuse startVM but skip configure (snapshot path carries all state).
-	vm, err := startVM(id, cfg)
-	if err != nil {
-		return nil, err
-	}
-	// Override snap/mem paths to the saved snapshot.
-	vm.snapPath = cfg.snapPath
-	vm.memPath = cfg.memPath
-	return vm, nil
+	return startVMForSnap(id, cfg, cfg.snapPath, cfg.memPath)
 }
 
 // --- statistics helpers --------------------------------------------------

@@ -30,6 +30,59 @@ type VM struct {
 	cfg         *Config
 }
 
+// startVMForSnap launches a fresh Firecracker process and waits for the
+// API to be ready, but does NOT configure any boot resources.  This is
+// the correct way to prepare for snapshot/load: configuring boot resources
+// before loading a snapshot is an error in Firecracker.
+func startVMForSnap(id string, cfg *Config, snapPath, memPath string) (*VM, error) {
+	dir := filepath.Join(os.TempDir(), "roost-poc-"+id)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	apiSock := filepath.Join(dir, "api.sock")
+	vsockPath := filepath.Join(dir, "vsock.sock")
+	_ = os.Remove(apiSock)
+	_ = os.Remove(vsockPath)
+
+	// Remove stale vsock socket files from the source VM so Firecracker can
+	// bind to the same path when restoring the snapshot.
+	if cfg.vsockSnapPath != "" {
+		_ = os.Remove(cfg.vsockSnapPath)
+		_ = os.Remove(cfg.vsockSnapPath + "_" + strconv.Itoa(vsockReadyPort))
+	}
+
+	logPath := filepath.Join(dir, "fc.log")
+	lf, err := os.Create(logPath)
+	if err != nil {
+		return nil, fmt.Errorf("create fc log: %w", err)
+	}
+	lf.Close()
+
+	cmd := exec.Command(cfg.FCBin,
+		"--api-sock", apiSock,
+		"--log-path", logPath,
+		"--level", "Warning",
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start firecracker: %w", err)
+	}
+
+	v := &VM{
+		id: id, apiSockPath: apiSock,
+		vsockPath: vsockPath, snapPath: snapPath, memPath: memPath,
+		proc: cmd, cfg: cfg,
+	}
+	v.fc = newFCClient(apiSock)
+
+	if err := v.fc.waitAPIReady(3 * time.Second); err != nil {
+		_ = cmd.Process.Kill()
+		return nil, err
+	}
+	return v, nil
+}
+
 // startVM launches the firecracker process and configures it via API.
 // It does NOT send InstanceStart; call Boot() for that.
 func startVM(id string, cfg *Config) (*VM, error) {
@@ -38,7 +91,9 @@ func startVM(id string, cfg *Config) (*VM, error) {
 		return nil, err
 	}
 	apiSock := filepath.Join(dir, "api.sock")
-	vsockPath := filepath.Join(dir, "vsock.sock")
+	// vsock path must be outside the VM's temp dir so it survives Stop()'s
+	// RemoveAll — the snapshot records this path and restore needs to bind to it.
+	vsockPath := filepath.Join(os.TempDir(), "roost-poc-vsock-"+id+".sock")
 	snapPath := filepath.Join(dir, "snap.vmstate")
 	memPath := filepath.Join(dir, "snap.mem")
 
@@ -46,9 +101,18 @@ func startVM(id string, cfg *Config) (*VM, error) {
 	_ = os.Remove(apiSock)
 	_ = os.Remove(vsockPath)
 
+	// Pre-create the log file; Firecracker requires the file to already
+	// exist when --log-path points to a regular file (not a FIFO).
+	logPath := filepath.Join(dir, "fc.log")
+	lf, err := os.Create(logPath)
+	if err != nil {
+		return nil, fmt.Errorf("create fc log: %w", err)
+	}
+	lf.Close()
+
 	cmd := exec.Command(cfg.FCBin,
 		"--api-sock", apiSock,
-		"--log-path", filepath.Join(dir, "fc.log"),
+		"--log-path", logPath,
 		"--level", "Warning",
 	)
 	cmd.Stdout = os.Stdout
@@ -131,7 +195,19 @@ func (v *VM) Boot() (time.Duration, error) {
 	return elapsed, nil
 }
 
+// vmState is the body for PATCH /vm (pause/resume).
+type vmState struct {
+	State string `json:"state"`
+}
+
+// Pause suspends the running VM.  Required before CreateSnapshot.
+// Firecracker v1.x uses PATCH /vm, not /actions.
+func (v *VM) Pause() error {
+	return v.fc.patch("/vm", vmState{State: "Paused"})
+}
+
 // CreateSnapshot saves a full VM snapshot for use in SnapBoot.
+// The VM must be paused before calling this.
 func (v *VM) CreateSnapshot() error {
 	return v.fc.put("/snapshot/create", snapshotCreate{
 		SnapshotType: "Full",
@@ -140,17 +216,12 @@ func (v *VM) CreateSnapshot() error {
 	})
 }
 
-// SnapBoot restores + resumes from a previously saved snapshot and returns
-// time to guest-ready signal. The VM must be freshly started (not yet booted).
+// SnapBoot restores from a previously saved snapshot and measures the
+// time for the snapshot/load API call to complete (which blocks until
+// the guest is resumed and running).  No vsock signal is needed because
+// the guest resumes exactly where it was paused; it never re-executes
+// the signalling code.
 func (v *VM) SnapBoot() (time.Duration, error) {
-	listenerPath := v.vsockPath + "_" + strconv.Itoa(vsockReadyPort)
-	_ = os.Remove(listenerPath)
-	ln, err := net.Listen("unix", listenerPath)
-	if err != nil {
-		return 0, fmt.Errorf("vsock listener: %w", err)
-	}
-	defer ln.Close()
-
 	t0 := time.Now()
 	if err := v.fc.put("/snapshot/load", snapshotLoad{
 		SnapshotPath: v.snapPath,
@@ -159,15 +230,7 @@ func (v *VM) SnapBoot() (time.Duration, error) {
 	}); err != nil {
 		return 0, err
 	}
-
-	_ = ln.(*net.UnixListener).SetDeadline(time.Now().Add(v.cfg.ReadyTimeout))
-	conn, err := ln.Accept()
-	if err != nil {
-		return 0, fmt.Errorf("waiting for ready signal (snap): %w", err)
-	}
-	elapsed := time.Since(t0)
-	conn.Close()
-	return elapsed, nil
+	return time.Since(t0), nil
 }
 
 // MemoryRSSMiB reads the resident set size of the firecracker process from
