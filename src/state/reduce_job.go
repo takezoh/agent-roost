@@ -92,14 +92,15 @@ func handlePendingCreate(s State, pending PendingCreate, e EvJobResult) (State, 
 	s.Sessions[pending.Session.ID] = pending.Session
 	return s, []Effect{
 		EffSpawnTmuxWindow{
-			SessionID: pending.Session.ID,
-			FrameID:   pending.FrameID,
-			Mode:      LaunchModeCreate,
-			Project:   frame.Project,
-			Command:   launch.Command,
-			StartDir:  launch.StartDir,
-			Options:   launch.Options,
-			Stdin:     initialInput,
+			SessionID:  pending.Session.ID,
+			FrameID:    pending.FrameID,
+			Mode:       LaunchModeCreate,
+			Project:    frame.Project,
+			DriverKind: drv.Name(),
+			Command:    launch.Command,
+			StartDir:   launch.StartDir,
+			Options:    launch.Options,
+			Stdin:      initialInput,
 			Env: map[string]string{
 				"ROOST_SESSION_ID": string(pending.Session.ID),
 				"ROOST_FRAME_ID":   string(pending.FrameID),

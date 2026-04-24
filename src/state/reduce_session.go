@@ -115,13 +115,14 @@ func reduceCreateSession(s State, connID ConnID, reqID string, p CreateSessionPa
 
 	return s, []Effect{
 		EffSpawnTmuxWindow{
-			SessionID: sessID,
-			FrameID:   frame.ID,
-			Mode:      LaunchModeCreate,
-			Project:   p.Project,
-			Command:   launch.Command,
-			StartDir:  launch.StartDir,
-			Options:   launch.Options,
+			SessionID:  sessID,
+			FrameID:    frame.ID,
+			Mode:       LaunchModeCreate,
+			Project:    p.Project,
+			DriverKind: drv.Name(),
+			Command:    launch.Command,
+			StartDir:   launch.StartDir,
+			Options:    launch.Options,
 			Env: map[string]string{
 				"ROOST_SESSION_ID": string(sessID),
 				"ROOST_FRAME_ID":   string(frame.ID),
@@ -243,14 +244,15 @@ func pushDriverInternal(s State, sid SessionID, project, rawCommand string, opti
 
 	effs := []Effect{
 		EffSpawnTmuxWindow{
-			SessionID: sid,
-			FrameID:   frame.ID,
-			Mode:      LaunchModeCreate,
-			Project:   project,
-			Command:   launch.Command,
-			StartDir:  launch.StartDir,
-			Options:   launch.Options,
-			Stdin:     launch.Stdin,
+			SessionID:  sid,
+			FrameID:    frame.ID,
+			Mode:       LaunchModeCreate,
+			Project:    project,
+			DriverKind: drv.Name(),
+			Command:    launch.Command,
+			StartDir:   launch.StartDir,
+			Options:    launch.Options,
+			Stdin:      launch.Stdin,
 			Env: map[string]string{
 				"ROOST_SESSION_ID": string(sid),
 				"ROOST_FRAME_ID":   string(frame.ID),

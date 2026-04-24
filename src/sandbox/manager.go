@@ -16,17 +16,28 @@ import (
 // The concrete fields are managed by the backend; callers treat this as opaque.
 type Instance struct {
 	ProjectPath string // canonical absolute path
+	Image       string // docker image (or equivalent) used to start this instance
 	// Internal fields are embedded by backend implementations via composition.
 	Internal any
+}
+
+// StartOptions carries optional per-launch parameters for starting a new sandbox
+// instance. Options are only applied when the instance is freshly created; a
+// cached (running) instance ignores them.
+type StartOptions struct {
+	ExtraMounts []string          // additional bind-mount specs, "host:guest[:mode]"
+	Env         map[string]string // fixed env vars to set in the container
+	ForwardEnv  []string          // host env var names to pass through if set on the host
 }
 
 // Manager is the backend-neutral lifecycle controller for project sandboxes.
 // Implementations must be safe for concurrent use from multiple goroutines.
 type Manager interface {
-	// EnsureInstance starts the sandbox for projectPath if not already running,
-	// or returns the existing instance. Concurrent calls for the same project
-	// must be serialized (e.g. via singleflight) to prevent duplicate sandboxes.
-	EnsureInstance(ctx context.Context, projectPath string) (*Instance, error)
+	// EnsureInstance starts the sandbox for the (projectPath, image) pair if not
+	// already running, or returns the existing instance. opts only apply when a
+	// new instance is created. Concurrent calls for the same (project, image) must
+	// be serialized (e.g. via singleflight).
+	EnsureInstance(ctx context.Context, projectPath, image string, opts StartOptions) (*Instance, error)
 
 	// BuildLaunchCommand generates the shell command string and environment to
 	// run plan inside the sandbox instance. The returned command is passed to

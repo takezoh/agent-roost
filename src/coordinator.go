@@ -206,12 +206,11 @@ func newAgentLauncher(sb config.SandboxConfig) (runtime.AgentLauncher, error) {
 					"  → set sandbox.mode=direct in ~/.roost/settings.toml or fix docker", err)
 		}
 		mgr := sandboxdocker.New(sandboxdocker.Config{
-			Image:     sb.Docker.Image,
 			Network:   sb.Docker.Network,
 			ExtraArgs: sb.Docker.ExtraArgs,
 		})
 		slog.Info("sandbox: docker mode enabled")
-		return runtime.NewDockerLauncher(mgr), nil
+		return runtime.NewDockerLauncher(mgr, sb), nil
 	default:
 		return runtime.DirectLauncher{}, nil
 	}

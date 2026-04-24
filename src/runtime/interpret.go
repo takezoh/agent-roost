@@ -252,24 +252,23 @@ func (r *Runtime) executeFSEffect(eff state.Effect) {
 // spawnTmuxWindowAsync runs a tmux new-window in a goroutine so the
 // event loop is not blocked on subprocess wait time. Posts back via
 // EvTmuxPaneSpawned / EvTmuxSpawnFailed.
+func (r *Runtime) enqueueSpawnFailed(e state.EffSpawnTmuxWindow, msg string) {
+	r.Enqueue(state.EvTmuxSpawnFailed{
+		SessionID: e.SessionID, FrameID: e.FrameID,
+		Err: msg, ReplyConn: e.ReplyConn, ReplyReqID: e.ReplyReqID,
+	})
+}
+
 func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	plan := state.LaunchPlan{
-		Command:  e.Command,
-		StartDir: e.StartDir,
-		Project:  e.Project,
-		Options:  e.Options,
-		Stdin:    e.Stdin,
+		DriverKind: e.DriverKind, Command: e.Command,
+		StartDir: e.StartDir, Project: e.Project,
+		Options: e.Options, Stdin: e.Stdin,
 	}
 	wrapped, err := launcher(r.cfg).WrapLaunch(e.FrameID, plan, e.Env)
 	if err != nil {
 		slog.Error("runtime: launcher wrap failed", "frame", e.FrameID, "err", err)
-		r.Enqueue(state.EvTmuxSpawnFailed{
-			SessionID:  e.SessionID,
-			FrameID:    e.FrameID,
-			Err:        err.Error(),
-			ReplyConn:  e.ReplyConn,
-			ReplyReqID: e.ReplyReqID,
-		})
+		r.enqueueSpawnFailed(e, err.Error())
 		return
 	}
 	name := windowName(e.Project, string(e.FrameID))
@@ -283,13 +282,7 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	size := r.mainPaneSize()
 	target, paneID, err := r.cfg.Tmux.SpawnWindow(name, spawnCmd, wrapped.StartDir, wrapped.Env)
 	if err != nil {
-		r.Enqueue(state.EvTmuxSpawnFailed{
-			SessionID:  e.SessionID,
-			FrameID:    e.FrameID,
-			Err:        err.Error(),
-			ReplyConn:  e.ReplyConn,
-			ReplyReqID: e.ReplyReqID,
-		})
+		r.enqueueSpawnFailed(e, err.Error())
 		return
 	}
 	r.resizeWindowToMain(r.cfg.SessionName+":"+target, size)
@@ -297,11 +290,8 @@ func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 		r.storeFrameCleanup(e.FrameID, wrapped.Cleanup)
 	}
 	r.Enqueue(state.EvTmuxPaneSpawned{
-		SessionID:  e.SessionID,
-		FrameID:    e.FrameID,
-		PaneTarget: paneID,
-		ReplyConn:  e.ReplyConn,
-		ReplyReqID: e.ReplyReqID,
+		SessionID: e.SessionID, FrameID: e.FrameID,
+		PaneTarget: paneID, ReplyConn: e.ReplyConn, ReplyReqID: e.ReplyReqID,
 	})
 }
 

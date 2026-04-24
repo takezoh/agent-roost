@@ -342,6 +342,7 @@ func (r *Runtime) recreateSessionFrames(id state.SessionID, sess state.Session, 
 		}
 		baseEnv := map[string]string{"ROOST_SESSION_ID": string(id), "ROOST_FRAME_ID": string(frame.ID)}
 		launch.Project = frame.Project
+		launch.DriverKind = drv.Name()
 		wrapped, err := launcher(r.cfg).WrapLaunch(frame.ID, launch, baseEnv)
 		if err != nil {
 			slog.Error("bootstrap: launcher wrap failed", "id", id, "frame", frame.ID, "err", err)
@@ -384,7 +385,11 @@ func (r *Runtime) RecoverSandboxFrames() {
 			if _, ok := r.sessionPanes[frame.ID]; !ok {
 				continue
 			}
-			cleanup, err := l.AdoptFrame(ctx, frame.ID, frame.Project)
+			var driverKind string
+			if drv := state.GetDriver(frame.Command); drv != nil {
+				driverKind = drv.Name()
+			}
+			cleanup, err := l.AdoptFrame(ctx, frame.ID, frame.Project, driverKind)
 			if err != nil {
 				slog.Warn("bootstrap: sandbox adopt failed", "frame", frame.ID, "err", err)
 				continue

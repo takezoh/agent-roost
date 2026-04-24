@@ -22,17 +22,25 @@ func skipIfNoDocker(t *testing.T) {
 }
 
 func TestContainerName_deterministic(t *testing.T) {
-	a := containerName("/workspace/foo")
-	b := containerName("/workspace/foo")
+	a := containerName("/workspace/foo", "alpine:latest")
+	b := containerName("/workspace/foo", "alpine:latest")
 	if a != b {
 		t.Errorf("container name not deterministic: %q != %q", a, b)
 	}
-	c := containerName("/workspace/bar")
+	c := containerName("/workspace/bar", "alpine:latest")
 	if a == c {
 		t.Errorf("different projects produced same container name: %q", a)
 	}
 	if !strings.HasPrefix(a, "roost-") {
 		t.Errorf("container name missing roost- prefix: %q", a)
+	}
+}
+
+func TestContainerName_imageDistinct(t *testing.T) {
+	a := containerName("/workspace/foo", "alpine:latest")
+	b := containerName("/workspace/foo", "ubuntu:22.04")
+	if a == b {
+		t.Errorf("same project with different images produced same container name: %q", a)
 	}
 }
 
@@ -126,19 +134,23 @@ func TestRefCount(t *testing.T) {
 func TestEnsureInstance_docker(t *testing.T) {
 	skipIfNoDocker(t)
 
-	mgr := New(Config{Image: "alpine:latest", Network: "bridge"})
+	mgr := New(Config{Network: "bridge"})
 	ctx := context.Background()
+	opts := sandbox.StartOptions{}
 
-	inst, err := mgr.EnsureInstance(ctx, "/tmp")
+	inst, err := mgr.EnsureInstance(ctx, "/tmp", "alpine:latest", opts)
 	if err != nil {
 		t.Fatalf("EnsureInstance: %v", err)
 	}
 	if inst.ProjectPath != "/tmp" {
 		t.Errorf("ProjectPath = %q, want /tmp", inst.ProjectPath)
 	}
+	if inst.Image != "alpine:latest" {
+		t.Errorf("Image = %q, want alpine:latest", inst.Image)
+	}
 
 	// Second call returns same container (idempotent).
-	inst2, err := mgr.EnsureInstance(ctx, "/tmp")
+	inst2, err := mgr.EnsureInstance(ctx, "/tmp", "alpine:latest", opts)
 	if err != nil {
 		t.Fatalf("EnsureInstance (2nd): %v", err)
 	}
@@ -154,10 +166,10 @@ func TestEnsureInstance_docker(t *testing.T) {
 func TestShutdown_PreservesContainers(t *testing.T) {
 	skipIfNoDocker(t)
 
-	mgr := New(Config{Image: "alpine:latest", Network: "bridge"})
+	mgr := New(Config{Network: "bridge"})
 	ctx := context.Background()
 
-	inst, err := mgr.EnsureInstance(ctx, "/tmp")
+	inst, err := mgr.EnsureInstance(ctx, "/tmp", "alpine:latest", sandbox.StartOptions{})
 	if err != nil {
 		t.Fatalf("EnsureInstance: %v", err)
 	}
@@ -182,11 +194,11 @@ func TestShutdown_PreservesContainers(t *testing.T) {
 func TestPruneOrphans_removesUnknown(t *testing.T) {
 	skipIfNoDocker(t)
 
-	mgr := New(Config{Image: "alpine:latest", Network: "bridge"})
+	mgr := New(Config{Network: "bridge"})
 	ctx := context.Background()
 
 	// Start a container for /tmp (will be treated as orphan since we pass empty known list).
-	inst, err := mgr.EnsureInstance(ctx, "/tmp")
+	inst, err := mgr.EnsureInstance(ctx, "/tmp", "alpine:latest", sandbox.StartOptions{})
 	if err != nil {
 		t.Fatalf("EnsureInstance: %v", err)
 	}
@@ -209,10 +221,10 @@ func TestPruneOrphans_removesUnknown(t *testing.T) {
 func TestPruneOrphans_keepsKnown(t *testing.T) {
 	skipIfNoDocker(t)
 
-	mgr := New(Config{Image: "alpine:latest", Network: "bridge"})
+	mgr := New(Config{Network: "bridge"})
 	ctx := context.Background()
 
-	inst, err := mgr.EnsureInstance(ctx, "/tmp")
+	inst, err := mgr.EnsureInstance(ctx, "/tmp", "alpine:latest", sandbox.StartOptions{})
 	if err != nil {
 		t.Fatalf("EnsureInstance: %v", err)
 	}

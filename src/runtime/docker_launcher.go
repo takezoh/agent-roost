@@ -6,41 +6,44 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/sandbox"
 	"github.com/takezoh/agent-roost/state"
 )
 
 // DockerLauncher wraps launches inside per-project Docker containers.
 // It implements AgentLauncher by delegating to a sandbox.Manager.
+// All driver kinds (shell, claude, codex, gemini) are run inside Docker;
+// driver-specific images and mounts are resolved from sandboxCfg.
 type DockerLauncher struct {
-	mgr sandbox.Manager
+	mgr        sandbox.Manager
+	sandboxCfg config.SandboxConfig
 }
 
 // NewDockerLauncher creates an AgentLauncher that runs agents inside Docker.
-func NewDockerLauncher(mgr sandbox.Manager) *DockerLauncher {
-	return &DockerLauncher{mgr: mgr}
+func NewDockerLauncher(mgr sandbox.Manager, sandboxCfg config.SandboxConfig) *DockerLauncher {
+	return &DockerLauncher{mgr: mgr, sandboxCfg: sandboxCfg}
 }
 
 // WrapLaunch ensures the project container is running, then returns a launch
 // spec that runs the agent via "docker exec". The Cleanup callback releases
 // the ref-count and destroys the container when the last frame exits.
-//
-// Non-shell drivers (claude, codex, gemini, …) are not sandbox-capable in P2.1
-// and fall back to DirectLauncher so they run on the host unchanged.
 func (l *DockerLauncher) WrapLaunch(frameID state.FrameID, plan state.LaunchPlan, env map[string]string) (WrappedLaunch, error) {
-	if plan.Command != "shell" {
-		slog.Info("docker launcher: non-shell driver uses direct launch", "frame", frameID, "command", plan.Command)
-		return DirectLauncher{}.WrapLaunch(frameID, plan, env)
-	}
-
 	if plan.Project == "" {
 		return WrappedLaunch{}, fmt.Errorf("docker launcher: plan.Project is empty for frame %s", frameID)
+	}
+
+	dockerCfg := l.sandboxCfg.ResolveDocker(plan.DriverKind)
+	opts := sandbox.StartOptions{
+		ExtraMounts: dockerCfg.ExtraMounts,
+		Env:         dockerCfg.Env,
+		ForwardEnv:  dockerCfg.ForwardEnv,
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	inst, err := l.mgr.EnsureInstance(ctx, plan.Project)
+	inst, err := l.mgr.EnsureInstance(ctx, plan.Project, dockerCfg.Image, opts)
 	if err != nil {
 		return WrappedLaunch{}, fmt.Errorf("docker launcher: ensure instance: %w", err)
 	}
@@ -51,7 +54,7 @@ func (l *DockerLauncher) WrapLaunch(frameID state.FrameID, plan state.LaunchPlan
 	}
 
 	l.mgr.AcquireFrame(inst)
-	slog.Debug("docker launcher: frame acquired", "frame", frameID, "project", plan.Project)
+	slog.Debug("docker launcher: frame acquired", "frame", frameID, "project", plan.Project, "image", inst.Image, "driver", plan.DriverKind)
 
 	return WrappedLaunch{
 		Command:  cmd,
@@ -65,23 +68,29 @@ func (l *DockerLauncher) WrapLaunch(frameID state.FrameID, plan state.LaunchPlan
 // a pre-running frame. It calls EnsureInstance (which reclaims the running
 // container if it is still alive, or starts a fresh one if it died) and
 // acquires a ref-count for the frame.
-func (l *DockerLauncher) AdoptFrame(ctx context.Context, frameID state.FrameID, projectPath string) (func() error, error) {
+func (l *DockerLauncher) AdoptFrame(ctx context.Context, frameID state.FrameID, projectPath, driverKind string) (func() error, error) {
 	if projectPath == "" {
 		return nil, nil
 	}
-	inst, err := l.mgr.EnsureInstance(ctx, projectPath)
+	dockerCfg := l.sandboxCfg.ResolveDocker(driverKind)
+	opts := sandbox.StartOptions{
+		ExtraMounts: dockerCfg.ExtraMounts,
+		Env:         dockerCfg.Env,
+		ForwardEnv:  dockerCfg.ForwardEnv,
+	}
+	inst, err := l.mgr.EnsureInstance(ctx, projectPath, dockerCfg.Image, opts)
 	if err != nil {
 		return nil, fmt.Errorf("docker launcher: adopt frame %s: %w", frameID, err)
 	}
 	l.mgr.AcquireFrame(inst)
-	slog.Debug("docker launcher: frame adopted (warm start)", "frame", frameID, "project", projectPath)
+	slog.Debug("docker launcher: frame adopted (warm start)", "frame", frameID, "project", projectPath, "image", inst.Image, "driver", driverKind)
 	return l.makeCleanup(frameID, inst), nil
 }
 
 func (l *DockerLauncher) makeCleanup(frameID state.FrameID, inst *sandbox.Instance) func() error {
 	return func() error {
 		shouldDestroy := l.mgr.ReleaseFrame(inst)
-		slog.Debug("docker launcher: frame released", "frame", frameID, "project", inst.ProjectPath, "destroy", shouldDestroy)
+		slog.Debug("docker launcher: frame released", "frame", frameID, "project", inst.ProjectPath, "image", inst.Image, "destroy", shouldDestroy)
 		if !shouldDestroy {
 			return nil
 		}
