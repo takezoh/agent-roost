@@ -20,6 +20,7 @@ roost is a session lifecycle manager — not an agent orchestrator. It does not 
 - [Inter-Process Communication and Tool System](docs/ipc.md) — IPC message format, command list, concurrency model (event loop + worker pool), Tool abstraction, proto type extension guidelines
 - [State Monitoring](docs/state-monitoring.md) — State detection via Driver plugins, Claude/Generic driver, persistence/restoration
 - [Interface and File Reference](docs/interfaces.md) — Go type definitions, data files, source tree
+- [Sandbox Backends](docs/sandbox.md) — per-project container isolation, generic Manager[I] abstraction, lifecycle and crash recovery
 
 ## Terminology
 
@@ -51,6 +52,7 @@ tui/           Presentation layer — Bubbletea UI state management, rendering, 
 tmux/          Infrastructure layer — tmux command execution wrapper
 features/      Feature flags — Flag/Set types (runtime), build-tag const (compile-time). No external deps
 lib/           Utilities — external tool integration (lib/git/, lib/claude/, lib/github/)
+sandbox/       Project-level sandbox backends (generic Manager[I]) — see docs/sandbox.md
 config/        Configuration — TOML loading, DataDir injection
 logger/        Logging — slog initialization, log file management
 ```
@@ -81,7 +83,7 @@ Code dependency direction:
 | Palette implementation approach | tmux popup (separate process) | Crash isolation. As a Bubbletea submodel, panics would be shared within the TUI |
 | Ctrl+C disabling | Consume KeyPressMsg | Prevents accidental termination of the resident process. Pane becomes inoperable until respawn |
 | No optimistic updates | Do not modify UI state on IPC error | Auto-recovers on next poll. Avoids risk of state inconsistency |
-| shutdown (`C-b q`) behavior | `EffReleaseFrameSandboxes` (drain all container cleanups) then `EffKillSession`; sessions.json is preserved | Containers must be destroyed before the tmux session is killed so they receive a clean stop signal. sessions.json is preserved to restore sessions on next cold start. `detach` emits only `EffDetachClient` — no sandbox release — so containers survive for warm-restart adoption. See [Detach vs Shutdown](docs/process-model.md#detach-vs-shutdown) |
+| shutdown (`C-b q`) behavior | `EffReleaseFrameSandboxes` (drain all container cleanups) then `EffKillSession`; sessions.json is preserved | Containers must be destroyed before the tmux session is killed so they receive a clean stop signal. sessions.json is preserved to restore sessions on next cold start. `detach` emits only `EffDetachClient` — no sandbox release — so containers survive for warm-restart adoption. See [Detach vs Shutdown](docs/process-model.md#detach-vs-shutdown) and [Sandbox Backends](docs/sandbox.md). |
 | Claude startup on Cold start | Assemble `claude --resume <id>` inside `Driver.PrepareLaunch(LaunchModeColdStart, …)` using the persisted `LaunchOptions` | Claude-specific `--resume` knowledge is confined to the driver. The resolved launch plan is baked into `EffSpawnTmuxWindow` so the runtime never calls drivers |
 | Launch plan resolution layer | Reducer (pure) | `Driver.PrepareLaunch` runs synchronously inside `state.Reduce`, and the resolved command / start_dir / normalized options are written to `EffSpawnTmuxWindow`. The runtime interprets the effect verbatim without touching drivers, keeping driver-specific logic entirely in the pure functional core |
 | Resident tracking | `FrameID -> PaneID` | Frame identity survives `swap-pane`; each frame maps to exactly one parked pane, and `swap-pane` between pane 0.0 and the frame's parked pane preserves pane ids |

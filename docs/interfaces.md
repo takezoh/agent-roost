@@ -308,6 +308,11 @@ src/
 │       ├── pool.go      Pool + Submit[In,Out] (typed job submission)
 │       ├── registry.go  RegisterRunner[In,Out] + Dispatch (JobKind-based runner registry)
 │       └── runners.go   built-in runners (TranscriptParse, HaikuSummary, GitBranch, CapturePane)
+├── sandbox/             Project-level sandbox backends (generic Manager[I any])
+│   ├── manager.go       Instance[I] / Manager[I] / StartOptions interface definitions
+│   └── docker/          Docker backend
+│       ├── manager.go   Manager (impl), ContainerState, EnsureInstance/BuildLaunchCommand/PruneOrphans
+│       └── image.go     resolveImage (user config > devcontainer.json > default)
 ├── proto/               Typed IPC — Command / Response / ServerEvent sum types
 │   ├── envelope.go      Envelope wire format ({type, req_id, cmd|name, data})
 │   ├── command.go       Command closed sum type (CmdSubscribe, CmdUnsubscribe, CmdEvent, CmdSurfaceReadText, CmdSurfaceSendText, CmdSurfaceSendKey, CmdDriverList)
