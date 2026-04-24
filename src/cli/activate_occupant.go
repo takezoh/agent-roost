@@ -4,9 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 
-	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/proto"
 )
 
@@ -25,11 +23,10 @@ func runActivateOccupant(args []string) error {
 	if kind != "main" && kind != "log" {
 		return fmt.Errorf("activate-occupant: unknown kind %q (want main or log)", kind)
 	}
-	cfg, err := config.Load()
+	sockPath, err := resolveSocketPath()
 	if err != nil {
-		return fmt.Errorf("activate-occupant: config load: %w", err)
+		return fmt.Errorf("activate-occupant: %w", err)
 	}
-	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	client, err := proto.Dial(sockPath)
 	if err != nil {
 		return fmt.Errorf("activate-occupant: dial: %w", err)

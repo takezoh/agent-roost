@@ -7,10 +7,8 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
-	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/proto"
 	"golang.org/x/term"
 )
@@ -54,11 +52,10 @@ func RunEvent(args []string) error {
 }
 
 func sendToDaemon(eventType string, ts time.Time, senderID string, payload json.RawMessage) error {
-	cfg, err := config.Load()
+	sockPath, err := resolveSocketPath()
 	if err != nil {
-		return fmt.Errorf("config load: %w", err)
+		return err
 	}
-	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	client, err := proto.Dial(sockPath)
 	if err != nil {
 		return fmt.Errorf("dial: %w", err)

@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 
-	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/proto"
 	"golang.org/x/term"
 )
@@ -43,11 +41,10 @@ func RunPush(args []string) error {
 		}
 	}
 
-	cfg, err := config.Load()
+	sockPath, err := resolveSocketPath()
 	if err != nil {
-		return fmt.Errorf("push: config load: %w", err)
+		return fmt.Errorf("push: %w", err)
 	}
-	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	client, err := proto.Dial(sockPath)
 	if err != nil {
 		return fmt.Errorf("push: dial: %w", err)

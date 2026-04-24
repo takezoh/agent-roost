@@ -2,9 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"path/filepath"
 
-	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/proto"
 )
 
@@ -23,11 +21,10 @@ func runStatusLineClick(args []string) error {
 	if len(args) > 0 {
 		rangeName = args[0]
 	}
-	cfg, err := config.Load()
+	sockPath, err := resolveSocketPath()
 	if err != nil {
-		return fmt.Errorf("statusline-click: config load: %w", err)
+		return fmt.Errorf("statusline-click: %w", err)
 	}
-	sockPath := filepath.Join(cfg.ResolveDataDir(), "roost.sock")
 	client, err := proto.Dial(sockPath)
 	if err != nil {
 		return fmt.Errorf("statusline-click: dial: %w", err)
