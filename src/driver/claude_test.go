@@ -48,11 +48,15 @@ func findEffect[T state.Effect](effs []state.Effect) (T, bool) {
 // === Hook handling ===
 
 func TestClaudeSessionStartAbsorbsIdentityAndWatches(t *testing.T) {
+	tmpPath := filepath.Join(t.TempDir(), "x.jsonl")
+	if err := os.WriteFile(tmpPath, []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	d, cs, now := newClaude(t)
 	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("SessionStart", map[string]string{
 		"session_id":      "claude-uuid",
 		"cwd":             "/work",
-		"transcript_path": "/tmp/x.jsonl",
+		"transcript_path": tmpPath,
 		"hook_event_name": "SessionStart",
 	}, now))
 	if next.ClaudeSessionID != "claude-uuid" {
@@ -61,11 +65,11 @@ func TestClaudeSessionStartAbsorbsIdentityAndWatches(t *testing.T) {
 	if next.StartDir != "/work" {
 		t.Errorf("StartDir = %q, want /work", next.StartDir)
 	}
-	if next.TranscriptPath != "/tmp/x.jsonl" {
-		t.Errorf("TranscriptPath = %q, want /tmp/x.jsonl", next.TranscriptPath)
+	if next.TranscriptPath != tmpPath {
+		t.Errorf("TranscriptPath = %q, want %q", next.TranscriptPath, tmpPath)
 	}
-	if next.WatchedFile != "/tmp/x.jsonl" {
-		t.Errorf("WatchedFile = %q, want /tmp/x.jsonl", next.WatchedFile)
+	if next.WatchedFile != tmpPath {
+		t.Errorf("WatchedFile = %q, want %q", next.WatchedFile, tmpPath)
 	}
 	if !next.TranscriptInFlight {
 		t.Error("TranscriptInFlight should be true after SessionStart")
@@ -175,7 +179,7 @@ func TestClaudeSessionStartAbsorbsRoostSessionID(t *testing.T) {
 func TestClaudeStateChangeStopSetsWaiting(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
-	cs.TranscriptPath = "/tmp/t.jsonl"
+	cs.StartDir = "/work"
 	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("Stop", map[string]string{
 		"session_id":      "uuid",
 		"hook_event_name": "Stop",
@@ -201,7 +205,7 @@ func TestClaudeStateChangeStopSetsWaiting(t *testing.T) {
 func TestClaudeStateChangeStopFailureSetsStopped(t *testing.T) {
 	d, cs, now := newClaude(t)
 	cs.ClaudeSessionID = "uuid"
-	cs.TranscriptPath = "/tmp/t.jsonl"
+	cs.StartDir = "/work"
 	next, effs := d.handleHook(cs, state.FrameContext{IsRoot: true}, hookEvent("StopFailure", map[string]string{
 		"session_id":      "uuid",
 		"hook_event_name": "StopFailure",
@@ -1229,7 +1233,8 @@ func TestClaudeViewIndicatorsSubagents(t *testing.T) {
 
 func TestClaudeViewLogTabsTranscript(t *testing.T) {
 	d, cs, _ := newClaude(t)
-	cs.TranscriptPath = "/tmp/x.jsonl"
+	cs.StartDir = "/work"
+	cs.ClaudeSessionID = "uuid"
 	v := d.view(cs)
 	if len(v.LogTabs) == 0 {
 		t.Fatal("expected TRANSCRIPT tab")
@@ -1241,7 +1246,8 @@ func TestClaudeViewLogTabsTranscript(t *testing.T) {
 
 func TestClaudeViewEventsTab(t *testing.T) {
 	d, cs, _ := newClaude(t)
-	cs.TranscriptPath = "/tmp/x.jsonl"
+	cs.StartDir = "/work"
+	cs.ClaudeSessionID = "uuid"
 	cs.RoostSessionID = "sess-1"
 	v := d.view(cs)
 	if len(v.LogTabs) < 2 {
@@ -1261,7 +1267,8 @@ func TestClaudeViewEventsTab(t *testing.T) {
 
 func TestClaudeViewEventsTabOmittedWithoutRoostSessionID(t *testing.T) {
 	d, cs, _ := newClaude(t)
-	cs.TranscriptPath = "/tmp/x.jsonl"
+	cs.StartDir = "/work"
+	cs.ClaudeSessionID = "uuid"
 	v := d.view(cs)
 	for _, tab := range v.LogTabs {
 		if tab.Label == "EVENTS" {
@@ -1351,17 +1358,39 @@ func TestClaudeNoStateChangeEventsStillLog(t *testing.T) {
 }
 
 func TestResolveTranscriptPathPrefersExplicit(t *testing.T) {
+	explicitPath := filepath.Join(t.TempDir(), "path.jsonl")
+	if err := os.WriteFile(explicitPath, []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
 	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
 	cs := ClaudeState{
 		CommonState: CommonState{
-			TranscriptPath: "/explicit/path.jsonl",
+			TranscriptPath: explicitPath,
 			StartDir:       "/w",
 		},
 		ClaudeSessionID: "u",
 	}
 	got := d.resolveTranscriptPath(cs)
-	if got != "/explicit/path.jsonl" {
-		t.Errorf("resolveTranscriptPath = %q, want explicit", got)
+	if got != explicitPath {
+		t.Errorf("resolveTranscriptPath = %q, want %q", got, explicitPath)
+	}
+}
+
+func TestResolveTranscriptPathContainerPathFallsBack(t *testing.T) {
+	// Simulate a container-side path that doesn't exist on host.
+	d := NewClaudeDriver(testHome, testEventLogDir, ClaudeOptions{}, "less")
+	cs := ClaudeState{
+		CommonState: CommonState{
+			// Path reported by claude inside a Docker container (HOME=/home/user).
+			TranscriptPath: "/home/user/.claude/projects/-workspace-agent-roost/deadbeef.jsonl",
+			StartDir:       "/workspace/agent-roost",
+		},
+		ClaudeSessionID: "deadbeef",
+	}
+	got := d.resolveTranscriptPath(cs)
+	want := testHome + "/.claude/projects/-workspace-agent-roost/deadbeef.jsonl"
+	if got != want {
+		t.Errorf("resolveTranscriptPath = %q, want %q", got, want)
 	}
 }
 
