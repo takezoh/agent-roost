@@ -13,16 +13,18 @@ import (
 
 // DockerLauncher wraps launches inside per-project Docker containers.
 // It implements AgentLauncher by delegating to a sandbox.Manager.
-// All driver kinds (shell, claude, codex, gemini) are run inside Docker;
-// driver-specific images and mounts are resolved from sandboxCfg.
+// All driver kinds are run inside Docker; docker config is resolved per
+// project via the resolveDocker callback (user + project scope merge).
 type DockerLauncher struct {
-	mgr        sandbox.Manager
-	sandboxCfg config.SandboxConfig
+	mgr           sandbox.Manager
+	resolveDocker func(projectPath string) config.DockerConfig
 }
 
 // NewDockerLauncher creates an AgentLauncher that runs agents inside Docker.
-func NewDockerLauncher(mgr sandbox.Manager, sandboxCfg config.SandboxConfig) *DockerLauncher {
-	return &DockerLauncher{mgr: mgr, sandboxCfg: sandboxCfg}
+// resolveDocker is called per launch to obtain the effective docker config
+// for a project (user scope merged with optional project scope override).
+func NewDockerLauncher(mgr sandbox.Manager, resolveDocker func(string) config.DockerConfig) *DockerLauncher {
+	return &DockerLauncher{mgr: mgr, resolveDocker: resolveDocker}
 }
 
 // WrapLaunch ensures the project container is running, then returns a launch
@@ -33,7 +35,7 @@ func (l *DockerLauncher) WrapLaunch(frameID state.FrameID, plan state.LaunchPlan
 		return WrappedLaunch{}, fmt.Errorf("docker launcher: plan.Project is empty for frame %s", frameID)
 	}
 
-	dockerCfg := l.sandboxCfg.ResolveDocker(plan.DriverKind)
+	dockerCfg := l.resolveDocker(plan.Project)
 	opts := sandbox.StartOptions{
 		ExtraMounts: dockerCfg.ExtraMounts,
 		Env:         dockerCfg.Env,
@@ -54,7 +56,7 @@ func (l *DockerLauncher) WrapLaunch(frameID state.FrameID, plan state.LaunchPlan
 	}
 
 	l.mgr.AcquireFrame(inst)
-	slog.Debug("docker launcher: frame acquired", "frame", frameID, "project", plan.Project, "image", inst.Image, "driver", plan.DriverKind)
+	slog.Debug("docker launcher: frame acquired", "frame", frameID, "project", plan.Project, "image", inst.Image)
 
 	return WrappedLaunch{
 		Command:  cmd,
@@ -68,11 +70,11 @@ func (l *DockerLauncher) WrapLaunch(frameID state.FrameID, plan state.LaunchPlan
 // a pre-running frame. It calls EnsureInstance (which reclaims the running
 // container if it is still alive, or starts a fresh one if it died) and
 // acquires a ref-count for the frame.
-func (l *DockerLauncher) AdoptFrame(ctx context.Context, frameID state.FrameID, projectPath, driverKind string) (func() error, error) {
+func (l *DockerLauncher) AdoptFrame(ctx context.Context, frameID state.FrameID, projectPath string) (func() error, error) {
 	if projectPath == "" {
 		return nil, nil
 	}
-	dockerCfg := l.sandboxCfg.ResolveDocker(driverKind)
+	dockerCfg := l.resolveDocker(projectPath)
 	opts := sandbox.StartOptions{
 		ExtraMounts: dockerCfg.ExtraMounts,
 		Env:         dockerCfg.Env,
@@ -83,7 +85,7 @@ func (l *DockerLauncher) AdoptFrame(ctx context.Context, frameID state.FrameID, 
 		return nil, fmt.Errorf("docker launcher: adopt frame %s: %w", frameID, err)
 	}
 	l.mgr.AcquireFrame(inst)
-	slog.Debug("docker launcher: frame adopted (warm start)", "frame", frameID, "project", projectPath, "image", inst.Image, "driver", driverKind)
+	slog.Debug("docker launcher: frame adopted (warm start)", "frame", frameID, "project", projectPath, "image", inst.Image)
 	return l.makeCleanup(frameID, inst), nil
 }
 

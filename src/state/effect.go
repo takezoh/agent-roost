@@ -21,7 +21,6 @@ type EffSpawnTmuxWindow struct {
 	FrameID    FrameID
 	Mode       LaunchMode
 	Project    string
-	DriverKind string // "shell" | "claude" | "codex" | "gemini"
 	Command    string
 	StartDir   string
 	Options    LaunchOptions

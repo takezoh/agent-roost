@@ -83,7 +83,7 @@ func TestInvokeFrameCleanup_errorLogged(t *testing.T) {
 
 func TestDirectLauncher_adoptFrame_noop(t *testing.T) {
 	l := DirectLauncher{}
-	cleanup, err := l.AdoptFrame(context.Background(), state.FrameID("f1"), "/workspace/foo", "")
+	cleanup, err := l.AdoptFrame(context.Background(), state.FrameID("f1"), "/workspace/foo")
 	if err != nil {
 		t.Fatalf("AdoptFrame returned error: %v", err)
 	}

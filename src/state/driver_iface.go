@@ -190,12 +190,11 @@ type LaunchOptions struct {
 }
 
 type LaunchPlan struct {
-	DriverKind string // "shell" | "claude" | "codex" | "gemini" — used by sandbox launchers for image resolution
-	Command    string
-	StartDir   string
-	Project    string // canonical project root; used by sandbox launchers to pick the container
-	Options    LaunchOptions
-	Stdin      []byte // content piped into the spawned command; nil = no stdin
+	Command  string
+	StartDir string
+	Project  string // canonical project root; used by sandbox launchers to pick the container
+	Options  LaunchOptions
+	Stdin    []byte // content piped into the spawned command; nil = no stdin
 }
 
 type LaunchPreparer interface {

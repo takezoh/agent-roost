@@ -101,10 +101,10 @@ func runCoordinator() error { //nolint:funlen
 	rt.SetDefaultCommand(cfg.Session.DefaultCommand)
 
 	pruneOrphans := func(knownProjects []string) {
-		if dl, ok := agentLauncher.(*runtime.DockerLauncher); ok {
+		if d, ok := agentLauncher.(*runtime.SandboxDispatcher); ok {
 			pruneCtx, pruneCancel := context.WithTimeout(ctx, 30*time.Second)
 			defer pruneCancel()
-			dl.PruneOrphans(pruneCtx, knownProjects)
+			d.PruneOrphans(pruneCtx, knownProjects)
 		}
 	}
 
@@ -194,12 +194,16 @@ func runCoordinator() error { //nolint:funlen
 }
 
 // newAgentLauncher returns the AgentLauncher for the configured sandbox mode.
-// "docker" starts a DockerLauncher backed by a per-project container manager.
-// All other modes (including "direct" and "") fall back to DirectLauncher.
-// Returns an error when mode="docker" but the docker daemon is unreachable.
+// Returns a SandboxDispatcher that routes each launch to direct or docker based
+// on the effective config for that project (user scope + optional project scope).
+// Returns an error when user scope mode="docker" but the docker daemon is unreachable.
 func newAgentLauncher(sb config.SandboxConfig) (runtime.AgentLauncher, error) {
-	switch sb.Mode {
-	case "docker":
+	resolver := config.NewSandboxResolver(sb)
+	d := &runtime.SandboxDispatcher{
+		Resolver: resolver,
+		Direct:   runtime.DirectLauncher{},
+	}
+	if sb.Mode == "docker" {
 		if err := checkDockerAvailable(); err != nil {
 			return nil, fmt.Errorf(
 				"sandbox.mode=docker but docker is unavailable: %w\n"+
@@ -209,11 +213,12 @@ func newAgentLauncher(sb config.SandboxConfig) (runtime.AgentLauncher, error) {
 			Network:   sb.Docker.Network,
 			ExtraArgs: sb.Docker.ExtraArgs,
 		})
-		slog.Info("sandbox: docker mode enabled")
-		return runtime.NewDockerLauncher(mgr, sb), nil
-	default:
-		return runtime.DirectLauncher{}, nil
+		d.Docker = runtime.NewDockerLauncher(mgr, func(project string) config.DockerConfig {
+			return resolver.Resolve(project).Docker
+		})
+		slog.Info("sandbox: docker backend enabled")
 	}
+	return d, nil
 }
 
 // checkDockerAvailable verifies that the docker daemon is reachable by running

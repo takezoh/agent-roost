@@ -32,57 +32,13 @@ type SandboxConfig struct {
 }
 
 // DockerConfig holds Docker-specific sandbox parameters.
-// Fields here apply to all driver kinds by default; driver-specific values
-// under Drivers[kind] are merged on top (scalars: driver wins; lists: concat; maps: merge).
 type DockerConfig struct {
-	Image       string                        `toml:"image"`
-	Network     string                        `toml:"network"`
-	ExtraArgs   []string                      `toml:"extra_args"`
-	ExtraMounts []string                      `toml:"extra_mounts"` // "host:guest[:mode]" appended to docker run -v
-	Env         map[string]string             `toml:"env"`          // fixed env passed via -e
-	ForwardEnv  []string                      `toml:"forward_env"`  // host env vars to pass through if set
-	Drivers     map[string]DriverDockerConfig `toml:"driver"`       // per-driver-kind overrides
-}
-
-// DriverDockerConfig is a per-driver override merged on top of DockerConfig.
-type DriverDockerConfig struct {
 	Image       string            `toml:"image"`
+	Network     string            `toml:"network"`
 	ExtraArgs   []string          `toml:"extra_args"`
-	ExtraMounts []string          `toml:"extra_mounts"`
-	Env         map[string]string `toml:"env"`
-	ForwardEnv  []string          `toml:"forward_env"`
-}
-
-// ResolveDocker returns a DockerConfig with the driver-specific override for
-// driverKind merged on top of the base config. List fields are concatenated;
-// scalar fields prefer the driver value when non-empty.
-func (s SandboxConfig) ResolveDocker(driverKind string) DockerConfig {
-	base := s.Docker
-	drv, ok := base.Drivers[driverKind]
-	if !ok {
-		return base
-	}
-	merged := DockerConfig{
-		Image:       base.Image,
-		Network:     base.Network,
-		ExtraArgs:   append(append([]string(nil), base.ExtraArgs...), drv.ExtraArgs...),
-		ExtraMounts: append(append([]string(nil), base.ExtraMounts...), drv.ExtraMounts...),
-		ForwardEnv:  append(append([]string(nil), base.ForwardEnv...), drv.ForwardEnv...),
-	}
-	if drv.Image != "" {
-		merged.Image = drv.Image
-	}
-	// merge env maps: base first, then driver overrides
-	if len(base.Env) > 0 || len(drv.Env) > 0 {
-		merged.Env = make(map[string]string, len(base.Env)+len(drv.Env))
-		for k, v := range base.Env {
-			merged.Env[k] = v
-		}
-		for k, v := range drv.Env {
-			merged.Env[k] = v
-		}
-	}
-	return merged
+	ExtraMounts []string          `toml:"extra_mounts"` // "host:guest[:mode]" appended to docker run -v
+	Env         map[string]string `toml:"env"`          // fixed env passed via -e
+	ForwardEnv  []string          `toml:"forward_env"`  // host env vars to pass through if set
 }
 
 // CommonDriverConfig holds settings that apply to all drivers.

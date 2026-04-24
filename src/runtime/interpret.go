@@ -261,9 +261,11 @@ func (r *Runtime) enqueueSpawnFailed(e state.EffSpawnTmuxWindow, msg string) {
 
 func (r *Runtime) spawnTmuxWindowAsync(e state.EffSpawnTmuxWindow) {
 	plan := state.LaunchPlan{
-		DriverKind: e.DriverKind, Command: e.Command,
-		StartDir: e.StartDir, Project: e.Project,
-		Options: e.Options, Stdin: e.Stdin,
+		Command:  e.Command,
+		StartDir: e.StartDir,
+		Project:  e.Project,
+		Options:  e.Options,
+		Stdin:    e.Stdin,
 	}
 	wrapped, err := launcher(r.cfg).WrapLaunch(e.FrameID, plan, e.Env)
 	if err != nil {

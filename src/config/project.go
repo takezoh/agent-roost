@@ -15,6 +15,10 @@ import (
 // file is not an error.
 type ProjectConfig struct {
 	Workspace ProjectWorkspaceConfig `toml:"workspace"`
+	// Sandbox, when non-nil, overrides the user-scope sandbox config for this project.
+	// Only fields explicitly set in the project file are meaningful; missing scalars
+	// are empty strings and should be treated as "no override" in merge logic.
+	Sandbox *SandboxConfig `toml:"sandbox"`
 }
 
 // ProjectWorkspaceConfig is the [workspace] table inside a project settings

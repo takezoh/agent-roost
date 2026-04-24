@@ -26,10 +26,9 @@ type AgentLauncher interface {
 
 	// AdoptFrame is called during warm start to re-register a pre-existing frame
 	// with the sandbox backend (the agent process is already running in tmux).
-	// driverKind (e.g. "shell", "claude") is used to resolve the sandbox image.
 	// Returns the Cleanup callback that should be stored for the frame, or nil
 	// if no cleanup is needed. Must not start or restart the sandbox.
-	AdoptFrame(ctx context.Context, frameID state.FrameID, projectPath, driverKind string) (func() error, error)
+	AdoptFrame(ctx context.Context, frameID state.FrameID, projectPath string) (func() error, error)
 
 	Shutdown() error
 }
@@ -46,7 +45,7 @@ func (DirectLauncher) WrapLaunch(_ state.FrameID, plan state.LaunchPlan, env map
 	}, nil
 }
 
-func (DirectLauncher) AdoptFrame(_ context.Context, _ state.FrameID, _, _ string) (func() error, error) {
+func (DirectLauncher) AdoptFrame(_ context.Context, _ state.FrameID, _ string) (func() error, error) {
 	return nil, nil
 }
 
