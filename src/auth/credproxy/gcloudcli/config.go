@@ -89,10 +89,12 @@ func ContainerEnv() map[string]string {
 // ContainerMounts returns the bind-mount specs for gcloud isolation.
 // tokenHostPath is the host path of the refreshed access token file.
 // configHostDir is the host path of the synthetic CLOUDSDK_CONFIG dir.
+// The token is mounted read-only (security). The config dir is mounted read-write
+// because gcloud writes logs/ and a SQLite cache there; it contains no credentials.
 func ContainerMounts(tokenHostPath, configHostDir string) []string {
 	return []string{
 		tokenHostPath + ":" + containerTokenPath + ":ro",
-		configHostDir + ":" + containerConfigPath + ":ro",
+		configHostDir + ":" + containerConfigPath + ":rw",
 	}
 }
 
