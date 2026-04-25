@@ -253,7 +253,7 @@ func TestReleaseFrame_LastHolder_Destroys(t *testing.T) {
 	if mgr.ReleaseFrame(inst) {
 		t.Fatal("ReleaseFrame should return false while second holder exists")
 	}
-	running, err := isContainerRunning(ctx, name)
+	running, _, err := containerState(ctx, name)
 	if err != nil {
 		t.Fatalf("isContainerRunning: %v", err)
 	}
@@ -269,7 +269,7 @@ func TestReleaseFrame_LastHolder_Destroys(t *testing.T) {
 		t.Fatalf("DestroyInstance: %v", err)
 	}
 
-	running, err = isContainerRunning(ctx, name)
+	running, _, err = containerState(ctx, name)
 	if err != nil {
 		t.Fatalf("isContainerRunning: %v", err)
 	}
@@ -296,7 +296,7 @@ func TestPruneOrphans_removesUnknown(t *testing.T) {
 	// PruneOrphans with empty known list → container should be killed.
 	mgr.PruneOrphans(ctx, nil, nil)
 
-	running, err := isContainerRunning(ctx, name)
+	running, _, err := containerState(ctx, name)
 	if err != nil {
 		t.Fatalf("isContainerRunning: %v", err)
 	}
@@ -322,7 +322,7 @@ func TestPruneOrphans_keepsKnown(t *testing.T) {
 	// PruneOrphans with /tmp as known project and matching image → container must survive.
 	mgr.PruneOrphans(ctx, []string{"/tmp"}, func(_ string) string { return "alpine:latest" })
 
-	running, err := isContainerRunning(ctx, name)
+	running, _, err := containerState(ctx, name)
 	if err != nil {
 		t.Fatalf("isContainerRunning: %v", err)
 	}
@@ -349,7 +349,7 @@ func TestPruneOrphans_ImageMismatch_Prunes(t *testing.T) {
 	// resolveImage returns a different image → container is stale → must be pruned.
 	mgr.PruneOrphans(ctx, []string{"/tmp"}, func(_ string) string { return "node:22-bookworm-slim" })
 
-	running, err := isContainerRunning(ctx, name)
+	running, _, err := containerState(ctx, name)
 	if err != nil {
 		t.Fatalf("isContainerRunning: %v", err)
 	}
@@ -375,7 +375,7 @@ func TestPruneOrphans_ImageMatch_Keeps(t *testing.T) {
 	// resolveImage returns the same image → container is still current → must survive.
 	mgr.PruneOrphans(ctx, []string{"/tmp"}, func(_ string) string { return "alpine:latest" })
 
-	running, err := isContainerRunning(ctx, name)
+	running, _, err := containerState(ctx, name)
 	if err != nil {
 		t.Fatalf("isContainerRunning: %v", err)
 	}

@@ -112,13 +112,21 @@ func (m *Manager) ensureContainer(ctx context.Context, projectPath, configImage 
 		return nil
 	}
 
-	if running, _ := isContainerRunning(ctx, name); running {
+	running, stopped, _ := containerState(ctx, name)
+	if running {
 		// Daemon restarted; container from prior session is still alive — reclaim it.
 		slog.Info("docker sandbox: reclaiming existing container", "name", name, "project", projectPath, "image", image)
 		m.mu.Lock()
 		m.containers[key] = &ContainerState{name: name, image: image}
 		m.mu.Unlock()
 		return nil
+	}
+	if stopped {
+		// Stopped --rm container left behind by a daemon restart; remove it so we can start fresh.
+		slog.Info("docker sandbox: removing stopped container", "name", name, "project", projectPath)
+		if out, err := exec.CommandContext(ctx, "docker", "rm", name).CombinedOutput(); err != nil {
+			slog.Warn("docker sandbox: rm stopped container failed", "name", name, "err", err, "out", string(out))
+		}
 	}
 
 	if err := m.startContainer(ctx, projectPath, image, name, opts); err != nil {
@@ -360,13 +368,24 @@ func expandMountSpec(spec string) string {
 	return expandPath(parts[0]) + ":" + parts[1]
 }
 
-// isContainerRunning checks whether a container with name is currently running.
-func isContainerRunning(ctx context.Context, name string) (bool, error) {
-	out, err := exec.CommandContext(ctx, "docker", "ps", "-q", "--filter", "name=^/"+name+"$").Output()
+// containerState returns whether a container with name is running, stopped, or absent.
+// Docker daemon restart can leave --rm containers in the stopped state; callers must
+// handle the stopped case explicitly (remove before re-running).
+func containerState(ctx context.Context, name string) (running, stopped bool, err error) {
+	out, err := exec.CommandContext(ctx, "docker", "ps", "-a",
+		"--filter", "name=^/"+name+"$",
+		"--format", "{{.Status}}").Output()
 	if err != nil {
-		return false, err
+		return false, false, err
 	}
-	return strings.TrimSpace(string(out)) != "", nil
+	status := strings.TrimSpace(string(out))
+	if status == "" {
+		return false, false, nil
+	}
+	if strings.HasPrefix(status, "Up") {
+		return true, false, nil
+	}
+	return false, true, nil
 }
 
 // ensureNetwork creates the docker network if it does not already exist.
