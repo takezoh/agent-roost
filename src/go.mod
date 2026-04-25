@@ -19,7 +19,10 @@ require (
 	golang.org/x/term v0.41.0
 	google.golang.org/api v0.276.0
 	google.golang.org/grpc v1.80.0
+	github.com/takezoh/credproxy v0.0.0
 )
+
+replace github.com/takezoh/credproxy => /workspace/credproxyd
 
 require (
 	4d63.com/gocheckcompilerdirectives v1.3.0 // indirect

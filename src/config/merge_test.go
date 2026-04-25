@@ -120,6 +120,45 @@ func TestMergeSandbox_NetworkOverride(t *testing.T) {
 	}
 }
 
+func TestMergeSandbox_HostMountsOverlay(t *testing.T) {
+	user := SandboxConfig{Docker: DockerConfig{
+		HostMounts: map[string]string{"/data/shared": "rw", "/logs": "ro"},
+	}}
+	project := &SandboxConfig{Docker: DockerConfig{
+		HostMounts: map[string]string{"/data/shared": "ro", "/extra": "rw"},
+	}}
+	got := MergeSandbox(user, project)
+	// Project overrides one key.
+	if got.Docker.HostMounts["/data/shared"] != "ro" {
+		t.Errorf("project should override /data/shared to ro, got %q", got.Docker.HostMounts["/data/shared"])
+	}
+	// User key survives.
+	if got.Docker.HostMounts["/logs"] != "ro" {
+		t.Errorf("user /logs should survive, got %q", got.Docker.HostMounts["/logs"])
+	}
+	// Project adds new key.
+	if got.Docker.HostMounts["/extra"] != "rw" {
+		t.Errorf("project /extra not added, got %q", got.Docker.HostMounts["/extra"])
+	}
+}
+
+func TestMergeSandbox_HostMounts_BothNil(t *testing.T) {
+	user := SandboxConfig{}
+	project := &SandboxConfig{}
+	got := MergeSandbox(user, project)
+	if got.Docker.HostMounts != nil {
+		t.Errorf("HostMounts = %v, want nil (both nil)", got.Docker.HostMounts)
+	}
+}
+
+func TestMergeSandbox_ProxyNilProject(t *testing.T) {
+	user := SandboxConfig{Proxy: ProxyConfig{Enabled: true}}
+	got := MergeSandbox(user, nil)
+	if !got.Proxy.Enabled {
+		t.Errorf("proxy config lost on nil project: %+v", got.Proxy)
+	}
+}
+
 func TestMergeSandbox_DoesNotMutateInput(t *testing.T) {
 	user := SandboxConfig{Docker: DockerConfig{ForwardEnv: []string{"KEY_A"}}}
 	project := &SandboxConfig{Docker: DockerConfig{ForwardEnv: []string{"KEY_B"}}}

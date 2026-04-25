@@ -29,6 +29,14 @@ type Config struct {
 type SandboxConfig struct {
 	Mode   string       `toml:"mode"`
 	Docker DockerConfig `toml:"docker"`
+	Proxy  ProxyConfig  `toml:"proxy"`
+}
+
+// ProxyConfig enables roost's in-process credential injection proxy.
+// When Enabled, credential env vars are injected into each container.
+// The proxy runs in-process; no external daemon is required.
+type ProxyConfig struct {
+	Enabled bool `toml:"enabled"`
 }
 
 // DockerConfig holds Docker-specific sandbox parameters.
@@ -39,6 +47,7 @@ type DockerConfig struct {
 	ExtraMounts []string          `toml:"extra_mounts"` // "host:guest[:mode]" appended to docker run -v
 	Env         map[string]string `toml:"env"`          // fixed env passed via -e
 	ForwardEnv  []string          `toml:"forward_env"`  // host env vars to pass through if set
+	HostMounts  map[string]string `toml:"host_mounts"`  // host_path → "rw"|"ro"; per-container bind mounts
 }
 
 // CommonDriverConfig holds settings that apply to all drivers.
@@ -152,7 +161,9 @@ func DefaultConfig() *Config {
 			PushCommands:   []string{"shell"},
 		},
 		Projects: ProjectsConfig{},
-		Sandbox:  SandboxConfig{Mode: "direct"},
+		Sandbox: SandboxConfig{
+			Mode: "direct",
+		},
 	}
 }
 

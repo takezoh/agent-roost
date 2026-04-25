@@ -2,7 +2,9 @@ package docker
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -66,6 +68,71 @@ func TestResolveImage_priority(t *testing.T) {
 	// no devcontainer.json → default
 	if got := resolveImage("/nonexistent/path/xyz123", ""); got != defaultImage {
 		t.Errorf("default image not returned: %q", got)
+	}
+}
+
+// containsMount reports whether args contains a -v flag whose value starts with prefix.
+func containsMount(args []string, prefix string) bool {
+	for _, a := range args {
+		if strings.HasPrefix(a, prefix+":") {
+			return true
+		}
+	}
+	return false
+}
+
+func TestBaseContainerArgs_HostMounts_MountsWhenFileExists(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	dir := filepath.Join(fakeHome, "mydata")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Network: "test-net", HostMounts: map[string]string{dir: "ro"}}
+	args := baseContainerArgs(cfg, "/proj", "alpine", "test-c")
+	if !containsMount(args, dir) {
+		t.Errorf("expected %q mount in args; got %v", dir, args)
+	}
+}
+
+func TestBaseContainerArgs_HostMounts_SkipsAbsentPaths(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	absent := filepath.Join(fakeHome, "does-not-exist")
+	cfg := Config{Network: "test-net", HostMounts: map[string]string{absent: "rw"}}
+	args := baseContainerArgs(cfg, "/proj", "alpine", "test-c")
+	if containsMount(args, absent) {
+		t.Errorf("unexpected mount for absent path %q in args", absent)
+	}
+}
+
+func TestBaseContainerArgs_HostMounts_HomeTilde(t *testing.T) {
+	fakeHome := t.TempDir()
+	t.Setenv("HOME", fakeHome)
+	subdir := filepath.Join(fakeHome, "sub")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cfg := Config{Network: "test-net", HostMounts: map[string]string{"~/sub": "rw"}}
+	args := baseContainerArgs(cfg, "/proj", "alpine", "test-c")
+	if !containsMount(args, subdir) {
+		t.Errorf("expected tilde-expanded mount %q in args; got %v", subdir, args)
+	}
+}
+
+func TestBaseContainerArgs_NoHostMounts_ProducesNoExtraMounts(t *testing.T) {
+	cfg := Config{Network: "test-net"}
+	args := baseContainerArgs(cfg, "/proj", "alpine", "test-c")
+	// Only project and roost socket should be mounted (first -v args).
+	mounts := 0
+	for _, a := range args {
+		if strings.HasPrefix(a, "/") && strings.Contains(a, ":") {
+			mounts++
+		}
+	}
+	// project mount + roost.sock mount = 2 expected
+	if mounts != 2 {
+		t.Errorf("expected 2 mounts (project + roost.sock), got %d; args=%v", mounts, args)
 	}
 }
 

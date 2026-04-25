@@ -14,7 +14,9 @@ Backends form a closed set. Docker is the production implementation; Firecracker
 |---|---|
 | `state/` | Holds `LaunchPlan.Project`. Backend-agnostic |
 | `runtime/` | `AgentLauncher` wraps `LaunchPlan` into `WrappedLaunch{Command, Cleanup}`. `SandboxDispatcher` resolves which launcher (direct / docker) to use per project |
-| `sandbox/` | `Manager[I any]` interface + backend implementations. Owns container lifecycle only; does not import driver / runtime / tui |
+| `sandbox/` | `Manager[I any]` interface + backend implementations. Owns container lifecycle only; does not import driver / lib / runtime / tui |
+
+`sandbox/` is tool-agnostic. It does not contain knowledge of any specific tool (e.g. Claude). Tool-specific host paths are declared by the user in `~/.roost/settings.toml`; they are never hardcoded in Go source.
 
 ## Design Decisions
 
@@ -63,6 +65,54 @@ Each roost daemon uses a dedicated docker network created on demand, isolating p
 
 Priority: user config image > `.devcontainer/devcontainer.json` `image` field > built-in default. Only the `image` key of devcontainer.json is parsed; full devcontainer spec support is out of scope.
 
+### Host Mounts
+
+`[sandbox.docker.host_mounts]` bind-mounts host paths into every container managed by roost. Keys are host paths (tilde-expanded); values are `"rw"` or `"ro"`. Paths that do not exist on the host are skipped silently.
+
+These mounts apply once at container creation (per-project, not per-frame). The docker backend is tool-agnostic — it does not know which paths are needed for any particular agent. It is the user's responsibility to declare the paths their agents require.
+
+```toml
+[sandbox.docker.host_mounts]
+"~/.claude"      = "rw"
+"~/.claude.json" = "rw"
+```
+
+To use Claude Code inside containers with the credential proxy enabled, omit `~/.claude` (so the host credential store is not exposed) and list only the non-credential subdirs:
+
+```toml
+[sandbox.proxy]
+enabled = true
+
+[sandbox.docker.host_mounts]
+"~/.claude.json"          = "rw"
+"~/.claude/settings.json" = "ro"
+"~/.claude/projects"      = "rw"
+"~/.claude/todos"         = "rw"
+"~/.claude/statsig"       = "rw"
+"~/.claude/ide"           = "rw"
+```
+
 ### Concurrency
 
 Concurrent `EnsureInstance` calls for the same (project, image) are serialized via `singleflight` to prevent duplicate containers from being started. The in-memory registry (`Manager.containers`) is the source of truth once the container is registered; subsequent calls return the cached entry without hitting Docker.
+
+## Credential Proxy
+
+When `[sandbox.proxy] enabled = true`, roost starts an in-process HTTP forward proxy backed by the [`credproxy`](https://github.com/takezoh/credproxy) library. The proxy listens on an ephemeral loopback port (`127.0.0.1:0`) and is reached from containers via `host.docker.internal`. Its lifetime is tied to the roost process — no external daemon is needed.
+
+### Authentication
+
+Run `roost login` once to authenticate with Anthropic via PKCE browser OAuth. Credentials are stored in `~/.roost/credentials.json` (mode 0600). The file is managed exclusively by roost and does not overlap with Claude Code's own session at `~/.claude/.credentials.json`.
+
+### Routes
+
+| Container env var | Proxy path | Upstream |
+|---|---|---|
+| `ANTHROPIC_BASE_URL` | `/anthropic` | `https://api.anthropic.com` |
+| `AWS_CONTAINER_CREDENTIALS_FULL_URI` | `/aws-credentials` | (IMDS body replace — no upstream) |
+
+`ANTHROPIC_AUTH_TOKEN` and `AWS_CONTAINER_AUTHORIZATION_TOKEN` carry an ephemeral bearer token generated per roost process. The proxy validates this token on every request; it is never written to disk.
+
+### AWS Credentials
+
+The AWS SSO provider tries `aws configure export-credentials --format process` first, then falls back to reading `~/.aws/sso/cache/*.json` and calling `aws sso get-role-credentials`. Run `aws sso login` on the host to establish a session before starting containers.

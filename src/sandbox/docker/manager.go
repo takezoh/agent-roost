@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,14 @@ import (
 type Config struct {
 	Network   string   // docker network name; empty → "roost-sandbox"
 	ExtraArgs []string // extra args appended to "docker run"
+
+	// HostMounts is a process-wide list of host paths to bind-mount into every
+	// container, applied before per-frame StartOptions.ExtraMounts. Keys are
+	// host paths (may start with "~/"), values are "rw" or "ro". Paths that
+	// do not exist on the host are skipped silently. The docker layer is
+	// agnostic about what these paths mean — callers (coordinator) decide
+	// which directories/files to expose.
+	HostMounts map[string]string
 }
 
 // ContainerState holds the runtime data for one (project, image) container.
@@ -125,7 +134,6 @@ func (m *Manager) ensureContainer(ctx context.Context, projectPath, configImage 
 func baseContainerArgs(cfg Config, projectPath, image, name string) []string {
 	home, _ := os.UserHomeDir()
 	roostSock := filepath.Join(home, ".roost", "roost.sock")
-	claudeDir := filepath.Join(home, ".claude")
 	uid := fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid())
 	args := []string{
 		"run", "-d", "--rm",
@@ -136,9 +144,19 @@ func baseContainerArgs(cfg Config, projectPath, image, name string) []string {
 		"--user", uid,
 		"-v", projectPath + ":" + projectPath + ":rw",
 		"-v", roostSock + ":/tmp/roost.sock:rw",
-		"-v", claudeDir + ":" + claudeDir + ":rw",
 		"-e", "ROOST_SOCKET=/tmp/roost.sock", "-e", "HOME=" + home,
 		"--network", cfg.Network, "--cap-drop=ALL", "--security-opt=no-new-privileges",
+	}
+	for _, hostPath := range sortedKeys(cfg.HostMounts) {
+		expanded := expandPath(hostPath)
+		if !fileExists(expanded) {
+			continue
+		}
+		mode := cfg.HostMounts[hostPath]
+		if mode == "" {
+			mode = "rw"
+		}
+		args = append(args, "-v", expanded+":"+expanded+":"+mode)
 	}
 	return append(args, cfg.ExtraArgs...)
 }
@@ -308,6 +326,20 @@ func (m *Manager) PruneOrphans(ctx context.Context, knownProjects []string, reso
 func containerName(projectPath, image string) string {
 	h := sha256.Sum256([]byte(projectPath + "\n" + image))
 	return fmt.Sprintf("roost-%x", h[:4])
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // expandPath replaces a leading "~" with the user home directory.

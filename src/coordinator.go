@@ -74,7 +74,7 @@ func runCoordinator() error { //nolint:funlen
 	paneTap := runtime.NewTmuxPipePaneTap(tmuxBackend.PipePane, tapDir)
 
 	featureSet := features.FromConfig(cfg.Features.Enabled, features.All())
-	agentLauncher, err := newAgentLauncher(cfg.Sandbox)
+	agentLauncher, err := newAgentLauncher(ctx, cfg.Sandbox)
 	if err != nil {
 		return err
 	}
@@ -201,7 +201,7 @@ func runCoordinator() error { //nolint:funlen
 // Returns a SandboxDispatcher that routes each launch to direct or docker based
 // on the effective config for that project (user scope + optional project scope).
 // Returns an error when user scope mode="docker" but the docker daemon is unreachable.
-func newAgentLauncher(sb config.SandboxConfig) (runtime.AgentLauncher, error) {
+func newAgentLauncher(ctx context.Context, sb config.SandboxConfig) (runtime.AgentLauncher, error) {
 	resolver := config.NewSandboxResolver(sb)
 	d := &runtime.SandboxDispatcher{
 		Resolver: resolver,
@@ -213,14 +213,25 @@ func newAgentLauncher(sb config.SandboxConfig) (runtime.AgentLauncher, error) {
 				"sandbox.mode=docker but docker is unavailable: %w\n"+
 					"  → set sandbox.mode=direct in ~/.roost/settings.toml or fix docker", err)
 		}
+		extraArgs := sb.Docker.ExtraArgs
+		var runner *runtime.CredProxyRunner
+		if sb.Proxy.Enabled {
+			extraArgs = append(extraArgs, "--add-host=host.docker.internal:host-gateway")
+			var err error
+			runner, err = runtime.StartCredProxy(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("sandbox: start in-process credproxy: %w", err)
+			}
+		}
 		mgr := sandboxdocker.New(sandboxdocker.Config{
-			Network:   sb.Docker.Network,
-			ExtraArgs: sb.Docker.ExtraArgs,
+			Network:    sb.Docker.Network,
+			ExtraArgs:  extraArgs,
+			HostMounts: sb.Docker.HostMounts,
 		})
 		d.Docker = runtime.NewDockerLauncher(mgr, func(project string) config.DockerConfig {
 			return resolver.Resolve(project).Docker
-		})
-		slog.Info("sandbox: docker backend enabled")
+		}, runner)
+		slog.Info("sandbox: docker backend enabled", "proxy", sb.Proxy.Enabled)
 	}
 	return d, nil
 }

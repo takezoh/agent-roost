@@ -72,6 +72,7 @@ func finishMain(kind commandKind, err error, loggerReady bool, loggerErr error, 
 		return 1
 	}
 	if err != nil {
+		fmt.Fprintf(stderr, "roost: %v\n", err)
 		return 1
 	}
 	return 0

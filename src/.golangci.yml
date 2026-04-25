@@ -83,6 +83,18 @@ linters:
               desc: "runtime/worker must not import connector (see ARCHITECTURE.md)"
             - pkg: github.com/takezoh/agent-roost/lib
               desc: "runtime/worker must not import lib (see ARCHITECTURE.md)"
+        sandbox-tool-agnostic:
+          files:
+            - "**/sandbox/**"
+          deny:
+            - pkg: github.com/takezoh/agent-roost/driver
+              desc: "sandbox/ must be tool-agnostic — no driver/ imports (see ARCHITECTURE.md)"
+            - pkg: github.com/takezoh/agent-roost/connector
+              desc: "sandbox/ must be tool-agnostic — no connector/ imports (see ARCHITECTURE.md)"
+            - pkg: github.com/takezoh/agent-roost/lib
+              desc: "sandbox/ must be tool-agnostic — no lib/ imports (see ARCHITECTURE.md)"
+            - pkg: github.com/takezoh/agent-roost/runtime
+              desc: "sandbox/ must be tool-agnostic — no runtime/ imports (see ARCHITECTURE.md)"
         proto-isolation:
           files:
             - "**/proto/**"

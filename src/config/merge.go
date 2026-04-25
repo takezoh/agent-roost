@@ -5,7 +5,8 @@ package config
 //   - project == nil: return user unchanged
 //   - Mode, Docker.Image, Docker.Network (scalars): project wins when non-empty
 //   - Docker.ExtraArgs, ExtraMounts, ForwardEnv (lists): user + project concat
-//   - Docker.Env (map): user keys as base, project keys overwrite
+//   - Docker.Env, Docker.HostMounts (maps): user keys as base, project keys overwrite
+//   - Proxy.Enabled: user wins (proxy is process-wide)
 func MergeSandbox(user SandboxConfig, project *SandboxConfig) SandboxConfig {
 	if project == nil {
 		return user
@@ -19,6 +20,10 @@ func MergeSandbox(user SandboxConfig, project *SandboxConfig) SandboxConfig {
 			ExtraMounts: appendSlice(user.Docker.ExtraMounts, project.Docker.ExtraMounts),
 			ForwardEnv:  appendSlice(user.Docker.ForwardEnv, project.Docker.ForwardEnv),
 			Env:         mergeMaps(user.Docker.Env, project.Docker.Env),
+			HostMounts:  mergeMaps(user.Docker.HostMounts, project.Docker.HostMounts),
+		},
+		Proxy: ProxyConfig{
+			Enabled: user.Proxy.Enabled,
 		},
 	}
 	if project.Mode != "" {

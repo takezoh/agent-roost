@@ -19,13 +19,22 @@ import (
 type DockerLauncher struct {
 	mgr           sandbox.Manager[*sandboxdocker.ContainerState]
 	resolveDocker func(projectPath string) config.DockerConfig
+	proxy         *CredProxyRunner // nil when proxy disabled
 }
 
 // NewDockerLauncher creates an AgentLauncher that runs agents inside Docker.
-// resolveDocker is called per launch to obtain the effective docker config
-// for a project (user scope merged with optional project scope override).
-func NewDockerLauncher(mgr sandbox.Manager[*sandboxdocker.ContainerState], resolveDocker func(string) config.DockerConfig) *DockerLauncher {
-	return &DockerLauncher{mgr: mgr, resolveDocker: resolveDocker}
+// resolveDocker is called per launch to obtain the effective docker config.
+// proxy is non-nil when in-process credproxy is active.
+func NewDockerLauncher(
+	mgr sandbox.Manager[*sandboxdocker.ContainerState],
+	resolveDocker func(string) config.DockerConfig,
+	proxy *CredProxyRunner,
+) *DockerLauncher {
+	return &DockerLauncher{
+		mgr:           mgr,
+		resolveDocker: resolveDocker,
+		proxy:         proxy,
+	}
 }
 
 // WrapLaunch ensures the project container is running, then returns a launch
@@ -37,11 +46,7 @@ func (l *DockerLauncher) WrapLaunch(frameID state.FrameID, plan state.LaunchPlan
 	}
 
 	dockerCfg := l.resolveDocker(plan.Project)
-	opts := sandbox.StartOptions{
-		ExtraMounts: dockerCfg.ExtraMounts,
-		Env:         dockerCfg.Env,
-		ForwardEnv:  dockerCfg.ForwardEnv,
-	}
+	opts := l.buildStartOptions(dockerCfg)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -68,19 +73,13 @@ func (l *DockerLauncher) WrapLaunch(frameID state.FrameID, plan state.LaunchPlan
 }
 
 // AdoptFrame is called during warm start to reclaim an existing container for
-// a pre-running frame. It calls EnsureInstance (which reclaims the running
-// container if it is still alive, or starts a fresh one if it died) and
-// acquires a ref-count for the frame.
+// a pre-running frame.
 func (l *DockerLauncher) AdoptFrame(ctx context.Context, frameID state.FrameID, projectPath string) (func() error, error) {
 	if projectPath == "" {
 		return nil, nil
 	}
 	dockerCfg := l.resolveDocker(projectPath)
-	opts := sandbox.StartOptions{
-		ExtraMounts: dockerCfg.ExtraMounts,
-		Env:         dockerCfg.Env,
-		ForwardEnv:  dockerCfg.ForwardEnv,
-	}
+	opts := l.buildStartOptions(dockerCfg)
 	inst, err := l.mgr.EnsureInstance(ctx, projectPath, dockerCfg.Image, opts)
 	if err != nil {
 		return nil, fmt.Errorf("docker launcher: adopt frame %s: %w", frameID, err)
@@ -88,6 +87,34 @@ func (l *DockerLauncher) AdoptFrame(ctx context.Context, frameID state.FrameID, 
 	l.mgr.AcquireFrame(inst)
 	slog.Debug("docker launcher: frame adopted (warm start)", "frame", frameID, "project", projectPath, "image", inst.Image)
 	return l.makeCleanup(frameID, inst), nil
+}
+
+// buildStartOptions assembles sandbox.StartOptions from docker config and optional proxy config.
+func (l *DockerLauncher) buildStartOptions(dockerCfg config.DockerConfig) sandbox.StartOptions {
+	opts := sandbox.StartOptions{
+		ExtraMounts: dockerCfg.ExtraMounts,
+		Env:         dockerCfg.Env,
+		ForwardEnv:  dockerCfg.ForwardEnv,
+	}
+	if l.proxy != nil {
+		l.injectProxy(&opts)
+	}
+	return opts
+}
+
+// injectProxy adds in-process credproxy env vars to StartOptions.
+func (l *DockerLauncher) injectProxy(opts *sandbox.StartOptions) {
+	if opts.Env == nil {
+		opts.Env = make(map[string]string)
+	}
+
+	port := portOf(l.proxy.addr)
+	base := "http://host.docker.internal:" + port
+
+	opts.Env["ANTHROPIC_BASE_URL"] = base + "/anthropic"
+	opts.Env["ANTHROPIC_AUTH_TOKEN"] = l.proxy.token
+	opts.Env["AWS_CONTAINER_CREDENTIALS_FULL_URI"] = base + "/aws-credentials"
+	opts.Env["AWS_CONTAINER_AUTHORIZATION_TOKEN"] = l.proxy.token
 }
 
 func (l *DockerLauncher) makeCleanup(frameID state.FrameID, inst *sandbox.Instance[*sandboxdocker.ContainerState]) func() error {
@@ -105,7 +132,6 @@ func (l *DockerLauncher) makeCleanup(frameID state.FrameID, inst *sandbox.Instan
 
 // PruneOrphans removes roost-managed Docker containers whose project is not
 // in knownProjects, or whose image no longer matches the resolved config.
-// resolveImage maps a project path to the currently-effective image.
 func (l *DockerLauncher) PruneOrphans(ctx context.Context, knownProjects []string, resolveImage func(string) string) {
 	l.mgr.PruneOrphans(ctx, knownProjects, resolveImage)
 }
