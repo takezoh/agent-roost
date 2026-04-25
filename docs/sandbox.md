@@ -100,19 +100,28 @@ Concurrent `EnsureInstance` calls for the same (project, image) are serialized v
 
 When `[sandbox.proxy] enabled = true`, roost starts an in-process HTTP forward proxy backed by the [`credproxy`](https://github.com/takezoh/credproxy) library. The proxy listens on an ephemeral loopback port (`127.0.0.1:0`) and is reached from containers via `host.docker.internal`. Its lifetime is tied to the roost process — no external daemon is needed.
 
-### Authentication
+### AWS SSO Credentials
 
-Run `roost login` once to authenticate with Anthropic via PKCE browser OAuth. Credentials are stored in `~/.roost/credentials.json` (mode 0600). The file is managed exclusively by roost and does not overlap with Claude Code's own session at `~/.claude/.credentials.json`.
+`AWS_CONTAINER_AUTHORIZATION_TOKEN` carries an ephemeral bearer token generated per roost process. The proxy validates this token on every request; it is never written to disk.
 
-### Routes
-
-| Container env var | Proxy path | Upstream |
+| Container env var | Proxy path | Notes |
 |---|---|---|
-| `ANTHROPIC_BASE_URL` | `/anthropic` | `https://api.anthropic.com` |
-| `AWS_CONTAINER_CREDENTIALS_FULL_URI` | `/aws-credentials` | (IMDS body replace — no upstream) |
-
-`ANTHROPIC_AUTH_TOKEN` and `AWS_CONTAINER_AUTHORIZATION_TOKEN` carry an ephemeral bearer token generated per roost process. The proxy validates this token on every request; it is never written to disk.
-
-### AWS Credentials
+| `AWS_CONTAINER_CREDENTIALS_FULL_URI` | `/aws-credentials` | IMDS-compatible endpoint — returns `AccessKeyId`/`SecretAccessKey`/`SessionToken` |
 
 The AWS SSO provider tries `aws configure export-credentials --format process` first, then falls back to reading `~/.aws/sso/cache/*.json` and calling `aws sso get-role-credentials`. Run `aws sso login` on the host to establish a session before starting containers.
+
+`~/.aws/sso/cache` is never bind-mounted into containers — containers obtain short-lived credentials through the proxy endpoint only.
+
+### Claude Code (Subscription)
+
+Claude Code uses OAuth subscription credentials stored in `~/.claude/.credentials.json`. Container-side auth state is determined by the presence of this file; environment variables alone are not sufficient for the interactive UI to show a logged-in state.
+
+Bind-mount `~/.claude` via `host_mounts` for subscription use:
+
+```toml
+[sandbox.docker.host_mounts]
+"~/.claude"      = "rw"
+"~/.claude.json" = "rw"
+```
+
+This exposes the OAuth refresh token to the container. Accept this trade-off or restrict write access to specific subdirs if the threat model requires tighter isolation.

@@ -102,19 +102,15 @@ func (l *DockerLauncher) buildStartOptions(dockerCfg config.DockerConfig) sandbo
 	return opts
 }
 
-// injectProxy adds in-process credproxy env vars to StartOptions.
+// injectProxy merges the proxy's container env into StartOptions.
+// The proxy runner (not this function) determines which keys are injected.
 func (l *DockerLauncher) injectProxy(opts *sandbox.StartOptions) {
 	if opts.Env == nil {
 		opts.Env = make(map[string]string)
 	}
-
-	port := portOf(l.proxy.addr)
-	base := "http://host.docker.internal:" + port
-
-	opts.Env["ANTHROPIC_BASE_URL"] = base + "/anthropic"
-	opts.Env["ANTHROPIC_AUTH_TOKEN"] = l.proxy.token
-	opts.Env["AWS_CONTAINER_CREDENTIALS_FULL_URI"] = base + "/aws-credentials"
-	opts.Env["AWS_CONTAINER_AUTHORIZATION_TOKEN"] = l.proxy.token
+	for k, v := range l.proxy.ContainerEnv() {
+		opts.Env[k] = v
+	}
 }
 
 func (l *DockerLauncher) makeCleanup(frameID state.FrameID, inst *sandbox.Instance[*sandboxdocker.ContainerState]) func() error {

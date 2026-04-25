@@ -158,6 +158,17 @@ func TestAWSSSO_Cache_Expiry(t *testing.T) {
 	assert.Equal(t, "FAKEID", creds.AccessKeyId)
 }
 
+// TestContainerEnv verifies that ContainerEnv returns the expected keys and values.
+func TestContainerEnv(t *testing.T) {
+	env := ContainerEnv("http://host.docker.internal:9000", "mytoken")
+	if env["AWS_CONTAINER_CREDENTIALS_FULL_URI"] != "http://host.docker.internal:9000"+RoutePath {
+		t.Errorf("unexpected AWS_CONTAINER_CREDENTIALS_FULL_URI: %q", env["AWS_CONTAINER_CREDENTIALS_FULL_URI"])
+	}
+	if env["AWS_CONTAINER_AUTHORIZATION_TOKEN"] != "mytoken" {
+		t.Errorf("unexpected AWS_CONTAINER_AUTHORIZATION_TOKEN: %q", env["AWS_CONTAINER_AUTHORIZATION_TOKEN"])
+	}
+}
+
 // TestParseExpiration verifies the edge cases of the internal parseExpiration helper.
 func TestParseExpiration(t *testing.T) {
 	assert.True(t, parseExpiration("").IsZero())

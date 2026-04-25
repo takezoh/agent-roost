@@ -7,22 +7,21 @@ import (
 	"fmt"
 	"net"
 
-	"github.com/takezoh/agent-roost/auth/credproxy/anthropicoauth"
 	"github.com/takezoh/agent-roost/auth/credproxy/awssso"
 	credproxylib "github.com/takezoh/credproxy/pkg/credproxy"
 )
 
-// CredProxyRunner holds an in-process credential proxy server instance.
+// CredProxyRunner holds an in-process AWS SSO credential proxy server instance.
 // The server listens on an ephemeral TCP port; containers reach it via host.docker.internal.
+// Containers use AWS_CONTAINER_CREDENTIALS_FULL_URI to obtain short-lived credentials
+// without exposing ~/.aws/sso/cache to the container.
 type CredProxyRunner struct {
 	srv   *credproxylib.Server
 	addr  string // resolved "host:port" after listen
 	token string // ephemeral bearer token, valid for the process lifetime
 }
 
-// StartCredProxy starts an in-process credential proxy.
-// The Anthropic provider reads ~/.claude/.credentials.json on the host;
-// no per-tool credential store is needed.
+// StartCredProxy starts an in-process AWS SSO credential proxy.
 // The caller is responsible for keeping ctx alive for the duration of the proxy.
 func StartCredProxy(ctx context.Context) (*CredProxyRunner, error) {
 	token, err := generateToken()
@@ -32,14 +31,7 @@ func StartCredProxy(ctx context.Context) (*CredProxyRunner, error) {
 
 	routes := []credproxylib.Route{
 		{
-			Path:             "/anthropic",
-			Upstream:         "https://api.anthropic.com",
-			Provider:         anthropicoauth.New(),
-			RefreshOnStatus:  []int{401},
-			StripInboundAuth: true,
-		},
-		{
-			Path:     "/aws-credentials",
+			Path:     awssso.RoutePath,
 			Provider: awssso.New(),
 		},
 	}
@@ -58,10 +50,13 @@ func StartCredProxy(ctx context.Context) (*CredProxyRunner, error) {
 	return &CredProxyRunner{srv: srv, addr: srv.Addr(), token: token}, nil
 }
 
-// portOf extracts the port from a "host:port" address string.
-func portOf(addr string) string {
-	_, port, _ := net.SplitHostPort(addr)
-	return port
+// ContainerEnv returns the env vars a container must set to reach this proxy.
+// Callers merge the returned map into StartOptions.Env without inspecting the keys;
+// provider-specific env var names (AWS_*, etc.) are resolved inside auth/credproxy/<provider>/.
+func (r *CredProxyRunner) ContainerEnv() map[string]string {
+	_, port, _ := net.SplitHostPort(r.addr)
+	base := "http://host.docker.internal:" + port
+	return awssso.ContainerEnv(base, r.token)
 }
 
 func generateToken() (string, error) {

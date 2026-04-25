@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/takezoh/agent-roost/auth/credproxy/awssso"
 	"github.com/takezoh/agent-roost/config"
 	"github.com/takezoh/agent-roost/sandbox"
 	sandboxdocker "github.com/takezoh/agent-roost/sandbox/docker"
@@ -45,14 +46,11 @@ func TestDockerLauncher_proxyEnvInjected(t *testing.T) {
 		t.Fatalf("WrapLaunch: %v", err)
 	}
 
-	if capturedOpts.Env["ANTHROPIC_BASE_URL"] != "http://host.docker.internal:9787/anthropic" {
-		t.Errorf("ANTHROPIC_BASE_URL = %q", capturedOpts.Env["ANTHROPIC_BASE_URL"])
-	}
-	if capturedOpts.Env["ANTHROPIC_AUTH_TOKEN"] != "test-token" {
-		t.Errorf("ANTHROPIC_AUTH_TOKEN = %q", capturedOpts.Env["ANTHROPIC_AUTH_TOKEN"])
-	}
-	if capturedOpts.Env["AWS_CONTAINER_CREDENTIALS_FULL_URI"] != "http://host.docker.internal:9787/aws-credentials" {
-		t.Errorf("AWS_CONTAINER_CREDENTIALS_FULL_URI = %q", capturedOpts.Env["AWS_CONTAINER_CREDENTIALS_FULL_URI"])
+	want := awssso.ContainerEnv("http://host.docker.internal:9787", "test-token")
+	for k, v := range want {
+		if capturedOpts.Env[k] != v {
+			t.Errorf("env[%q] = %q, want %q", k, capturedOpts.Env[k], v)
+		}
 	}
 }
 
@@ -72,8 +70,8 @@ func TestDockerLauncher_noProxy_noEnv(t *testing.T) {
 		t.Fatalf("WrapLaunch: %v", err)
 	}
 
-	if capturedOpts.Env["ANTHROPIC_BASE_URL"] != "" {
-		t.Errorf("ANTHROPIC_BASE_URL should not be set when proxy is disabled")
+	if capturedOpts.Env["AWS_CONTAINER_CREDENTIALS_FULL_URI"] != "" {
+		t.Errorf("AWS_CONTAINER_CREDENTIALS_FULL_URI should not be set when proxy is disabled")
 	}
 }
 

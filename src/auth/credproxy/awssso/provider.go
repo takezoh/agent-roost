@@ -14,6 +14,20 @@ import (
 	credproxylib "github.com/takezoh/credproxy/pkg/credproxy"
 )
 
+// RoutePath is the proxy path served by this provider.
+// Generic layers use this constant instead of hard-coding "/aws-credentials".
+const RoutePath = "/aws-credentials"
+
+// ContainerEnv returns the env vars a container must set to reach this provider via proxy.
+// baseURL is "http://host.docker.internal:<port>" and token is the ephemeral bearer token.
+// Keeping these names here ensures AWS-specific env var literals never appear in runtime/ or sandbox/.
+func ContainerEnv(baseURL, token string) map[string]string {
+	return map[string]string{
+		"AWS_CONTAINER_CREDENTIALS_FULL_URI": baseURL + RoutePath,
+		"AWS_CONTAINER_AUTHORIZATION_TOKEN":  token,
+	}
+}
+
 // imdsCredentials is the JSON format expected by AWS_CONTAINER_CREDENTIALS_FULL_URI.
 type imdsCredentials struct {
 	AccessKeyId     string `json:"AccessKeyId"`
