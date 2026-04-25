@@ -100,17 +100,39 @@ Concurrent `EnsureInstance` calls for the same (project, image) are serialized v
 
 When `[sandbox.proxy] enabled = true`, roost starts an in-process HTTP forward proxy backed by the [`credproxy`](https://github.com/takezoh/credproxy) library. The proxy listens on an ephemeral loopback port (`127.0.0.1:0`) and is reached from containers via `host.docker.internal`. Its lifetime is tied to the roost process — no external daemon is needed.
 
-### AWS SSO Credentials
+### AWS SSO Credentials (multi-profile)
 
-`AWS_CONTAINER_AUTHORIZATION_TOKEN` carries an ephemeral bearer token generated per roost process. The proxy validates this token on every request; it is never written to disk.
+The proxy generates a synthetic `~/.aws/config` inside each container. Every profile entry uses `credential_process` to call back to the roost proxy via a small helper script (`/opt/roost/aws-creds`). Both the config and the script are bind-mounted read-only; no credentials are stored inside the container.
 
-| Container env var | Proxy path | Notes |
-|---|---|---|
-| `AWS_CONTAINER_CREDENTIALS_FULL_URI` | `/aws-credentials` | IMDS-compatible endpoint — returns `AccessKeyId`/`SecretAccessKey`/`SessionToken` |
+**Proxy route:** `/aws-credentials/<profile>` — returns `credential_process`-format JSON (`Version:1`, `AccessKeyId`, `SecretAccessKey`, `SessionToken`, `Expiration`).
 
-The AWS SSO provider tries `aws configure export-credentials --format process` first, then falls back to reading `~/.aws/sso/cache/*.json` and calling `aws sso get-role-credentials`. Run `aws sso login` on the host to establish a session before starting containers.
+Two container env vars carry the proxy coordinates:
 
-`~/.aws/sso/cache` is never bind-mounted into containers — containers obtain short-lived credentials through the proxy endpoint only.
+| Container env var | Value |
+|---|---|
+| `ROOST_AWS_TOKEN` | Ephemeral bearer token (never written to disk) |
+| `ROOST_PROXY_PORT` | TCP port of the in-process proxy |
+
+**Per-project profile configuration** — in the project's `.roost/settings.toml`:
+
+```toml
+# <project-root>/.roost/settings.toml
+[sandbox.proxy]
+aws_profiles = ["default", "master", "general"]
+```
+
+Each name in the array appears as a `[profile <name>]` section in the synthetic `~/.aws/config`. Including `"default"` adds a `[default]` section so `aws` commands without `--profile` also work. Profiles not listed are not reachable from the container. If `aws_profiles` is absent or empty, no synthetic config is mounted and AWS proxy is a no-op for that project.
+
+Enable the proxy in the global `~/.roost/settings.toml`:
+
+```toml
+[sandbox.proxy]
+enabled = true
+```
+
+The provider calls `aws configure export-credentials --format process --profile <name>` on the host, then falls back to reading `~/.aws/sso/cache/*.json`. Run `aws sso login` on the host before starting containers. `~/.aws/sso/cache` is never bind-mounted — containers obtain short-lived credentials through the proxy only.
+
+**Container image requirement:** `curl` must be available (present in standard base images; document explicitly for minimal images).
 
 ### Claude Code (Subscription)
 

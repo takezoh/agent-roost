@@ -74,7 +74,7 @@ func runCoordinator() error { //nolint:funlen
 	paneTap := runtime.NewTmuxPipePaneTap(tmuxBackend.PipePane, tapDir)
 
 	featureSet := features.FromConfig(cfg.Features.Enabled, features.All())
-	agentLauncher, err := newAgentLauncher(ctx, cfg.Sandbox)
+	agentLauncher, err := newAgentLauncher(ctx, cfg.Sandbox, dataDir)
 	if err != nil {
 		return err
 	}
@@ -201,7 +201,7 @@ func runCoordinator() error { //nolint:funlen
 // Returns a SandboxDispatcher that routes each launch to direct or docker based
 // on the effective config for that project (user scope + optional project scope).
 // Returns an error when user scope mode="docker" but the docker daemon is unreachable.
-func newAgentLauncher(ctx context.Context, sb config.SandboxConfig) (runtime.AgentLauncher, error) {
+func newAgentLauncher(ctx context.Context, sb config.SandboxConfig, dataDir string) (runtime.AgentLauncher, error) {
 	resolver := config.NewSandboxResolver(sb)
 	d := &runtime.SandboxDispatcher{
 		Resolver: resolver,
@@ -218,7 +218,7 @@ func newAgentLauncher(ctx context.Context, sb config.SandboxConfig) (runtime.Age
 		if sb.Proxy.Enabled {
 			extraArgs = append(extraArgs, "--add-host=host.docker.internal:host-gateway")
 			var err error
-			runner, err = runtime.StartCredProxy(ctx)
+			runner, err = runtime.StartCredProxy(ctx, dataDir)
 			if err != nil {
 				return nil, fmt.Errorf("sandbox: start in-process credproxy: %w", err)
 			}
@@ -228,8 +228,8 @@ func newAgentLauncher(ctx context.Context, sb config.SandboxConfig) (runtime.Age
 			ExtraArgs:  extraArgs,
 			HostMounts: sb.Docker.HostMounts,
 		})
-		d.Docker = runtime.NewDockerLauncher(mgr, func(project string) config.DockerConfig {
-			return resolver.Resolve(project).Docker
+		d.Docker = runtime.NewDockerLauncher(mgr, func(project string) config.SandboxConfig {
+			return resolver.Resolve(project)
 		}, runner)
 		slog.Info("sandbox: docker backend enabled", "proxy", sb.Proxy.Enabled)
 	}

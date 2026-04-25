@@ -36,7 +36,8 @@ type SandboxConfig struct {
 // When Enabled, credential env vars are injected into each container.
 // The proxy runs in-process; no external daemon is required.
 type ProxyConfig struct {
-	Enabled bool `toml:"enabled"`
+	Enabled     bool     `toml:"enabled"`
+	AWSProfiles []string `toml:"aws_profiles"` // AWS profile names to expose in the container via credential_process
 }
 
 // DockerConfig holds Docker-specific sandbox parameters.

@@ -19,8 +19,8 @@ func newStubInst() *sandbox.Instance[*sandboxdocker.ContainerState] {
 	}
 }
 
-func resolveDockerDefault(string) config.DockerConfig {
-	return config.DockerConfig{Image: "node:22"}
+func resolveSandboxDefault(string) config.SandboxConfig {
+	return config.SandboxConfig{Docker: config.DockerConfig{Image: "node:22"}}
 }
 
 // newTestRunner creates a CredProxyRunner for tests without starting an actual server.
@@ -39,7 +39,7 @@ func TestDockerLauncher_proxyEnvInjected(t *testing.T) {
 		},
 	}
 
-	l := NewDockerLauncher(mgr, resolveDockerDefault, runner)
+	l := NewDockerLauncher(mgr, resolveSandboxDefault, runner)
 	plan := state.LaunchPlan{Command: "claude", StartDir: "/proj", Project: "/proj"}
 	_, err := l.WrapLaunch("f1", plan, nil)
 	if err != nil {
@@ -63,7 +63,7 @@ func TestDockerLauncher_noProxy_noEnv(t *testing.T) {
 		},
 	}
 
-	l := NewDockerLauncher(mgr, resolveDockerDefault, nil)
+	l := NewDockerLauncher(mgr, resolveSandboxDefault, nil)
 	plan := state.LaunchPlan{Command: "claude", StartDir: "/proj", Project: "/proj"}
 	_, err := l.WrapLaunch("f1", plan, nil)
 	if err != nil {

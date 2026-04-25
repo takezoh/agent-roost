@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/takezoh/agent-roost/config"
@@ -14,26 +15,26 @@ import (
 
 // DockerLauncher wraps launches inside per-project Docker containers.
 // It implements AgentLauncher by delegating to a sandbox.Manager[*docker.ContainerState].
-// All driver kinds are run inside Docker; docker config is resolved per
-// project via the resolveDocker callback (user + project scope merge).
+// All driver kinds are run inside Docker; the effective sandbox config is resolved per
+// project via the resolveSandbox callback (user + project scope merge).
 type DockerLauncher struct {
-	mgr           sandbox.Manager[*sandboxdocker.ContainerState]
-	resolveDocker func(projectPath string) config.DockerConfig
-	proxy         *CredProxyRunner // nil when proxy disabled
+	mgr            sandbox.Manager[*sandboxdocker.ContainerState]
+	resolveSandbox func(projectPath string) config.SandboxConfig
+	proxy          *CredProxyRunner // nil when proxy disabled
 }
 
 // NewDockerLauncher creates an AgentLauncher that runs agents inside Docker.
-// resolveDocker is called per launch to obtain the effective docker config.
+// resolveSandbox is called per launch to obtain the effective sandbox config.
 // proxy is non-nil when in-process credproxy is active.
 func NewDockerLauncher(
 	mgr sandbox.Manager[*sandboxdocker.ContainerState],
-	resolveDocker func(string) config.DockerConfig,
+	resolveSandbox func(string) config.SandboxConfig,
 	proxy *CredProxyRunner,
 ) *DockerLauncher {
 	return &DockerLauncher{
-		mgr:           mgr,
-		resolveDocker: resolveDocker,
-		proxy:         proxy,
+		mgr:            mgr,
+		resolveSandbox: resolveSandbox,
+		proxy:          proxy,
 	}
 }
 
@@ -45,13 +46,13 @@ func (l *DockerLauncher) WrapLaunch(frameID state.FrameID, plan state.LaunchPlan
 		return WrappedLaunch{}, fmt.Errorf("docker launcher: plan.Project is empty for frame %s", frameID)
 	}
 
-	dockerCfg := l.resolveDocker(plan.Project)
-	opts := l.buildStartOptions(dockerCfg)
+	sb := l.resolveSandbox(plan.Project)
+	opts := l.buildStartOptions(sb, plan.Project)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 
-	inst, err := l.mgr.EnsureInstance(ctx, plan.Project, dockerCfg.Image, opts)
+	inst, err := l.mgr.EnsureInstance(ctx, plan.Project, sb.Docker.Image, opts)
 	if err != nil {
 		return WrappedLaunch{}, fmt.Errorf("docker launcher: ensure instance: %w", err)
 	}
@@ -78,9 +79,9 @@ func (l *DockerLauncher) AdoptFrame(ctx context.Context, frameID state.FrameID, 
 	if projectPath == "" {
 		return nil, nil
 	}
-	dockerCfg := l.resolveDocker(projectPath)
-	opts := l.buildStartOptions(dockerCfg)
-	inst, err := l.mgr.EnsureInstance(ctx, projectPath, dockerCfg.Image, opts)
+	sb := l.resolveSandbox(projectPath)
+	opts := l.buildStartOptions(sb, projectPath)
+	inst, err := l.mgr.EnsureInstance(ctx, projectPath, sb.Docker.Image, opts)
 	if err != nil {
 		return nil, fmt.Errorf("docker launcher: adopt frame %s: %w", frameID, err)
 	}
@@ -89,28 +90,35 @@ func (l *DockerLauncher) AdoptFrame(ctx context.Context, frameID state.FrameID, 
 	return l.makeCleanup(frameID, inst), nil
 }
 
-// buildStartOptions assembles sandbox.StartOptions from docker config and optional proxy config.
-func (l *DockerLauncher) buildStartOptions(dockerCfg config.DockerConfig) sandbox.StartOptions {
+// buildStartOptions assembles sandbox.StartOptions from the resolved sandbox config.
+func (l *DockerLauncher) buildStartOptions(sb config.SandboxConfig, projectPath string) sandbox.StartOptions {
 	opts := sandbox.StartOptions{
-		ExtraMounts: dockerCfg.ExtraMounts,
-		Env:         dockerCfg.Env,
-		ForwardEnv:  dockerCfg.ForwardEnv,
+		ExtraMounts: sb.Docker.ExtraMounts,
+		Env:         sb.Docker.Env,
+		ForwardEnv:  sb.Docker.ForwardEnv,
 	}
 	if l.proxy != nil {
-		l.injectProxy(&opts)
+		l.injectProxy(&opts, projectPath, sb.Proxy.AWSProfiles)
 	}
 	return opts
 }
 
-// injectProxy merges the proxy's container env into StartOptions.
-// The proxy runner (not this function) determines which keys are injected.
-func (l *DockerLauncher) injectProxy(opts *sandbox.StartOptions) {
+// injectProxy merges the proxy's container env and mounts into StartOptions.
+// profiles comes from sandbox.proxy.aws_profiles in the resolved project config.
+func (l *DockerLauncher) injectProxy(opts *sandbox.StartOptions, projectPath string, profiles []string) {
 	if opts.Env == nil {
 		opts.Env = make(map[string]string)
 	}
 	for k, v := range l.proxy.ContainerEnv() {
 		opts.Env[k] = v
 	}
+	homeDir, _ := os.UserHomeDir()
+	mounts, err := l.proxy.ContainerMounts(projectPath, homeDir, profiles)
+	if err != nil {
+		slog.Warn("docker launcher: proxy ContainerMounts failed", "project", projectPath, "err", err)
+		return
+	}
+	opts.ExtraMounts = append(opts.ExtraMounts, mounts...)
 }
 
 func (l *DockerLauncher) makeCleanup(frameID state.FrameID, inst *sandbox.Instance[*sandboxdocker.ContainerState]) func() error {

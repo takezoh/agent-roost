@@ -176,11 +176,11 @@ func (m *Manager) startContainer(ctx context.Context, projectPath, image, name s
 		args = append(args, "-v", expandMountSpec(mount))
 	}
 	for k, v := range opts.Env {
-		args = append(args, "-e", shellEscape(k+"="+v))
+		args = append(args, "-e", k+"="+v)
 	}
 	for _, key := range opts.ForwardEnv {
 		if v, ok := os.LookupEnv(key); ok {
-			args = append(args, "-e", shellEscape(key+"="+v))
+			args = append(args, "-e", key+"="+v)
 		}
 	}
 	args = append(args, image, "sleep", "infinity")

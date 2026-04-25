@@ -23,7 +23,8 @@ func MergeSandbox(user SandboxConfig, project *SandboxConfig) SandboxConfig {
 			HostMounts:  mergeMaps(user.Docker.HostMounts, project.Docker.HostMounts),
 		},
 		Proxy: ProxyConfig{
-			Enabled: user.Proxy.Enabled,
+			Enabled:     user.Proxy.Enabled,
+			AWSProfiles: user.Proxy.AWSProfiles,
 		},
 	}
 	if project.Mode != "" {
@@ -34,6 +35,9 @@ func MergeSandbox(user SandboxConfig, project *SandboxConfig) SandboxConfig {
 	}
 	if project.Docker.Network != "" {
 		out.Docker.Network = project.Docker.Network
+	}
+	if len(project.Proxy.AWSProfiles) > 0 {
+		out.Proxy.AWSProfiles = project.Proxy.AWSProfiles
 	}
 	return out
 }

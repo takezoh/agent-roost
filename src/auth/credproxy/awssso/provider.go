@@ -5,35 +5,43 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	credproxylib "github.com/takezoh/credproxy/pkg/credproxy"
 )
 
-// RoutePath is the proxy path served by this provider.
-// Generic layers use this constant instead of hard-coding "/aws-credentials".
+// RoutePath is the proxy path prefix served by this provider.
+// Requests arrive as /aws-credentials/<profile>; the library strips the prefix
+// so Provider receives Request.Path = "/<profile>".
+// Generic layers use this constant to avoid hard-coding the string.
 const RoutePath = "/aws-credentials"
 
-// ContainerEnv returns the env vars a container must set to reach this provider via proxy.
-// baseURL is "http://host.docker.internal:<port>" and token is the ephemeral bearer token.
-// Keeping these names here ensures AWS-specific env var literals never appear in runtime/ or sandbox/.
-func ContainerEnv(baseURL, token string) map[string]string {
+// ContainerEnv returns the env vars a container must set to reach this proxy.
+// base is "http://host.docker.internal:<port>"; token is the ephemeral bearer token.
+// Keys are roost-internal names (ROOST_*) so tool-specific AWS literals never
+// appear in runtime/ or sandbox/.
+func ContainerEnv(base, token string) map[string]string {
+	_, port, _ := net.SplitHostPort(strings.TrimPrefix(base, "http://"))
 	return map[string]string{
-		"AWS_CONTAINER_CREDENTIALS_FULL_URI": baseURL + RoutePath,
-		"AWS_CONTAINER_AUTHORIZATION_TOKEN":  token,
+		"ROOST_AWS_TOKEN":  token,
+		"ROOST_PROXY_PORT": port,
 	}
 }
 
-// imdsCredentials is the JSON format expected by AWS_CONTAINER_CREDENTIALS_FULL_URI.
-type imdsCredentials struct {
+// processCredentials is the JSON format required by credential_process.
+// AWS SDKs validate Version == 1.
+type processCredentials struct {
+	Version         int    `json:"Version"`
 	AccessKeyId     string `json:"AccessKeyId"`
 	SecretAccessKey string `json:"SecretAccessKey"`
-	Token           string `json:"Token"`
-	Expiration      string `json:"Expiration"`
+	SessionToken    string `json:"SessionToken,omitempty"`
+	Expiration      string `json:"Expiration,omitempty"`
 }
 
 type cachedCreds struct {
@@ -42,39 +50,41 @@ type cachedCreds struct {
 }
 
 // Provider implements credproxy.Provider for AWS SSO.
-// It shells out to the aws CLI to obtain temporary credentials and serves them
-// as an IMDS-compatible JSON body (BodyReplace).
+// It shells out to the aws CLI to obtain temporary credentials per profile and
+// serves them as a credential_process-compatible JSON body (BodyReplace).
+// Credentials are cached per profile with a 60-second early-refresh margin.
 type Provider struct {
 	mu    sync.Mutex
-	cache *cachedCreds
+	cache map[string]*cachedCreds // keyed by profile name ("" = default)
 }
 
 const refreshMargin = 60 * time.Second
 
 // New creates an AWSSSOProvider.
-func New() *Provider { return &Provider{} }
+func New() *Provider { return &Provider{cache: make(map[string]*cachedCreds)} }
 
-func (p *Provider) Get(ctx context.Context, _ credproxylib.Request) (*credproxylib.Injection, error) {
+func (p *Provider) Get(ctx context.Context, req credproxylib.Request) (*credproxylib.Injection, error) {
+	profile := profileFromPath(req.Path)
 	p.mu.Lock()
-	if p.cache != nil && time.Now().Add(refreshMargin).Before(p.cache.expires) {
-		body := p.cache.body
+	if c := p.cache[profile]; c != nil && time.Now().Add(refreshMargin).Before(c.expires) {
+		body := c.body
 		p.mu.Unlock()
 		return &credproxylib.Injection{BodyReplace: body}, nil
 	}
 	p.mu.Unlock()
-
-	return p.fetch(ctx)
+	return p.fetch(ctx, profile)
 }
 
-func (p *Provider) Refresh(ctx context.Context, _ credproxylib.Request) (*credproxylib.Injection, error) {
+func (p *Provider) Refresh(ctx context.Context, req credproxylib.Request) (*credproxylib.Injection, error) {
+	profile := profileFromPath(req.Path)
 	p.mu.Lock()
-	p.cache = nil
+	delete(p.cache, profile)
 	p.mu.Unlock()
-	return p.fetch(ctx)
+	return p.fetch(ctx, profile)
 }
 
-func (p *Provider) fetch(ctx context.Context) (*credproxylib.Injection, error) {
-	creds, expires, err := obtainCredentials(ctx)
+func (p *Provider) fetch(ctx context.Context, profile string) (*credproxylib.Injection, error) {
+	creds, expires, err := obtainCredentials(ctx, profile)
 	if err != nil {
 		return nil, fmt.Errorf("awssso: %w", err)
 	}
@@ -85,32 +95,45 @@ func (p *Provider) fetch(ctx context.Context) (*credproxylib.Injection, error) {
 	}
 
 	p.mu.Lock()
-	p.cache = &cachedCreds{body: body, expires: expires}
+	p.cache[profile] = &cachedCreds{body: body, expires: expires}
 	p.mu.Unlock()
 
 	return &credproxylib.Injection{BodyReplace: body, ExpiresAt: expires}, nil
 }
 
+// profileFromPath extracts the profile name from the stripped request path.
+// The library strips RoutePath, so req.Path is "/<profile>" or "/".
+// Empty or "/" maps to "" (= default profile, no --profile flag).
+func profileFromPath(path string) string {
+	p := strings.TrimPrefix(path, "/")
+	if p == "default" {
+		return ""
+	}
+	return p
+}
+
 // obtainCredentials tries, in order:
 //  1. aws configure export-credentials (works with any credential source)
 //  2. aws sso get-role-credentials via the SSO cache
-func obtainCredentials(ctx context.Context) (imdsCredentials, time.Time, error) {
-	// Try the simplest path first: let the AWS CLI resolve credentials itself.
-	if creds, exp, err := exportCredentials(ctx); err == nil {
+func obtainCredentials(ctx context.Context, profile string) (processCredentials, time.Time, error) {
+	if creds, exp, err := exportCredentials(ctx, profile); err == nil {
 		return creds, exp, nil
 	}
-
-	// Fall back to SSO cache.
 	return ssoCredentials(ctx)
 }
 
 // exportCredentials runs "aws configure export-credentials --format process".
-func exportCredentials(ctx context.Context) (imdsCredentials, time.Time, error) {
+// profile is passed as --profile when non-empty; "" uses the default credential chain.
+func exportCredentials(ctx context.Context, profile string) (processCredentials, time.Time, error) {
+	args := []string{"configure", "export-credentials", "--format", "process"}
+	if profile != "" {
+		args = append(args, "--profile", profile)
+	}
 	var stdout bytes.Buffer
-	c := exec.CommandContext(ctx, "aws", "configure", "export-credentials", "--format", "process")
+	c := exec.CommandContext(ctx, "aws", args...)
 	c.Stdout = &stdout
 	if err := c.Run(); err != nil {
-		return imdsCredentials{}, time.Time{}, err
+		return processCredentials{}, time.Time{}, err
 	}
 
 	// process format: {"Version":1,"AccessKeyId":...,"SecretAccessKey":...,"SessionToken":...,"Expiration":...}
@@ -121,29 +144,30 @@ func exportCredentials(ctx context.Context) (imdsCredentials, time.Time, error) 
 		Expiration      string `json:"Expiration"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &raw); err != nil {
-		return imdsCredentials{}, time.Time{}, err
+		return processCredentials{}, time.Time{}, err
 	}
 	if raw.AccessKeyId == "" {
-		return imdsCredentials{}, time.Time{}, fmt.Errorf("export-credentials: no AccessKeyId")
+		return processCredentials{}, time.Time{}, fmt.Errorf("export-credentials: no AccessKeyId")
 	}
 
-	expires := parseExpiration(raw.Expiration)
-	return imdsCredentials{
+	return processCredentials{
+		Version:         1,
 		AccessKeyId:     raw.AccessKeyId,
 		SecretAccessKey: raw.SecretAccessKey,
-		Token:           raw.SessionToken,
+		SessionToken:    raw.SessionToken,
 		Expiration:      raw.Expiration,
-	}, expires, nil
+	}, parseExpiration(raw.Expiration), nil
 }
 
 // ssoCredentials reads ~/.aws/sso/cache/*.json and calls aws sso get-role-credentials.
-func ssoCredentials(ctx context.Context) (imdsCredentials, time.Time, error) {
+// Used as a fallback when export-credentials fails (e.g. legacy SSO config without sso-session).
+func ssoCredentials(ctx context.Context) (processCredentials, time.Time, error) {
 	home, _ := os.UserHomeDir()
 	cacheDir := filepath.Join(home, ".aws", "sso", "cache")
 
 	entries, err := os.ReadDir(cacheDir)
 	if err != nil {
-		return imdsCredentials{}, time.Time{}, fmt.Errorf("sso cache dir: %w", err)
+		return processCredentials{}, time.Time{}, fmt.Errorf("sso cache dir: %w", err)
 	}
 
 	now := time.Now()
@@ -180,10 +204,10 @@ func ssoCredentials(ctx context.Context) (imdsCredentials, time.Time, error) {
 		return creds, expires, nil
 	}
 
-	return imdsCredentials{}, time.Time{}, fmt.Errorf("no valid SSO session found; run `aws sso login`")
+	return processCredentials{}, time.Time{}, fmt.Errorf("no valid SSO session found; run `aws sso login`")
 }
 
-func getRoleCredentials(ctx context.Context, accountID, roleName, accessToken string) (imdsCredentials, time.Time, error) {
+func getRoleCredentials(ctx context.Context, accountID, roleName, accessToken string) (processCredentials, time.Time, error) {
 	var stdout bytes.Buffer
 	c := exec.CommandContext(ctx, "aws", "sso", "get-role-credentials",
 		"--account-id", accountID,
@@ -193,7 +217,7 @@ func getRoleCredentials(ctx context.Context, accountID, roleName, accessToken st
 	)
 	c.Stdout = &stdout
 	if err := c.Run(); err != nil {
-		return imdsCredentials{}, time.Time{}, err
+		return processCredentials{}, time.Time{}, err
 	}
 
 	var result struct {
@@ -205,11 +229,11 @@ func getRoleCredentials(ctx context.Context, accountID, roleName, accessToken st
 		} `json:"roleCredentials"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		return imdsCredentials{}, time.Time{}, err
+		return processCredentials{}, time.Time{}, err
 	}
 	rc := result.RoleCredentials
 	if rc.AccessKeyId == "" {
-		return imdsCredentials{}, time.Time{}, fmt.Errorf("get-role-credentials: no AccessKeyId")
+		return processCredentials{}, time.Time{}, fmt.Errorf("get-role-credentials: no AccessKeyId")
 	}
 
 	var expires time.Time
@@ -219,10 +243,11 @@ func getRoleCredentials(ctx context.Context, accountID, roleName, accessToken st
 		expStr = expires.UTC().Format(time.RFC3339)
 	}
 
-	return imdsCredentials{
+	return processCredentials{
+		Version:         1,
 		AccessKeyId:     rc.AccessKeyId,
 		SecretAccessKey: rc.SecretAccessKey,
-		Token:           rc.SessionToken,
+		SessionToken:    rc.SessionToken,
 		Expiration:      expStr,
 	}, expires, nil
 }

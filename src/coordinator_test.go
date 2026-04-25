@@ -11,7 +11,7 @@ import (
 
 func TestNewAgentLauncher_direct(t *testing.T) {
 	for _, mode := range []string{"", "direct"} {
-		l, err := newAgentLauncher(context.Background(), config.SandboxConfig{Mode: mode})
+		l, err := newAgentLauncher(context.Background(), config.SandboxConfig{Mode: mode}, t.TempDir())
 		if err != nil {
 			t.Errorf("mode=%q: unexpected error: %v", mode, err)
 			continue
@@ -34,7 +34,7 @@ func TestNewAgentLauncher_docker_missing(t *testing.T) {
 		t.Skip("PATH manipulation unreliable on windows")
 	}
 	t.Setenv("PATH", "")
-	_, err := newAgentLauncher(context.Background(), config.SandboxConfig{Mode: "docker"})
+	_, err := newAgentLauncher(context.Background(), config.SandboxConfig{Mode: "docker"}, t.TempDir())
 	if err == nil {
 		t.Error("expected error when docker is not in PATH, got nil")
 	}
