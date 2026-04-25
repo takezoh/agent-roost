@@ -1,34 +1,33 @@
 package runtime
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"net"
 	"os"
 	"path/filepath"
 
+	credproxy "github.com/takezoh/agent-roost/auth/credproxy"
 	"github.com/takezoh/agent-roost/auth/credproxy/awssso"
+	"github.com/takezoh/agent-roost/auth/credproxy/gcloudcli"
+	"github.com/takezoh/agent-roost/config"
 	credproxylib "github.com/takezoh/credproxy/pkg/credproxy"
 )
 
-// CredProxyRunner holds an in-process AWS SSO credential proxy server instance.
-// The server listens on an ephemeral TCP port; containers reach it via host.docker.internal.
-// Containers receive a synthetic ~/.aws/config that uses credential_process to fetch
-// per-profile short-lived credentials without exposing ~/.aws/sso/cache to the container.
+// CredProxyRunner holds an in-process credential proxy server and a set of
+// provider-specific SpecBuilders. Each provider encapsulates all knowledge of
+// its credential system; this runner fans out ContainerSpec calls and merges results.
 type CredProxyRunner struct {
-	srv        *credproxylib.Server
-	addr       string // resolved "host:port" after listen
-	token      string // ephemeral bearer token, valid for the process lifetime
-	dataDir    string // root directory for materialized files
-	scriptPath string // host path of the materialized helper script
+	srv       *credproxylib.Server
+	providers []credproxy.Provider
 }
 
-// StartCredProxy starts an in-process AWS SSO credential proxy and materializes
-// the container-side helper script into dataDir/aws/.
+// StartCredProxy starts an in-process credential proxy and registers all built-in
+// providers. The returned runner's ContainerSpec method is the only entry point
+// for docker_launcher — it contains no provider-specific logic.
 func StartCredProxy(ctx context.Context, dataDir string) (*CredProxyRunner, error) {
 	token, err := generateToken()
 	if err != nil {
@@ -55,72 +54,44 @@ func StartCredProxy(ctx context.Context, dataDir string) (*CredProxyRunner, erro
 	if err := os.MkdirAll(awsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("credproxy: make aws dir: %w", err)
 	}
-	scriptPath := filepath.Join(awsDir, "aws-creds.sh")
-	if err := awssso.WriteHelperScript(scriptPath); err != nil {
+	if err := awssso.WriteHelperScript(filepath.Join(awsDir, "aws-creds.sh")); err != nil {
 		return nil, fmt.Errorf("credproxy: write helper script: %w", err)
+	}
+
+	gcpDir := filepath.Join(dataDir, "gcp")
+	if err := os.MkdirAll(gcpDir, 0o755); err != nil {
+		return nil, fmt.Errorf("credproxy: make gcp dir: %w", err)
+	}
+
+	_, port, _ := net.SplitHostPort(srv.Addr())
+	proxyAddr := "127.0.0.1:" + port
+
+	providers := []credproxy.Provider{
+		awssso.NewSpecBuilder(proxyAddr, token, awsDir),
+		gcloudcli.NewSpecBuilder(ctx, gcpDir),
 	}
 
 	go func() { _ = srv.Run(ctx) }()
 
-	return &CredProxyRunner{
-		srv:        srv,
-		addr:       srv.Addr(),
-		token:      token,
-		dataDir:    dataDir,
-		scriptPath: scriptPath,
-	}, nil
+	return &CredProxyRunner{srv: srv, providers: providers}, nil
 }
 
-// ContainerEnv returns the env vars a container must set to reach this proxy.
-// Callers merge the returned map into StartOptions.Env without inspecting the keys;
-// provider-specific env var names are resolved inside auth/credproxy/<provider>/.
-func (r *CredProxyRunner) ContainerEnv() map[string]string {
-	_, port, _ := net.SplitHostPort(r.addr)
-	base := "http://host.docker.internal:" + port
-	return awssso.ContainerEnv(base, r.token)
-}
-
-// ContainerMounts returns bind-mount specs for the synthetic ~/.aws/config and helper script.
-// profiles is the per-project list from sandbox.proxy.aws_profiles in the project settings.
-// homeDir is the in-container home directory (same as host home: the container runs as
-// the host user with -e HOME=...).
-// Returns nil when profiles is empty.
-func (r *CredProxyRunner) ContainerMounts(projectPath, homeDir string, profiles []string) ([]string, error) {
-	if len(profiles) == 0 {
-		return nil, nil
+// ContainerSpec fans out to all providers and merges their Env and Mounts.
+// Provider errors are logged as warnings and do not abort the other providers.
+func (r *CredProxyRunner) ContainerSpec(ctx context.Context, projectPath string, sb config.SandboxConfig) (credproxy.Spec, error) {
+	out := credproxy.Spec{Env: map[string]string{}}
+	for _, p := range r.providers {
+		s, err := p.ContainerSpec(ctx, projectPath, sb)
+		if err != nil {
+			slog.Warn("credproxy: provider failed", "project", projectPath, "err", err)
+			continue
+		}
+		for k, v := range s.Env {
+			out.Env[k] = v
+		}
+		out.Mounts = append(out.Mounts, s.Mounts...)
 	}
-
-	configPath, err := r.renderProjectConfig(projectPath, profiles)
-	if err != nil {
-		return nil, err
-	}
-
-	return []string{
-		configPath + ":" + filepath.Join(homeDir, ".aws", "config") + ":ro",
-		r.scriptPath + ":/opt/roost/aws-creds:ro",
-	}, nil
-}
-
-// renderProjectConfig writes (or overwrites) the synthetic ~/.aws/config for projectPath
-// and returns its host-side path.
-func (r *CredProxyRunner) renderProjectConfig(projectPath string, profiles []string) (string, error) {
-	hash := projectHash(projectPath)
-	configPath := filepath.Join(r.dataDir, "aws", "config-"+hash)
-
-	var buf bytes.Buffer
-	if err := awssso.RenderConfig(&buf, profiles, "/opt/roost/aws-creds"); err != nil {
-		return "", fmt.Errorf("credproxy: render config for %s: %w", projectPath, err)
-	}
-	if err := os.WriteFile(configPath, buf.Bytes(), 0o644); err != nil {
-		return "", fmt.Errorf("credproxy: write config for %s: %w", projectPath, err)
-	}
-	return configPath, nil
-}
-
-// projectHash returns an 8-char hex prefix of SHA-256(projectPath) for use in filenames.
-func projectHash(projectPath string) string {
-	h := sha256.Sum256([]byte(projectPath))
-	return hex.EncodeToString(h[:4])
+	return out, nil
 }
 
 func generateToken() (string, error) {

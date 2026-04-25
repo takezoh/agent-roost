@@ -147,3 +147,36 @@ Bind-mount `~/.claude` via `host_mounts` for subscription use:
 ```
 
 This exposes the OAuth refresh token to the container. Accept this trade-off or restrict write access to specific subdirs if the threat model requires tighter isolation.
+
+### gcloud CLI
+
+Bind-mounting `~/.config/gcloud` exposes the OAuth refresh token. Instead, roost can generate a synthetic `CLOUDSDK_CONFIG` directory and refresh a short-lived access token on the host, so containers receive only the access token (≤1h TTL).
+
+**Per-project configuration** — in the project's `.roost/settings.toml`:
+
+```toml
+[sandbox.proxy.gcp]
+account  = "user@example.com"            # from `gcloud auth list`
+projects = ["proj-prod", "proj-staging"] # GCP project IDs; first entry is the active default
+```
+
+When `account` and `projects` are set, roost:
+
+- Calls `gcloud auth print-access-token --account=<account>` on the host every 50 minutes and writes the result to `<dataDir>/gcp/<hash>/access-token`.
+- Generates a synthetic `CLOUDSDK_CONFIG` directory with one `configurations/config_<projectId>` per listed project. Each configuration sets `auth/access_token_file` to `/opt/roost/gcp-token`.
+- Bind-mounts both files read-only into the container.
+- Injects `CLOUDSDK_CONFIG=/opt/roost/gcloud-config` into the container environment.
+
+Inside the container:
+
+```sh
+gcloud config list                               # shows active project (first listed)
+gcloud --configuration=proj-staging projects list  # switch to another project
+gcloud --project=proj-staging storage ls          # also works
+```
+
+`~/.config/gcloud` is never bind-mounted. `gcloud auth login` inside the container will fail (read-only mount) — authenticate on the host before starting containers.
+
+The first token refresh is synchronous at container start. If `gcloud auth print-access-token` fails (not logged in), a warning is logged and the container's `gcloud` calls will receive 401 until the host re-authenticates.
+
+**Container image requirement:** `gcloud` must be installed in the image.

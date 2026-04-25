@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"os"
 	"time"
 
 	"github.com/takezoh/agent-roost/config"
@@ -98,27 +97,29 @@ func (l *DockerLauncher) buildStartOptions(sb config.SandboxConfig, projectPath 
 		ForwardEnv:  sb.Docker.ForwardEnv,
 	}
 	if l.proxy != nil {
-		l.injectProxy(&opts, projectPath, sb.Proxy.AWSProfiles)
+		l.injectProxy(&opts, projectPath, sb)
 	}
 	return opts
 }
 
-// injectProxy merges the proxy's container env and mounts into StartOptions.
-// profiles comes from sandbox.proxy.aws_profiles in the resolved project config.
-func (l *DockerLauncher) injectProxy(opts *sandbox.StartOptions, projectPath string, profiles []string) {
+// injectProxy merges credential provider env and mounts into StartOptions.
+// All provider-specific logic is encapsulated in CredProxyRunner.ContainerSpec.
+func (l *DockerLauncher) injectProxy(opts *sandbox.StartOptions, projectPath string, sb config.SandboxConfig) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	spec, err := l.proxy.ContainerSpec(ctx, projectPath, sb)
+	if err != nil {
+		slog.Warn("docker launcher: credproxy spec failed", "project", projectPath, "err", err)
+		return
+	}
 	if opts.Env == nil {
 		opts.Env = make(map[string]string)
 	}
-	for k, v := range l.proxy.ContainerEnv() {
+	for k, v := range spec.Env {
 		opts.Env[k] = v
 	}
-	homeDir, _ := os.UserHomeDir()
-	mounts, err := l.proxy.ContainerMounts(projectPath, homeDir, profiles)
-	if err != nil {
-		slog.Warn("docker launcher: proxy ContainerMounts failed", "project", projectPath, "err", err)
-		return
-	}
-	opts.ExtraMounts = append(opts.ExtraMounts, mounts...)
+	opts.ExtraMounts = append(opts.ExtraMounts, spec.Mounts...)
 }
 
 func (l *DockerLauncher) makeCleanup(frameID state.FrameID, inst *sandbox.Instance[*sandboxdocker.ContainerState]) func() error {

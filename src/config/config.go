@@ -36,8 +36,18 @@ type SandboxConfig struct {
 // When Enabled, credential env vars are injected into each container.
 // The proxy runs in-process; no external daemon is required.
 type ProxyConfig struct {
-	Enabled     bool     `toml:"enabled"`
-	AWSProfiles []string `toml:"aws_profiles"` // AWS profile names to expose in the container via credential_process
+	Enabled     bool      `toml:"enabled"`
+	AWSProfiles []string  `toml:"aws_profiles"` // AWS profile names to expose in the container via credential_process
+	GCP         GCPConfig `toml:"gcp"`
+}
+
+// GCPConfig holds per-project gcloud CLI credential settings.
+// When Account and Projects are non-empty, roost generates a synthetic
+// CLOUDSDK_CONFIG dir and refreshes a short-lived access token on the host,
+// so the container never receives the OAuth refresh token.
+type GCPConfig struct {
+	Account  string   `toml:"account"`  // gcloud account (email)
+	Projects []string `toml:"projects"` // GCP project IDs available in container; first entry is the active default
 }
 
 // DockerConfig holds Docker-specific sandbox parameters.

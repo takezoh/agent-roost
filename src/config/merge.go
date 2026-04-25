@@ -25,6 +25,7 @@ func MergeSandbox(user SandboxConfig, project *SandboxConfig) SandboxConfig {
 		Proxy: ProxyConfig{
 			Enabled:     user.Proxy.Enabled,
 			AWSProfiles: user.Proxy.AWSProfiles,
+			GCP:         user.Proxy.GCP,
 		},
 	}
 	if project.Mode != "" {
@@ -38,6 +39,9 @@ func MergeSandbox(user SandboxConfig, project *SandboxConfig) SandboxConfig {
 	}
 	if len(project.Proxy.AWSProfiles) > 0 {
 		out.Proxy.AWSProfiles = project.Proxy.AWSProfiles
+	}
+	if project.Proxy.GCP.Account != "" || len(project.Proxy.GCP.Projects) > 0 {
+		out.Proxy.GCP = project.Proxy.GCP
 	}
 	return out
 }
