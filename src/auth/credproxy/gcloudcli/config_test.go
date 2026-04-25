@@ -60,9 +60,23 @@ func TestWriteConfigDir_rejectsEmptyProjectID(t *testing.T) {
 }
 
 func TestContainerEnv_containsCloudsdkConfig(t *testing.T) {
-	env := ContainerEnv()
+	env := ContainerEnv("")
 	if env[ConfigDirEnv] != containerConfigPath {
 		t.Errorf("ContainerEnv()[%q] = %q, want %q", ConfigDirEnv, env[ConfigDirEnv], containerConfigPath)
+	}
+}
+
+func TestContainerEnv_withToken_injectsOAuthVar(t *testing.T) {
+	env := ContainerEnv("ya29.test-token")
+	if env[OAuthAccessTokenEnv] != "ya29.test-token" {
+		t.Errorf("ContainerEnv()[%q] = %q, want %q", OAuthAccessTokenEnv, env[OAuthAccessTokenEnv], "ya29.test-token")
+	}
+}
+
+func TestContainerEnv_emptyToken_omitsOAuthVar(t *testing.T) {
+	env := ContainerEnv("")
+	if _, ok := env[OAuthAccessTokenEnv]; ok {
+		t.Errorf("ContainerEnv() should not set %s when token is empty", OAuthAccessTokenEnv)
 	}
 }
 
@@ -72,7 +86,7 @@ func TestContainerMounts_format(t *testing.T) {
 		t.Fatalf("want 2 mounts, got %d", len(mounts))
 	}
 	wantToken := "/host/token:" + containerTokenPath + ":ro"
-	wantConfig := "/host/config:" + containerConfigPath + ":ro"
+	wantConfig := "/host/config:" + containerConfigPath + ":rw"
 	if mounts[0] != wantToken {
 		t.Errorf("mount[0] = %q, want %q", mounts[0], wantToken)
 	}

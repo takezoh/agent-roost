@@ -18,11 +18,19 @@ import (
 // Setting this in container env redirects gcloud to the synthetic config dir.
 const ConfigDirEnv = "CLOUDSDK_CONFIG"
 
+// OAuthAccessTokenEnv is the env var gcloud (all versions) checks for a raw access token.
+// It prevents gcloud from probing the GCE metadata server when running in Docker.
+const OAuthAccessTokenEnv = "GOOGLE_OAUTH_ACCESS_TOKEN"
+
 // containerTokenPath is where the token file is mounted inside the container.
 const containerTokenPath = "/opt/roost/gcp-token"
 
 // containerConfigPath is where the synthetic CLOUDSDK_CONFIG dir is mounted.
 const containerConfigPath = "/opt/roost/gcloud-config"
+
+// globalProperties is written to CLOUDSDK_CONFIG/properties to prevent gcloud from
+// making network calls for telemetry and update checks on startup.
+const globalProperties = "[core]\ndisable_usage_reporting = true\n\n[component_manager]\ndisable_update_check = true\n"
 
 // WriteConfigDir materializes a synthetic CLOUDSDK_CONFIG directory at dir.
 // One gcloud configuration named after each project ID is written; the first
@@ -32,6 +40,11 @@ func WriteConfigDir(dir, account string, projects []string) error {
 	configsDir := filepath.Join(dir, "configurations")
 	if err := os.MkdirAll(configsDir, 0o755); err != nil {
 		return fmt.Errorf("gcloudcli: mkdir configurations: %w", err)
+	}
+
+	// Disable telemetry/update-check to prevent network calls on gcloud startup.
+	if err := os.WriteFile(filepath.Join(dir, "properties"), []byte(globalProperties), 0o644); err != nil {
+		return fmt.Errorf("gcloudcli: write properties: %w", err)
 	}
 
 	for _, proj := range projects {
@@ -79,11 +92,18 @@ func RenderConfig(w io.Writer, account, project string) error {
 }
 
 // ContainerEnv returns the env vars to inject into the container.
-// configHostDir is the host-side path of the synthetic CLOUDSDK_CONFIG dir.
-func ContainerEnv() map[string]string {
-	return map[string]string{
+// accessToken is the current access token value; it is injected via GOOGLE_OAUTH_ACCESS_TOKEN
+// so that all gcloud versions find credentials without probing the GCE metadata server.
+// For gcloud 394+, auth/access_token_file in the configuration provides automatic refresh
+// on subsequent token reads; the env var is only used for the initial container session.
+func ContainerEnv(accessToken string) map[string]string {
+	env := map[string]string{
 		ConfigDirEnv: containerConfigPath,
 	}
+	if accessToken != "" {
+		env[OAuthAccessTokenEnv] = accessToken
+	}
+	return env
 }
 
 // ContainerMounts returns the bind-mount specs for gcloud isolation.
