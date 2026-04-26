@@ -26,6 +26,8 @@ func MergeSandbox(user SandboxConfig, project *SandboxConfig) SandboxConfig {
 			Enabled:     user.Proxy.Enabled,
 			AWSProfiles: user.Proxy.AWSProfiles,
 			GCP:         user.Proxy.GCP,
+			SSHAgent:    user.Proxy.SSHAgent,
+			GitHub:      user.Proxy.GitHub,
 		},
 	}
 	if project.Mode != "" {
