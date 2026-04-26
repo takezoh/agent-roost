@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
-	"os"
-	"path/filepath"
 
 	credproxy "github.com/takezoh/agent-roost/auth/credproxy"
 	"github.com/takezoh/agent-roost/auth/credproxy/awssso"
 	"github.com/takezoh/agent-roost/auth/credproxy/gcloudcli"
+	"github.com/takezoh/agent-roost/auth/credproxy/github"
+	"github.com/takezoh/agent-roost/auth/credproxy/sshagent"
 	"github.com/takezoh/agent-roost/config"
 	credproxylib "github.com/takezoh/credproxy/pkg/credproxy"
 )
@@ -34,11 +34,18 @@ func StartCredProxy(ctx context.Context, dataDir string) (*CredProxyRunner, erro
 		return nil, fmt.Errorf("credproxy: generate token: %w", err)
 	}
 
-	routes := []credproxylib.Route{
-		{
-			Path:     awssso.RoutePath,
-			Provider: awssso.New(),
-		},
+	// Build providers with proxyAddr="" for the first pass: Routes() does not
+	// depend on proxyAddr (HTTP handlers run on the server side), so we can
+	// collect routes before the server is started and the port is known.
+	awsSpec := awssso.NewSpecBuilder("", token, dataDir+"/aws")
+	ghSpec := github.NewSpecBuilder("", token, dataDir+"/git")
+	gcpSpec := gcloudcli.NewSpecBuilder(ctx, dataDir+"/gcp")
+	sshSpec := sshagent.NewSpecBuilder()
+
+	earlyProviders := []credproxy.Provider{awsSpec, gcpSpec, sshSpec, ghSpec}
+	var routes []credproxylib.Route
+	for _, p := range earlyProviders {
+		routes = append(routes, p.Routes()...)
 	}
 
 	srv, err := credproxylib.New(credproxylib.ServerConfig{
@@ -50,25 +57,21 @@ func StartCredProxy(ctx context.Context, dataDir string) (*CredProxyRunner, erro
 		return nil, fmt.Errorf("credproxy: create server: %w", err)
 	}
 
-	awsDir := filepath.Join(dataDir, "aws")
-	if err := os.MkdirAll(awsDir, 0o755); err != nil {
-		return nil, fmt.Errorf("credproxy: make aws dir: %w", err)
-	}
-	if err := awssso.WriteHelperScript(filepath.Join(awsDir, "aws-creds.sh")); err != nil {
-		return nil, fmt.Errorf("credproxy: write helper script: %w", err)
-	}
-
-	gcpDir := filepath.Join(dataDir, "gcp")
-	if err := os.MkdirAll(gcpDir, 0o755); err != nil {
-		return nil, fmt.Errorf("credproxy: make gcp dir: %w", err)
-	}
-
 	_, port, _ := net.SplitHostPort(srv.Addr())
 	proxyAddr := "127.0.0.1:" + port
 
+	// Rebuild providers that need the resolved proxy address for ContainerSpec env.
 	providers := []credproxy.Provider{
-		awssso.NewSpecBuilder(proxyAddr, token, awsDir),
-		gcloudcli.NewSpecBuilder(ctx, gcpDir),
+		awssso.NewSpecBuilder(proxyAddr, token, dataDir+"/aws"),
+		gcloudcli.NewSpecBuilder(ctx, dataDir+"/gcp"),
+		sshagent.NewSpecBuilder(),
+		github.NewSpecBuilder(proxyAddr, token, dataDir+"/git"),
+	}
+
+	for _, p := range providers {
+		if err := p.Init(); err != nil {
+			return nil, fmt.Errorf("credproxy: provider %s init: %w", p.Name(), err)
+		}
 	}
 
 	go func() { _ = srv.Run(ctx) }()
@@ -83,7 +86,7 @@ func (r *CredProxyRunner) ContainerSpec(ctx context.Context, projectPath string,
 	for _, p := range r.providers {
 		s, err := p.ContainerSpec(ctx, projectPath, sb)
 		if err != nil {
-			slog.Warn("credproxy: provider failed", "project", projectPath, "err", err)
+			slog.Warn("credproxy: provider failed", "provider", p.Name(), "project", projectPath, "err", err)
 			continue
 		}
 		for k, v := range s.Env {

@@ -14,7 +14,6 @@ import (
 )
 
 const (
-	tokenTTL = 60 * time.Minute
 	// fallbackPeriod is a safety-net ticker used when fsnotify is unavailable
 	// or when the credential directory cannot be watched.
 	fallbackPeriod = 5 * time.Minute

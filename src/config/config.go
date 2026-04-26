@@ -36,9 +36,24 @@ type SandboxConfig struct {
 // When Enabled, credential env vars are injected into each container.
 // The proxy runs in-process; no external daemon is required.
 type ProxyConfig struct {
-	Enabled     bool      `toml:"enabled"`
-	AWSProfiles []string  `toml:"aws_profiles"` // AWS profile names to expose in the container via credential_process
-	GCP         GCPConfig `toml:"gcp"`
+	Enabled     bool           `toml:"enabled"`
+	AWSProfiles []string       `toml:"aws_profiles"` // AWS profile names to expose in the container via credential_process
+	GCP         GCPConfig      `toml:"gcp"`
+	SSHAgent    SSHAgentConfig `toml:"ssh_agent"`
+	GitHub      GitHubConfig   `toml:"github"`
+}
+
+// SSHAgentConfig controls SSH agent socket forwarding into containers.
+// The host $SSH_AUTH_SOCK is bind-mounted at /opt/roost/ssh-agent.sock.
+type SSHAgentConfig struct {
+	Forward bool `toml:"forward"`
+}
+
+// GitHubConfig controls GitHub HTTPS credential injection via the host gh CLI.
+// When Enabled, git operations inside the container authenticate via the host's
+// gh auth token without exposing the token directly to the container environment.
+type GitHubConfig struct {
+	Enabled bool `toml:"enabled"`
 }
 
 // GCPConfig holds per-project gcloud CLI credential settings.

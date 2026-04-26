@@ -12,6 +12,7 @@ import (
 
 	credproxy "github.com/takezoh/agent-roost/auth/credproxy"
 	"github.com/takezoh/agent-roost/config"
+	credproxylib "github.com/takezoh/credproxy/pkg/credproxy"
 )
 
 // SpecBuilder implements credproxy.Provider for AWS SSO.
@@ -26,6 +27,23 @@ type SpecBuilder struct {
 // aws-creds.sh helper and per-project config files are stored.
 func NewSpecBuilder(proxyAddr, token, awsDir string) *SpecBuilder {
 	return &SpecBuilder{proxyAddr: proxyAddr, token: token, awsDir: awsDir}
+}
+
+func (b *SpecBuilder) Name() string { return "awssso" }
+
+// Init creates awsDir and materializes the credential helper script.
+func (b *SpecBuilder) Init() error {
+	if err := os.MkdirAll(b.awsDir, 0o755); err != nil {
+		return fmt.Errorf("awssso: mkdir: %w", err)
+	}
+	return WriteHelperScript(filepath.Join(b.awsDir, "aws-creds.sh"))
+}
+
+// Routes returns the HTTP route that serves AWS credentials to containers.
+func (b *SpecBuilder) Routes() []credproxylib.Route {
+	return []credproxylib.Route{
+		{Path: RoutePath, Provider: New()},
+	}
 }
 
 // ContainerSpec implements credproxy.Provider.

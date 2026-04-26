@@ -11,6 +11,7 @@ import (
 
 	credproxy "github.com/takezoh/agent-roost/auth/credproxy"
 	"github.com/takezoh/agent-roost/config"
+	credproxylib "github.com/takezoh/credproxy/pkg/credproxy"
 )
 
 // SpecBuilder implements credproxy.Provider for the gcloud CLI.
@@ -34,6 +35,19 @@ func NewSpecBuilder(rootCtx context.Context, gcpDir string) *SpecBuilder {
 		refreshers: make(map[string]*Refresher),
 	}
 }
+
+func (b *SpecBuilder) Name() string { return "gcloudcli" }
+
+// Init creates gcpDir.
+func (b *SpecBuilder) Init() error {
+	if err := os.MkdirAll(b.gcpDir, 0o755); err != nil {
+		return fmt.Errorf("gcloudcli: mkdir: %w", err)
+	}
+	return nil
+}
+
+// Routes returns nil; gcloudcli uses a bind-mounted token file, not an HTTP route.
+func (b *SpecBuilder) Routes() []credproxylib.Route { return nil }
 
 // ContainerSpec implements credproxy.Provider.
 // Returns zero Spec when sandbox.proxy.gcp.account or .projects is empty.
