@@ -37,12 +37,16 @@ func TestRefresher_Prime_writesToken(t *testing.T) {
 	}
 }
 
-func TestRefresher_Prime_atomicWrite(t *testing.T) {
+func TestRefresher_Prime_preservesInode(t *testing.T) {
 	stubGcloud(t, "fresh-token")
 	tokenPath := filepath.Join(t.TempDir(), "access-token")
 
 	// Pre-seed the file with stale content.
 	if err := os.WriteFile(tokenPath, []byte("stale-token"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(tokenPath)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -57,6 +61,15 @@ func TestRefresher_Prime_atomicWrite(t *testing.T) {
 	}
 	if string(data) != "fresh-token" {
 		t.Errorf("token = %q, want %q", string(data), "fresh-token")
+	}
+
+	// Inode must be preserved so Docker bind-mount consumers see the update.
+	after, err := os.Stat(tokenPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) {
+		t.Error("Prime replaced the file (new inode); Docker bind-mount will not see the update")
 	}
 }
 

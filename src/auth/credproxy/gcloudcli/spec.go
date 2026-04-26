@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"strings"
 	"sync"
 
 	credproxy "github.com/takezoh/agent-roost/auth/credproxy"
@@ -55,15 +54,12 @@ func (b *SpecBuilder) ContainerSpec(ctx context.Context, projectPath string, sb 
 		return credproxy.Spec{}, err
 	}
 
-	// Read the current token value so it can be injected as GOOGLE_OAUTH_ACCESS_TOKEN.
-	// This allows all gcloud versions to find credentials without probing the GCE metadata server.
-	var currentToken string
-	if data, err := os.ReadFile(tokenPath); err == nil {
-		currentToken = strings.TrimSpace(string(data))
-	}
-
+	// Do not inject GOOGLE_OAUTH_ACCESS_TOKEN: that env var is static and becomes stale after
+	// 1h. Instead, gcloud reads /opt/roost/gcp-token via auth/access_token_file on every
+	// invocation (gcloud 394+). The host Refresher writes to the same inode via os.WriteFile,
+	// so the bind-mounted file always reflects the latest token without a container restart.
 	return credproxy.Spec{
-		Env:    ContainerEnv(currentToken),
+		Env:    ContainerEnv(""),
 		Mounts: ContainerMounts(tokenPath, configDir),
 	}, nil
 }

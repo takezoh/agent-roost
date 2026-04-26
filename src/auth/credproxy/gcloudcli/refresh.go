@@ -6,14 +6,16 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 )
 
 const (
-	tokenTTL      = 60 * time.Minute
-	refreshPeriod = 50 * time.Minute // refresh before TTL expires
+	tokenTTL = 60 * time.Minute
+	// refreshPeriod is short so that when gcloud's internal cache expires (~1h TTL),
+	// the container token file is updated within 5 minutes rather than up to 40 minutes.
+	// gcloud returns the cached token until it has <60s left, then refreshes internally.
+	refreshPeriod = 5 * time.Minute
 )
 
 // Refresher periodically obtains a short-lived access token from the host gcloud
@@ -57,7 +59,7 @@ func (r *Refresher) refresh(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("gcloud auth print-access-token --account=%s: %w", r.account, err)
 	}
-	if err := atomicWrite(r.tokenPath, []byte(token)); err != nil {
+	if err := writeToken(r.tokenPath, []byte(token)); err != nil {
 		return fmt.Errorf("write token: %w", err)
 	}
 	slog.Debug("gcloudcli: token refreshed", "account", r.account)
@@ -77,22 +79,9 @@ func printAccessToken(ctx context.Context, account string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// atomicWrite writes data to path via a temp-file rename to avoid partial reads.
-func atomicWrite(path string, data []byte) error {
-	dir := filepath.Dir(path)
-	tmp, err := os.CreateTemp(dir, ".gcp-token-*")
-	if err != nil {
-		return err
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		_ = os.Remove(tmpName)
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return err
-	}
-	return os.Rename(tmpName, path)
+// writeToken writes data to path in-place, preserving the inode so that Docker
+// bind-mount consumers (containers) see the updated content. Atomic rename would
+// create a new inode, leaving the bind-mounted file pointing at the old one.
+func writeToken(path string, data []byte) error {
+	return os.WriteFile(path, data, 0o600)
 }
